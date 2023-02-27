@@ -1,0 +1,39 @@
+tensor_model_parallel_size: 4
+pipeline_model_parallel_size: 1
+num_layers: 40
+hidden_size: 5120
+num_attention_heads: 40
+micro_batch_size: 8
+seq_length: 2048
+max_position_embeddings: 2048
+train_iters: 5
+lr_decay_iters: 320000
+save: ./exp
+load: ./exp
+data_path:
+    - my-gpt2_text_document
+vocab_file: gpt2-vocab.json
+merge_file: gpt2-merges.txt
+data_impl: mmap
+split: "949,50,1"
+distributed_backend: nccl
+lr: 0.00015
+min_lr: 0.00001
+lr_decay_style: cosine
+weight_decay: 0.02
+clip_grad: 1.0
+lr_warmup_fraction: 0.01
+log_interval: 1
+save_interval: 1000
+eval_interval: 1000
+eval_iters: 10
+fp16: True
+use_checkpoint_opt_param_scheduler: True
+
+recompute_activations: True
+recompute_granularity: selective
+sequence_parallel: True
+use_distributed_optimizer: True
+fp16: True
+initial_loss_scale: 8192
+

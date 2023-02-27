@@ -12,29 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""UT for init."""
+"""UT for args."""
 
-import unittest
-import torch
+from rlhf.arguments import parse_args
 
-from rlhf.model.base_model import BaseModel
-from rlhf.initialize import init_process_group
 
-# pylint: disable=missing-docstring
-class InitTest(unittest.TestCase):
-
-    def test_init(self):
-        policy = BaseModel(4, 'policy')
-        value = BaseModel(4, 'value')
-        models = [policy, value]
-        init_process_group(models, './')
-        self.assertTrue(torch.distributed.is_initialized())
-        if policy.global_ranks is not None:
-            self.assertEqual(policy.global_ranks, [0, 1, 2, 3])
-        else:
-            self.assertEqual(value.global_ranks, [4, 5, 6, 7])
-# pylint: enable=missing-docstring
+def test_args():
+    args0 = parse_args()
+    assert args0.models["policy"].model_config_file == "configs/policy.yaml"
+    assert args0.rlhf_args.num_training_epoch == 3
+    assert args0.models['reference'].gpu_per_process == 8
 
 
 if __name__ == '__main__':
-    unittest.main()
+    test_args()

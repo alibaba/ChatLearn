@@ -34,7 +34,7 @@ function run_test {
 
 
 function run_all_tests {
-  run_test bash launch_helper.sh "test_init.py"
+  run_test python test_args.py -c "exp.yaml"
 }
 
 if [ "$LOGFILE" != "" ]; then

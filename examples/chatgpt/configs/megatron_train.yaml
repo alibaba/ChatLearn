@@ -1,0 +1,16 @@
+runtime_env:
+    working_dir: ./
+
+models:
+
+    ppo_policy:
+        model_config_file: configs/ppo_policy.yaml
+        num_device: 8
+        gpu_per_process: 1
+        trainable: True
+        model_type: megatron
+
+rlhf:
+    num_rollout_worker: 1
+    generation_batch_size: 30
+    train_batch_size: 2
