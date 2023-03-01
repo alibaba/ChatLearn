@@ -12,13 +12,15 @@ class Engine:
         global_args = get_args()
         rlhf_args = global_args.rlhf_args
         resource_manager = ResourceManager(models)
-        model_manager = ModelManager(models, resource_manager, rlhf_args)
+        model_manager = ModelManager(models, resource_manager, global_args)
         self.remote_models = model_manager.remote()
         self.rlhf_args = rlhf_args
+
 
     def setup(self):
         for model in self.remote_models:
             ray.get(model.setup())
+        
 
     @property
     def models(self):

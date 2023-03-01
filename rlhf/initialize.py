@@ -1,7 +1,9 @@
+import os
+import ray
+from rlhf import dlc_utils
 from rlhf.arguments import parse_args
 from rlhf.global_vars import set_global_variables
-import ray
-import os
+
 
 def init_ray(runtime_env_args):
     runtime_env = {"env_vars": {}}
@@ -26,9 +28,9 @@ def init(args=None):
     1. init_process_group for distributed
     2. ...
     """
-
-
     if args is None:
         args = parse_args()
     set_global_variables(args)
+    if args.env_args.platform == "DLC":
+        dlc_utils.start_ray_cluster()
     init_ray(args.env_args)

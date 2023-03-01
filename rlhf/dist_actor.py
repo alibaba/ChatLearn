@@ -13,13 +13,16 @@ class DistActor:
 
     def __init__(self, model: RLHFModelWrapper,
                  placement_groups,
-                 gpu_per_node):
+                 gpu_per_node,
+                 port=None):
         self.num_device = model.num_device
         self.gpu_per_process = model.gpu_per_process
         self.placement_groups = placement_groups
         self.model = model
         self.gpu_per_node = gpu_per_node
         self.all_actors = []
+        self.port = port
+        self.name = self.model.name
         self._init_done = False
 
 
@@ -91,7 +94,7 @@ class DistTorchActor(DistActor):
         count = 0
         actor_gpus = []
         for actor in actors:
-            gpus = ray.get(actor.get_visble_gpus.remote())
+            gpus = ray.get(actor.get_visible_gpus.remote())
             count += len(gpus)
             actor_gpus.append((actor, gpus))
             if count == gpu_per_node:
@@ -106,6 +109,8 @@ class DistTorchActor(DistActor):
         actors = self.reorder_actors(actors)
         master_actor = actors[0]
         master_addr, master_port = ray.get(master_actor.get_addr_port.remote())
+        if self.model.global_args.env_args.platform == "DLC":
+            master_port = self.port
 
         world_size = len(actors)
         env_config = {"MASTER_ADDR": master_addr, "MASTER_PORT": master_port, "WORLD_SIZE": world_size}
@@ -115,6 +120,7 @@ class DistTorchActor(DistActor):
             ret.append(actor.set_env.remote(env_config))
         status = sum(ray.get(ret))
         assert status == world_size
+
 
     def remote(self):
         super().remote()

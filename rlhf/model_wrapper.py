@@ -2,6 +2,7 @@ import ray
 from rlhf.global_vars import get_args
 from rlhf.arguments import parse_args_from_yaml
 from rlhf.utils import get_free_port, get_host_addr
+from rlhf import dlc_utils
 import os
 
 class RLHFModelWrapper:
@@ -72,14 +73,16 @@ class RLHFModelWrapper:
 
 class RLHFTorchWrapper(RLHFModelWrapper):
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
 
     def get_addr_port(self):
         """
         Get node address and port
         """
         if self.global_args.env_args.platform == "DLC":
-            print("add dlc setup here")
-            addr = None
+            addr = dlc_utils.get_addr()
             port = None
         else:
             addr = get_host_addr()
@@ -87,7 +90,7 @@ class RLHFTorchWrapper(RLHFModelWrapper):
         return addr, port
 
 
-    def get_visble_gpus(self):
+    def get_visible_gpus(self):
         return ray.get_gpu_ids()
         
 

@@ -22,7 +22,6 @@ from megatron.initialize import set_jit_fusion_options
 from rlhf.model_wrapper import RLHFTorchWrapper
 import rlhf
 
-
 # pylint: disable=unused-variable,invalid-name
 class GPTMegatron(RLHFTorchWrapper):
     """gpt model wrapper"""
@@ -154,7 +153,6 @@ class GPTMegatron(RLHFTorchWrapper):
             # build data from shared storage
             # deal with train first, support valid and test later
             train_ds, valid_ds, test_ds = None, None, None
-            print_rank_0(f"build dataset from store for {self.name}========= {self.store}, {dir(self.store)}")
             train_ds = self.store.build_dataset(self.data_from, 1000)
 
         return train_ds, valid_ds, test_ds
