@@ -1,4 +1,6 @@
 import math
+import ray
+
 
 class BaseTrainer:
     """
@@ -20,8 +22,7 @@ class PPOTrainer(BaseTrainer):
         self.num_training_iteration = math.ceil(args.sample_per_episode / args.train_batch_size)
 
     def setup(self):
-        for model in self.models:
-            model.setup()
+        pass
 
     
     def send_weight(self):
@@ -44,10 +45,10 @@ class PPOTrainer(BaseTrainer):
     def train(self, data_loader):
         for epoch in range(self.args.num_training_epoch):
             if epoch > 0:
-                data_loader.shuffle()
-            data_iter = iter(data_loader)
-            for _ in range(self.num_training_iteration):
-                train_data = next(data_iter)
+                ret = data_loader.shuffle.remote()
+                ray.get(ret)
+            for step in range(self.num_training_iteration):
+                train_data = data_loader.next.remote()
                 self.train_step(train_data)
         self.update_model_weight(self.ppo_policy_model)
         self.update_model_weight(self.ppo_value_model)

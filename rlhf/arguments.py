@@ -75,13 +75,13 @@ class BaseConfig(object):
 
 
 class ModelConfig(BaseConfig):
-  """Config for model."""
-
-  num_device = 1
-  gpu_per_process = 1
-  trainable = False
-  model_type = ""
-  model_config_file = ""
+    """Config for model."""
+  
+    num_device = 1
+    gpu_per_process = 1
+    trainable = False
+    model_type = ""
+    model_config_file = ""
 
 
 class RLHFConfig:
@@ -125,7 +125,7 @@ class Config(BaseConfig):
 
   def _parse_params(self, param_dict):
     """Parse params from param_dict."""
-    
+
     for model_name, model_args in param_dict["models"].items():
         model_config = ModelConfig()
         for user_attribute, user_value in model_args.items():

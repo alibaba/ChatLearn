@@ -16,3 +16,4 @@
 
 from rlhf.initialize import init
 from rlhf.global_vars import get_args
+from rlhf.utils import get

@@ -1,0 +1,53 @@
+runtime_env:
+    working_dir: /mnt/xianyan.xianyanjia/rlhf4/examples/chatgpt/
+    pip:
+        - datasets
+
+
+models:
+    policy:
+        model_config_file: configs/allspark.yaml
+        num_device: 2
+        gpu_per_process: 2
+        trainable: False
+        model_type: allspark
+    
+    reference:
+        model_config_file: configs/allspark.yaml
+        num_device: 2
+        gpu_per_process: 2
+        trainable: False
+        model_type: allspark
+
+    reward:
+        model_config_file: configs/allspark.yaml
+        num_device: 2
+        gpu_per_process: 2
+        trainable: False
+        model_type: allspark
+    
+    value:
+        model_config_file: configs/allspark.yaml
+        num_device: 2
+        gpu_per_process: 2
+        trainable: False
+        model_type: allspark
+    
+    ppo_policy:
+        model_config_file: configs/ppo_policy.yaml
+        num_device: 2
+        gpu_per_process: 1
+        trainable: True
+        model_type: megatron
+    
+    ppo_value:
+        model_config_file: configs/ppo_policy.yaml
+        num_device: 2
+        gpu_per_process: 1
+        trainable: True
+        model_type: megatron
+
+rlhf:
+    num_rollout_worker: 1
+    generation_batch_size: 8
+    train_batch_size: 4

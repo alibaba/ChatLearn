@@ -22,11 +22,13 @@ class RLHFModelWrapper:
             self.model_args = parse_args_from_yaml(args.model_config_file)
         assert self.num_replica >= 1
 
+
     def set_env(self):
         """
         set system env, private
         """
         pass
+
 
     def setup(self):
         """
@@ -34,40 +36,37 @@ class RLHFModelWrapper:
         """
         pass
 
+
     def set_num_replica(self, num_replica):
         self._num_replica = num_replica
+
 
     @property
     def num_replica(self):
         return self._num_replica
 
-    def next_batch(self):
-        # get next batch of data
-        pass
-
-    def generate(self, data):
-        # generate output from data
-        pass
 
     def forward_step(self, data):
         # forward step
         pass
 
-    def backward_step(self, data):
-        # backward step
-        pass
 
     def train_step(self, data):
         # train step
         pass
 
+
     def save_checkpoint(self):
         pass
+
 
     def update_parameters(self):
         """
         update parameters
         """
+        pass
+
+    def send_weight(self):
         pass
 
 

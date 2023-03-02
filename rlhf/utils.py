@@ -1,9 +1,11 @@
 import inspect
 from contextlib import closing
-import os
 import socket
 import ast
 import textwrap
+from rlhf.global_vars import is_initialized
+import ray
+
 
 def get_attributes(cls):
   """Get attributes from class."""
@@ -73,3 +75,6 @@ def get_free_port():
         return handle.getsockname()[1]
 
 
+def get(data):
+    assert is_initialized(), "RLHF is not initialized, please call rlhf.init() first"
+    return ray.get(data)

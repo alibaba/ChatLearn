@@ -19,7 +19,8 @@ class Engine:
 
     def setup(self):
         for model in self.remote_models:
-            ray.get(model.setup())
+            status = ray.get(model.setup())
+            print(f"setup model {model.name} done, status: {status}", flush=True)
         
 
     @property
@@ -43,6 +44,9 @@ class RLHFEngine(Engine):
         self.env = PPOEnv(self.rlhf_args, policy, reference, reward, value)
         self.trainer = PPOTrainer(self.rlhf_args, ppo_policy, ppo_value)
 
+    def set_dataset(self, dataset):
+        self.env.set_dataset(dataset)
+
     def set_trainer(self, trainer):
         self.trainer = trainer
         return self
@@ -52,8 +56,10 @@ class RLHFEngine(Engine):
         return self
 
     def learn(self):
+        self.setup()
         self.env.setup()
         self.trainer.setup()
-        for iter in range(self.rlhf_args.num_ppo_iteration):
+        for ppo_iter in range(self.rlhf_args.num_ppo_iteration):
             ppo_data_loader = self.env.make_experiences()
             self.trainer.train(ppo_data_loader)
+            print(f"train ppo_iter: {ppo_iter}/{self.rlhf_args.num_ppo_iteration} done", flush=True)

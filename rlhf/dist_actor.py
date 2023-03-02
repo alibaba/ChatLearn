@@ -1,3 +1,4 @@
+import torch
 import ray
 from rlhf.model_wrapper import RLHFModelWrapper, RLHFTorchWrapper
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
@@ -5,8 +6,45 @@ import inspect
 from types import MethodType
 from rlhf.utils import parse_function_args, parse_function_return_num
 from functools import partial
+from collections.abc import Sequence
+
 
 RAY_REMOTE = "remote"
+
+
+
+def dict_to_device(device, data):
+    for key, value in data.items():
+         if isinstance(value, torch.Tensor):
+             value = value.to(device)
+             data[key] = value
+    return data
+
+
+def to_device(device, *args):
+    cuda_args = []
+    for arg in args:
+        if isinstance(arg, dict):
+            arg = dict_to_device(device, arg)
+        elif isinstance(arg, torch.Tensor):
+            arg = arg.to(device)
+        cuda_args.append(arg)
+    return cuda_args
+
+
+def device_converter(func):
+    """
+    convert input to cuda and convert output to cpu
+    """
+    def inner(self, *args, **kwargs):
+        cuda_args = to_device('cuda', *args)
+        cuda_kwargs = dict_to_device('cuda', kwargs)
+        ret = func(self, *cuda_args, **cuda_kwargs)
+        assert isinstance(ret, dict), f"{func} needs to return a dict of results" 
+        ret = dict_to_device('cpu', ret)
+        return ret
+    return inner
+
 
 class DistActor:
     """Manage a collection of actors"""
@@ -23,7 +61,14 @@ class DistActor:
         self.all_actors = []
         self.port = port
         self.name = self.model.name
+        self.set_device_converter()
         self._init_done = False
+
+    def set_device_converter(self):
+        for func_name in ["forward_step", "train_step"]:
+            model_cls = self.model.__class__
+            func = getattr(model_cls, func_name)
+            setattr(model_cls, func_name, device_converter(func))
 
 
     def _remote_one_model(self, placement_group):

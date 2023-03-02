@@ -3,6 +3,7 @@ import ray
 from rlhf import dlc_utils
 from rlhf.arguments import parse_args
 from rlhf.global_vars import set_global_variables
+from rlhf.global_vars import set_initialized
 
 
 def init_ray(runtime_env_args):
@@ -34,3 +35,4 @@ def init(args=None):
     if args.env_args.platform == "DLC":
         dlc_utils.start_ray_cluster()
     init_ray(args.env_args)
+    set_initialized()

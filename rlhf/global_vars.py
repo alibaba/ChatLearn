@@ -15,6 +15,7 @@
 """global vars."""
 
 _GLOBAL_ARGS = None
+_IS_INITIALIZED = False
 
 
 def _ensure_var_is_initialized(var, name):
@@ -26,6 +27,14 @@ def get_args():
     """Return arguments."""
     _ensure_var_is_initialized(_GLOBAL_ARGS, 'args')
     return _GLOBAL_ARGS
+
+
+def is_initialized():
+    return _IS_INITIALIZED
+
+
+def set_initialized():
+    _IS_INITIALIZED = True
 
 
 def set_global_variables(args):
