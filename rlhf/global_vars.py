@@ -34,6 +34,7 @@ def is_initialized():
 
 
 def set_initialized():
+    global _IS_INITIALIZED
     _IS_INITIALIZED = True
 
 

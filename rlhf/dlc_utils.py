@@ -1,5 +1,8 @@
 import os
 import subprocess
+import time
+import ray
+
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
 JOB_NAME_KEY = "JOB_NAME"
@@ -56,3 +59,30 @@ def start_ray_cluster():
     else:
         cmd = f"ray start --address={master_addr}:{port}"
     subprocess.run(cmd, shell=True)
+
+
+@ray.remote
+class ExitActor:
+
+    def notify(self):
+        return 1
+
+
+def start_exit_listener():
+    name = "ExitActor"
+    if get_rank() == 0:
+        ExitActor.options(name=name).remote()
+    else:
+        # wait for the head node to create ExitActor
+        head_created = False
+        while True:
+            try:
+                ray.get_actor(name)
+                head_created = True
+            except ValueError:
+                if head_created:
+                    return
+            time.sleep(5)
+        
+
+

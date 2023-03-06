@@ -40,8 +40,10 @@ def device_converter(func):
         cuda_args = to_device('cuda', *args)
         cuda_kwargs = dict_to_device('cuda', kwargs)
         ret = func(self, *cuda_args, **cuda_kwargs)
-        assert isinstance(ret, dict), f"{func} needs to return a dict of results" 
-        ret = dict_to_device('cpu', ret)
+        if isinstance(ret, dict):
+            ret = dict_to_device('cpu', ret)
+        elif isinstance(ret, torch.Tensor):
+            ret = ret.to('cpu')
         return ret
     return inner
 

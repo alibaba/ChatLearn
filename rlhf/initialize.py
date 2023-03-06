@@ -1,5 +1,6 @@
 import os
 import ray
+import sys
 from rlhf import dlc_utils
 from rlhf.arguments import parse_args
 from rlhf.global_vars import set_global_variables
@@ -20,7 +21,8 @@ def init_ray(runtime_env_args):
     _set_runtime_env(runtime_env_args, 'working_dir', runtime_env)
     _set_runtime_env(runtime_env_args, 'py_modules', runtime_env)
 
-    ray.init(runtime_env=runtime_env)
+    # namespace is needed to get NamedActor
+    ray.init(runtime_env=runtime_env, namespace="RLHF")
 
 
 def init(args=None):
@@ -36,3 +38,8 @@ def init(args=None):
         dlc_utils.start_ray_cluster()
     init_ray(args.env_args)
     set_initialized()
+    if args.env_args.platform == "DLC":
+        dlc_utils.start_exit_listener()
+        if dlc_utils.get_rank() > 0:
+            # other workers exit after head exit
+            sys.exit(0)
