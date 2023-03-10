@@ -90,7 +90,8 @@ class RLHFConfig:
     sample_per_episode = 1000
     num_training_epoch = 1
     generation_batch_size = 2
-    train_batch_size = 2
+    train_micro_batch_size = 2
+    train_global_batch_size = None
 
 
 class RuntimeEnvConfig:
@@ -99,6 +100,7 @@ class RuntimeEnvConfig:
     working_dir = "./"
     # platform, e.g., DLC
     platform = ""
+    excludes = []
 
 
 def _get_attributes(cls):
@@ -118,6 +120,7 @@ class Config(BaseConfig):
     self.models = {}
     self.env_args = RuntimeEnvConfig()
     self.rlhf_args = RLHFConfig()
+    self.initialized = False
 
     self._parse_params(param_dict)
     self._finalize = True
@@ -169,4 +172,11 @@ class Config(BaseConfig):
 
 
   def _validate_params(self):
-      pass
+      if self.rlhf_args.train_global_batch_size is None:
+          self.rlhf_args.train_global_batch_size = self.rlhf_args.train_micro_batch_size
+      assert self.rlhf_args.train_global_batch_size % self.rlhf_args.train_micro_batch_size == 0, \
+              f"train_global_batch_size should be times of train_micro_batch_size," \
+              f"but got {self.rlhf_args.train_global_batch_size}/{self.rlhf_args.train_micro_batch_size}"
+      
+      for name, model_args in self.models.items():
+          assert model_args.gpu_per_process <= model_args.num_device

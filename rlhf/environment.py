@@ -80,7 +80,11 @@ class PPOEnv(BaseEnv):
         queue = Queue()
         # TODO: support num_rollout_worker > 0
         for i in range(self.batch_per_episode):
-            query = next(self.data_iter)
-            data = self.generate_step(query)
-            queue.put(data)
-        return StreamDataset.remote(queue, self.sample_per_episode, self.args.train_batch_size, cache=True)
+            try:
+                query = next(self.data_iter)
+            except StopIteration:
+                query = None
+            if query is not None:
+                data = self.generate_step(query)
+                queue.put(data)
+        return StreamDataset.remote(queue, self.sample_per_episode, self.args.train_global_batch_size, cache=True)

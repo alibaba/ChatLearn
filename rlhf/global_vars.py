@@ -15,7 +15,7 @@
 """global vars."""
 
 _GLOBAL_ARGS = None
-_IS_INITIALIZED = False
+_EXIT_ACTOR = None
 
 
 def _ensure_var_is_initialized(var, name):
@@ -30,12 +30,12 @@ def get_args():
 
 
 def is_initialized():
-    return _IS_INITIALIZED
+    return _GLOBAL_ARGS.initialized
 
 
 def set_initialized():
-    global _IS_INITIALIZED
-    _IS_INITIALIZED = True
+    global _GLOBAL_ARGS
+    _GLOBAL_ARGS.initialized = True
 
 
 def set_global_variables(args):
@@ -43,3 +43,8 @@ def set_global_variables(args):
     assert args is not None
     global _GLOBAL_ARGS
     _GLOBAL_ARGS = args
+
+
+def set_exit_actor(actor):
+    global _EXIT_ACTOR
+    _EXIT_ACTOR = actor

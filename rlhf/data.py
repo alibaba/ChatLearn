@@ -120,11 +120,20 @@ class RLHFDataLoader:
 
     def __init__(self, dataset, batch_size):
         """generate prompts data loader"""
-        if isinstance(dataset, Dataset):
-            self.dataset = ray.data.from_torch(dataset).repeat()
+        self.dataset = dataset
         self.batch_size = batch_size
+        self.data_iter = iter(self.dataset)
 
 
     def __iter__(self):
-        for batch in self.dataset.iter_batches(batch_size=self.batch_size):
-            yield batching(batch)
+        batch_data = []
+        for i, item in enumerate(self.data_iter):
+            batch_data.append(item)
+            if len(batch_data) == self.batch_size:
+                batched = batching(batch_data)
+                yield batched
+                batch_data = []
+        if len(batch_data) > 0:
+            batched = batching(batch_data)
+            yield batched
+

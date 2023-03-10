@@ -2,6 +2,7 @@ import os
 import subprocess
 import time
 import ray
+from rlhf.global_vars import set_exit_actor
 
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
@@ -58,6 +59,7 @@ def start_ray_cluster():
         cmd = f"ray start --head --port={port} --node-ip-address={master_addr}"
     else:
         cmd = f"ray start --address={master_addr}:{port}"
+    print(f"execute {cmd}")
     subprocess.run(cmd, shell=True)
 
 
@@ -71,7 +73,9 @@ class ExitActor:
 def start_exit_listener():
     name = "ExitActor"
     if get_rank() == 0:
-        ExitActor.options(name=name).remote()
+        actor = ExitActor.options(name=name).remote()
+        # avoid actor GC
+        set_exit_actor(actor)
     else:
         # wait for the head node to create ExitActor
         head_created = False
@@ -83,6 +87,3 @@ def start_exit_listener():
                 if head_created:
                     return
             time.sleep(5)
-        
-
-

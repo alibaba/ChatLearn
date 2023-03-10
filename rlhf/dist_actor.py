@@ -1,35 +1,30 @@
 import torch
+import traceback
 import ray
 from rlhf.model_wrapper import RLHFModelWrapper, RLHFTorchWrapper
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 import inspect
-from types import MethodType
 from rlhf.utils import parse_function_args, parse_function_return_num
 from functools import partial
-from collections.abc import Sequence
 
 
 RAY_REMOTE = "remote"
 
 
 
-def dict_to_device(device, data):
-    for key, value in data.items():
-         if isinstance(value, torch.Tensor):
-             value = value.to(device)
-             data[key] = value
-    return data
+def is_tensor(data):
+    return isinstance(data, torch.Tensor)
 
 
-def to_device(device, *args):
-    cuda_args = []
-    for arg in args:
-        if isinstance(arg, dict):
-            arg = dict_to_device(device, arg)
-        elif isinstance(arg, torch.Tensor):
-            arg = arg.to(device)
-        cuda_args.append(arg)
-    return cuda_args
+def to_device(device, args):
+    if isinstance(args, list):
+        args = [to_device(device, arg) for arg in args]
+    elif isinstance(args, dict):
+        for key, value in args.items():
+            args[key] = to_device(device, value)
+    elif isinstance(args, torch.Tensor):
+        args = args.to(device)
+    return args
 
 
 def device_converter(func):
@@ -37,14 +32,16 @@ def device_converter(func):
     convert input to cuda and convert output to cpu
     """
     def inner(self, *args, **kwargs):
-        cuda_args = to_device('cuda', *args)
-        cuda_kwargs = dict_to_device('cuda', kwargs)
-        ret = func(self, *cuda_args, **cuda_kwargs)
-        if isinstance(ret, dict):
-            ret = dict_to_device('cpu', ret)
-        elif isinstance(ret, torch.Tensor):
-            ret = ret.to('cpu')
-        return ret
+        cuda_args = to_device('cuda', args)
+        cuda_kwargs = to_device('cuda', kwargs)
+        try:
+            ret = func(self, *cuda_args, **cuda_kwargs)
+            ret = to_device('cpu', ret)
+            return ret
+        except Exception as e:
+            print(f"catch exception ========= in {self.name} {e}, {traceback.format_exc()}", flush=True)
+            ray.get(self.error_signal.set.remote())
+            raise
     return inner
 
 
@@ -54,6 +51,7 @@ class DistActor:
     def __init__(self, model: RLHFModelWrapper,
                  placement_groups,
                  gpu_per_node,
+                 error_signal,
                  port=None):
         self.num_device = model.num_device
         self.gpu_per_process = model.gpu_per_process
@@ -63,8 +61,14 @@ class DistActor:
         self.all_actors = []
         self.port = port
         self.name = self.model.name
+        self.error_signal = error_signal
         self.set_device_converter()
+        # ranks for model update
+        self.all_ranks = None
         self._init_done = False
+        self.remote()
+        self.rank_to_actors = {}
+
 
     def set_device_converter(self):
         for func_name in ["forward_step", "train_step"]:
@@ -88,6 +92,7 @@ class DistActor:
             actor = ray.remote(num_gpus=self.gpu_per_process)(self.model.__class__) \
                        .options(scheduling_strategy=scheduling_strategy) \
                        .remote(self.model.name, self.model.global_args)
+            actor.set_error_signal.remote(self.error_signal)
             dist_actors.append(actor)
         return dist_actors
 
@@ -101,6 +106,11 @@ class DistActor:
         self.add_remote_func()
         self._init_done = True
         return self
+
+    
+    @property
+    def actor_num(self):
+        return len(self.all_actors) * len(self.all_actors[0])
 
 
     def _get_func_args(self, func_name):
@@ -132,7 +142,47 @@ class DistActor:
         return results
 
 
+    def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
+        refs = []
+        i = 0
+        all_ranks = []
+        for actors in self.all_actors:
+            ranks = []
+            for actor in actors:
+                rank = i+rank_offset
+                ref = actor.setup_collective_group.remote(
+                    rank=rank,
+                    world_size=world_size,
+                    backend=backend,
+                    group_name=group_name)
+                refs.append(ref)
+                ranks.append(rank)
+                self.rank_to_actors[rank] = actor
+                i += 1
+            all_ranks.append(ranks)
+        self.all_ranks = all_ranks
+        return refs
+
+
+    def get(self, rank):
+        # given rank, return the actor
+        return self.rank_to_actors[rank]
+
+    
+    def terminate(self):
+        # terminate when catching exceptions
+        for actors in self.all_actors:
+            for actor in actors:
+                ray.kill(actor)
+
+
 class DistTorchActor(DistActor):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for i in range(self.model.num_replica):
+            actors = self.all_actors[i]
+            self.set_dist_env(actors)
     
     def reorder_actors(self, actors):
         gpu_ids = []

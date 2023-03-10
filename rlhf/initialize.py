@@ -5,7 +5,15 @@ from rlhf import dlc_utils
 from rlhf.arguments import parse_args
 from rlhf.global_vars import set_global_variables
 from rlhf.global_vars import set_initialized
+from cupy.cuda import nccl
+import torch
+from ray.util.collective.collective_group.nccl_util import TORCH_NCCL_DTYPE_MAP
 
+# TODO: check whether need to set here?
+def patch_ray():
+    TORCH_NCCL_DTYPE_MAP[torch.bfloat16] = nccl.NCCL_BFLOAT16
+
+patch_ray()
 
 def init_ray(runtime_env_args):
     runtime_env = {"env_vars": {}}
@@ -17,9 +25,8 @@ def init_ray(runtime_env_args):
         if getattr(runtime_env_args, attribute):
             runtime_env[attribute] = getattr(runtime_env_args, attribute)
 
-    _set_runtime_env(runtime_env_args, 'pip', runtime_env)
-    _set_runtime_env(runtime_env_args, 'working_dir', runtime_env)
-    _set_runtime_env(runtime_env_args, 'py_modules', runtime_env)
+    for key in ['pip', 'working_dir', 'py_modules', 'excludes']:
+        _set_runtime_env(runtime_env_args, key, runtime_env)
 
     # namespace is needed to get NamedActor
     ray.init(runtime_env=runtime_env, namespace="RLHF")
