@@ -4,7 +4,6 @@ import ray
 import torch
 from collections.abc import Sequence
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import IterableDataset, Dataset
 
 
 def get_iter_keys(data):
@@ -20,22 +19,28 @@ def create_from_type(data):
   return type(data)()
 
 
-def batching(tensors, padding_value=0.0):
+def batching(tensors, padding_value=0.0, padding_type="right"):
   if isinstance(tensors[0], torch.Tensor):
-    if tensors[0].dim() == 0:
-      return torch.stack(tensors)
-    return pad_sequence(tensors, batch_first=True, padding_value=padding_value)
+      if tensors[0].dim() == 0:
+          return torch.stack(tensors)
+      if padding_type == "right":
+          return pad_sequence(tensors, batch_first=True, padding_value=padding_value)
+      else:
+          return pad_sequence([elem.flip(0) for elem in tensors],
+                              padding_value=padding_value,
+                              batch_first=True).flip(1)
   else:
-    batch = create_from_type(tensors[0])
-    batch_size = len(tensors)
-    for key in get_iter_keys(tensors[0]):
-      pad = padding_value.get(key, 0.0) if isinstance(padding_value,
-                                                      dict) else padding_value
-      batched = [tensors[j][key] for j in range(batch_size)]
-      if isinstance(batched[0], torch.Tensor):
-        batched = batching(batched, pad)
-      batch[key] = batched
-    return batch
+      batch = create_from_type(tensors[0])
+      batch_size = len(tensors)
+      for key in get_iter_keys(tensors[0]):
+          pad = padding_value.get(key, 0.0) if isinstance(padding_value,
+                                                          dict) else padding_value
+          ptype = padding_type.get(key, "right") if isinstance(padding_type, dict) else padding_type
+          batched = [tensors[j][key] for j in range(batch_size)]
+          if isinstance(batched[0], torch.Tensor):
+              batched = batching(batched, pad, ptype)
+          batch[key] = batched
+      return batch
 
 
 def split_batch(batch):
@@ -43,18 +48,18 @@ def split_batch(batch):
     "batch type {} is not supported".format(type(batch))
   samples = []
   if isinstance(batch, Sequence):
-    bs = len(batch[0])
-    keys = range(len(batch))
+      bs = len(batch[0])
+      keys = range(len(batch))
   else:
-    bs = len(next(iter(batch.values())))
-    keys = batch.keys()
+      bs = len(next(iter(batch.values())))
+      keys = batch.keys()
 
   for b in range(bs):
-    if isinstance(batch, Sequence):
-      sample = [batch[key][b] for key in keys]
-    else:
-      sample = {key: batch[key][b] for key in keys}
-    samples.append(sample)
+      if isinstance(batch, Sequence):
+          sample = [batch[key][b] for key in keys]
+      else:
+          sample = {key: batch[key][b] for key in keys}
+      samples.append(sample)
 
   return samples
 
@@ -63,7 +68,7 @@ def split_batch(batch):
 class StreamDataset():
     """dataset built from queues"""
 
-    def __init__(self, queue, total_samples, batch_size, cache=False):
+    def __init__(self, queue, total_samples, batch_size, padding_config={}, cache=False):
         self.queue = queue
         self.total_samples = total_samples
         self.batch_size = batch_size
@@ -72,11 +77,16 @@ class StreamDataset():
         self.cache = cache
         self.relay_buffer = []
         self.iter = self.__iter__()
+        self._padding_config = padding_config
+        self._padding_value = {key:value["padding_value"] for key, value in self._padding_config.items()}
+        self._padding_type = {key:value["padding_type"] for key, value in self._padding_config.items()}
+        self._has_next = True
 
 
     def shuffle(self):
         random.shuffle(self.relay_buffer)
         self.iter = self.__iter__()
+        self._has_next = True
 
 
     def __iter__(self):
@@ -100,7 +110,9 @@ class StreamDataset():
             start_index = self.produce_index
             end_index = min(self.produce_index + self.batch_size, len(self.relay_buffer))
             data_to_batch = self.relay_buffer[start_index: end_index]
-            batched_data = batching(data_to_batch)
+            if len(data_to_batch) < self.batch_size:
+                data_to_batch += self.relay_buffer[:self.batch_size-len(data_to_batch)]
+            batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
             yield batched_data
             batch_count += 1
             self.produce_index += len(data_to_batch)
@@ -113,7 +125,12 @@ class StreamDataset():
             data = next(self.iter)
             return data
         except StopIteration:
+            self._has_next = False
             return None
+
+    def has_next(self):
+        return self._has_next
+
 
 
 class RLHFDataLoader:

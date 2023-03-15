@@ -15,6 +15,7 @@
 """arguments from command or yaml."""
 
 import argparse
+import os
 import yaml
 import inspect
 import logging
@@ -92,12 +93,13 @@ class RLHFConfig:
     generation_batch_size = 2
     train_micro_batch_size = 2
     train_global_batch_size = None
+    save_interval = None
 
 
 class RuntimeEnvConfig:
     pip = []
     py_modules = []
-    working_dir = "./"
+    working_dir = os.getcwd()
     # platform, e.g., DLC
     platform = ""
     excludes = []

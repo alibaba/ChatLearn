@@ -4,6 +4,7 @@ import socket
 import ast
 import textwrap
 from rlhf.global_vars import is_initialized
+from collections.abc import Sequence
 import ray
 
 
@@ -76,5 +77,12 @@ def get_free_port():
 
 
 def get(data):
-    assert is_initialized(), "RLHF is not initialized, please call rlhf.init() first"
-    return ray.get(data)
+    if isinstance(data, Sequence):
+        dtype = type(data)
+        ret = dtype(get(item) for item in data)
+        return ret
+    if isinstance(data, dict):
+        return {key: get(value) for key, value in data.items()}
+    while isinstance(data, ray.ObjectRef):
+        data = ray.get(data)
+    return data

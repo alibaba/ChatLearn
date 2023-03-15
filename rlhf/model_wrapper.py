@@ -6,6 +6,9 @@ from rlhf import dlc_utils
 from rlhf.global_vars import set_global_variables
 import ray.util.collective as col
 import os
+from rlhf.megatron_utils import build_pipeline_layer_name_mapping
+from rlhf.logger import logger
+
 
 class RLHFModelWrapper:
 
@@ -34,6 +37,11 @@ class RLHFModelWrapper:
         self._rank = None
         self._world_size = None
         self._group_name = None
+        self._dataloader = None
+        self._has_next = True
+        self._kl_coef = None
+        self._padding_config = {}
+        self._storage = {}
 
 
     def set_env(self):
@@ -50,11 +58,33 @@ class RLHFModelWrapper:
         self.error_signal = error_signal
 
 
+    def error(self):
+        ray.get(self.error_signal.set.remote())
+
+
     def setup(self):
         """
         init model env / create model / data
         """
         pass
+
+
+    def validate(self):
+        return "ok"
+
+
+    def set_dataloader(self, dataloader):
+        self._dataloader = dataloader
+        self._data_iter = iter(self._dataloader)
+        self._has_next = True
+
+
+    def next_batch(self):
+        try:
+            return next(self._data_iter)
+        except StopIteration:
+            self._has_next = False
+
 
 
     def set_num_replica(self, num_replica):
@@ -71,12 +101,13 @@ class RLHFModelWrapper:
         pass
 
 
-    def train_step(self, data):
+    def train_step(self, data, train_info):
         # train step
+        # train_info includes training information, e.g., current iteration
         pass
 
 
-    def save_checkpoint(self):
+    def save_checkpoint(self, iteration):
         pass
 
 
@@ -140,7 +171,7 @@ class RLHFModelWrapper:
             tensor = self.get_parameter(name)
             col.send(tensor, dst_rank, group_name)
         except Exception as e:
-            ray.get(self.error_signal.set.remote())
+            self.error()
             raise
 
 
@@ -149,8 +180,41 @@ class RLHFModelWrapper:
             tensor = self.get_parameter(name)
             col.recv(tensor, src_rank, group_name)
         except Exception as e:
-            ray.get(self.error_signal.set.remote())
+            self.error()
             raise
+
+    
+    def pipeline_model_parallel_size(self):
+        pass
+
+
+    def tensor_model_parallel_size(self):
+        pass
+
+
+    def num_layers(self):
+        pass
+
+
+    def put(self, key, data):
+        ref = ray.put(data)
+        self._storage[key] = ref
+
+
+    def get(self, key):
+        ref = self._storage.get(key)
+        if ref is None:
+            logger.warn(f"{key} is not found in storage")
+            return None
+        return ray.get(ref)
+
+
+    def add_padding_config(self, key, padding_value=0.0, padding_type="right"):
+        self._padding_config[key] = {"padding_value": padding_value, "padding_type": padding_type}
+    
+
+    def padding_config(self):
+        return self._padding_config
 
 
 class RLHFTorchWrapper(RLHFModelWrapper):
@@ -163,7 +227,7 @@ class RLHFTorchWrapper(RLHFModelWrapper):
         """
         Get node address and port
         """
-        if self.global_args.env_args.platform == "DLC":
+        if dlc_utils.in_dlc_env():
             addr = dlc_utils.get_addr()
             port = None
         else:
@@ -181,4 +245,44 @@ class RLHFTorchWrapper(RLHFModelWrapper):
             assert key in args, f"{key} is not set for RLHFTorchWrapper"
             os.environ[key] = str(args[key])
         return 1
+
+
+class RLHFMegatronWrapper(RLHFTorchWrapper):
+
+    def validate(self):
+        min_device = self.pipeline_model_parallel_size() * self.tensor_model_parallel_size()
+        if self.num_device < min_device:
+            self.error()
+            raise RuntimeError(f"num_device {self.num_device} should be greater than" \
+                f"pipe size {self.pipeline_model_parallel_size()}" \
+                f"x tensor parallel size {self.tensor_model_parallel_size()}")
+
+    @property
+    def megatron_args(self):
+        import megatron
+        return megatron.get_args()
+
+    def pipeline_model_parallel_size(self):
+        return self.megatron_args.pipeline_model_parallel_size
+    
+    def tensor_model_parallel_size(self):
+        return self.megatron_args.tensor_model_parallel_size
+
+    def num_layers(self):
+        return self.megatron_args.num_layers
+
+
+    def build_pipeline_layer_name_mapping(self):
+        from megatron import mpu
+        layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
+        rank = mpu.get_pipeline_model_parallel_rank()
+        logger.info(f"build mapping for rank {rank} =========")
+        if isinstance(self.model, list):
+            assert len(self.model) == 1
+            model = self.model[0]
+        else:
+            model = self.model
+        name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
+        return name_mapping
+
 

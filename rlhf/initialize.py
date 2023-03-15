@@ -15,6 +15,7 @@ def patch_ray():
 
 patch_ray()
 
+
 def init_ray(runtime_env_args):
     runtime_env = {"env_vars": {}}
     python_path = os.environ.get("PYTHONPATH", "")
@@ -41,11 +42,11 @@ def init(args=None):
     if args is None:
         args = parse_args()
     set_global_variables(args)
-    if args.env_args.platform == "DLC":
+    if dlc_utils.in_dlc_env():
         dlc_utils.start_ray_cluster()
     init_ray(args.env_args)
     set_initialized()
-    if args.env_args.platform == "DLC":
+    if dlc_utils.in_dlc_env():
         dlc_utils.start_exit_listener()
         if dlc_utils.get_rank() > 0:
             # other workers exit after head exit

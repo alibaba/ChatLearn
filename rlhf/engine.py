@@ -5,6 +5,8 @@ from rlhf.model_wrapper import RLHFModelWrapper
 from rlhf.environment import PPOEnv
 from rlhf.trainer import PPOTrainer
 from rlhf.global_vars import get_args
+from rlhf.logger import logger
+
 
 class Engine:
 
@@ -21,8 +23,9 @@ class Engine:
     def setup(self):
         for model in self.remote_models:
             status = ray.get(model.setup())
-            print(f"setup model {model.name} done, status: {status}", flush=True)
-        print("done setup all models", flush=True)
+            status = ray.get(model.validate())
+            logger.info(f"setup model {model.name} done, status: {status}")
+        logger.info("done setup all models")
         
 
     @property
@@ -62,6 +65,7 @@ class RLHFEngine(Engine):
     def set_dataset(self, dataset):
         self.env.set_dataset(dataset)
 
+
     def set_trainer(self, trainer):
         self.trainer = trainer
         return self
@@ -77,11 +81,12 @@ class RLHFEngine(Engine):
         self.env.setup()
 
         for ppo_iter in range(self.rlhf_args.num_ppo_iteration):
-            print(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration}", flush=True)
+            logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration}")
             ppo_data_loader = self.env.make_experiences()
             self.trainer.set_data_loader(ppo_data_loader)
             self.trainer.train()
-            print(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} done", flush=True)
+            logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} done")
+            # TODO: overlap
             self.model_manager.sync_parameters()
-            print(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} parameter sync done", flush=True)
+            logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} parameter sync done")
         self.model_manager.clean()

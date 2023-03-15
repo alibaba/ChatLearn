@@ -3,6 +3,8 @@ import subprocess
 import time
 import ray
 from rlhf.global_vars import set_exit_actor
+from rlhf.global_vars import get_args
+from rlhf.logger import logger
 
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
@@ -11,6 +13,24 @@ RANK_KEY = "RANK"
 MASTER_ROLE = "master"
 WORKER_ROLE = "worker"
 PORT_SEP = ";"
+_warn_once = False
+
+
+def in_dlc_env():
+    # Check whether in DLC env
+    args = get_args()
+    if not args.env_args.platform.lower() == "dlc":
+        return False
+    global _warn_once
+    for key in [DLC_PORT_KEY, JOB_NAME_KEY, RANK_KEY]:
+        if key not in os.environ:
+            if not _warn_once:
+                logger.warn(f"cannot find {key} in DLC env, please check whether whether the job is submitted in DLC" \
+                            " or whether customPortList/createSvcForAllWorkers is set")
+                logger.warn(f"fallback to local mode")
+                _warn_once = True
+            return False
+    return True
 
 
 def get_dlc_env(key):
@@ -59,7 +79,7 @@ def start_ray_cluster():
         cmd = f"ray start --head --port={port} --node-ip-address={master_addr}"
     else:
         cmd = f"ray start --address={master_addr}:{port}"
-    print(f"execute {cmd}")
+    logger.info(f"execute {cmd}")
     subprocess.run(cmd, shell=True)
 
 

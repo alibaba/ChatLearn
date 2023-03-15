@@ -1,5 +1,6 @@
 import math
 import ray
+from rlhf.logger import logger
 
 
 class BaseTrainer:
@@ -21,25 +22,13 @@ class PPOTrainer(BaseTrainer):
         self.models = [ppo_policy_model, ppo_value_model]
         self.num_training_iteration = math.ceil(args.sample_per_episode / args.train_global_batch_size)
         self.num_micro_batch = args.train_global_batch_size // args.train_micro_batch_size
-
-
-    
-    def send_weight(self):
-        """
-        send weight from learner to rollout_workers
-        """
-        pass
+        self.iteration = 0
 
     
-    def save_checkpoints(self):
-        pass
-
-    
-    def train_step(self, train_data):
-        value_loss = self.ppo_value_model.train_step(train_data)
-        policy_loss = self.ppo_policy_model.train_step(train_data)
-        ray.get(value_loss)
-        ray.get(policy_loss)
+    def train_step(self, train_data, train_info):
+        value_loss = self.ppo_value_model.train_step(train_data, train_info)
+        policy_loss = self.ppo_policy_model.train_step(train_data, train_info)
+        ray.get(value_loss + policy_loss)
         return 'ok'
 
 
@@ -47,11 +36,18 @@ class PPOTrainer(BaseTrainer):
         self._data_loader = data_loader
 
 
-    def next_batch(self):
+    def next_batch(self, iteration):
         batches = []
         for _ in range(self.num_micro_batch):
-            batches.append(self._data_loader.next.remote())
-        return batches
+            data = self._data_loader.next.remote()
+            if ray.get(self._data_loader.has_next.remote()):
+                batches.append(data)
+        if not batches:
+            return
+        else:
+            if len(batches) < self.num_micro_batch:
+                batches += batches[:self.num_micro_batch-len(batches)]
+            return batches
 
     
     def train(self):
@@ -60,6 +56,13 @@ class PPOTrainer(BaseTrainer):
                 ret = self._data_loader.shuffle.remote()
                 ray.get(ret)
             for step in range(self.num_training_iteration):
-                train_data = self.next_batch()
-                self.train_step(train_data)
-
+                train_data = self.next_batch(self.iteration)
+                if train_data:
+                    train_info = {"iteration": self.iteration}
+                    self.train_step(train_data, train_info)
+                    self.iteration += 1
+                    logger.info(f"train epoch {epoch} step {step} iteration {self.iteration}")
+                if self.args.save_interval is not None and self.iteration % self.args.save_interval == 0:
+                    ref0 = self.ppo_policy_model.save_checkpoint(self.iteration)
+                    ref1 = self.ppo_value_model.save_checkpoint(self.iteration)
+                    ray.get(ref0+ref1)

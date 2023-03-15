@@ -4,6 +4,7 @@ import ray
 import torch
 from ray.util.queue import Queue
 from rlhf.data import StreamDataset, RLHFDataLoader
+from rlhf.logger import logger
 
 
 class BaseEnv:
@@ -28,11 +29,22 @@ class PPOEnv(BaseEnv):
         assert args.sample_per_episode % self.batch_size == 0, "currently sample_per_episode should be times of generation_batch_size"
         self.batch_per_episode = math.ceil(args.sample_per_episode / self.batch_size)
         self._dataset = None
+        self.data_iter = None
+        self._padding_config = {}
 
 
     def setup(self):
         data_loader = self.build_data_loader()
-        self.data_iter = iter(data_loader)
+        if data_loader is not None:
+            self.data_iter = iter(data_loader)
+        else:
+            ref = self.policy.master.build_dataloader.remote(self._dataset)
+            ray.get(ref)
+            logger.info("set dataset for policy")
+
+        for model in [self.policy, self.reference, self.reward, self.value]:
+            config = ray.get(model.master.padding_config.remote())
+            self._padding_config.update(config)
 
 
     def set_dataset(self, dataset):
@@ -41,27 +53,10 @@ class PPOEnv(BaseEnv):
 
     def build_data_loader(self):
         """generate prompts data loader"""
-        return RLHFDataLoader(self._dataset, self.batch_size)
-
-
-    def update_weight(self):
-        """
-        update model weight
-        """
         pass
+        # TODO: temply comment out, use dataloader from policy, consider later
+        # return RLHFDataLoader(self._dataset, self.batch_size)
 
-    def recv_weight(self):
-        """
-        receive latest weights
-        """
-        pass
-
-
-    def preprocess_weight(self):
-        """
-        merge weight before update
-        """
-        pass
 
     def generate_step(self, query):
         # TODO: current only supports one replica, so get the first index of value
@@ -80,11 +75,14 @@ class PPOEnv(BaseEnv):
         queue = Queue()
         # TODO: support num_rollout_worker > 0
         for i in range(self.batch_per_episode):
-            try:
-                query = next(self.data_iter)
-            except StopIteration:
-                query = None
+            if self.data_iter is not None:
+                try:
+                    query = next(self.data_iter)
+                except StopIteration:
+                    query = None
+            else:
+                query = self.policy.master.next_batch.remote()
             if query is not None:
                 data = self.generate_step(query)
                 queue.put(data)
-        return StreamDataset.remote(queue, self.sample_per_episode, self.args.train_global_batch_size, cache=True)
+        return StreamDataset.remote(queue, self.sample_per_episode, self.args.train_global_batch_size, self._padding_config, cache=True)

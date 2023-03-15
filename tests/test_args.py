@@ -19,9 +19,9 @@ from rlhf.arguments import parse_args
 
 def test_args():
     args0 = parse_args()
-    assert args0.models["policy"].model_config_file == "configs/policy.yaml"
+    assert args0.models["policy"].model_config_file == "model.yaml"
     assert args0.rlhf_args.num_training_epoch == 3
-    assert args0.models['reference'].gpu_per_process == 8
+    assert args0.models['reference'].gpu_per_process == 1
 
 
 if __name__ == '__main__':

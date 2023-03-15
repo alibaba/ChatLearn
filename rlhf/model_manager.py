@@ -3,6 +3,7 @@ from rlhf.dist_actor import DistActor, DistTorchActor
 from rlhf.model_wrapper import RLHFTorchWrapper
 from rlhf.parameter_sync import ParameterSyncGroup
 from rlhf import dlc_utils
+from rlhf.logger import logger
 import ray
 import time
 import ray.util.collective as col
@@ -18,7 +19,7 @@ class ModelManager:
         self.rlhf_args = global_args.rlhf_args
         self.converted = False
         self.free_ports = []
-        if self.env_args.platform == "DLC":
+        if dlc_utils.in_dlc_env():
             # port for DLC jobs, the first port is reserved for ray start
             self.free_ports = dlc_utils.get_free_ports()[1:]
         self.port_index = 0
@@ -51,7 +52,7 @@ class ModelManager:
             tag = model.name
             group_name += tag
         if group_name in self.parameter_sync_groups:
-            print(f"{group_name} already set, ignore")
+            logger.warn(f"{group_name} already set, ignore")
         else:
             sync_group = ParameterSyncGroup(src_model, tgt_model, group_name)
             self.parameter_sync_groups[group_name] = sync_group
@@ -78,7 +79,7 @@ class ModelManager:
         placement_group = self.resouce_manager.get_placement_group(model)
         gpu_per_node = self.resouce_manager.gpu_per_node
         if isinstance(model, RLHFTorchWrapper):
-            if self.env_args.platform == "DLC":
+            if dlc_utils.in_dlc_env():
                 free_port = self.get_free_port()
             else:
                 free_port = None
@@ -106,7 +107,7 @@ class ErrorMonitor:
             if catch_err:
                 break
             time.sleep(2)
-        print("error found", flush=True)
+        logger.exception("error found")
         for group_name in self.collective_groups:
             col.destroy_collective_group(group_name)
         for model in self.remote_models:

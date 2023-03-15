@@ -6,6 +6,11 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 import inspect
 from rlhf.utils import parse_function_args, parse_function_return_num
 from functools import partial
+from rlhf import dlc_utils
+from rlhf.logger import logger
+from rlhf import utils
+from collections.abc import Sequence
+
 
 
 RAY_REMOTE = "remote"
@@ -17,8 +22,8 @@ def is_tensor(data):
 
 
 def to_device(device, args):
-    if isinstance(args, list):
-        args = [to_device(device, arg) for arg in args]
+    if isinstance(args, Sequence):
+        args = type(args)(to_device(device, arg) for arg in args)
     elif isinstance(args, dict):
         for key, value in args.items():
             args[key] = to_device(device, value)
@@ -27,21 +32,31 @@ def to_device(device, args):
     return args
 
 
+def monitor_error(func):
+
+    def inner(self, *args, **kwargs):
+        try:
+            return func(self, *args, **kwargs)
+        except Exception as e:
+            logger.exception(f"catch exception ========= in {self.name} {e}, {traceback.format_exc()}")
+            ray.get(self.error_signal.set.remote())
+            raise
+    return inner
+
+
 def device_converter(func):
     """
     convert input to cuda and convert output to cpu
     """
     def inner(self, *args, **kwargs):
+        args = utils.get(args)
         cuda_args = to_device('cuda', args)
+        print("to cuda", cuda_args, flush=True)
         cuda_kwargs = to_device('cuda', kwargs)
-        try:
-            ret = func(self, *cuda_args, **cuda_kwargs)
-            ret = to_device('cpu', ret)
-            return ret
-        except Exception as e:
-            print(f"catch exception ========= in {self.name} {e}, {traceback.format_exc()}", flush=True)
-            ray.get(self.error_signal.set.remote())
-            raise
+        ret = func(self, *cuda_args, **cuda_kwargs)
+        ret = to_device('cpu', ret)
+        return ret
+
     return inner
 
 
@@ -71,10 +86,12 @@ class DistActor:
 
 
     def set_device_converter(self):
+        model_cls = self.model.__class__
         for func_name in ["forward_step", "train_step"]:
-            model_cls = self.model.__class__
             func = getattr(model_cls, func_name)
             setattr(model_cls, func_name, device_converter(func))
+        for func_name, func in inspect.getmembers(model_cls, predicate=inspect.isfunction):
+            setattr(model_cls, func_name, monitor_error(func))
 
 
     def _remote_one_model(self, placement_group):
@@ -107,7 +124,11 @@ class DistActor:
         self._init_done = True
         return self
 
-    
+    @property
+    def master(self):
+        return self.all_actors[0][0]
+
+
     @property
     def actor_num(self):
         return len(self.all_actors) * len(self.all_actors[0])
@@ -164,7 +185,7 @@ class DistActor:
         return refs
 
 
-    def get(self, rank):
+    def get_actor(self, rank):
         # given rank, return the actor
         return self.rank_to_actors[rank]
 
@@ -206,7 +227,7 @@ class DistTorchActor(DistActor):
         actors = self.reorder_actors(actors)
         master_actor = actors[0]
         master_addr, master_port = ray.get(master_actor.get_addr_port.remote())
-        if self.model.global_args.env_args.platform == "DLC":
+        if dlc_utils.in_dlc_env():
             master_port = self.port
 
         world_size = len(actors)
