@@ -38,8 +38,8 @@ class ResourceManager:
         return placement_groups
 
 
-    def get_placement_group(self, model):
+    def get_placement_group(self, model, replica_id):
         """
         place to certain group
         """
-        return self.model_to_placegroup[model]
+        return self.model_to_placegroup[model][replica_id]

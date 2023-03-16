@@ -18,6 +18,7 @@ import unittest
 import ray
 from rlhf.utils import parse_function_return_num
 from rlhf.utils import get
+from rlhf.utils import split_index
 
 
 # pylint: disable=missing-class-docstring
@@ -69,6 +70,12 @@ class TestDataset(unittest.TestCase):
         data1 = get(data)
         self.assertEqual(data1, ([{"a":2}], {1:1}))
 
+
+    def test_split_index(self):
+        length = 10
+        num_splits = 3
+        res = split_index(length,num_splits)
+        self.assertEqual(res, [(0, 4), (4, 7), (7, 10)])
 
 
 # pylint: enable=missing-class-docstring

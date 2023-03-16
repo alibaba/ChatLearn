@@ -25,11 +25,11 @@ class RLHFModelWrapper:
         self.gpu_per_process = args.gpu_per_process
         self.trainable = args.trainable
         self.rlhf_args = self.global_args.rlhf_args
-        self._num_replica = 1
         self.args = args
         self.model_args = None
         if args.model_config_file:
             self.model_args = parse_args_from_yaml(args.model_config_file)
+        self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
         assert self.num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
@@ -84,11 +84,6 @@ class RLHFModelWrapper:
             return next(self._data_iter)
         except StopIteration:
             self._has_next = False
-
-
-
-    def set_num_replica(self, num_replica):
-        self._num_replica = num_replica
 
 
     @property
@@ -152,8 +147,11 @@ class RLHFModelWrapper:
         return self._named_parameters
 
 
-    def get_parameter_names(self):
-        names = [key for key in self.named_parameters]
+    def get_parameter_names(self, requires_grad=True):
+        if requires_grad:
+            names = [key for key, param in self.named_parameters.items() if param.requires_grad]
+        else:
+            names = [key for key in self.named_parameters]
         return names
 
 
@@ -161,6 +159,7 @@ class RLHFModelWrapper:
         if name not in self.named_parameters:
             raise Exception(f"parameter {name} not exits")
         return self.named_parameters[name]
+
 
     def exist_parameter(self, name):
         return name in self.named_parameters

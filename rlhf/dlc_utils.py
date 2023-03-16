@@ -5,6 +5,7 @@ import ray
 from rlhf.global_vars import set_exit_actor
 from rlhf.global_vars import get_args
 from rlhf.logger import logger
+from rlhf import utils
 
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
@@ -13,11 +14,19 @@ RANK_KEY = "RANK"
 MASTER_ROLE = "master"
 WORKER_ROLE = "worker"
 PORT_SEP = ";"
+LOCAL_MASTER_KEY = "LOCAL_MASTER_ADDR"
 _warn_once = False
+
+
+def is_local():
+    return LOCAL_MASTER_KEY in os.environ
 
 
 def in_dlc_env():
     # Check whether in DLC env
+    if is_local():
+        # MOCK DLC in local clusters
+        return True
     args = get_args()
     if not args.env_args.platform.lower() == "dlc":
         return False
@@ -43,6 +52,8 @@ def get_job_name():
 
 
 def get_master_addr():
+    if is_local():
+        return os.environ[LOCAL_MASTER_KEY]
     job_name = get_job_name()
     return f"{job_name}-{MASTER_ROLE}-0"
 
@@ -52,6 +63,8 @@ def get_rank():
 
 
 def get_addr():
+    if is_local():
+        return utils.get_host_addr() 
     rank = get_rank()
     job_name = get_job_name()
     if rank == 0:
@@ -71,7 +84,6 @@ def get_free_ports():
 
 
 def start_ray_cluster():
-    job_name = get_job_name()
     port = get_free_ports()[0]
     master_addr = get_master_addr()
     rank = get_rank()
@@ -103,7 +115,11 @@ def start_exit_listener():
             try:
                 ray.get_actor(name)
                 head_created = True
+                logger.info("worker is listening to head")
             except ValueError:
                 if head_created:
+                    logger.info("head has exited, exit worker ...")
                     return
+                else:
+                    logger.info("wait for head to be created.")
             time.sleep(5)

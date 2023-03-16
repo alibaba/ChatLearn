@@ -1,11 +1,6 @@
 import math
-import random
 import ray
-import torch
-from ray.util.queue import Queue
-from rlhf.data import StreamDataset, RLHFDataLoader
 from rlhf.logger import logger
-
 
 class BaseEnv:
     def __init__(self, args):
@@ -68,11 +63,11 @@ class PPOEnv(BaseEnv):
         return policy_output[0], ref_output[0], reward_output[0]
 
 
-    def make_experiences(self):
+    def make_experiences(self, queue):
         """
         Generate a collection of experiences for one episode
         """
-        queue = Queue()
+
         # TODO: support num_rollout_worker > 0
         for i in range(self.batch_per_episode):
             if self.data_iter is not None:
@@ -85,4 +80,3 @@ class PPOEnv(BaseEnv):
             if query is not None:
                 data = self.generate_step(query)
                 queue.put(data)
-        return StreamDataset.remote(queue, self.sample_per_episode, self.args.train_global_batch_size, self._padding_config, cache=True)

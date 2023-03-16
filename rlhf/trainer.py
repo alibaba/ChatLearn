@@ -24,6 +24,10 @@ class PPOTrainer(BaseTrainer):
         self.num_micro_batch = args.train_global_batch_size // args.train_micro_batch_size
         self.iteration = 0
 
+
+    def setup(self):
+        pass
+
     
     def train_step(self, train_data, train_info):
         value_loss = self.ppo_value_model.train_step(train_data, train_info)

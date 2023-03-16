@@ -9,12 +9,9 @@ from functools import partial
 from rlhf import dlc_utils
 from rlhf.logger import logger
 from rlhf import utils
-from collections.abc import Sequence
-
 
 
 RAY_REMOTE = "remote"
-
 
 
 def is_tensor(data):
@@ -22,7 +19,7 @@ def is_tensor(data):
 
 
 def to_device(device, args):
-    if isinstance(args, Sequence):
+    if isinstance(args, (list, tuple)):
         args = type(args)(to_device(device, arg) for arg in args)
     elif isinstance(args, dict):
         for key, value in args.items():
@@ -51,7 +48,6 @@ def device_converter(func):
     def inner(self, *args, **kwargs):
         args = utils.get(args)
         cuda_args = to_device('cuda', args)
-        print("to cuda", cuda_args, flush=True)
         cuda_kwargs = to_device('cuda', kwargs)
         ret = func(self, *cuda_args, **cuda_kwargs)
         ret = to_device('cpu', ret)
@@ -67,13 +63,15 @@ class DistActor:
                  placement_groups,
                  gpu_per_node,
                  error_signal,
-                 port=None):
+                 port=None,
+                 replica_id=0):
         self.num_device = model.num_device
         self.gpu_per_process = model.gpu_per_process
         self.placement_groups = placement_groups
         self.model = model
         self.gpu_per_node = gpu_per_node
         self.all_actors = []
+        self.replica_id = replica_id
         self.port = port
         self.name = self.model.name
         self.error_signal = error_signal
@@ -117,21 +115,20 @@ class DistActor:
     def remote(self):
         if self._init_done:
             raise RuntimeError("DistActor has been init")
-        assert len(self.placement_groups) == self.model.num_replica
-        for pg in self.placement_groups:
-            self.all_actors.append(self._remote_one_model(pg))
+        self.all_actors = self._remote_one_model(self.placement_groups)
         self.add_remote_func()
         self._init_done = True
         return self
 
+
     @property
     def master(self):
-        return self.all_actors[0][0]
+        return self.all_actors[0]
 
 
     @property
     def actor_num(self):
-        return len(self.all_actors) * len(self.all_actors[0])
+        return len(self.all_actors)
 
 
     def _get_func_args(self, func_name):
@@ -140,9 +137,7 @@ class DistActor:
 
         
     def add_remote_func(self):
-        actor = self.all_actors[0][0]
-
-        for func_name, func in inspect.getmembers(actor):
+        for func_name, func in inspect.getmembers(self.master):
             if func_name.startswith('_'):
                 continue
             dist_call = partial(self.call_remote_funcs, func_name)
@@ -154,59 +149,40 @@ class DistActor:
         Call remote functions for a collection of actors.
         """
         results = []
-        for replica_id in range(self.model.num_replica):
-            for actor in self.all_actors[replica_id]:
-                func = getattr(actor, func_name)
-                remote_func = getattr(func, RAY_REMOTE)
-                res = remote_func(*args)
-                results.append(res)
+        for actor in self.all_actors:
+            func = getattr(actor, func_name)
+            remote_func = getattr(func, RAY_REMOTE)
+            res = remote_func(*args)
+            results.append(res)
         return results
 
 
     def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
         refs = []
-        i = 0
         all_ranks = []
-        for actors in self.all_actors:
-            ranks = []
-            for actor in actors:
-                rank = i+rank_offset
-                ref = actor.setup_collective_group.remote(
-                    rank=rank,
-                    world_size=world_size,
-                    backend=backend,
-                    group_name=group_name)
-                refs.append(ref)
-                ranks.append(rank)
-                self.rank_to_actors[rank] = actor
-                i += 1
-            all_ranks.append(ranks)
+        for i, actor in enumerate(self.all_actors):
+            rank = i+rank_offset
+            ref = actor.setup_collective_group.remote(
+                rank=rank,
+                world_size=world_size,
+                backend=backend,
+                group_name=group_name)
+            refs.append(ref)
+            all_ranks.append(rank)
+            self.rank_to_actors[rank] = actor
         self.all_ranks = all_ranks
         return refs
-
-
-    def get_actor(self, rank):
-        # given rank, return the actor
-        return self.rank_to_actors[rank]
 
     
     def terminate(self):
         # terminate when catching exceptions
-        for actors in self.all_actors:
-            for actor in actors:
-                ray.kill(actor)
+        for actor in self.all_actors:
+            ray.kill(actor)
 
 
 class DistTorchActor(DistActor):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        for i in range(self.model.num_replica):
-            actors = self.all_actors[i]
-            self.set_dist_env(actors)
     
     def reorder_actors(self, actors):
-        gpu_ids = []
         gpu_per_node = min(self.gpu_per_node, self.model.num_device)
         ordered_actors = []
         count = 0
@@ -242,7 +218,5 @@ class DistTorchActor(DistActor):
 
     def remote(self):
         super().remote()
-        for i in range(self.model.num_replica):
-            actors = self.all_actors[i]
-            self.set_dist_env(actors)
+        self.set_dist_env(self.all_actors)
         return self

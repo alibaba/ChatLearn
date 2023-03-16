@@ -14,6 +14,8 @@ RUN pip install --no-cache-dir -U \
     cupy \
     torchtyping
 
+RUN echo NCCL_SOCKET_IFNAME=eth0 > /etc/nccl.conf
+
 # prepare for dlc
 RUN touch /usr/bin/prepare_dlc_environment
 RUN chmod +x /usr/bin/prepare_dlc_environment

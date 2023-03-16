@@ -2,19 +2,18 @@ import random
 import math
 import ray
 import torch
-from collections.abc import Sequence
 from torch.nn.utils.rnn import pad_sequence
 
 
 def get_iter_keys(data):
-  if isinstance(data, Sequence):
+  if isinstance(data, (list, tuple)):
     return range(len(data))
   elif isinstance(data, dict):
     return data.keys()
 
 
 def create_from_type(data):
-  if isinstance(data, Sequence):
+  if isinstance(data, (list, tuple)):
     return [None] * len(data)
   return type(data)()
 
@@ -44,10 +43,10 @@ def batching(tensors, padding_value=0.0, padding_type="right"):
 
 
 def split_batch(batch):
-  assert isinstance(batch, (Sequence, dict)), \
+  assert isinstance(batch, (list, tuple, dict)), \
     "batch type {} is not supported".format(type(batch))
   samples = []
-  if isinstance(batch, Sequence):
+  if isinstance(batch, (list, tuple)):
       bs = len(batch[0])
       keys = range(len(batch))
   else:
@@ -55,7 +54,7 @@ def split_batch(batch):
       keys = batch.keys()
 
   for b in range(bs):
-      if isinstance(batch, Sequence):
+      if isinstance(batch, (list, tuple)):
           sample = [batch[key][b] for key in keys]
       else:
           sample = {key: batch[key][b] for key in keys}

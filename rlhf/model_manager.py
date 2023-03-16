@@ -1,8 +1,8 @@
-import os
 from rlhf.dist_actor import DistActor, DistTorchActor
 from rlhf.model_wrapper import RLHFTorchWrapper
 from rlhf.parameter_sync import ParameterSyncGroup
 from rlhf import dlc_utils
+from functools import partial
 from rlhf.logger import logger
 import ray
 import time
@@ -73,19 +73,23 @@ class ModelManager:
         """
         Convert one model to DistActor and place it to devices
         """
-        num_replica = self.rlhf_args.num_rollout_worker if not model.trainable else 1
-        model.set_num_replica(num_replica)
-
-        placement_group = self.resouce_manager.get_placement_group(model)
-        gpu_per_node = self.resouce_manager.gpu_per_node
-        if isinstance(model, RLHFTorchWrapper):
-            if dlc_utils.in_dlc_env():
-                free_port = self.get_free_port()
+        def actor_type():
+            if isinstance(model, RLHFTorchWrapper):
+                return DistTorchActor
             else:
-                free_port = None
-            return DistTorchActor(model, placement_group, gpu_per_node, self.error_signal, free_port)
-        return DistActor(model, placement_group, gpu_per_node, self.error_signal)
+                return DistActor
 
+        dist_model = DistModel()
+        for replica_id in range(model.num_replica):
+            placement_group = self.resouce_manager.get_placement_group(model, replica_id)
+            gpu_per_node = self.resouce_manager.gpu_per_node
+            free_port = None
+            if isinstance(model, RLHFTorchWrapper):
+                if dlc_utils.in_dlc_env():
+                    free_port = self.get_free_port()
+            dist_actor = actor_type()(model, placement_group, gpu_per_node, self.error_signal, free_port, replica_id)
+            dist_model.add_replica(dist_actor)
+        return dist_model
 
     def clean(self):
         for group in self.parameter_sync_groups.values():
@@ -131,3 +135,50 @@ class ErrorSignalActor:
     def is_set(self):
         return self.error_state
 
+
+class DistModel:
+
+    def __init__(self):
+        self.replicas = []
+        self.name = None
+        self.rank_to_actors = {}
+        self.register_func()
+
+
+    def add_replica(self, replica):
+        self.replicas.append(replica)
+        self.name = replica.name
+
+
+    @property
+    def actor_num(self):
+        return sum([len(dist_actor.all_actors) for dist_actor in self.replicas])
+
+
+    def get_actor(self, rank):
+        # given rank, return the actor
+        for dist_actor in self.replicas:
+            if rank in dist_actor.rank_to_actors:
+                return dist_actor.rank_to_actors[rank]
+
+    def register_func(self):
+        for func_name in ["setup",
+                          "validate",
+                          "destroy_collective_group",
+                          "terminate"]:
+            dist_call = partial(self.call_replica_func, func_name)
+            setattr(self, func_name, dist_call)
+
+
+    def call_replica_func(self, func, *args, **kwargs):
+        refs = []
+        for dist_actor in self.replicas:
+            ref = getattr(dist_actor, func)(*args, **kwargs)
+            if ref is not None:
+                refs.append(ref)
+        return refs
+
+    
+    @property
+    def all_ranks(self):
+        return [dist_actor.all_ranks for dist_actor in self.replicas]

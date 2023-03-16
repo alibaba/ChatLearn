@@ -3,8 +3,6 @@ from contextlib import closing
 import socket
 import ast
 import textwrap
-from rlhf.global_vars import is_initialized
-from collections.abc import Sequence
 import ray
 
 
@@ -77,7 +75,7 @@ def get_free_port():
 
 
 def get(data):
-    if isinstance(data, Sequence):
+    if isinstance(data, (list, tuple)):
         dtype = type(data)
         ret = dtype(get(item) for item in data)
         return ret
@@ -86,3 +84,26 @@ def get(data):
     while isinstance(data, ray.ObjectRef):
         data = ray.get(data)
     return data
+
+
+def split_index(length, num_splits):
+    # Calculate the size of each split
+    size = length // num_splits
+    remainder = length % num_splits
+
+    # Initialize an empty list for indices
+    indices = []
+
+    # Loop over the number of splits and append indices
+    start = 0
+    end = 0
+    for i in range(num_splits):
+        end += size
+        if remainder > 0:
+            end += 1
+            remainder -= 1
+        indices.append((start,end))
+        start = end
+
+    # Return the list of indices
+    return indices
