@@ -1,5 +1,5 @@
 from rlhf.dist_actor import DistActor, DistTorchActor
-from rlhf.model_wrapper import RLHFTorchWrapper
+from rlhf.model_wrapper import RLHFTorchModule
 from rlhf.parameter_sync import ParameterSyncGroup
 from rlhf import dlc_utils
 from functools import partial
@@ -74,7 +74,7 @@ class ModelManager:
         Convert one model to DistActor and place it to devices
         """
         def actor_type():
-            if isinstance(model, RLHFTorchWrapper):
+            if isinstance(model, RLHFTorchModule):
                 return DistTorchActor
             else:
                 return DistActor
@@ -84,7 +84,7 @@ class ModelManager:
             placement_group = self.resouce_manager.get_placement_group(model, replica_id)
             gpu_per_node = self.resouce_manager.gpu_per_node
             free_port = None
-            if isinstance(model, RLHFTorchWrapper):
+            if isinstance(model, RLHFTorchModule):
                 if dlc_utils.in_dlc_env():
                     free_port = self.get_free_port()
             dist_actor = actor_type()(model, placement_group, gpu_per_node, self.error_signal, free_port, replica_id)

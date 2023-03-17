@@ -2,7 +2,7 @@ import ray
 from ray.util.queue import Queue
 from rlhf.model_manager import ModelManager
 from rlhf.resource import ResourceManager
-from rlhf.model_wrapper import RLHFModelWrapper
+from rlhf.model_wrapper import RLHFModule
 from rlhf.environment import PPOEnv
 from rlhf.trainer import PPOTrainer
 from rlhf.global_vars import get_args
@@ -45,12 +45,12 @@ class RLHFEngine(Engine):
     """rlhf engine"""
 
     def __init__(self,
-                 policy: RLHFModelWrapper,
-                 reference: RLHFModelWrapper,
-                 reward: RLHFModelWrapper,
-                 value: RLHFModelWrapper,
-                 ppo_policy: RLHFModelWrapper,
-                 ppo_value: RLHFModelWrapper):
+                 policy: RLHFModule,
+                 reference: RLHFModule,
+                 reward: RLHFModule,
+                 value: RLHFModule,
+                 ppo_policy: RLHFModule,
+                 ppo_value: RLHFModule):
         super().__init__(policy, reference, reward, value, ppo_policy, ppo_value)
         policy, reference, reward, value, ppo_policy, ppo_value = self.remote_models
         self.envs = self.create_env(policy, reference, reward, value)

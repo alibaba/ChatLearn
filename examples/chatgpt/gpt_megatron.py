@@ -19,11 +19,11 @@ from megatron.utils import average_losses_across_data_parallel_group
 from megatron.text_generation.api import generate as megatron_generate
 from megatron.initialize import initialize_megatron
 from megatron.initialize import set_jit_fusion_options
-from rlhf.model_wrapper import RLHFTorchWrapper
+from rlhf.model_wrapper import RLHFTorchModule
 import rlhf
 
 # pylint: disable=unused-variable,invalid-name
-class GPTMegatron(RLHFTorchWrapper):
+class GPTMegatron(RLHFTorchModule):
     """gpt model wrapper"""
 
 

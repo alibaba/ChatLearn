@@ -10,7 +10,7 @@ from rlhf.megatron_utils import build_pipeline_layer_name_mapping
 from rlhf.logger import logger
 
 
-class RLHFModelWrapper:
+class RLHFModule:
 
     def __init__(self, name, args=None):
         self.name = name
@@ -216,7 +216,7 @@ class RLHFModelWrapper:
         return self._padding_config
 
 
-class RLHFTorchWrapper(RLHFModelWrapper):
+class RLHFTorchModule(RLHFModule):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -246,7 +246,7 @@ class RLHFTorchWrapper(RLHFModelWrapper):
         return 1
 
 
-class RLHFMegatronWrapper(RLHFTorchWrapper):
+class RLHFMegatronModule(RLHFTorchModule):
 
     def validate(self):
         min_device = self.pipeline_model_parallel_size() * self.tensor_model_parallel_size()

@@ -1,7 +1,7 @@
 import torch
 import traceback
 import ray
-from rlhf.model_wrapper import RLHFModelWrapper, RLHFTorchWrapper
+from rlhf.model_wrapper import RLHFModule
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 import inspect
 from rlhf.utils import parse_function_args, parse_function_return_num
@@ -59,7 +59,7 @@ def device_converter(func):
 class DistActor:
     """Manage a collection of actors"""
 
-    def __init__(self, model: RLHFModelWrapper,
+    def __init__(self, model: RLHFModule,
                  placement_groups,
                  gpu_per_node,
                  error_signal,

@@ -1,12 +1,12 @@
 import torch
 import rlhf
 from rlhf.engine import Engine
-from rlhf.model_wrapper import RLHFModelWrapper
+from rlhf.model_wrapper import RLHFModule
 
 import rlhf
 
 rlhf.init()
-class PolicyModel(RLHFModelWrapper):
+class PolicyModel(RLHFModule):
     
     def forward_step(self, data):
         assert data['a'].device.type == 'cuda', data['a'].device.type
