@@ -30,7 +30,17 @@ class Engine:
             status = utils.get(model.validate())
             logger.info(f"validate model {model.name} done, status: {status}")
         logger.info("done setup all models")
-        
+
+
+    def before_episode(self):
+        for model in self.remote_models:
+            utils.get(model.before_episode()) 
+    
+
+    def after_episode(self):
+        for model in self.remote_models:
+            utils.get(model.after_episode())
+
 
     @property
     def models(self):
@@ -103,6 +113,7 @@ class RLHFEngine(Engine):
             env.setup()
 
         for ppo_iter in range(self.rlhf_args.num_ppo_iteration):
+            self.before_episode()
             queue = Queue()
             logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration}")
             for i in range(self.rlhf_args.num_rollout_worker):
@@ -111,9 +122,10 @@ class RLHFEngine(Engine):
                                                    self.rlhf_args.train_global_batch_size,
                                                    self.envs[0]._padding_config, cache=True)
             self.trainer.set_data_loader(ppo_data_loader)
-            self.trainer.train()
+            self.trainer.train(ppo_iter)
             logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} done")
             # TODO: overlap
             self.model_manager.sync_parameters()
             logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} parameter sync done")
+            self.after_episode()
         self.model_manager.clean()

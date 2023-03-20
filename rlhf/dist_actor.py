@@ -64,7 +64,8 @@ class DistActor:
                  gpu_per_node,
                  error_signal,
                  port=None,
-                 replica_id=0):
+                 replica_id=0,
+                 storage=None):
         self.num_device = model.num_device
         self.gpu_per_process = model.gpu_per_process
         self.placement_groups = placement_groups
@@ -75,6 +76,7 @@ class DistActor:
         self.port = port
         self.name = self.model.name
         self.error_signal = error_signal
+        self.storage = storage
         self.set_device_converter()
         # ranks for model update
         self.all_ranks = None
@@ -108,6 +110,7 @@ class DistActor:
                        .options(scheduling_strategy=scheduling_strategy) \
                        .remote(self.model.name, self.model.global_args)
             actor.set_error_signal.remote(self.error_signal)
+            actor.set_storage.remote(self.storage)
             dist_actors.append(actor)
         return dist_actors
 

@@ -3,6 +3,7 @@ from rlhf.global_vars import get_args
 from rlhf.arguments import parse_args_from_yaml
 from rlhf.utils import get_free_port, get_host_addr
 from rlhf import dlc_utils
+from rlhf import utils
 from rlhf.global_vars import set_global_variables
 import ray.util.collective as col
 import os
@@ -41,7 +42,7 @@ class RLHFModule:
         self._has_next = True
         self._kl_coef = None
         self._padding_config = {}
-        self._storage = {}
+        self._storage = None
 
 
     def set_env(self):
@@ -71,6 +72,20 @@ class RLHFModule:
 
     def validate(self):
         return "ok"
+
+
+    def before_episode(self):
+        """
+        operations before one episode
+        """
+        pass
+    
+
+    def after_episode(self):
+        """
+        operations after one episode
+        """
+        pass
 
 
     def set_dataloader(self, dataloader):
@@ -195,17 +210,17 @@ class RLHFModule:
         pass
 
 
+    def set_storage(self, storage):
+        self._storage = storage
+
+
     def put(self, key, data):
-        ref = ray.put(data)
-        self._storage[key] = ref
+        self._storage.put.remote(key, data)
 
 
     def get(self, key):
-        ref = self._storage.get(key)
-        if ref is None:
-            logger.warn(f"{key} is not found in storage")
-            return None
-        return ray.get(ref)
+        ref = self._storage.get.remote(key)
+        return utils.get(ref)
 
 
     def add_padding_config(self, key, padding_value=0.0, padding_type="right"):

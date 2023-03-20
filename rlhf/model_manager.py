@@ -4,6 +4,8 @@ from rlhf.parameter_sync import ParameterSyncGroup
 from rlhf import dlc_utils
 from functools import partial
 from rlhf.logger import logger
+from rlhf.storage import Storage
+from rlhf import utils
 import ray
 import time
 import ray.util.collective as col
@@ -24,8 +26,9 @@ class ModelManager:
             self.free_ports = dlc_utils.get_free_ports()[1:]
         self.port_index = 0
         self.error_signal = ErrorSignalActor.remote()
-        self.remote()
+        self._storage = Storage.remote()
         self.parameter_sync_groups = {}
+        self.remote()
 
     
     def remote(self) -> list:
@@ -87,9 +90,10 @@ class ModelManager:
             if isinstance(model, RLHFTorchModule):
                 if dlc_utils.in_dlc_env():
                     free_port = self.get_free_port()
-            dist_actor = actor_type()(model, placement_group, gpu_per_node, self.error_signal, free_port, replica_id)
+            dist_actor = actor_type()(model, placement_group, gpu_per_node, self.error_signal, free_port, replica_id, self._storage)
             dist_model.add_replica(dist_actor)
         return dist_model
+
 
     def clean(self):
         for group in self.parameter_sync_groups.values():
@@ -163,6 +167,8 @@ class DistModel:
 
     def register_func(self):
         for func_name in ["setup",
+                          "before_episode",
+                          "after_episode",
                           "validate",
                           "destroy_collective_group",
                           "terminate"]:
