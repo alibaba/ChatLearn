@@ -9,6 +9,7 @@ import ray.util.collective as col
 import os
 from rlhf.megatron_utils import build_pipeline_layer_name_mapping
 from rlhf.logger import logger
+from itertools import cycle
 
 
 class RLHFModule:
@@ -27,9 +28,7 @@ class RLHFModule:
         self.trainable = args.trainable
         self.rlhf_args = self.global_args.rlhf_args
         self.args = args
-        self.model_args = None
-        if args.model_config_file:
-            self.model_args = parse_args_from_yaml(args.model_config_file)
+        self.model_args = args.model_args
         self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
         assert self.num_replica >= 1
         self._param_ranks = None
@@ -39,7 +38,6 @@ class RLHFModule:
         self._world_size = None
         self._group_name = None
         self._dataloader = None
-        self._has_next = True
         self._kl_coef = None
         self._padding_config = {}
         self._storage = None
@@ -91,14 +89,11 @@ class RLHFModule:
     def set_dataloader(self, dataloader):
         self._dataloader = dataloader
         self._data_iter = iter(self._dataloader)
-        self._has_next = True
+        self._data_iter = cycle(self._data_iter)
 
 
     def next_batch(self):
-        try:
-            return next(self._data_iter)
-        except StopIteration:
-            self._has_next = False
+        return next(self._data_iter)
 
 
     @property

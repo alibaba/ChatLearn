@@ -3,6 +3,7 @@ import math
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
+from itertools import cycle
 
 
 def get_iter_keys(data):
@@ -138,7 +139,7 @@ class RLHFDataLoader:
         """generate prompts data loader"""
         self.dataset = dataset
         self.batch_size = batch_size
-        self.data_iter = iter(self.dataset)
+        self.data_iter = cycle(iter(self.dataset))
 
 
     def __iter__(self):

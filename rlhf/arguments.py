@@ -24,6 +24,20 @@ from rlhf.utils import get_attributes
 def parse_args_from_yaml(config_file):
     with open(config_file, 'r', encoding='utf-8') as stream:
         config_vars = yaml.load(stream, Loader=yaml.FullLoader)
+        if 'includes' in config_vars:
+            for base in config_vars["includes"]:
+                # absolute path
+                if base.startswith("/"):
+                    base_path = base
+                else:
+                    # base should be put in the same folder of children
+                    base_dir = os.path.dirname(config_file)
+                    base_path = os.path.join(base_dir, base)
+                base_config = parse_args_from_yaml(base_path)
+                for key, value in base_config.items():
+                    # base do not overwrite children
+                    if key not in config_vars:
+                        config_vars[key] = value
         return config_vars
 
 
@@ -83,6 +97,7 @@ class ModelConfig(BaseConfig):
     trainable = False
     model_type = ""
     model_config_file = ""
+    model_args = {}
 
 
 class RLHFConfig:
@@ -140,6 +155,8 @@ class Config(BaseConfig):
                 logging.warn(f"unknown argument {user_attribute}")
 
         self.models[model_name] = model_config
+        if model_config.model_config_file:
+            model_config.model_args = parse_args_from_yaml(model_config.model_config_file)
 
 
     def set_param(namespace, config_cls, instance):

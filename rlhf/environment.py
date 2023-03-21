@@ -65,16 +65,10 @@ class PPOEnv(BaseEnv):
         """
         Generate a collection of experiences for one episode
         """
-
-        # TODO: support num_rollout_worker > 0
         for i in range(self.batch_per_episode):
             if self.data_iter is not None:
-                try:
-                    query = next(self.data_iter)
-                except StopIteration:
-                    query = None
+                query = next(self.data_iter)
             else:
                 query = self.policy.master.next_batch.remote()
-            if query is not None:
-                data = self.generate_step(query)
-                queue.put(data)
+            data = self.generate_step(query)
+            queue.put(data)
