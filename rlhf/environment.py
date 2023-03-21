@@ -54,9 +54,7 @@ class PPOEnv(BaseEnv):
 
 
     def generate_step(self, query):
-        # TODO: current only supports one replica, so get the first index of value
         policy_output = self.policy.forward_step(query)
-        assert len(policy_output) == 1, "current only supports one replica, so get the first index of value"
         ref_output = self.reference.forward_step(policy_output[0])
         old_values = self.value.forward_step(policy_output[0])
         reward_output = self.reward.forward_step(policy_output[0], ref_output[0], old_values[0])

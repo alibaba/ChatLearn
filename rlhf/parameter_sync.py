@@ -100,3 +100,4 @@ class ParameterSyncGroup:
                     recv_ref = recv_actor.recv_parameter.remote(tgt_name, self.actor2rank[send_actor], self.group_name)
 
                     utils.get([send_ref, recv_ref])
+        logger.info(f"sync all parameters done")

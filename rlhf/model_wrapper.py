@@ -180,6 +180,10 @@ class RLHFModule:
         return name in self.named_parameters
 
 
+    def parameter_shape(self, name):
+        return self.get_parameter(name).shape
+
+
     def send_parameter(self, name, dst_rank, group_name):
         try:
             tensor = self.get_parameter(name)
@@ -276,11 +280,14 @@ class RLHFMegatronModule(RLHFTorchModule):
         import megatron
         return megatron.get_args()
 
+
     def pipeline_model_parallel_size(self):
         return self.megatron_args.pipeline_model_parallel_size
+
     
     def tensor_model_parallel_size(self):
         return self.megatron_args.tensor_model_parallel_size
+
 
     def num_layers(self):
         return self.megatron_args.num_layers

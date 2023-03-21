@@ -13,3 +13,5 @@ def setup_logger(log_level=None):
     handler.setLevel(log_level)
     logger.addHandler(handler)
     return logger
+
+setup_logger()
