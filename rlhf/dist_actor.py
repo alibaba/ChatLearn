@@ -214,6 +214,11 @@ class DistTorchActor(DistActor):
         ret = []
         for rank, actor in enumerate(actors):
             env_config["RANK"] = rank
+            if self.model.gpu_per_process == 1:
+                local_rank = 0
+            else:
+                local_rank = rank % self.model.gpu_per_process
+            env_config["LOCAL_RANK"] = local_rank
             ret.append(actor.set_env.remote(env_config))
         status = sum(ray.get(ret))
         assert status == world_size
