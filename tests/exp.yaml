@@ -17,4 +17,5 @@ rlhf:
     num_ppo_iteration: 5000
     sample_per_episode: 1000
     num_training_epoch: 3
+    unknown_args: "test_unknown"
     

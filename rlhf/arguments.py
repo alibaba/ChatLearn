@@ -18,8 +18,9 @@ import argparse
 import os
 import yaml
 import inspect
-import logging
 from rlhf.utils import get_attributes
+from rlhf.logger import logger
+
 
 def parse_args_from_yaml(config_file):
     with open(config_file, 'r', encoding='utf-8') as stream:
@@ -91,38 +92,89 @@ class BaseConfig(object):
 
 class ModelConfig(BaseConfig):
     """Config for model."""
-  
+
+    #: [required] number of device used for one model
     num_device = 1
+    #: [required] gpu per process, e.g., for PyTorch DDP, Megatron, DeepSpeed, `gpu_per_process` is set to 1
     gpu_per_process = 1
+    #: [required] whether model is trainable
     trainable = False
-    model_type = ""
+    #: [optional] config file for model
     model_config_file = ""
+    #: [optional] model type, e.g., Torch/Tensorflow, etc
+    model_type = ""
+    #: [optional] placeholder for other args
     model_args = {}
 
 
 class RLHFConfig:
+    
+    #: [optional] number of inference concurrent workers, if `num_rollout_worker` > 1, then apply data parallel for inference models. default set to 1
     num_rollout_worker = 1
-    num_ppo_iteration = 5000
+    #: [required] number of ppo episodes. One episode includes a inference and training loop.
+    num_ppo_episode = 5000
+    #: [required] number of samples per episode.
     sample_per_episode = 1000
+    #: [optional] number of training epoch per episode. default set to 1.
     num_training_epoch = 1
+    #: [required] generation(inference) batch size.
     generation_batch_size = 2
+    #: [required] training micro batch size.
     train_micro_batch_size = 2
+    #: [required] training global batch size.
     train_global_batch_size = None
+    #: [required] save checkpoint per `save_interval` iterations.
     save_interval = None
+    #: [optional] log time and memory per `log_interval` iterations.
+    log_interval = 1
+    #: [required]: data_path for dataset
+    data_path = None
+
+    def __init__(self):
+        self._args_dict = {}
+
+
+    def get(self, key):
+        """
+        get other config by key
+
+        Args:
+            key: key to get config
+        """
+        if key not in self._args_dict:
+            logger.warn(f"{key} not found in RLHFConfig")
+        else:
+            return self._args_dict[key]
 
 
 class RuntimeEnvConfig:
+    """runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""
+    
+    #: pip install packages
     pip = []
+    #: python modules
     py_modules = []
+    #: working directory
     working_dir = os.getcwd()
-    # platform, e.g., DLC
+    #: platform, e.g., DLC
     platform = ""
+    #: excludes files from packaging
     excludes = []
 
+    def __init__(self):
+        self._args_dict = {}
 
-def _get_attributes(cls):
-  """Get attributes from class."""
-  return [(name, attr) for name, attr in inspect.getmembers(cls) if not name.startswith('_')]
+    def get(self, key):
+        """
+        get other config by key
+
+        Args:
+            key: key to get config
+        """
+        if key not in self._args_dict:
+            logger.warn(f"{key} not found in RuntimeConfig")
+        else:
+            return self._args_dict[key]
 
 
 class Config(BaseConfig):
@@ -137,6 +189,7 @@ class Config(BaseConfig):
     self.models = {}
     self.env_args = RuntimeEnvConfig()
     self.rlhf_args = RLHFConfig()
+
     self.initialized = False
 
     self._parse_params(param_dict)
@@ -152,7 +205,7 @@ class Config(BaseConfig):
             if hasattr(ModelConfig, user_attribute):
                 setattr(model_config, user_attribute, user_value)
             else:
-                logging.warn(f"unknown argument {user_attribute}")
+                logger.warn(f"unknown argument {user_attribute}")
 
         self.models[model_name] = model_config
         if model_config.model_config_file:
@@ -163,7 +216,7 @@ class Config(BaseConfig):
         if namespace not in param_dict:
             return
         user_args = param_dict[namespace]
-        for attribute, default_value in _get_attributes(config_cls):
+        for attribute, default_value in get_attributes(config_cls):
             if attribute in user_args:
                 value = user_args[attribute]
             else:
@@ -171,7 +224,7 @@ class Config(BaseConfig):
             setattr(instance, attribute, value)
         for user_attribute in user_args:
             if not hasattr(config_cls, user_attribute):
-                logging.warn(f"unknown argument {user_attribute}")
+                getattr(instance, "_args_dict")[user_attribute] = user_args[user_attribute]
 
 
     set_param("rlhf", RLHFConfig, self.rlhf_args)

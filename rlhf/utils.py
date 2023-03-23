@@ -8,7 +8,8 @@ import ray
 
 def get_attributes(cls):
   """Get attributes from class."""
-  return [(name, attr) for name, attr in inspect.getmembers(cls) if not name.startswith('_')]
+  return [(name, attr) for name, attr in inspect.getmembers(cls)
+          if not (name.startswith('_')) and (not callable(attr))]
 
 
 def parse_function_args(func):

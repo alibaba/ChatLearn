@@ -9,7 +9,9 @@ from rlhf.global_vars import get_args
 from rlhf.logger import logger
 from rlhf.data import StreamDataset, RLHFDataLoader
 from rlhf import utils
+from rlhf.timer import Timers
 
+LOG_START = ">>>>>>>>>>>"
 
 class Engine:
 
@@ -21,6 +23,7 @@ class Engine:
         self.remote_models = self.model_manager.remote_models
         self.named_models = {model.name: model for model in self.remote_models}
         self.rlhf_args = rlhf_args
+        self.timers = Timers()
 
 
     def setup(self):
@@ -48,6 +51,40 @@ class Engine:
 
     def get_model(self, name):
         return self.named_models[name]
+
+
+    def logging_memory(self):
+        def flatten(xs):
+            for x in xs:
+                if isinstance(x, list):
+                    yield from flatten(x)
+                else:
+                    yield x
+
+        refs = []
+        for model in self.remote_models:
+            mem_ref = model.peak_memory()
+            refs.append(mem_ref)
+        summaries = utils.get(refs)
+
+        logger.info(f"{LOG_START} memory summary:")
+        for model, summary in zip(self.remote_models, summaries):
+            mem_str = ' | '.join(['{:.2f}'.format(i) for i in flatten(summary)])
+            mem_log = f"peak_mem(GB): {mem_str}"
+            logger.info(f"{LOG_START} {model.name} {mem_log}")
+
+
+    def logging_summary(self):
+        refs = []
+        for model in self.remote_models:
+            time_ref = model.replicas[0].timer_summary()
+            refs.append(time_ref)
+        summaries = utils.get(refs)
+
+        logger.info(f"{LOG_START} time summary for each model as follows:")
+        for model, summary in zip(self.remote_models, summaries):
+            logger.info(f"{LOG_START} [{model.name}] {summary[0]}")
+        self.logging_memory()
 
 
 
@@ -106,26 +143,41 @@ class RLHFEngine(Engine):
         return self
 
 
+
     def learn(self):
+        self.timers("rlhf").start()
+        self.timers("setup").start()
         self.setup()
         self.trainer.setup()
         for env in self.envs:
             env.setup()
+        self.timers("setup").stop()
+        logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
+        self.logging_memory()
 
-        for ppo_iter in range(self.rlhf_args.num_ppo_iteration):
+        for ppo_iter in range(self.rlhf_args.num_ppo_episode):
+            self.timers("episode").start()
             self.before_episode()
             queue = Queue()
-            logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration}")
+            logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode}")
             for i in range(self.rlhf_args.num_rollout_worker):
                 self.envs[i].make_experiences(queue)
             ppo_data_loader = StreamDataset.remote(queue, self.rlhf_args.sample_per_episode,
-                                                   self.rlhf_args.train_global_batch_size,
+                                                   self.rlhf_args.train_micro_batch_size,
                                                    self.envs[0]._padding_config, cache=True)
             self.trainer.set_data_loader(ppo_data_loader)
+            logger.info(f"set dataloader for environment done")
             self.trainer.train(ppo_iter)
-            logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} done")
-            # TODO: overlap
+            logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode} done")
+            self.timers("sync_parameters").start()
             self.model_manager.sync_parameters()
-            logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_iteration} parameter sync done")
+            self.timers("sync_parameters").stop()
+            logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode} parameter sync done")
             self.after_episode()
+            self.timers("episode").stop()
+            self.logging_summary()
+            logger.info(f"{LOG_START} RLHF episode summary episode iteration {ppo_iter} {self.timers.log(names=['episode', 'sync_parameters'])}")
+        self.timers("rlhf").stop()
+        logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
+        logger.info("train rlhf done")
         self.model_manager.clean()

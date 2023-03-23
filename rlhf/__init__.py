@@ -17,3 +17,7 @@
 from rlhf.initialize import init
 from rlhf.global_vars import get_args
 from rlhf.utils import get
+
+from rlhf.model_wrapper import RLHFModule
+from rlhf.model_wrapper import RLHFTorchModule
+from rlhf.model_wrapper import RLHFMegatronModule

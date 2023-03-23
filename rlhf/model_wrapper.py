@@ -9,12 +9,15 @@ import ray.util.collective as col
 import os
 from rlhf.megatron_utils import build_pipeline_layer_name_mapping
 from rlhf.logger import logger
+from rlhf.timer import Timers 
 from itertools import cycle
+import torch
+
 
 
 class RLHFModule:
 
-    def __init__(self, name, args=None):
+    def __init__(self, name, args=None, rank=None):
         self.name = name
         if args is None:
             global_args = get_args()
@@ -30,22 +33,26 @@ class RLHFModule:
         self.args = args
         self.model_args = args.model_args
         self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
-        assert self.num_replica >= 1
+        assert self._num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
         self.error_signal = None
-        self._rank = None
+        self._rank = rank
         self._world_size = None
         self._group_name = None
         self._dataloader = None
         self._kl_coef = None
         self._padding_config = {}
         self._storage = None
+        self._timers = None
+
 
 
     def set_env(self):
         """
         set system env, private
+
+        :meta private:
         """
         pass
 
@@ -53,11 +60,16 @@ class RLHFModule:
     def set_error_signal(self, error_signal):
         """
         signal for handling errors
+
+        :meta private:
         """
         self.error_signal = error_signal
 
 
     def error(self):
+        """
+        :meta private:
+        """
         ray.get(self.error_signal.set.remote())
 
 
@@ -66,9 +78,70 @@ class RLHFModule:
         init model env / create model / data
         """
         pass
+    
+
+    def forward_step(self, data):
+        """
+        perform forward step for one batch
+
+        Args:
+            data: data for forward_step, type is dict
+
+        Returns:
+            k/v dict
+        """
+        pass
+
+
+    def train_step(self, data, train_info):
+        """
+        Perform train_step for one batch, including a list of micro-batches
+
+        Args:
+            data: data for train_step, type is a list of dict, each dict is a micro-batch
+            train_info: includes training information, e.g., "iteration"
+
+        """
+        pass
+
+
+    def save_checkpoint(self, iteration):
+        """
+        Save checkpoint given iteration.
+
+        Args:
+            iteration: current training iteration
+
+        """
+        pass
+
+
+    def put(self, key, data):
+        """
+        Put the data to shared storage.
+
+        Args:
+            key: use key to put
+            data: data to save
+        """
+        self._storage.put.remote(key, data)
+
+
+    def get(self, key):
+        """
+        Get data from shared storage using key
+
+        Args:
+            key: use key to get
+        """
+        ref = self._storage.get.remote(key)
+        return utils.get(ref)
 
 
     def validate(self):
+        """
+        :meta private:
+        """
         return "ok"
 
 
@@ -87,12 +160,18 @@ class RLHFModule:
 
 
     def set_dataloader(self, dataloader):
+        """
+        set the dataloader for the model
+        """
         self._dataloader = dataloader
         self._data_iter = iter(self._dataloader)
         self._data_iter = cycle(self._data_iter)
 
 
     def next_batch(self):
+        """
+        :meta private:
+        """
         return next(self._data_iter)
 
 
@@ -101,30 +180,10 @@ class RLHFModule:
         return self._num_replica
 
 
-    def forward_step(self, data):
-        # forward step
-        pass
-
-
-    def train_step(self, data, train_info):
-        # train step
-        # train_info includes training information, e.g., current iteration
-        pass
-
-
-    def save_checkpoint(self, iteration):
-        pass
-
-
-    def update_parameters(self):
-        """
-        update parameters
-        """
-        pass
-
-
     def setup_collective_group(self, rank, world_size, backend, group_name):
-        self._rank = rank
+        """
+        :meta private:
+        """
         self._group_name = group_name
         self._world_size = world_size
         col.init_collective_group(
@@ -132,19 +191,39 @@ class RLHFModule:
 
 
     def destroy_collective_group(self):
+        """
+        :meta private:
+        """
         col.destroy_collective_group(self._group_name)
 
 
     def set_param_ranks(self, param_ranks):
+        """
+        set the ranks for parameters of first replica
+        """
         self._param_ranks = param_ranks
 
 
     def get_param_ranks(self):
+        """
+        :meta private:
+        """
         return self._param_ranks
+
+    
+    @property
+    def rank(self):
+        """
+        :meta private:
+        """
+        return self._rank
 
 
     @property
     def named_parameters(self):
+        """
+        :meta private:
+        """
         if self._named_parameters is None:
             if not isinstance(self.model, list):
                 model = [self.model]
@@ -158,6 +237,9 @@ class RLHFModule:
 
 
     def get_parameter_names(self, requires_grad=True):
+        """
+        :meta private:
+        """
         if requires_grad:
             names = [key for key, param in self.named_parameters.items() if param.requires_grad]
         else:
@@ -166,20 +248,32 @@ class RLHFModule:
 
 
     def get_parameter(self, name):
+        """
+        :meta private:
+        """
         if name not in self.named_parameters:
             raise Exception(f"parameter {name} not exits")
         return self.named_parameters[name]
 
 
     def exist_parameter(self, name):
+        """
+        :meta private:
+        """
         return name in self.named_parameters
 
 
     def parameter_shape(self, name):
+        """
+        :meta private:
+        """
         return self.get_parameter(name).shape
 
 
     def send_parameter(self, name, dst_rank, group_name):
+        """
+        :meta private:
+        """
         try:
             tensor = self.get_parameter(name)
             col.send(tensor, dst_rank, group_name)
@@ -189,6 +283,9 @@ class RLHFModule:
 
 
     def recv_parameter(self, name, src_rank, group_name):
+        """
+        :meta private:
+        """
         try:
             tensor = self.get_parameter(name)
             col.recv(tensor, src_rank, group_name)
@@ -198,36 +295,74 @@ class RLHFModule:
 
     
     def pipeline_model_parallel_size(self):
+        """
+        :meta private:
+        """
         pass
 
 
     def tensor_model_parallel_size(self):
+        """
+        :meta private:
+        """
         pass
 
 
     def num_layers(self):
+        """
+        :meta private:
+        """
         pass
 
 
     def set_storage(self, storage):
+        """
+        :meta private:
+        """
         self._storage = storage
 
 
-    def put(self, key, data):
-        self._storage.put.remote(key, data)
+    def timers(self, name):
+        """
+        :meta private:
+        """
+        if self._timers is None:
+            self._timers = Timers()
+        return self._timers(name)
 
 
-    def get(self, key):
-        ref = self._storage.get.remote(key)
-        return utils.get(ref)
+    def timer_summary(self):
+        """
+        :meta private:
+        """
+        if self._timers:
+            return self._timers.log()
 
 
     def add_padding_config(self, key, padding_value=0.0, padding_type="right"):
+        """
+        Add spectial padding config for certain value
+
+        Args:
+            key: the key for data to be padded
+            padding_value: padding value, default is 0
+            padding_type: default right, can be right/left
+        """
         self._padding_config[key] = {"padding_value": padding_value, "padding_type": padding_type}
     
 
     def padding_config(self):
+        """
+        :meta private:
+        """
         return self._padding_config
+
+
+    def peak_memory(self):
+        """
+        :meta private:
+        """
+        pass
 
 
 class RLHFTorchModule(RLHFModule):
@@ -239,6 +374,8 @@ class RLHFTorchModule(RLHFModule):
     def get_addr_port(self):
         """
         Get node address and port
+
+        :meta private:
         """
         if dlc_utils.in_dlc_env():
             addr = dlc_utils.get_addr()
@@ -250,19 +387,35 @@ class RLHFTorchModule(RLHFModule):
 
 
     def get_visible_gpus(self):
+        """
+        :meta private:
+        """
         return ray.get_gpu_ids()
         
 
     def set_env(self, args):
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
+        """
+        :meta private:
+        """
+        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE']:
             assert key in args, f"{key} is not set for RLHFTorchWrapper"
             os.environ[key] = str(args[key])
         return 1
 
 
+    def peak_memory(self):
+        """
+        :meta private:
+        """
+        return torch.cuda.max_memory_allocated() / (1024**3)
+
+
 class RLHFMegatronModule(RLHFTorchModule):
 
     def validate(self):
+        """
+        :meta private:
+        """
         min_device = self.pipeline_model_parallel_size() * self.tensor_model_parallel_size()
         if self.num_device < min_device:
             self.error()
@@ -277,18 +430,30 @@ class RLHFMegatronModule(RLHFTorchModule):
 
 
     def pipeline_model_parallel_size(self):
+        """
+        get pipeline_model_parallel_size
+        """
         return self.megatron_args.pipeline_model_parallel_size
 
     
     def tensor_model_parallel_size(self):
+        """
+        get tensor_model_parallel_size
+        """
         return self.megatron_args.tensor_model_parallel_size
 
 
     def num_layers(self):
+        """
+        :meta private:
+        """
         return self.megatron_args.num_layers
 
 
     def build_pipeline_layer_name_mapping(self):
+        """
+        :meta private:
+        """
         from megatron import mpu
         layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
         rank = mpu.get_pipeline_model_parallel_rank()
@@ -300,5 +465,3 @@ class RLHFMegatronModule(RLHFTorchModule):
             model = self.model
         name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
         return name_mapping
-
-

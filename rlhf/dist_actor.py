@@ -41,15 +41,29 @@ def monitor_error(func):
     return inner
 
 
+def timeit(func, func_name):
+
+    def inner(self, *args, **kwargs):
+        if self.rank == 0:
+            # for the class inherited from base, it may call multiple times, so use the first start time
+            if not self.timers(func_name).started_:
+                self.timers(func_name).start()
+            ret = func(self, *args, **kwargs)
+            self.timers(func_name).stop()
+        else:
+            ret = func(self, *args, **kwargs)
+        return ret
+
+    return inner
+
+
 def device_converter(func):
     """
     convert input to cuda and convert output to cpu
     """
     def inner(self, *args, **kwargs):
         args = utils.get(args)
-        cuda_args = to_device('cuda', args)
-        cuda_kwargs = to_device('cuda', kwargs)
-        ret = func(self, *cuda_args, **cuda_kwargs)
+        ret = func(self, *args, **kwargs)
         ret = to_device('cpu', ret)
         return ret
 
@@ -90,6 +104,12 @@ class DistActor:
         for func_name in ["forward_step", "train_step"]:
             func = getattr(model_cls, func_name)
             setattr(model_cls, func_name, device_converter(func))
+
+        for func_name in ["forward_step", "train_step",
+                          "save_checkpoint", "setup"]:
+            func = getattr(model_cls, func_name)
+            setattr(model_cls, func_name, timeit(func, func_name))
+
         for func_name, func in inspect.getmembers(model_cls, predicate=inspect.isfunction):
             setattr(model_cls, func_name, monitor_error(func))
 
@@ -108,7 +128,7 @@ class DistActor:
                 )
             actor = ray.remote(num_gpus=self.gpu_per_process)(self.model.__class__) \
                        .options(scheduling_strategy=scheduling_strategy) \
-                       .remote(self.model.name, self.model.global_args)
+                       .remote(self.model.name, self.model.global_args, i)
             actor.set_error_signal.remote(self.error_signal)
             actor.set_storage.remote(self.storage)
             dist_actors.append(actor)
@@ -141,6 +161,7 @@ class DistActor:
         
     def add_remote_func(self):
         for func_name, func in inspect.getmembers(self.master):
+            # ray.actor.ActorMethod
             if func_name.startswith('_'):
                 continue
             dist_call = partial(self.call_remote_funcs, func_name)

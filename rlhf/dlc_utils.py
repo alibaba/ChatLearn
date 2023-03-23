@@ -111,14 +111,19 @@ def start_exit_listener():
     else:
         # wait for the head node to create ExitActor
         head_created = False
+        counter = 0
         while True:
             try:
                 ray.get_actor(name)
                 head_created = True
-                logger.info("worker is listening to head")
+                # log per one hour
+                if counter % 720 == 0:
+                    logger.info("worker is listening to head")
+                counter += 1
             except ValueError:
                 if head_created:
                     logger.info("head has exited, exit worker ...")
+                    subprocess.run("ray stop", shell=True)
                     return
                 else:
                     logger.info("wait for head to be created.")
