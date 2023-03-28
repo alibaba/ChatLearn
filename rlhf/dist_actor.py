@@ -57,12 +57,29 @@ def timeit(func, func_name):
     return inner
 
 
-def device_converter(func):
+def preprocess_compute(func, merge_input):
     """
-    convert input to cuda and convert output to cpu
+    1. if merge_input is True, merge a list of dict into one dict, i.e., merge inputs of forward_step.
+    2. split a list of data for data_parallel, this is used for train_step
+    3. convert output to cpu
     """
     def inner(self, *args, **kwargs):
         args = utils.get(args)
+        if merge_input and len(args) > 1:
+            if all(isinstance(arg, dict) for arg in args):
+                merged = {}
+                for arg in args:
+                    merged.update(arg)
+                args = [merged]
+        if self.data_parallel_size is not None and \
+                self.data_parallel_rank is not None and \
+                self.data_parallel_size > 1:
+            data_list = args[0]
+            assert isinstance(data_list, list)
+            start_idx, end_idx = utils.split_index(len(data_list), self.data_parallel_size)[self.data_parallel_rank]
+            args = list(args)
+            sub_data_list = data_list[start_idx: end_idx]
+            args[0] = sub_data_list
         ret = func(self, *args, **kwargs)
         ret = to_device('cpu', ret)
         return ret
@@ -102,8 +119,9 @@ class DistActor:
     def set_device_converter(self):
         model_cls = self.model.__class__
         for func_name in ["forward_step", "train_step"]:
+            merge_input = func_name == "forward_step"
             func = getattr(model_cls, func_name)
-            setattr(model_cls, func_name, device_converter(func))
+            setattr(model_cls, func_name, preprocess_compute(func, merge_input))
 
         for func_name in ["forward_step", "train_step",
                           "save_checkpoint", "setup"]:

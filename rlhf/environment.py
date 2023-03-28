@@ -33,7 +33,7 @@ class PPOEnv(BaseEnv):
         if data_loader is not None:
             self.data_iter = iter(data_loader)
         else:
-            ref = self.policy.master.build_dataloader.remote(self._dataset)
+            ref = self.policy.master._build_dataloader.remote(self._dataset)
             ray.get(ref)
             logger.info("set dataset for policy")
 
@@ -57,6 +57,7 @@ class PPOEnv(BaseEnv):
         policy_output = self.policy.forward_step(query)
         ref_output = self.reference.forward_step(policy_output[0])
         old_values = self.value.forward_step(policy_output[0])
+        # the three inputs are merged, so the users get one dict input in their side
         reward_output = self.reward.forward_step(policy_output[0], ref_output[0], old_values[0])
         return policy_output[0], ref_output[0], reward_output[0]
 

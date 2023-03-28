@@ -27,11 +27,17 @@ class Engine:
 
 
     def setup(self):
+        # do not include compile dependencies in setup
+        refs = []
+        refs_val = []
         for model in self.remote_models:
-            status = utils.get(model.setup())
-            logger.info(f"setup model {model.name} done, status: {status}")
-            status = utils.get(model.validate())
-            logger.info(f"validate model {model.name} done, status: {status}")
+            refs += model.setup()
+            refs_val += model.validate()
+        utils.get(refs)
+        utils.get(refs_val)
+        # compile dependencies need to be called serially
+        for model in self.remote_models:
+            utils.get(model.compile_dependencies())
         logger.info("done setup all models")
 
 

@@ -116,6 +116,7 @@ class RLHFModule:
         pass
 
 
+
     def put(self, key, data):
         """
         Put the data to shared storage.
@@ -159,13 +160,28 @@ class RLHFModule:
         pass
 
 
-    def set_dataloader(self, dataloader):
+    def _build_dataloader(self, data):
         """
-        set the dataloader for the model
+        build and set the dataloader for the model
+
+        Args:
+            data: a list of string
+
+        :meta private:
         """
+        dataloader = self.build_dataloader(data)
         self._dataloader = dataloader
         self._data_iter = iter(self._dataloader)
         self._data_iter = cycle(self._data_iter)
+
+
+    def build_dataloader(self, data):
+        """
+        build the dataloader for the model
+        
+        Args:
+            data: a list of string
+        """
 
 
     def next_batch(self):
@@ -363,6 +379,9 @@ class RLHFModule:
         :meta private:
         """
         pass
+    
+    def compile_dependencies(self):
+        pass
 
 
 class RLHFTorchModule(RLHFModule):
@@ -410,7 +429,27 @@ class RLHFTorchModule(RLHFModule):
         return torch.cuda.max_memory_allocated() / (1024**3)
 
 
+    @property
+    def data_parallel_size(self):
+        pass
+    
+
+    @property
+    def data_parallel_rank(self):
+        pass
+
+
 class RLHFMegatronModule(RLHFTorchModule):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if not self.trainable:
+            # inference only
+            self.model_args["micro_batch_size"] = self.rlhf_args.generation_batch_size
+        else:
+            self.model_args["micro_batch_size"] = self.rlhf_args.train_micro_batch_size
+            self.model_args["global_batch_size"] = self.rlhf_args.train_global_batch_size
+
 
     def validate(self):
         """
@@ -422,6 +461,7 @@ class RLHFMegatronModule(RLHFTorchModule):
             raise RuntimeError(f"num_device {self.num_device} should be greater than" \
                 f"pipe size {self.pipeline_model_parallel_size()}" \
                 f"x tensor parallel size {self.tensor_model_parallel_size()}")
+
 
     @property
     def megatron_args(self):
@@ -441,6 +481,18 @@ class RLHFMegatronModule(RLHFTorchModule):
         get tensor_model_parallel_size
         """
         return self.megatron_args.tensor_model_parallel_size
+
+
+    @property
+    def data_parallel_size(self):
+        from megatron import mpu
+        return mpu.get_data_parallel_world_size()
+    
+
+    @property
+    def data_parallel_rank(self):
+        from megatron import mpu
+        return mpu.get_data_parallel_rank()
 
 
     def num_layers(self):
@@ -465,3 +517,8 @@ class RLHFMegatronModule(RLHFTorchModule):
             model = self.model
         name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
         return name_mapping
+    
+
+    def compile_dependencies(self):
+        from megatron.initialize import _compile_dependencies
+        _compile_dependencies()
