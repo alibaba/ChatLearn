@@ -9,7 +9,7 @@ import ray.util.collective as col
 import os
 from rlhf.megatron_utils import build_pipeline_layer_name_mapping
 from rlhf.logger import logger
-from rlhf.timer import Timers 
+from rlhf.timer import Timers
 from itertools import cycle
 import torch
 
@@ -79,7 +79,7 @@ class RLHFModule:
         init model env / create model / data
         """
         pass
-    
+
 
     def forward_step(self, data):
         """
@@ -192,7 +192,7 @@ class RLHFModule:
     def build_dataloader(self, data):
         """
         build the dataloader for the model
-        
+
         Args:
             data: a list of string
         """
@@ -240,7 +240,7 @@ class RLHFModule:
         """
         return self._param_ranks
 
-    
+
     @property
     def rank(self):
         """
@@ -393,7 +393,7 @@ class RLHFModule:
         :meta private:
         """
         pass
-    
+
     def compile_dependencies(self):
         pass
 
@@ -430,10 +430,17 @@ class RLHFTorchModule(RLHFModule):
         """
         :meta private:
         """
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE']:
+        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
             assert key in args, f"{key} is not set for RLHFTorchWrapper"
             os.environ[key] = str(args[key])
         return 1
+
+
+    def get_dist_env(self):
+        envs = {}
+        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
+            envs[key] = os.environ[key]
+        return envs
 
 
     def peak_memory(self):
@@ -446,7 +453,7 @@ class RLHFTorchModule(RLHFModule):
     @property
     def data_parallel_size(self):
         pass
-    
+
 
     @property
     def data_parallel_rank(self):
@@ -501,7 +508,7 @@ class RLHFMegatronModule(RLHFTorchModule):
     def data_parallel_size(self):
         from megatron import mpu
         return mpu.get_data_parallel_world_size()
-    
+
 
     @property
     def data_parallel_rank(self):
@@ -531,7 +538,7 @@ class RLHFMegatronModule(RLHFTorchModule):
             model = self.model
         name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
         return name_mapping
-    
+
 
     def compile_dependencies(self):
         from megatron.initialize import _compile_dependencies
