@@ -1,6 +1,8 @@
 import math
 import ray
 from rlhf.logger import logger
+from rlhf.utils import split_index
+
 
 class BaseEnv:
     def __init__(self, args):
@@ -11,9 +13,10 @@ class PPOEnv(BaseEnv):
     """
     PPO environment
     """
-    def __init__(self, args, policy, reference, reward, value):
+    def __init__(self, args, policy, reference, reward, value, index):
         super().__init__(args)
-        self.sample_per_episode = args.sample_per_episode
+        start, end = split_index(args.sample_per_episode, args.num_rollout_worker)[index]
+        self.sample_per_episode = end - start
         self.policy = policy
         self.reference = reference
         self.reward = reward
@@ -21,8 +24,8 @@ class PPOEnv(BaseEnv):
         self.num_rollout_worker = args.num_rollout_worker
         self.remote_models = [policy, reference, reward, value]
         self.batch_size = args.generation_batch_size
-        assert args.sample_per_episode % self.batch_size == 0, "currently sample_per_episode should be times of generation_batch_size"
-        self.batch_per_episode = math.ceil(args.sample_per_episode / self.batch_size)
+        assert self.sample_per_episode % self.batch_size == 0, "currently sample_per_episode should be times of generation_batch_size"
+        self.batch_per_episode = math.ceil(self.sample_per_episode / self.batch_size)
         self._dataset = None
         self.data_iter = None
         self._padding_config = {}

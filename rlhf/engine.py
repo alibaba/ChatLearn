@@ -10,6 +10,8 @@ from rlhf.logger import logger
 from rlhf.data import StreamDataset, RLHFDataLoader
 from rlhf import utils
 from rlhf.timer import Timers
+from rlhf.evaluator import Evaluator
+
 
 LOG_START = ">>>>>>>>>>>"
 
@@ -126,7 +128,8 @@ class RLHFEngine(Engine):
                          policy.replicas[i],
                          reference.replicas[i],
                          reward.replicas[i],
-                         value.replicas[i])
+                         value.replicas[i],
+                         i)
             envs.append(env)
         return envs
 
@@ -147,7 +150,6 @@ class RLHFEngine(Engine):
     def set_trainer(self, trainer):
         self.trainer = trainer
         return self
-
 
 
     def learn(self):
@@ -187,3 +189,47 @@ class RLHFEngine(Engine):
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
         logger.info("train rlhf done")
         self.model_manager.clean()
+
+
+class EvalEngine(Engine):
+
+    def __init__(self, policy, reward):
+        super().__init__(policy, reward)
+        policy, reward = self.remote_models
+        evaluators = []
+        for i in range(self.rlhf_args.num_rollout_worker):
+            evaluator = Evaluator(self.rlhf_args,
+                                  policy.replicas[i],
+                                  reward.replicas[i],
+                                  i)
+            evaluators.append(evaluator)
+        self.evaluators = evaluators
+
+
+    def set_dataset(self, dataset):
+        data_len = len(dataset)
+        indices = utils.split_index(data_len, self.rlhf_args.num_rollout_worker)
+
+        for i, (start, end) in enumerate(indices):
+            data_part = dataset[start:end]
+            self.evaluators[i].set_dataset(data_part)
+
+
+    def register_func(self, model_name, func_name):
+        """
+        register eval func for certain model, the default eval func is eval_step
+        """
+        for evaluator in self.evaluators:
+            evaluator.register_func(model_name, func_name)
+
+
+    def eval(self):
+        self.setup()
+        for evaluator in self.evaluators:
+            evaluator.setup()
+        queue = Queue()
+        for evaluator in self.evaluators:
+            evaluator.eval(queue)
+        # end of evaluation
+        queue.put(None)
+        return queue

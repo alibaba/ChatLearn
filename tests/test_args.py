@@ -24,6 +24,8 @@ def test_args():
     assert args0.models['reference'].gpu_per_process == 1
     assert args0.models['policy'].model_args['generate_config']["num_beams"] == 1
     assert args0.rlhf_args.get("unknown_args") == "test_unknown"
+    assert args0.models['policy'].model_args['model_config']['attention_probs_dropout_prob'] == 0.1
+    assert args0.models['policy'].model_args['test'] == 123
 
 
 if __name__ == '__main__':

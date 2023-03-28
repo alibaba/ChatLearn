@@ -34,9 +34,9 @@ function run_test {
 
 
 function run_all_tests {
-  run_test python test_args.py -c "exp.yaml"
+  run_test python test_args.py -c "configs/exp.yaml"
   run_test python test_utils.py
-  run_test python test_distactor.py -c "exp.yaml"
+  run_test python test_distactor.py -c "configs/exp.yaml"
   run_test python test_send_recv.py
 }
 

@@ -22,19 +22,20 @@ from rlhf.utils import get_attributes
 from rlhf.logger import logger
 
 
-def parse_args_from_yaml(config_file):
+def get_path(fn, folder):
+    if not fn.startswith("/") and not fn.startswith(folder):
+        fn = os.path.join(folder, fn)
+    assert os.path.exists(fn), f'{fn} not exists'
+    return fn
+
+
+def parse_args_from_yaml(config_file, config_dir):
     with open(config_file, 'r', encoding='utf-8') as stream:
         config_vars = yaml.load(stream, Loader=yaml.FullLoader)
         if 'includes' in config_vars:
             for base in config_vars["includes"]:
-                # absolute path
-                if base.startswith("/"):
-                    base_path = base
-                else:
-                    # base should be put in the same folder of children
-                    base_dir = os.path.dirname(config_file)
-                    base_path = os.path.join(base_dir, base)
-                base_config = parse_args_from_yaml(base_path)
+                base_path = get_path(base, config_dir)
+                base_config = parse_args_from_yaml(base_path, config_dir)
                 for key, value in base_config.items():
                     # base do not overwrite children
                     if key not in config_vars:
@@ -55,8 +56,9 @@ def parse_args():
     args = parser.parse_args()
 
     if args.config:
-        args_yaml = parse_args_from_yaml(args.config)
-    config = Config(args_yaml)
+        config_dir = os.path.dirname(args.config)
+        args_yaml = parse_args_from_yaml(args.config, config_dir)
+    config = Config(args_yaml, config_dir)
     return config
 
 
@@ -101,6 +103,7 @@ class ModelConfig(BaseConfig):
     trainable = False
     #: [optional] config file for model
     model_config_file = ""
+    config_dir = ""
     #: [optional] model type, e.g., Torch/Tensorflow, etc
     model_type = ""
     #: [optional] placeholder for other args
@@ -183,12 +186,13 @@ class Config(BaseConfig):
   Args:
     param_dict: Dict format of parameters."""
 
-  def __init__(self, param_dict=None):
+  def __init__(self, param_dict=None, config_dir=None):
     super().__init__()
     self._finalize = False
     self.models = {}
     self.env_args = RuntimeEnvConfig()
     self.rlhf_args = RLHFConfig()
+    self.config_dir = config_dir
 
     self.initialized = False
 
@@ -201,6 +205,7 @@ class Config(BaseConfig):
 
     for model_name, model_args in param_dict["models"].items():
         model_config = ModelConfig()
+        model_config.config_dir = self.config_dir
         for user_attribute, user_value in model_args.items():
             if hasattr(ModelConfig, user_attribute):
                 setattr(model_config, user_attribute, user_value)
@@ -209,7 +214,8 @@ class Config(BaseConfig):
 
         self.models[model_name] = model_config
         if model_config.model_config_file:
-            model_config.model_args = parse_args_from_yaml(model_config.model_config_file)
+            model_config.model_config_file = get_path(model_config.model_config_file, self.config_dir)
+            model_config.model_args = parse_args_from_yaml(model_config.model_config_file, self.config_dir)
 
 
     def set_param(namespace, config_cls, instance):

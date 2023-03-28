@@ -31,6 +31,7 @@ class RLHFModule:
         self.trainable = args.trainable
         self.rlhf_args = self.global_args.rlhf_args
         self.args = args
+        self.config_dir = args.config_dir
         self.model_args = args.model_args
         self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
         assert self._num_replica >= 1
@@ -105,6 +106,18 @@ class RLHFModule:
         pass
 
 
+    def eval_step(self, data):
+        """
+        Perform eval_step for one batch
+
+        Args:
+            data: data for eval_step, type is dict
+
+        Returns:
+            k/v dict
+        """
+
+
     def save_checkpoint(self, iteration):
         """
         Save checkpoint given iteration.
@@ -160,7 +173,7 @@ class RLHFModule:
         pass
 
 
-    def _build_dataloader(self, data):
+    def _build_dataloader(self, data, is_cycle=True):
         """
         build and set the dataloader for the model
 
@@ -172,7 +185,8 @@ class RLHFModule:
         dataloader = self.build_dataloader(data)
         self._dataloader = dataloader
         self._data_iter = iter(self._dataloader)
-        self._data_iter = cycle(self._data_iter)
+        if is_cycle:
+            self._data_iter = cycle(self._data_iter)
 
 
     def build_dataloader(self, data):
