@@ -14,6 +14,7 @@
 # ==============================================================================
 """arguments from command or yaml."""
 
+import ast
 import argparse
 import os
 import yaml
@@ -29,17 +30,58 @@ def get_path(fn, folder):
     return fn
 
 
+def convert_type(data):
+    try:
+        return ast.literal_eval(data)
+    except:
+        return data
+
+
+def parse_value(value):
+    if isinstance(value, dict):
+        return {k: parse_value(v) for k, v in value.items()}
+
+    if isinstance(value, str):
+        if value.strip().startswith("${"):
+            # ${env_name:default_value}
+            placeholder = value.replace("${", "")[:-1]
+            placeholder = placeholder.split(":")
+            env_name = placeholder[0]
+            default_value = convert_type(placeholder[1]) if len(placeholder) > 1 else None
+            if env_name in os.environ:
+                value = convert_type(os.environ[env_name])
+            else:
+                if len(placeholder) > 1:
+                    value = convert_type(placeholder[1])
+                else:
+                    logger.warn(f"cannot find value for {env_name}, set to None")
+                    value = None
+    return value
+
+
+def update_dict(src, dst):
+    # do not overwrite
+    for k, v in src.items():
+        if k not in dst:
+            dst[k] = v
+        else:
+            if isinstance(v, dict) and isinstance(dst[k], dict):
+                update_dict(v, dst[k])
+
+
+
 def parse_args_from_yaml(config_file, config_dir):
     with open(config_file, 'r', encoding='utf-8') as stream:
         config_vars = yaml.load(stream, Loader=yaml.FullLoader)
+        config_vars = {key: parse_value(value) for key, value in config_vars.items()}
         if 'includes' in config_vars:
-            for base in config_vars["includes"]:
+            includes_vars = {}
+            # iterate in reverse order, so the next include overwrite the prev
+            for base in reversed(config_vars["includes"]):
                 base_path = get_path(base, config_dir)
                 base_config = parse_args_from_yaml(base_path, config_dir)
-                for key, value in base_config.items():
-                    # base do not overwrite children
-                    if key not in config_vars:
-                        config_vars[key] = value
+                update_dict(base_config, includes_vars)
+            update_dict(includes_vars, config_vars)
         return config_vars
 
 
@@ -53,7 +95,7 @@ def parse_args():
                         help="where to load YAML configuration",
                         metavar="FILE")
 
-    args = parser.parse_args()
+    args, _ = parser.parse_known_args()
 
     if args.config:
         config_dir = os.path.dirname(args.config)

@@ -14,19 +14,28 @@
 # ==============================================================================
 """UT for args."""
 
+import os
 from rlhf.arguments import parse_args
 
 
 def test_args():
     args0 = parse_args()
-    assert args0.models["policy"].model_config_file == "model.yaml"
-    assert args0.rlhf_args.num_training_epoch == 3
+    assert args0.models["policy"].model_config_file == "configs/model.yaml"
+    assert args0.rlhf_args.num_training_epoch == 3, args0.rlhf_args.num_training_epoch
     assert args0.models['reference'].gpu_per_process == 1
     assert args0.models['policy'].model_args['generate_config']["num_beams"] == 1
     assert args0.rlhf_args.get("unknown_args") == "test_unknown"
     assert args0.models['policy'].model_args['model_config']['attention_probs_dropout_prob'] == 0.1
     assert args0.models['policy'].model_args['test'] == 123
+    assert args0.models['policy'].model_args['generate_config']['eos_token_id'] == 103
+
+
+def test_args2():
+    os.environ["num_training_epoch"] = "2"
+    args0 = parse_args()
+    assert args0.rlhf_args.num_training_epoch == 2
 
 
 if __name__ == '__main__':
     test_args()
+    test_args2()

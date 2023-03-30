@@ -29,6 +29,10 @@ class Engine:
 
 
     def setup(self):
+        # include compile in init, compile dependencies need to be called serially
+        for model in self.remote_models:
+            for ref in model.init():
+                utils.get(ref)
         # do not include compile dependencies in setup
         refs = []
         refs_val = []
@@ -37,9 +41,6 @@ class Engine:
             refs_val += model.validate()
         utils.get(refs)
         utils.get(refs_val)
-        # compile dependencies need to be called serially
-        for model in self.remote_models:
-            utils.get(model.compile_dependencies())
         logger.info("done setup all models")
 
 

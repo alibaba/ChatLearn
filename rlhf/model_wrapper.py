@@ -196,6 +196,7 @@ class RLHFModule:
         Args:
             data: a list of string
         """
+        pass
 
 
     def next_batch(self):
@@ -539,7 +540,3 @@ class RLHFMegatronModule(RLHFTorchModule):
         name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
         return name_mapping
 
-
-    def compile_dependencies(self):
-        from megatron.initialize import _compile_dependencies
-        _compile_dependencies()

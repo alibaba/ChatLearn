@@ -172,7 +172,7 @@ class DistModel:
                           "validate",
                           "destroy_collective_group",
                           "terminate",
-                          "compile_dependencies",
+                          "init",
                           "peak_memory"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
