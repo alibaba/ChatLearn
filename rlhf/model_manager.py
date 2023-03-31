@@ -5,10 +5,10 @@ from rlhf import dlc_utils
 from functools import partial
 from rlhf.logger import logger
 from rlhf.storage import Storage
-from rlhf import utils
 import ray
 import time
 import ray.util.collective as col
+from collections import defaultdict
 
 
 class ModelManager:
@@ -37,8 +37,23 @@ class ModelManager:
         """
         if self.converted:
             return self.remote_models
+
+        name2model = {}
+        remote_states = set()
         for model in self.local_models:
-            self.remote_models.append(self._to_dist_actor(model))
+            remote_model = self._to_dist_model(model)
+            self.remote_models.append(remote_model)
+            name2model[model.name] = remote_model
+        
+        for group in self.rlhf_args.colocation:
+            colocate_models = [name2model[name] for name in group]
+            self.place_models_to_remote_devices(colocate_models)
+            for name in group:
+                remote_states.add(name)
+        for model in self.remote_models:
+            if model.name not in remote_states:
+                self.place_models_to_remote_devices([model])
+
         self.converted = True
         return self.remote_models
 
@@ -72,9 +87,12 @@ class ModelManager:
         return port
 
 
-    def _to_dist_actor(self, model) -> DistActor:
+    def _to_dist_model(self, model):
         """
         Convert one model to DistActor and place it to devices
+
+        Args:
+            model: RLHFModule
         """
         def actor_type():
             if isinstance(model, RLHFTorchModule):
@@ -84,15 +102,55 @@ class ModelManager:
 
         dist_model = DistModel()
         for replica_id in range(model.num_replica):
-            placement_group = self.resouce_manager.get_placement_group(model, replica_id)
-            gpu_per_node = self.resouce_manager.gpu_per_node
             free_port = None
             if isinstance(model, RLHFTorchModule):
                 if dlc_utils.in_dlc_env():
                     free_port = self.get_free_port()
-            dist_actor = actor_type()(model, placement_group, gpu_per_node, self.error_signal, free_port, replica_id, self._storage)
+            dist_actor = actor_type()(model, self.error_signal, free_port, replica_id, self._storage)
             dist_model.add_replica(dist_actor)
         return dist_model
+    
+
+    def place_models_to_remote_devices(self, models):
+        """
+        Args:
+            models: a list of DistModel
+        """
+        num_replica = len(models[0].replicas)
+        for model in models:
+            # TODO: relax this constraints later
+            assert num_replica == len(model.replicas)
+        for replica_id in range(num_replica):
+            self.place_replica_to_remote_devices([m.replicas[replica_id] for m in models])
+
+
+    def place_replica_to_remote_devices(self, models):
+        """
+        Args:
+            models: a list of DistActor
+        """
+        num_device = models[0].num_device
+        gpu_per_process = models[0].gpu_per_process
+        gpu_per_node = self.resouce_manager.gpu_per_node
+        # create placement_group for colocation models
+        placement_group = self.resouce_manager.create_placement_group(models[0])
+
+        if len(models) > 1:
+            for model in models:
+                assert num_device == model.num_device
+                assert gpu_per_process == model.gpu_per_process
+
+        num_actors = num_device // gpu_per_process
+        num_actors = max(num_actors, 1)
+        num_gpus = gpu_per_process / len(models)
+        
+        for i in range(num_actors):
+            group = i // gpu_per_node
+            for model in models:
+                # put actor to corresponding bundle
+                model.create_actor(num_gpus, i, placement_group, group)
+        for model in models:
+            model.preprocess_actors()
 
 
     def clean(self):

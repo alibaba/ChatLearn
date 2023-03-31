@@ -2,7 +2,7 @@ FROM registry.cn-hangzhou.aliyuncs.com/pai-dlc/pai-pytorch-training:torch-1.12-c
 
 
 RUN pip install --no-cache-dir -U \
-    ray==2.3.0 \
+    ray[default]==2.3.0 \
     regex \
     flash-attn \
     tokenizers \

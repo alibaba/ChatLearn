@@ -9,7 +9,7 @@ import ray.util.collective as col
 import os
 from rlhf.megatron_utils import build_pipeline_layer_name_mapping
 from rlhf.logger import logger
-from rlhf.timer import Timers
+from rlhf.timer import Timers 
 from itertools import cycle
 import torch
 
@@ -73,13 +73,20 @@ class RLHFModule:
         """
         ray.get(self.error_signal.set.remote())
 
-
-    def setup(self):
+    
+    def init(self):
         """
-        init model env / create model / data
+        init env
         """
         pass
 
+
+    def setup(self):
+        """
+        create model / data
+        """
+        pass
+    
 
     def forward_step(self, data):
         """
@@ -104,18 +111,6 @@ class RLHFModule:
 
         """
         pass
-
-
-    def eval_step(self, data):
-        """
-        Perform eval_step for one batch
-
-        Args:
-            data: data for eval_step, type is dict
-
-        Returns:
-            k/v dict
-        """
 
 
     def save_checkpoint(self, iteration):
@@ -192,7 +187,7 @@ class RLHFModule:
     def build_dataloader(self, data):
         """
         build the dataloader for the model
-
+        
         Args:
             data: a list of string
         """
@@ -241,7 +236,7 @@ class RLHFModule:
         """
         return self._param_ranks
 
-
+    
     @property
     def rank(self):
         """
@@ -394,9 +389,7 @@ class RLHFModule:
         :meta private:
         """
         pass
-
-    def compile_dependencies(self):
-        pass
+    
 
 
 class RLHFTorchModule(RLHFModule):
@@ -431,17 +424,10 @@ class RLHFTorchModule(RLHFModule):
         """
         :meta private:
         """
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
+        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE']:
             assert key in args, f"{key} is not set for RLHFTorchWrapper"
             os.environ[key] = str(args[key])
         return 1
-
-
-    def get_dist_env(self):
-        envs = {}
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
-            envs[key] = os.environ[key]
-        return envs
 
 
     def peak_memory(self):
@@ -454,7 +440,7 @@ class RLHFTorchModule(RLHFModule):
     @property
     def data_parallel_size(self):
         pass
-
+    
 
     @property
     def data_parallel_rank(self):
@@ -509,7 +495,7 @@ class RLHFMegatronModule(RLHFTorchModule):
     def data_parallel_size(self):
         from megatron import mpu
         return mpu.get_data_parallel_world_size()
-
+    
 
     @property
     def data_parallel_rank(self):

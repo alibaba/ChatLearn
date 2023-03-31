@@ -91,17 +91,13 @@ class DistActor:
     """Manage a collection of actors"""
 
     def __init__(self, model: RLHFModule,
-                 placement_groups,
-                 gpu_per_node,
                  error_signal,
                  port=None,
                  replica_id=0,
                  storage=None):
         self.num_device = model.num_device
         self.gpu_per_process = model.gpu_per_process
-        self.placement_groups = placement_groups
         self.model = model
-        self.gpu_per_node = gpu_per_node
         self.all_actors = []
         self.replica_id = replica_id
         self.port = port
@@ -112,7 +108,7 @@ class DistActor:
         # ranks for model update
         self.all_ranks = None
         self._init_done = False
-        self.remote()
+        self._placement_group = None
         self.rank_to_actors = {}
 
 
@@ -132,36 +128,6 @@ class DistActor:
             setattr(model_cls, func_name, monitor_error(func))
 
 
-    def _remote_one_model(self, placement_group):
-        num_actors = self.num_device // self.gpu_per_process
-        dist_actors = []
-        
-        for i in range(num_actors):
-            group = i // self.gpu_per_node
-            
-            # put actor to corresponding bundle
-            scheduling_strategy = PlacementGroupSchedulingStrategy(
-                placement_group=placement_group,
-                placement_group_bundle_index=group,
-                )
-            actor = ray.remote(num_gpus=self.gpu_per_process)(self.model.__class__) \
-                       .options(scheduling_strategy=scheduling_strategy) \
-                       .remote(self.model.name, self.model.global_args, i)
-            actor.set_error_signal.remote(self.error_signal)
-            actor.set_storage.remote(self.storage)
-            dist_actors.append(actor)
-        return dist_actors
-
-
-    def remote(self):
-        if self._init_done:
-            raise RuntimeError("DistActor has been init")
-        self.all_actors = self._remote_one_model(self.placement_groups)
-        self.add_remote_func()
-        self._init_done = True
-        return self
-
-
     @property
     def master(self):
         return self.all_actors[0]
@@ -175,6 +141,10 @@ class DistActor:
     def _get_func_args(self, func_name):
         func = getattr(self.model, func_name)
         return parse_function_args(func)
+    
+
+    def preprocess_actors(self):
+        self.add_remote_func()
 
         
     def add_remote_func(self):
@@ -199,6 +169,19 @@ class DistActor:
         return results
 
 
+    def create_actor(self, num_gpus, rank, placement_group, group_index):
+        scheduling_strategy = PlacementGroupSchedulingStrategy(
+            placement_group=placement_group,
+            placement_group_bundle_index=group_index,
+            )
+        actor = ray.remote(num_gpus=num_gpus)(self.model.__class__) \
+                   .options(scheduling_strategy=scheduling_strategy) \
+                   .remote(self.model.name, self.model.global_args, rank)
+        actor.set_error_signal.remote(self.error_signal)
+        actor.set_storage.remote(self.storage)
+        self.all_actors.append(actor)
+
+
     def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
         refs = []
         all_ranks = []
@@ -220,6 +203,15 @@ class DistActor:
         # terminate when catching exceptions
         for actor in self.all_actors:
             ray.kill(actor)
+
+    @property
+    def placement_group(self):
+        return self._placement_group
+
+
+    @placement_group.setter
+    def placement_group(self, pg):
+        self._placement_group = pg
 
 
 class DistTorchActor(DistActor):
@@ -262,8 +254,7 @@ class DistTorchActor(DistActor):
         status = sum(ray.get(ret))
         assert status == world_size
 
-
-    def remote(self):
-        super().remote()
+    def preprocess_actors(self):
+        super().preprocess_actors()
         self.set_dist_env(self.all_actors)
         return self

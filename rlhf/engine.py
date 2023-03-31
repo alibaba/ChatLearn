@@ -20,7 +20,7 @@ class Engine:
     def __init__(self, *models):
         global_args = get_args()
         rlhf_args = global_args.rlhf_args
-        resource_manager = ResourceManager(models)
+        resource_manager = ResourceManager(models, rlhf_args.colocation)
         self.model_manager = ModelManager(models, resource_manager, global_args)
         self.remote_models = self.model_manager.remote_models
         self.named_models = {model.name: model for model in self.remote_models}

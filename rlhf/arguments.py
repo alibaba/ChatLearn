@@ -153,7 +153,7 @@ class ModelConfig(BaseConfig):
 
 
 class RLHFConfig:
-    
+ 
     #: [optional] number of inference concurrent workers, if `num_rollout_worker` > 1, then apply data parallel for inference models. default set to 1
     num_rollout_worker = 1
     #: [required] number of ppo episodes. One episode includes a inference and training loop.
@@ -174,6 +174,8 @@ class RLHFConfig:
     log_interval = 1
     #: [required]: data_path for dataset
     data_path = None
+    #: [optional]: colocate models into the same device
+    colocation = []
 
     def __init__(self):
         self._args_dict = {}
@@ -267,6 +269,11 @@ class Config(BaseConfig):
         for attribute, default_value in get_attributes(config_cls):
             if attribute in user_args:
                 value = user_args[attribute]
+                if attribute == "colocation":
+                    colocation_list = []
+                    for group in value:
+                        colocation_list.append(group.replace(' ', '').split(','))
+                    value = colocation_list
             else:
                 value = default_value
             setattr(instance, attribute, value)
