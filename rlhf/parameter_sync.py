@@ -59,6 +59,8 @@ class ParameterSyncGroup:
         # get rank for one src_model, without model replicas
         src_ranks = utils.get(self.src_model.replicas[0].master.get_param_ranks.remote())
         tgt_ranks = self.tgt_model.all_ranks
+        if src_ranks is None or tgt_ranks is None:
+            return
 
         assert len(src_ranks) % len(tgt_ranks[0]) == 0, f"src training model ranks should be times of tgt ranks, but got {len(src_ranks)}and{len(tgt_ranks[0])}"
         mapping_interval = len(src_ranks) // len(tgt_ranks[0])

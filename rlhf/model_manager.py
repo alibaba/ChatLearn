@@ -106,7 +106,7 @@ class ModelManager:
             if isinstance(model, RLHFTorchModule):
                 if dlc_utils.in_dlc_env():
                     free_port = self.get_free_port()
-            dist_actor = actor_type()(model, self.error_signal, free_port, replica_id, self._storage)
+            dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, free_port, replica_id, self._storage)
             dist_model.add_replica(dist_actor)
         return dist_model
     

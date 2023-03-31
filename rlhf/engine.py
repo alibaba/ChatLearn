@@ -138,13 +138,21 @@ class RLHFEngine(Engine):
         return PPOTrainer(self.rlhf_args, ppo_policy.replicas[0], ppo_value.replicas[0])
 
 
-    def set_dataset(self, dataset):
+    def set_dataset(self, dataset, drop_last=False):
         # TODO: compare with use only master dataloader
         data_len = len(dataset)
         indices = utils.split_index(data_len, self.rlhf_args.num_rollout_worker)
 
         for i, (start, end) in enumerate(indices):
             data_part = dataset[start:end]
+            drop_len = len(data_part) % self.rlhf_args.generation_batch_size
+            if drop_len:
+                if drop_last:
+                    data_part = data_part[:-drop_len]
+                else:
+                    wrap_len = self.rlhf_args.generation_batch_size - drop_len
+                    data_part = data_part + data_part[:wrap_len]
+                assert len(data_part) % self.rlhf_args.generation_batch_size == 0
             self.envs[i].set_dataset(data_part)
 
 

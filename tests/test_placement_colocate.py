@@ -25,9 +25,6 @@ class PolicyModel(RLHFTorchModule):
         time.sleep(0.1)
         return data
 
-    def get_visible_devices(self):
-        return os.environ["CUDA_VISIBLE_DEVICES"]
-
 
 class ReferenceModel(RLHFTorchModule):
 
@@ -38,9 +35,6 @@ class ReferenceModel(RLHFTorchModule):
         #assert data['a'].device.type == 'cpu', data['a'].device.type
         time.sleep(0.1)
         return data
-
-    def get_visible_devices(self):
-        return os.environ["CUDA_VISIBLE_DEVICES"]
 
 
 model = PolicyModel('policy')
@@ -53,16 +47,16 @@ model = engine.models[0]
 model2 = engine.models[1]
 
 for replica_id in range(len(model.replicas)):
-    visible_devices = rlhf.get(model.replicas[replica_id].get_visible_devices())
+    visible_devices = rlhf.get(model.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
-        assert visible_devices == ["0", "1"]
+        assert visible_devices == [[0], [1]], visible_devices
     else:
-        assert visible_devices == ["2", "3"]
+        assert visible_devices == [[2], [3]], visible_devices
     print(visible_devices)
-    visible_devices = rlhf.get(model2.replicas[replica_id].get_visible_devices())
+    visible_devices = rlhf.get(model2.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
-        assert visible_devices == ["0", "1"]
+        assert visible_devices == [[0], [1]], visible_devices
     else:
-        assert visible_devices == ["2", "3"]
+        assert visible_devices == [[2], [3]], visible_devices
     print(visible_devices)
 

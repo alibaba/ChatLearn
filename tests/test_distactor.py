@@ -18,8 +18,6 @@ class PolicyModel(RLHFTorchModule):
         time.sleep(0.1)
         return data
 
-    def get_visible_devices(self):
-        return os.environ["CUDA_VISIBLE_DEVICES"]
 
 model = PolicyModel('policy')
 
@@ -34,9 +32,9 @@ res0 = model.forward_step({'a': a, 'b': b})
 res0 = rlhf.get(res0)[0]
 assert res0['a'].device.type == 'cpu', res0['a'].device
 
-visible_devices = model.get_visible_devices()
+visible_devices = model.get_visible_gpus()
 visible_devices = rlhf.get(visible_devices)
-assert visible_devices == ["0"]
+assert visible_devices == [[0]], visible_devices
 
 engine.logging_summary()
 

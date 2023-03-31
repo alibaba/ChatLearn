@@ -34,6 +34,7 @@ function run_test {
 
 
 function run_all_tests {
+  run_test python test_rlhf.py -c "configs/rlhf.yaml"
   run_test python test_args.py -c "configs/exp.yaml"
   run_test python test_utils.py
   run_test python test_distactor.py -c "configs/exp.yaml"

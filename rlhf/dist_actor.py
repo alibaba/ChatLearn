@@ -91,12 +91,14 @@ class DistActor:
     """Manage a collection of actors"""
 
     def __init__(self, model: RLHFModule,
+                 gpu_per_node, 
                  error_signal,
                  port=None,
                  replica_id=0,
                  storage=None):
         self.num_device = model.num_device
         self.gpu_per_process = model.gpu_per_process
+        self.gpu_per_node = gpu_per_node
         self.model = model
         self.all_actors = []
         self.replica_id = replica_id
