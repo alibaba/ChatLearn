@@ -19,7 +19,7 @@ class CustomDataset(Dataset):
         return {"query": self.data[idx]}
 
 
-rlhf.init()
+
 
 class PolicyModel(RLHFTorchModule):
 
@@ -29,8 +29,8 @@ class PolicyModel(RLHFTorchModule):
     def forward_step(self, data):
         print("policy forward =========", flush=True)
         query = data["query"]
-        bs = query.size(0)
-        data["policy_out"] = torch.ones([bs, 1024]).cuda()
+        time.sleep(1)
+        data["policy_out"] = query
         return data
 
     def build_dataloader(self, prompts):
@@ -44,7 +44,8 @@ class ReferenceModel(RLHFTorchModule):
     def forward_step(self, data):
         print("reference forward =========", flush=True)
         query = data["policy_out"].cuda()
-        data["ref_out"] = query * 2
+        time.sleep(0.01)
+        data["ref_out"] = query
         return data
 
 
@@ -54,6 +55,7 @@ class RewardModel(RLHFTorchModule):
     def forward_step(self, data):
         print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
+        time.sleep(0.01)
         return data
 
 class ValueModel(RLHFTorchModule):
@@ -61,6 +63,7 @@ class ValueModel(RLHFTorchModule):
     def forward_step(self, data):
         print("value forward =========", flush=True)
         data["value_out"] = data["policy_out"].cuda() * 3
+        time.sleep(0.01)
         return data
 
 
@@ -69,16 +72,21 @@ class PPOPolicy(RLHFTorchModule):
     def train_step(self, data, train_info):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
+        time.sleep(0.1)
         return num_mb
+
 
 class PPOValue(RLHFTorchModule):
 
     def train_step(self, data, train_info):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
+        time.sleep(0.1)
         return num_mb
 
 
+rlhf.init()
+rlhf.get_args().models["policy"].num_replica = 2
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
@@ -88,11 +96,24 @@ ppo_value = PPOValue("ppo_value")
 
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-assert policy.num_replica == 1
-assert reference.num_replica == 1
+#assert policy.num_replica == 2
+if policy.num_replica == 2:
+    assert reference.num_replica == 1
+    data = torch.ones([1024])
+    engine.set_dataset([data] * 35)
+    assert len(engine.env._dataset[0]) == 20, len(engine.env._dataset[0])
+    assert len(engine.env._dataset[1]) == 20, len(engine.env._dataset[0])
+    engine.set_dataset([data] * 35, drop_last=True)
+    assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
+    assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
+    visible_devices = engine.models[0].replicas[0].get_visible_gpus()
+    visible_devices = rlhf.get(visible_devices)
+    assert visible_devices == [[0]], visible_devices
+    visible_devices = engine.models[0].replicas[1].get_visible_gpus()
+    visible_devices = rlhf.get(visible_devices)
+    assert visible_devices == [[1]], visible_devices
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
-assert len(engine.env._dataset[0]) == 36, len(engine.env._dataset[0])
-engine.set_dataset([data] * 35, drop_last=True)
-assert len(engine.env._dataset[0]) == 32, len(engine.env._dataset[0])
 engine.learn()
+assert engine.episode_stats["episode"] < 3200
+assert engine.episode_stats["episode"] > 2000

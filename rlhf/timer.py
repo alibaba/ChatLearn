@@ -9,6 +9,7 @@ class _Timer:
         self.elapsed_ = 0.0
         self.started_ = False
         self.start_time = time.time()
+        self._num = 0
 
     def start(self):
         """Start the timer."""
@@ -16,6 +17,7 @@ class _Timer:
         torch.cuda.synchronize()
         self.start_time = time.time()
         self.started_ = True
+        self._num += 1
 
     def stop(self):
         """Stop the timer."""
@@ -27,8 +29,9 @@ class _Timer:
         """Reset timer."""
         self.elapsed_ = 0.0
         self.started_ = False
+        self._num = 0
 
-    def elapsed(self, reset=True):
+    def elapsed(self, reset=True, return_num=False):
         """Calculate the elapsed time."""
         started_ = self.started_
         # If the timing in progress, end it first.
@@ -36,12 +39,15 @@ class _Timer:
             self.stop()
         # Get the elapsed time.
         elapsed_ = self.elapsed_
+        num_ = self._num
         # Reset the elapsed time
         if reset:
             self.reset()
         # If timing was in progress, set it back.
         if started_:
             self.start()
+        if return_num:
+            return elapsed_, num_
         return elapsed_
 
 
@@ -66,14 +72,25 @@ class Timers:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             writer.add_scalar(name + '-time', value, iteration)
 
-    def log(self, names=None, normalizer=1.0, reset=True):
+    def log(self, names=None, normalizer=1.0, reset=True, return_dict=False):
         """Log a group of timers."""
         if names is None:
             names = self.timers.keys()
+        name2log = {}
         assert normalizer > 0.0
         string = 'time (ms)'
         for name in names:
-            elapsed_time = self.timers[name].elapsed(
-                reset=reset) * 1000.0 / normalizer
-            string += ' | {}: {:.2f}'.format(name, elapsed_time)
-        return string
+            elapsed_time, num = self.timers[name].elapsed(reset=reset, return_num=True)
+            elapsed_time = elapsed_time * 1000.0 / normalizer
+            
+            if num >= 1:
+                avg_elapsed_time = elapsed_time / num
+                string += ' | {}: {:.2f}(avg: {:.2f})'.format(name, elapsed_time, avg_elapsed_time)
+            else:
+                string += ' | {}: {:.2f}'.format(name, elapsed_time)
+            if return_dict:
+                name2log[name] = elapsed_time
+        if return_dict:
+            return string, name2log
+        else:
+            return string

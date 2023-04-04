@@ -17,7 +17,7 @@ import torch
 
 class RLHFModule:
 
-    def __init__(self, name, args=None, rank=None):
+    def __init__(self, name, args=None, rank=None, replica_id=None):
         self.name = name
         if args is None:
             global_args = get_args()
@@ -31,9 +31,13 @@ class RLHFModule:
         self.trainable = args.trainable
         self.rlhf_args = self.global_args.rlhf_args
         self.args = args
+        self.replica_id = replica_id
         self.config_dir = args.config_dir
         self.model_args = args.model_args
-        self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
+        if self.args.num_replica > 1:
+            self._num_replica = self.args.num_replica
+        else:
+            self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
         assert self._num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
@@ -46,6 +50,7 @@ class RLHFModule:
         self._padding_config = {}
         self._storage = None
         self._timers = None
+        self.call_funcs = []
 
 
 
@@ -401,6 +406,13 @@ class RLHFModule:
         :meta private:
         """
         pass
+
+
+    def register_func(self, name):
+        """
+        register func to be called by engine
+        """
+        self.call_funcs.append(name)
 
 
 

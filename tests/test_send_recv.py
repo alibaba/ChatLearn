@@ -1,7 +1,7 @@
 
 import ray
 import torch
-
+import rlhf
 import ray.util.collective as collective
 
 
@@ -50,7 +50,7 @@ class Worker:
 
 
 if __name__ == "__main__":
-    ray.init(address="auto")
+    rlhf.init()
     num_workers = 3
     workers = []
     init_rets = []

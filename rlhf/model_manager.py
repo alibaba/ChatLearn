@@ -5,10 +5,13 @@ from rlhf import dlc_utils
 from functools import partial
 from rlhf.logger import logger
 from rlhf.storage import Storage
+from rlhf import utils
 import ray
 import time
 import ray.util.collective as col
-from collections import defaultdict
+from rlhf.decorator import timeit, preprocess_compute, monitor_error
+from rlhf.decorator import decorate_class_func
+
 
 
 class ModelManager:
@@ -86,6 +89,22 @@ class ModelManager:
         self.port_index += 1
         return port
 
+    def set_func_decorator(self, model):
+        model_cls = model.__class__
+        for func_name in model.call_funcs:
+            merge_input = func_name == "forward_step"
+            decorate_class_func(model_cls, func_name, preprocess_compute, merge_input)
+
+        for func_name in ["forward_step", "train_step",
+                          "save_checkpoint", "setup"]:
+            decorate_class_func(model_cls, func_name, timeit, func_name)
+
+        # public user function
+        # TODO: use decorator to annotate
+        for func_name in ["forward_step", "train_step",
+                          "save_checkpoint", "setup"]:
+            decorate_class_func(model_cls, func_name, monitor_error, func_name)
+
 
     def _to_dist_model(self, model):
         """
@@ -94,6 +113,7 @@ class ModelManager:
         Args:
             model: RLHFModule
         """
+        self.set_func_decorator(model)
         def actor_type():
             if isinstance(model, RLHFTorchModule):
                 return DistTorchActor
@@ -204,6 +224,7 @@ class DistModel:
         self.replicas = []
         self.name = None
         self.rank_to_actors = {}
+        self.register_serial_func()
         self.register_func()
 
 
@@ -217,11 +238,23 @@ class DistModel:
         return sum([len(dist_actor.all_actors) for dist_actor in self.replicas])
 
 
+    @property
+    def num_replica(self):
+        return len(self.replicas)
+
+
     def get_actor(self, rank):
         # given rank, return the actor
         for dist_actor in self.replicas:
             if rank in dist_actor.rank_to_actors:
                 return dist_actor.rank_to_actors[rank]
+
+
+    def register_serial_func(self):
+        for func_name in ["init"]:
+            dist_call = partial(self.call_replica_serial_func, func_name)
+            setattr(self, func_name, dist_call)
+
 
     def register_func(self):
         for func_name in ["setup",
@@ -230,7 +263,6 @@ class DistModel:
                           "validate",
                           "destroy_collective_group",
                           "terminate",
-                          "init",
                           "peak_memory"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
@@ -243,6 +275,16 @@ class DistModel:
             if ref is not None:
                 refs.append(ref)
         return refs
+    
+
+    def call_replica_serial_func(self, func, *args, **kwargs):
+        results = []
+        for dist_actor in self.replicas:
+            ref = getattr(dist_actor, func)(*args, **kwargs)
+            if ref is not None:
+                res = utils.get(ref)
+                results.append(res)
+        return results
 
     
     @property

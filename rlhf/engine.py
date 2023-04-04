@@ -31,8 +31,7 @@ class Engine:
     def setup(self):
         # include compile in init, compile dependencies need to be called serially
         for model in self.remote_models:
-            for ref in model.init():
-                utils.get(ref)
+            model.init()
         # do not include compile dependencies in setup
         refs = []
         refs_val = []
@@ -107,12 +106,17 @@ class RLHFEngine(Engine):
                  value: RLHFModule,
                  ppo_policy: RLHFModule,
                  ppo_value: RLHFModule):
+        for model in [policy, reference, reward, value]:
+            model.register_func("forward_step")
+        for model in [ppo_policy, ppo_value]:
+            model.register_func("train_step")
         super().__init__(policy, reference, reward, value, ppo_policy, ppo_value)
         policy, reference, reward, value, ppo_policy, ppo_value = self.remote_models
-        self.envs = self.create_env(policy, reference, reward, value)
+        self.env = self.create_env(policy, reference, reward, value)
         self.trainer = self.create_trainer(ppo_policy, ppo_value)
         self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = \
                 policy, reference, reward, value, ppo_policy, ppo_value
+
 
 
     def setup(self):
@@ -123,37 +127,19 @@ class RLHFEngine(Engine):
 
 
     def create_env(self, policy, reference, reward, value):
-        envs = []
-        for i in range(self.rlhf_args.num_rollout_worker):
-            env = PPOEnv(self.rlhf_args,
-                         policy.replicas[i],
-                         reference.replicas[i],
-                         reward.replicas[i],
-                         value.replicas[i],
-                         i)
-            envs.append(env)
-        return envs
+        env = PPOEnv(self.rlhf_args,
+                     policy,
+                     reference,
+                     reward,
+                     value)
+        return env
 
     def create_trainer(self, ppo_policy, ppo_value):
         return PPOTrainer(self.rlhf_args, ppo_policy.replicas[0], ppo_value.replicas[0])
 
 
     def set_dataset(self, dataset, drop_last=False):
-        # TODO: compare with use only master dataloader
-        data_len = len(dataset)
-        indices = utils.split_index(data_len, self.rlhf_args.num_rollout_worker)
-
-        for i, (start, end) in enumerate(indices):
-            data_part = dataset[start:end]
-            drop_len = len(data_part) % self.rlhf_args.generation_batch_size
-            if drop_len:
-                if drop_last:
-                    data_part = data_part[:-drop_len]
-                else:
-                    wrap_len = self.rlhf_args.generation_batch_size - drop_len
-                    data_part = data_part + data_part[:wrap_len]
-                assert len(data_part) % self.rlhf_args.generation_batch_size == 0
-            self.envs[i].set_dataset(data_part)
+        self.env.set_dataset(dataset, drop_last)
 
 
     def set_trainer(self, trainer):
@@ -161,13 +147,20 @@ class RLHFEngine(Engine):
         return self
 
 
+    def logging_summary(self, iteration):
+        super().logging_summary()
+        episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
+        logger.info(f"{LOG_START} RLHF episode summary episode iteration {iteration} {episode_str}")
+        self.episode_stats = episode_stats
+        return episode_stats
+
+
     def learn(self):
         self.timers("rlhf").start()
         self.timers("setup").start()
         self.setup()
         self.trainer.setup()
-        for env in self.envs:
-            env.setup()
+        self.env.setup()
         self.timers("setup").stop()
         logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
@@ -175,13 +168,11 @@ class RLHFEngine(Engine):
         for ppo_iter in range(self.rlhf_args.num_ppo_episode):
             self.timers("episode").start()
             self.before_episode()
-            queue = Queue()
             logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode}")
-            for i in range(self.rlhf_args.num_rollout_worker):
-                self.envs[i].make_experiences(queue)
+            queue = self.env.make_experiences()
             ppo_data_loader = StreamDataset.remote(queue, self.rlhf_args.sample_per_episode,
                                                    self.rlhf_args.train_micro_batch_size,
-                                                   self.envs[0]._padding_config, cache=True)
+                                                   self.env._padding_config, cache=True)
             self.trainer.set_data_loader(ppo_data_loader)
             logger.info(f"set dataloader for environment done")
             self.trainer.train(ppo_iter)
@@ -192,8 +183,7 @@ class RLHFEngine(Engine):
             logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode} parameter sync done")
             self.after_episode()
             self.timers("episode").stop()
-            self.logging_summary()
-            logger.info(f"{LOG_START} RLHF episode summary episode iteration {ppo_iter} {self.timers.log(names=['episode', 'sync_parameters'])}")
+            self.logging_summary(ppo_iter)
         self.timers("rlhf").stop()
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
         logger.info("train rlhf done")

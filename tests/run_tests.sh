@@ -3,6 +3,7 @@ set -exo pipefail
 export PYTHONPATH=$(cd ../ && pwd)
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
+rm -rf core*
 MAX_GRAPH_SIZE=500
 GRAPH_CHECK_FREQUENCY=100
 VERBOSITY=2
@@ -34,14 +35,18 @@ function run_test {
 
 
 function run_all_tests {
+  run_test python test_timers.py
+  run_test python test_rlhf_no_replica.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_replica2.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_rollout.py -c "configs/rlhf.yaml"
+  run_test python test_send_recv.py
+  run_test python test_rlhf_replica.py -c "configs/rlhf.yaml"
   run_test python test_rlhf.py -c "configs/rlhf.yaml"
   run_test python test_args.py -c "configs/exp.yaml"
   run_test python test_utils.py
   run_test python test_distactor.py -c "configs/exp.yaml"
   run_test python test_placement.py -c "configs/exp.yaml"
   run_test python test_placement_colocate.py -c "configs/exp.yaml"
-  run_test python test_send_recv.py
-  run_test python test_timers.py
 }
 
 if [ "$LOGFILE" != "" ]; then

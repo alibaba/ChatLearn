@@ -7,5 +7,5 @@ policy = GPTMegatron("ppo_policy")
 engine = Engine(policy)
 
 engine.setup()
-res = engine.models[0].train()
+res = engine.models[0].replicas[0].train()
 rlhf.get(res)

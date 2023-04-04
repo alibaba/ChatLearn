@@ -91,7 +91,7 @@ def parse_args():
                                      allow_abbrev=False)
 
     parser.add_argument("-c", "--config",
-                        required=True,
+                        required=False,
                         help="where to load YAML configuration",
                         metavar="FILE")
 
@@ -100,6 +100,9 @@ def parse_args():
     if args.config:
         config_dir = os.path.dirname(args.config)
         args_yaml = parse_args_from_yaml(args.config, config_dir)
+    else:
+        config_dir = None
+        args_yaml = None
     config = Config(args_yaml, config_dir)
     return config
 
@@ -150,6 +153,8 @@ class ModelConfig(BaseConfig):
     model_type = ""
     #: [optional] placeholder for other args
     model_args = {}
+    #: [optional] number of worker to replicate models
+    num_replica = 1
 
 
 class RLHFConfig:
@@ -239,10 +244,11 @@ class Config(BaseConfig):
     self.config_dir = config_dir
 
     self.initialized = False
-
-    self._parse_params(param_dict)
+    if param_dict:
+        self._parse_params(param_dict)
+        self._validate_params()
     self._finalize = True
-    self._validate_params()
+
 
   def _parse_params(self, param_dict):
     """Parse params from param_dict."""
@@ -307,3 +313,6 @@ class Config(BaseConfig):
       
       for name, model_args in self.models.items():
           assert model_args.gpu_per_process <= model_args.num_device
+          if model_args.num_replica > 1:
+              assert self.rlhf_args.num_rollout_worker == 1, \
+                    f"do not support setting both num_rollout_worker({self.rlhf_args.num_rollout_worker}) and model num_replica(model_args.num_replica)"

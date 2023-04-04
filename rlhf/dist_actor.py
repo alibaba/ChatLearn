@@ -9,82 +9,13 @@ from functools import partial
 from rlhf import dlc_utils
 from rlhf.logger import logger
 from rlhf import utils
+import time
+import datetime
+# TODO: remove this import later
+from rlhf.decorator import to_device
 
 
 RAY_REMOTE = "remote"
-
-
-def is_tensor(data):
-    return isinstance(data, torch.Tensor)
-
-
-def to_device(device, args):
-    if isinstance(args, (list, tuple)):
-        args = type(args)(to_device(device, arg) for arg in args)
-    elif isinstance(args, dict):
-        for key, value in args.items():
-            args[key] = to_device(device, value)
-    elif isinstance(args, torch.Tensor):
-        args = args.to(device)
-    return args
-
-
-def monitor_error(func):
-
-    def inner(self, *args, **kwargs):
-        try:
-            return func(self, *args, **kwargs)
-        except Exception as e:
-            logger.exception(f"catch exception ========= in {self.name} {e}, {traceback.format_exc()}")
-            ray.get(self.error_signal.set.remote())
-            raise
-    return inner
-
-
-def timeit(func, func_name):
-
-    def inner(self, *args, **kwargs):
-        if self.rank == 0:
-            # for the class inherited from base, it may call multiple times, so use the first start time
-            if not self.timers(func_name).started_:
-                self.timers(func_name).start()
-            ret = func(self, *args, **kwargs)
-            self.timers(func_name).stop()
-        else:
-            ret = func(self, *args, **kwargs)
-        return ret
-
-    return inner
-
-
-def preprocess_compute(func, merge_input):
-    """
-    1. if merge_input is True, merge a list of dict into one dict, i.e., merge inputs of forward_step.
-    2. split a list of data for data_parallel, this is used for train_step
-    3. convert output to cpu
-    """
-    def inner(self, *args, **kwargs):
-        args = utils.get(args)
-        if merge_input and len(args) > 1:
-            if all(isinstance(arg, dict) for arg in args):
-                merged = {}
-                for arg in args:
-                    merged.update(arg)
-                args = [merged]
-        if self.data_parallel_size is not None and \
-                self.data_parallel_rank is not None and \
-                self.data_parallel_size > 1:
-            data_list = args[0]
-            assert isinstance(data_list, list)
-            start_idx, end_idx = utils.split_index(len(data_list), self.data_parallel_size)[self.data_parallel_rank]
-            args = list(args)
-            sub_data_list = data_list[start_idx: end_idx]
-            args[0] = sub_data_list
-        ret = func(self, *args, **kwargs)
-        ret = to_device('cpu', ret)
-        return ret
-
-    return inner
 
 
 class DistActor:
@@ -106,28 +37,11 @@ class DistActor:
         self.name = self.model.name
         self.error_signal = error_signal
         self.storage = storage
-        self.set_device_converter()
         # ranks for model update
         self.all_ranks = None
         self._init_done = False
         self._placement_group = None
         self.rank_to_actors = {}
-
-
-    def set_device_converter(self):
-        model_cls = self.model.__class__
-        for func_name in ["forward_step", "train_step"]:
-            merge_input = func_name == "forward_step"
-            func = getattr(model_cls, func_name)
-            setattr(model_cls, func_name, preprocess_compute(func, merge_input))
-
-        for func_name in ["forward_step", "train_step",
-                          "save_checkpoint", "setup"]:
-            func = getattr(model_cls, func_name)
-            setattr(model_cls, func_name, timeit(func, func_name))
-
-        for func_name, func in inspect.getmembers(model_cls, predicate=inspect.isfunction):
-            setattr(model_cls, func_name, monitor_error(func))
 
 
     @property
@@ -178,7 +92,7 @@ class DistActor:
             )
         actor = ray.remote(num_gpus=num_gpus)(self.model.__class__) \
                    .options(scheduling_strategy=scheduling_strategy) \
-                   .remote(self.model.name, self.model.global_args, rank)
+                   .remote(self.model.name, self.model.global_args, rank, self.replica_id)
         actor.set_error_signal.remote(self.error_signal)
         actor.set_storage.remote(self.storage)
         self.all_actors.append(actor)

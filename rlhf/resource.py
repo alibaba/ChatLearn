@@ -16,6 +16,7 @@ class ResourceManager:
         self.gpu_per_node = int(resource['GPU'])
         self.cpu_per_node = int(resource['CPU'])
 
+
     def create_placement_group(self, model, strategy="PACK"):
         """
         create resource placement group given model device args
