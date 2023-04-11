@@ -50,6 +50,7 @@ class RLHFModule:
         self._padding_config = {}
         self._storage = None
         self._timers = None
+        self._data_iter = None
         self.call_funcs = []
 
 

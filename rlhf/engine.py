@@ -192,43 +192,30 @@ class RLHFEngine(Engine):
 
 class EvalEngine(Engine):
 
-    def __init__(self, policy, reward):
-        super().__init__(policy, reward)
-        policy, reward = self.remote_models
-        evaluators = []
-        for i in range(self.rlhf_args.num_rollout_worker):
-            evaluator = Evaluator(self.rlhf_args,
-                                  policy.replicas[i],
-                                  reward.replicas[i],
-                                  i)
-            evaluators.append(evaluator)
-        self.evaluators = evaluators
+    def __init__(self, models):
+        if not isinstance(models, list):
+            models = [models]
+        super().__init__(*models)
+        self.evaluator = Evaluator(self.rlhf_args, self.remote_models)
 
 
     def set_dataset(self, dataset):
-        data_len = len(dataset)
-        indices = utils.split_index(data_len, self.rlhf_args.num_rollout_worker)
+        self.evaluator.set_dataset(dataset)
 
-        for i, (start, end) in enumerate(indices):
-            data_part = dataset[start:end]
-            self.evaluators[i].set_dataset(data_part)
 
 
     def register_func(self, model_name, func_name):
         """
         register eval func for certain model, the default eval func is eval_step
         """
-        for evaluator in self.evaluators:
-            evaluator.register_func(model_name, func_name)
+        self.evaluator.register_func(model_name, func_name)
 
 
     def eval(self):
         self.setup()
-        for evaluator in self.evaluators:
-            evaluator.setup()
+        self.evaluator.setup()
         queue = Queue()
-        for evaluator in self.evaluators:
-            evaluator.eval(queue)
+        self.evaluator.eval(queue)
         # end of evaluation
         queue.put(None)
         return queue

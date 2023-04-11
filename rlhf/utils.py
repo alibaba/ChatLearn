@@ -4,6 +4,7 @@ import socket
 import ast
 import textwrap
 import ray
+import torch
 
 
 def get_attributes(cls):
@@ -108,3 +109,21 @@ def split_index(length, num_splits):
 
     # Return the list of indices
     return indices
+
+
+def to_device(device, args):
+    """
+    Convert args to device recursively
+
+    Args:
+        device: gpu/cpu
+        args: args to be converted
+    """
+    if isinstance(args, (list, tuple)):
+        args = type(args)(to_device(device, arg) for arg in args)
+    elif isinstance(args, dict):
+        for key, value in args.items():
+            args[key] = to_device(device, value)
+    elif isinstance(args, torch.Tensor):
+        args = args.to(device)
+    return args

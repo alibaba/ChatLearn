@@ -95,7 +95,9 @@ class PPOEnv(BaseEnv):
 
         mb0, data0 = self.decode_data(queue0.get())
         if isinstance(data0, list):
-            assert len(data0, 1)
+            # if model has multiple actors, just use the first one
+            # TODO: this can be optimized, since only the first return is needed
+            # TODO: optimize in forward_step/train_step
             data0 = data0[0]
         data_list = [data0]
         for index, queue in enumerate(queues[1:]):
@@ -108,7 +110,6 @@ class PPOEnv(BaseEnv):
                 encoded_data = queue.get()
                 mb, data = self.decode_data(encoded_data)
                 if isinstance(data, list):
-                    assert len(data, 1)
                     data = data[0]
                 if mb == mb0:
                     data_list.append(data)
@@ -128,7 +129,7 @@ class PPOEnv(BaseEnv):
         return next(self.model2iter[model])
 
 
-    def generate_step_one_model(self, model, in_queue, out_queue):
+    def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
         """
         Args:
             model: DistModel
@@ -142,12 +143,12 @@ class PPOEnv(BaseEnv):
         else:
             data = in_queue.get()
         mb, query = self.decode_data(data)
+        func = getattr(replica, func_name)
         if isinstance(query, list):
-            output = replica.forward_step(*query)
+            output = func(*query)
         else:
-            output = replica.forward_step(query)
+            output = func(query)
         if isinstance(output, list):
-            assert len(output) == 1
             output = output[0]
         if isinstance(out_queue, list):
             for oq in out_queue:

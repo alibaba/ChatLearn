@@ -119,6 +119,7 @@ def start_exit_listener():
                 # log per one hour
                 if counter % 720 == 0:
                     logger.info("worker is listening to head")
+                    subprocess.run("ray status", shell=True)
                 counter += 1
             except ValueError:
                 if head_created:

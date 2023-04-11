@@ -7,21 +7,6 @@ from rlhf import utils
 
 
 
-def is_tensor(data):
-    return isinstance(data, torch.Tensor)
-
-
-def to_device(device, args):
-    if isinstance(args, (list, tuple)):
-        args = type(args)(to_device(device, arg) for arg in args)
-    elif isinstance(args, dict):
-        for key, value in args.items():
-            args[key] = to_device(device, value)
-    elif isinstance(args, torch.Tensor):
-        args = args.to(device)
-    return args
-
-
 def monitor_error(func, func_name):
 
     def inner(self, *args, **kwargs):
@@ -75,7 +60,7 @@ def preprocess_compute(func, merge_input):
             sub_data_list = data_list[start_idx: end_idx]
             args[0] = sub_data_list
         ret = func(self, *args, **kwargs)
-        ret = to_device('cpu', ret)
+        ret = utils.to_device('cpu', ret)
         return ret
 
     return inner
