@@ -108,33 +108,31 @@ def parse_args():
 
 
 class BaseConfig(object):
-  """Base class includes some common format functions."""
+    """Base class includes some common format functions."""
 
-  def __init__(self):
-    self._finalize = True
-
-  def __str__(self):
-    members = [attr for attr in dir(self) \
-        if not callable(getattr(self, attr)) and not attr.startswith("__")]
-    ser_str = self.__class__.__name__ + " {\n"
-    for key in members:
-      if key.startswith('_'):
-        continue
-      attr = getattr(self, key)
-      attr = '"{}"'.format(attr) if isinstance(attr, str) else attr
-      ser_str += "    %s = %s,\n" % (key, attr)
-    ser_str += "}"
-
-    return ser_str
-
-  def __repr__(self):
-    return self.__str__()
-
-  def __setattr__(self, name, value):
-    """Avoid adding new attributes by users."""
-    if name != "_finalize" and self._finalize and not hasattr(self, name):
-      raise AttributeError('{} instance has no attribute {!r}'.format(type(self).__name__, name))
-    super(BaseConfig, self).__setattr__(name, value)
+    def __init__(self):
+        self._finalize = True
+  
+    def __str__(self):
+        members = [attr for attr in dir(self) \
+            if not callable(getattr(self, attr)) and not attr.startswith("__")]
+        ser_str = self.__class__.__name__ + " {\n"
+        for key in members:
+            if key.startswith('_'):
+                continue
+            attr = getattr(self, key)
+            attr = '"{}"'.format(attr) if isinstance(attr, str) else attr
+            ser_str += "    %s = %s,\n" % (key, attr)
+        ser_str += "}"
+    
+        return ser_str
+  
+    def __repr__(self):
+       return self.__str__()
+  
+  
+    def validate(self):
+        pass
 
 
 class ModelConfig(BaseConfig):
@@ -157,7 +155,7 @@ class ModelConfig(BaseConfig):
     num_replica = 1
 
 
-class RLHFConfig:
+class RLHFConfig(BaseConfig):
  
     #: [optional] number of inference concurrent workers, if `num_rollout_worker` > 1, then apply data parallel for inference models. default set to 1
     num_rollout_worker = 1
@@ -173,16 +171,19 @@ class RLHFConfig:
     train_micro_batch_size = 2
     #: [required] training global batch size.
     train_global_batch_size = None
-    #: [required] save checkpoint per `save_interval` iterations.
-    save_interval = None
+    #: [required] save checkpoint per `save_episode_interval` episodes.
+    save_episode_interval = None
     #: [optional] log time and memory per `log_interval` iterations.
     log_interval = 1
     #: [required]: data_path for dataset
     data_path = None
     #: [optional]: colocate models into the same device
     colocation = []
+    #: [optional]: eval every N episode, if 0, will not eval
+    eval_episode_interval = 0
 
     def __init__(self):
+        super().__init__()
         self._args_dict = {}
 
 
@@ -198,8 +199,13 @@ class RLHFConfig:
         else:
             return self._args_dict[key]
 
+    def validate(self):
+        for key in self._args_dict:
+            if key == "save_interval":
+                raise Exception("save_interval is deprecated, please use save_episode_interval to save checkpoints") 
 
-class RuntimeEnvConfig:
+
+class RuntimeEnvConfig(BaseConfig):
     """runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""
     
     #: pip install packages
@@ -214,6 +220,7 @@ class RuntimeEnvConfig:
     excludes = []
 
     def __init__(self):
+        super().__init__()
         self._args_dict = {}
 
     def get(self, key):
@@ -286,6 +293,7 @@ class Config(BaseConfig):
         for user_attribute in user_args:
             if not hasattr(config_cls, user_attribute):
                 getattr(instance, "_args_dict")[user_attribute] = user_args[user_attribute]
+        instance.validate()
 
 
     set_param("rlhf", RLHFConfig, self.rlhf_args)

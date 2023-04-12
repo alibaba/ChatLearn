@@ -46,11 +46,13 @@ class RLHFModule:
         self._world_size = None
         self._group_name = None
         self._dataloader = None
+        self._eval_dataloader = None
         self._kl_coef = None
         self._padding_config = {}
         self._storage = None
         self._timers = None
         self._data_iter = None
+        self._eval_data_iter = None
         self.call_funcs = []
 
 
@@ -186,7 +188,7 @@ class RLHFModule:
         pass
 
 
-    def _build_dataloader(self, data, is_cycle=True):
+    def _build_dataloader(self, data, is_eval=False):
         """
         build and set the dataloader for the model
 
@@ -196,9 +198,12 @@ class RLHFModule:
         :meta private:
         """
         dataloader = self.build_dataloader(data)
-        self._dataloader = dataloader
-        self._data_iter = iter(self._dataloader)
-        if is_cycle:
+        if is_eval:
+            self._eval_dataloader = dataloader
+            self._eval_data_iter = iter(self._eval_dataloader)
+        else:
+            self._dataloader = dataloader
+            self._data_iter = iter(self._dataloader)
             self._data_iter = cycle(self._data_iter)
 
 
@@ -211,12 +216,19 @@ class RLHFModule:
         """
         pass
 
+    
+    def reset_eval_data_iter(self):
+        self._eval_data_iter = iter(self._eval_dataloader)
 
-    def next_batch(self):
+
+    def next_batch(self, is_eval=False):
         """
         :meta private:
         """
-        return next(self._data_iter)
+        if is_eval:
+            return next(self._eval_data_iter)
+        else:
+            return next(self._data_iter)
 
 
     @property

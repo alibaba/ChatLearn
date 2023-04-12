@@ -21,3 +21,6 @@ from rlhf.utils import get
 from rlhf.model_wrapper import RLHFModule
 from rlhf.model_wrapper import RLHFTorchModule
 from rlhf.model_wrapper import RLHFMegatronModule
+
+from rlhf.evaluator import Evaluator
+from rlhf.engine import RLHFEngine

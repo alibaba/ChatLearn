@@ -116,6 +116,7 @@ class RLHFEngine(Engine):
         self.trainer = self.create_trainer(ppo_policy, ppo_value)
         self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = \
                 policy, reference, reward, value, ppo_policy, ppo_value
+        self.evaluator = None
 
 
 
@@ -147,6 +148,11 @@ class RLHFEngine(Engine):
         return self
 
 
+    def set_evaluator(self, evaluator):
+        self.evaluator = evaluator
+        self.evaluator.update_models(self.remote_models)
+
+
     def logging_summary(self, iteration):
         super().logging_summary()
         episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
@@ -161,6 +167,8 @@ class RLHFEngine(Engine):
         self.setup()
         self.trainer.setup()
         self.env.setup()
+        if self.evaluator:
+            self.evaluator.setup()
         self.timers("setup").stop()
         logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
@@ -184,10 +192,36 @@ class RLHFEngine(Engine):
             self.after_episode()
             self.timers("episode").stop()
             self.logging_summary(ppo_iter)
+            self.save_checkpoint(ppo_iter)
+            self.evaluate(ppo_iter)
+
+
         self.timers("rlhf").stop()
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
         logger.info("train rlhf done")
         self.model_manager.clean()
+
+
+    def save_checkpoint(self, ppo_iter):
+        if self.rlhf_args.save_episode_interval and \
+                (ppo_iter + 1) % self.rlhf_args.save_episode_interval == 0:
+            ref0 = self.ppo_policy.replicas[0].save_checkpoint(self.trainer.iteration)
+            ref1 = self.ppo_value.replicas[0].save_checkpoint(self.trainer.iteration)
+            ray.get(ref0+ref1)
+            logger.info(f"save checkpoint episode {ppo_iter}, train iteration {self.trainer.iteration} done")
+
+
+    def evaluate(self, ppo_iter):
+
+        if self.evaluator is not None and \
+                self.rlhf_args.eval_episode_interval and \
+                (ppo_iter + 1) % self.rlhf_args.eval_episode_interval == 0:
+            logger.info(f"start evaluate")
+            self.timers("evaluate").start()
+            self.evaluator.eval(ppo_iter, self.trainer.iteration)
+            self.timers("evaluate").stop()
+            super().logging_summary()
+            logger.info(f"evaluate done {self.timers.log(names=['evaluate'])}")
 
 
 class EvalEngine(Engine):
@@ -196,12 +230,11 @@ class EvalEngine(Engine):
         if not isinstance(models, list):
             models = [models]
         super().__init__(*models)
-        self.evaluator = Evaluator(self.rlhf_args, self.remote_models)
+        self.evaluator = Evaluator(self.remote_models, self.rlhf_args)
 
 
     def set_dataset(self, dataset):
         self.evaluator.set_dataset(dataset)
-
 
 
     def register_func(self, model_name, func_name):
@@ -214,8 +247,5 @@ class EvalEngine(Engine):
     def eval(self):
         self.setup()
         self.evaluator.setup()
-        queue = Queue()
-        self.evaluator.eval(queue)
-        # end of evaluation
-        queue.put(None)
+        queue = self.evaluator.eval()
         return queue

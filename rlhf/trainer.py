@@ -66,7 +66,3 @@ class PPOTrainer(BaseTrainer):
                     self.train_step(train_data, train_info)
                     self.iteration += 1
                     logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
-                if self.args.save_interval is not None and self.iteration % self.args.save_interval == 0:
-                    ref0 = self.ppo_policy_model.save_checkpoint(self.iteration)
-                    ref1 = self.ppo_value_model.save_checkpoint(self.iteration)
-                    ray.get(ref0+ref1)
