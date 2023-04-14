@@ -190,4 +190,7 @@ class PPOEnv(BaseEnv):
             data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue)
             mb, data = self.decode_data(data)
             out_queue.put(data)
+        for policy in self.policy.replicas:
+            ref = policy.master.add_step.remote(self.batch_per_episode)
+            utils.get(ref)
         return out_queue

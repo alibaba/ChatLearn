@@ -47,4 +47,4 @@ rlhf:
     num_ppo_episode: 2
     sample_per_episode: 16
     num_training_epoch: 1
-    save_interval: 200
+    save_episode_interval: 200

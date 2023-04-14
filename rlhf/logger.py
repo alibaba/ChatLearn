@@ -1,4 +1,5 @@
 import logging
+import torch
 
 logger = logging.getLogger("RLHF")
 
@@ -15,3 +16,10 @@ def setup_logger(log_level=None):
     return logger
 
 setup_logger()
+
+def log_rank_0(msg):
+    if torch.distributed.is_initialized():
+        if torch.distributed.get_rank() == 0:
+            logger.info(msg)
+    else:
+        logger.info(msg)

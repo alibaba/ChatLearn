@@ -11,6 +11,7 @@ from rlhf.data import StreamDataset, RLHFDataLoader
 from rlhf import utils
 from rlhf.timer import Timers
 from rlhf.evaluator import Evaluator
+from rlhf.checkpoint_manager import CheckpointManager
 
 
 LOG_START = ">>>>>>>>>>>"
@@ -117,6 +118,7 @@ class RLHFEngine(Engine):
         self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = \
                 policy, reference, reward, value, ppo_policy, ppo_value
         self.evaluator = None
+        self._start_episode = 0
 
 
 
@@ -172,8 +174,8 @@ class RLHFEngine(Engine):
         self.timers("setup").stop()
         logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
-
-        for ppo_iter in range(self.rlhf_args.num_ppo_episode):
+        self.resume_from_data_checkpoint()
+        for ppo_iter in range(self._start_episode, self.rlhf_args.num_ppo_episode):
             self.timers("episode").start()
             self.before_episode()
             logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode}")
@@ -195,19 +197,31 @@ class RLHFEngine(Engine):
             self.save_checkpoint(ppo_iter)
             self.evaluate(ppo_iter)
 
-
         self.timers("rlhf").stop()
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
         logger.info("train rlhf done")
         self.model_manager.clean()
 
 
+    def resume_from_data_checkpoint(self):
+        if self.rlhf_args.data_checkpoint_path:
+            data_ckpt_manager = CheckpointManager(self.policy.replicas[0], self.rlhf_args.data_checkpoint_path,
+                    self.rlhf_args.max_data_ckpt_nums, self.rlhf_args.load_data_checkpoint_iteration)
+            meta = data_ckpt_manager.resume_meta()
+            if meta:
+                self._start_episode = meta["episode"] + 1
+                self.trainer.iteration = meta["train_iteration"]
+        
+
     def save_checkpoint(self, ppo_iter):
         if self.rlhf_args.save_episode_interval and \
                 (ppo_iter + 1) % self.rlhf_args.save_episode_interval == 0:
             ref0 = self.ppo_policy.replicas[0].save_checkpoint(self.trainer.iteration)
             ref1 = self.ppo_value.replicas[0].save_checkpoint(self.trainer.iteration)
-            ray.get(ref0+ref1)
+            refs = [ref0, ref1]
+            for i, model in enumerate(self.policy.replicas):
+                refs.append(model.save_data_checkpoint(i, self.trainer.iteration, ppo_iter))
+            utils.get(refs)
             logger.info(f"save checkpoint episode {ppo_iter}, train iteration {self.trainer.iteration} done")
 
 

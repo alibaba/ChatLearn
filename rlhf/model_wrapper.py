@@ -12,6 +12,7 @@ from rlhf.logger import logger
 from rlhf.timer import Timers
 from itertools import cycle
 import torch
+from rlhf.checkpoint_manager import CheckpointManager
 
 
 
@@ -54,6 +55,8 @@ class RLHFModule:
         self._data_iter = None
         self._eval_data_iter = None
         self.call_funcs = []
+        self.data_ckpt_manager = None
+
 
 
 
@@ -144,6 +147,14 @@ class RLHFModule:
         pass
 
 
+    def save_data_checkpoint(self, replica_id, iteration, ppo_iter):
+        """
+        save checkpoint for dataloader
+        """
+        if self.data_ckpt_manager is not None:
+            self.data_ckpt_manager.save_checkpoint(replica_id, iteration, ppo_iter)
+
+
 
     def put(self, key, data):
         """
@@ -202,9 +213,18 @@ class RLHFModule:
             self._eval_dataloader = dataloader
             self._eval_data_iter = iter(self._eval_dataloader)
         else:
+            if self.data_ckpt_manager is None and self.rlhf_args.data_checkpoint_path is not None:
+                self.data_ckpt_manager = CheckpointManager(self, self.rlhf_args.data_checkpoint_path,
+                        self.rlhf_args.max_data_ckpt_nums, self.rlhf_args.load_data_checkpoint_iteration)
+                self.data_ckpt_manager.resume()
+            if self.data_ckpt_manager is not None:
+                dataloader = self.data_ckpt_manager.data_loader(dataloader, is_cycle=True)
+                self._data_iter = iter(dataloader)
+            else:
+                self._data_iter = iter(dataloader)
+                self._data_iter = cycle(self._data_iter)
             self._dataloader = dataloader
-            self._data_iter = iter(self._dataloader)
-            self._data_iter = cycle(self._data_iter)
+
 
 
     def build_dataloader(self, data):
@@ -426,6 +446,11 @@ class RLHFModule:
         register func to be called by engine
         """
         self.call_funcs.append(name)
+
+
+    def add_step(self, step):
+        if self.data_ckpt_manager is not None:
+            self.data_ckpt_manager.add_step(step)
 
 
 
