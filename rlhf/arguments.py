@@ -190,6 +190,8 @@ class RLHFConfig(BaseConfig):
     max_data_ckpt_nums = None
     #: [optional]: load data checkpoint from iteration
     load_data_checkpoint_iteration = None
+    #: [optional]: dynamic training samples
+    dynamic_train_samples = False
     #: private
     debug = False
 

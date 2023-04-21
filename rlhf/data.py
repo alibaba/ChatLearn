@@ -4,6 +4,7 @@ import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from itertools import cycle
+from rlhf.logger import log_rank_0
 
 
 def get_iter_keys(data):
@@ -69,10 +70,19 @@ class StreamDataset():
     """dataset built from queues"""
 
     def __init__(self, queue, total_samples, batch_size, padding_config={}, cache=False):
+        """
+        Args:
+            total_samples: if total_samples is 0, then this is dynamic size Dataset
+        """
         self.queue = queue
         self.total_samples = total_samples
+        if self.total_samples == 0:
+            self._dynamic_dataset = True
+            self._num_batches = 0
+        else:
+            self._dynamic_dataset = False
+            self._num_batches = math.ceil(total_samples / batch_size)
         self.batch_size = batch_size
-        self.num_batches = math.ceil(total_samples / batch_size)
         self.produce_index = 0
         self.cache = cache
         self.relay_buffer = []
@@ -90,6 +100,13 @@ class StreamDataset():
 
 
     def __iter__(self):
+        if self._dynamic_dataset:
+            return self.iter_dynamic()
+        else:
+            return self.iter_fixed()
+
+
+    def iter_fixed(self):
         self.produce_index = 0
         if len(self.relay_buffer) == self.total_samples:
             self.cache = False
@@ -99,6 +116,8 @@ class StreamDataset():
             if len(self.relay_buffer) < self.total_samples:
                 while len(self.relay_buffer) < self.total_samples and \
                         (len(self.relay_buffer) - self.produce_index) < self.batch_size:
+                    if self.queue.qsize() == 0:
+                        raise Exception("WARN: data queue is empty")
                     # get from queue
                     data = self.queue.get()
                     merged_data = {}
@@ -118,6 +137,36 @@ class StreamDataset():
             self.produce_index += len(data_to_batch)
         assert batch_count == self.num_batches
         assert self.produce_index == len(self.relay_buffer)
+
+
+    def iter_dynamic(self):
+        self.produce_index = 0
+        if self.total_samples > 0:
+            return self.iter_fixed()
+        batch_count = 0
+
+        while self.queue.qsize() > 0:
+            while self.queue.qsize() > 0 and \
+                    (len(self.relay_buffer) - self.produce_index) < self.batch_size:
+                # get from queue
+                data = self.queue.get()
+                merged_data = {}
+                for d in data:
+                    local_data = ray.get(d)
+                    merged_data.update(local_data)
+                samples = split_batch(merged_data)
+                self.relay_buffer += samples
+            start_index = self.produce_index
+            end_index = min(self.produce_index + self.batch_size, len(self.relay_buffer))
+            data_to_batch = self.relay_buffer[start_index: end_index]
+            if len(data_to_batch) < self.batch_size:
+                data_to_batch += self.relay_buffer[:self.batch_size-len(data_to_batch)]
+            batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
+            yield batched_data
+            batch_count += 1
+            self.produce_index += len(data_to_batch)
+        self.total_samples = len(self.relay_buffer)
+        self.num_batches = batch_count
 
 
     def next(self):

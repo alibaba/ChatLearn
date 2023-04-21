@@ -202,7 +202,11 @@ class RLHFEngine(Engine):
             self.before_episode()
             logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode}")
             queue = self.env.make_experiences()
-            ppo_data_loader = StreamDataset.remote(queue, self.rlhf_args.sample_per_episode,
+            if self.rlhf_args.dynamic_train_samples:
+                sample_per_episode = 0
+            else:
+                sample_per_episode = self.rlhf_args.sample_per_episode
+            ppo_data_loader = StreamDataset.remote(queue, sample_per_episode,
                                                    self.rlhf_args.train_micro_batch_size,
                                                    self.env._padding_config, cache=True)
             self.trainer.set_data_loader(ppo_data_loader)
