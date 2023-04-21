@@ -2,6 +2,8 @@ from collections import defaultdict
 from rlhf.initialize import patch_ray
 from rlhf.logger import logger
 from rlhf import utils
+from rlhf import get_args
+import threading
 import ray
 patch_ray()
 
@@ -18,7 +20,7 @@ class ParameterSyncGroup:
         self.setup_collective_group()
         self.build_rank_mapping()
 
-    
+
     def setup_collective_group(self):
         refs = []
         # we put src_model first, so we don't need to change the rank of training model
@@ -60,7 +62,11 @@ class ParameterSyncGroup:
         src_ranks = utils.get(self.src_model.replicas[0].master.get_param_ranks.remote())
         tgt_ranks = self.tgt_model.all_ranks
         if src_ranks is None or tgt_ranks is None:
-            return
+            if get_args().rlhf_args.debug:
+                return
+            else:
+                raise Exception(f"src_ranks {src_ranks} or tgt_ranks {tgt_ranks} should not be None")
+            
 
         assert len(src_ranks) % len(tgt_ranks[0]) == 0, f"src training model ranks should be times of tgt ranks, but got {len(src_ranks)}and{len(tgt_ranks[0])}"
         mapping_interval = len(src_ranks) // len(tgt_ranks[0])
@@ -70,36 +76,50 @@ class ParameterSyncGroup:
                 for j in range(i*mapping_interval, (i+1)*mapping_interval):
                     self.add_recv_actor(src_ranks[j], tgt_rank)
 
+    def sync_send_recv(self, send_actor, recv_actor):
+        rank = self.actor2rank[send_actor]
+        tgt_names = src_names = None
+
+        if len(self.send_recv_actor_mappings) > 1:
+            # TODO: make it an attribute of actor, so we can get fast
+            num_pipeline_stage = utils.get(send_actor.pipeline_model_parallel_size.remote())
+            if num_pipeline_stage > 1:
+                tgt_src_mappings = utils.get(send_actor.build_pipeline_layer_name_mapping.remote())
+                tgt_names = tgt_src_mappings.keys()
+                src_names = tgt_src_mappings.values()
+        if tgt_names is None:
+            tgt_names = src_names = utils.get(send_actor.get_parameter_names.remote())
+        
+        # TODO: optimize with coleased buffer
+        for send_name, tgt_name in zip(src_names, tgt_names):
+            # TODO: add name mapping for models with different parameter name
+            tgt_name = '.'.join(tgt_name.split('.')[1:])
+            recv_tensor_exist = utils.get(recv_actor.exist_parameter.remote(tgt_name))
+            if not recv_tensor_exist:
+                logger.info(f"recv tensor {tgt_name} not exists")
+                all_tgt_layer_names = utils.get(recv_actor.get_parameter_names.remote())
+                logger.warn(f"recv tensor {tgt_name} not exists, while recv model has following layers {all_tgt_layer_names}")
+                continue
+            send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
+            recv_ref = recv_actor.recv_parameter.remote(tgt_name, self.actor2rank[send_actor], self.group_name)
+            utils.get([send_ref, recv_ref])
+        logger.info(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
+
 
     def sync(self):
+        threads = []
+        use_threads = True
         for send_actor in self.send_recv_actor_mappings:
             recv_actors = self.send_recv_actor_mappings[send_actor]
             for recv_actor in recv_actors:
-                rank = self.actor2rank[send_actor]
-                tgt_names = src_names = None
-                if len(self.send_recv_actor_mappings) > 1:
-                    # TODO: make it an attribute of actor, so we can get fast
-                    num_pipeline_stage = utils.get(send_actor.pipeline_model_parallel_size.remote())
-                    if num_pipeline_stage > 1:
-                        tgt_src_mappings = utils.get(send_actor.build_pipeline_layer_name_mapping.remote())
-                        tgt_names = tgt_src_mappings.keys()
-                        src_names = tgt_src_mappings.values()
-                if tgt_names is None:
-                    tgt_names = src_names = utils.get(send_actor.get_parameter_names.remote())
-                
-                # TODO: optimize with coleased buffer
-                for send_name, tgt_name in zip(src_names, tgt_names):
-                    # TODO: add name mapping for models with different parameter name
-                    tgt_name = '.'.join(tgt_name.split('.')[1:])
-                    recv_tensor_exist = utils.get(recv_actor.exist_parameter.remote(tgt_name))
-                    if not recv_tensor_exist:
-                        logger.info(f"recv tensor {tgt_name} not exists")
-                        all_tgt_layer_names = utils.get(recv_actor.get_parameter_names.remote())
-                        logger.warn(f"recv tensor {tgt_name} not exists, while recv model has following layers {all_tgt_layer_names}")
-                        continue
-
-                    send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
-                    recv_ref = recv_actor.recv_parameter.remote(tgt_name, self.actor2rank[send_actor], self.group_name)
-
-                    utils.get([send_ref, recv_ref])
+                if use_threads:
+                    thread = threading.Thread(target=self.sync_send_recv, args=(send_actor, recv_actor))
+                    threads.append(thread)
+                else:
+                    self.sync_send_recv(send_actor, recv_actor)
+        if use_threads:
+            for thread in threads:
+                thread.start()
+            for thread in threads:
+                thread.join()
         logger.info(f"sync all parameters done")

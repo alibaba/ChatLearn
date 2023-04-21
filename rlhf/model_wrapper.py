@@ -13,12 +13,12 @@ from rlhf.timer import Timers
 from itertools import cycle
 import torch
 from rlhf.checkpoint_manager import CheckpointManager
-
+from rlhf.logger import log_rank_0
 
 
 class RLHFModule:
 
-    def __init__(self, name, args=None, rank=None, replica_id=None):
+    def __init__(self, name, args=None, replica_id=0):
         self.name = name
         if args is None:
             global_args = get_args()
@@ -30,20 +30,19 @@ class RLHFModule:
         self.num_device = args.num_device
         self.gpu_per_process = args.gpu_per_process
         self.trainable = args.trainable
-        self.rlhf_args = self.global_args.rlhf_args
-        self.args = args
+        self._rlhf_args = self.global_args.rlhf_args
+        self._module_args = args
         self.replica_id = replica_id
         self.config_dir = args.config_dir
-        self.model_args = args.model_args
-        if self.args.num_replica > 1:
-            self._num_replica = self.args.num_replica
+        if args.num_replica > 1:
+            self._num_replica = args.num_replica
         else:
-            self._num_replica = self.rlhf_args.num_rollout_worker if not self.trainable else 1
+            self._num_replica = self._rlhf_args.num_rollout_worker if not self.trainable else 1
         assert self._num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
         self.error_signal = None
-        self._rank = rank
+        self._rank = None
         self._world_size = None
         self._group_name = None
         self._dataloader = None
@@ -56,8 +55,23 @@ class RLHFModule:
         self._eval_data_iter = None
         self.call_funcs = []
         self.data_ckpt_manager = None
+        self._peak_memory = 0
+        self._return_rlhf_data = self._module_args.return_rlhf_data
 
 
+
+    @property
+    def rlhf_args(self):
+        return self._rlhf_args
+
+
+    @property
+    def model_args(self):
+        return self._module_args.model_args
+
+    @property
+    def module_args(self):
+        return self._module_args
 
 
     def set_env(self):
@@ -284,7 +298,7 @@ class RLHFModule:
         """
         :meta private:
         """
-        return self._param_ranks
+        pass
 
 
     @property
@@ -293,6 +307,10 @@ class RLHFModule:
         :meta private:
         """
         return self._rank
+
+
+    def get_rank(self):
+        return self.rank
 
 
     @property
@@ -454,6 +472,7 @@ class RLHFModule:
 
 
 
+
 class RLHFTorchModule(RLHFModule):
 
     def __init__(self, *args, **kwargs):
@@ -489,6 +508,7 @@ class RLHFTorchModule(RLHFModule):
         for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
             assert key in args, f"{key} is not set for RLHFTorchWrapper"
             os.environ[key] = str(args[key])
+        self._rank = int(os.environ['RANK'])
         return 1
 
 
@@ -503,7 +523,8 @@ class RLHFTorchModule(RLHFModule):
         """
         :meta private:
         """
-        return torch.cuda.max_memory_allocated() / (1024**3)
+        self._peak_memory = max(self._peak_memory, torch.cuda.max_memory_allocated() / (1024**3))
+        return self._peak_memory
 
 
     @property
@@ -516,13 +537,21 @@ class RLHFTorchModule(RLHFModule):
         pass
 
 
+    def empty_cache(self):
+        log_rank_0(f"{self.name} before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024**3)}GB")
+        torch.cuda.empty_cache()
+        torch.cuda.reset_peak_memory_stats()
+        log_rank_0(f"{self.name} after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024**3)}GB")
+
+
 class RLHFMegatronModule(RLHFTorchModule):
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if not self.trainable:
             # inference only
-            self.model_args["micro_batch_size"] = self.rlhf_args.generation_batch_size
+            self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
         else:
             self.model_args["micro_batch_size"] = self.rlhf_args.train_micro_batch_size
             self.model_args["global_batch_size"] = self.rlhf_args.train_global_batch_size
@@ -594,4 +623,17 @@ class RLHFMegatronModule(RLHFTorchModule):
             model = self.model
         name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
         return name_mapping
+    
+
+    def get_param_ranks(self):
+        """
+        :meta private:
+        """
+        if self._param_ranks is None:
+            from megatron import mpu
+            param_ranks = [ranks[0] for ranks in mpu.get_all_data_parallel_group_ranks()]
+            self.set_param_ranks(param_ranks)
+            return param_ranks
+        return self._param_ranks
+
 

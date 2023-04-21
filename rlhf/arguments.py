@@ -152,6 +152,11 @@ class ModelConfig(BaseConfig):
     model_args = {}
     #: [optional] number of worker to replicate models
     num_replica = 1
+    #: [optional] generation batch size, will overwrite generation batch size in RLHFConfig
+    generation_batch_size = -1
+    #: [optional] return rlhf data
+    return_rlhf_data = False
+
 
 
 class RLHFConfig(BaseConfig):
@@ -185,6 +190,8 @@ class RLHFConfig(BaseConfig):
     max_data_ckpt_nums = None
     #: [optional]: load data checkpoint from iteration
     load_data_checkpoint_iteration = None
+    #: private
+    debug = False
 
     def __init__(self):
         super().__init__()
@@ -267,6 +274,9 @@ class Config(BaseConfig):
             model_config.config_dir = self.config_dir
             for user_attribute, user_value in model_args.items():
                 if hasattr(ModelConfig, user_attribute):
+                    original_value = getattr(ModelConfig, user_attribute)
+                    if original_value is not None:
+                        assert type(user_value) == type(original_value), f"ModelConfig.{user_attribute} should be type of {type(original_value)} but got {type(user_value)} ({user_value})"
                     setattr(model_config, user_attribute, user_value)
                 else:
                     logger.warn(f"unknown argument {user_attribute}")
@@ -290,6 +300,10 @@ class Config(BaseConfig):
                         value = colocation_list
                 else:
                     value = default_value
+                original_value = getattr(instance, attribute)
+                if original_value is not None:
+                    assert type(original_value) == type(value), f"{instance}.{attribute} should be type of {type(original_value)} but got {type(value)}"
+                
                 setattr(instance, attribute, value)
             for user_attribute in user_args:
                 if not hasattr(config_cls, user_attribute):
@@ -322,3 +336,6 @@ class Config(BaseConfig):
             if model_args.num_replica > 1:
                 assert self.rlhf_args.num_rollout_worker == 1, \
                     f"do not support setting both num_rollout_worker({self.rlhf_args.num_rollout_worker}) and model num_replica(model_args.num_replica)"
+            if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
+                if self.rlhf_args.generation_batch_size:
+                    model_args.generation_batch_size = self.rlhf_args.generation_batch_size

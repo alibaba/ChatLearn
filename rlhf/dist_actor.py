@@ -36,6 +36,10 @@ class DistActor:
         self._placement_group = None
         self.rank_to_actors = {}
 
+    @property
+    def module_args(self):
+        return self.model.module_args
+
 
     @property
     def master(self):
@@ -78,14 +82,14 @@ class DistActor:
         return results
 
 
-    def create_actor(self, num_gpus, rank, placement_group, group_index):
+    def create_actor(self, num_gpus, placement_group, group_index):
         scheduling_strategy = PlacementGroupSchedulingStrategy(
             placement_group=placement_group,
             placement_group_bundle_index=group_index,
             )
         actor = ray.remote(num_gpus=num_gpus)(self.model.__class__) \
                    .options(scheduling_strategy=scheduling_strategy) \
-                   .remote(self.model.name, self.model.global_args, rank, self.replica_id)
+                   .remote(self.model.name, self.model.global_args, self.replica_id)
         actor.set_error_signal.remote(self.error_signal)
         actor.set_storage.remote(self.storage)
         self.all_actors.append(actor)
@@ -123,9 +127,13 @@ class DistActor:
         self._placement_group = pg
 
 
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.name})"
+
+
 class DistTorchActor(DistActor):
     
-    def reorder_actors(self, actors):
+    def reorder_actors(self, actors, revert_placement=False):
         gpu_per_node = min(self.gpu_per_node, self.model.num_device)
         ordered_actors = []
         count = 0
@@ -136,23 +144,24 @@ class DistTorchActor(DistActor):
             actor_gpus.append((actor, gpus))
             if count == gpu_per_node:
                 actor_gpus.sort(key=lambda x: x[1][0])
+                if revert_placement:
+                    actor_gpus.reverse()
                 ordered_actors += [a[0] for a in actor_gpus]
                 actor_gpus = []
                 count = 0
         return ordered_actors
 
 
-    def set_dist_env(self, actors):
-        actors = self.reorder_actors(actors)
-        master_actor = actors[0]
-        master_addr, master_port = ray.get(master_actor.get_addr_port.remote())
+    def set_dist_env(self, revert_placement=False):
+        self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
+        master_addr, master_port = ray.get(self.master.get_addr_port.remote())
         if dlc_utils.in_dlc_env():
             master_port = self.port
 
-        world_size = len(actors)
+        world_size = self.actor_num
         env_config = {"MASTER_ADDR": master_addr, "MASTER_PORT": master_port, "WORLD_SIZE": world_size}
         ret = []
-        for rank, actor in enumerate(actors):
+        for rank, actor in enumerate(self.all_actors):
             env_config["RANK"] = rank
             if self.model.gpu_per_process == 1:
                 local_rank = 0
@@ -163,7 +172,7 @@ class DistTorchActor(DistActor):
         status = sum(ray.get(ret))
         assert status == world_size
 
-    def preprocess_actors(self):
+    def preprocess_actors(self, revert_placement=False):
         super().preprocess_actors()
-        self.set_dist_env(self.all_actors)
+        self.set_dist_env(revert_placement)
         return self

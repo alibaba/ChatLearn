@@ -19,14 +19,19 @@ LOG_START = ">>>>>>>>>>>"
 class Engine:
 
     def __init__(self, *models):
-        global_args = get_args()
-        rlhf_args = global_args.rlhf_args
-        resource_manager = ResourceManager(models, rlhf_args.colocation)
-        self.model_manager = ModelManager(models, resource_manager, global_args)
+        self._models = models
+        self.global_args = get_args()
+        self.rlhf_args = self.global_args.rlhf_args
+        self.timers = Timers()
+        self._create_remote_models()
+
+
+    def _create_remote_models(self):
+        resource_manager = ResourceManager(self._models, self.rlhf_args.colocation)
+        self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
+        self.model_manager.remote()
         self.remote_models = self.model_manager.remote_models
         self.named_models = {model.name: model for model in self.remote_models}
-        self.rlhf_args = rlhf_args
-        self.timers = Timers()
 
 
     def setup(self):
@@ -111,21 +116,37 @@ class RLHFEngine(Engine):
             model.register_func("forward_step")
         for model in [ppo_policy, ppo_value]:
             model.register_func("train_step")
+        reward.module_args.return_rlhf_data = True
         super().__init__(policy, reference, reward, value, ppo_policy, ppo_value)
-        policy, reference, reward, value, ppo_policy, ppo_value = self.remote_models
-        self.env = self.create_env(policy, reference, reward, value)
-        self.trainer = self.create_trainer(ppo_policy, ppo_value)
-        self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = \
-                policy, reference, reward, value, ppo_policy, ppo_value
         self.evaluator = None
         self._start_episode = 0
+        self._dataset = None
+        self._drop_last = False
 
 
+    def _create_remote_models(self):
+        resource_manager = ResourceManager(self._models, self.rlhf_args.colocation)
+        self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
+        ppo_policy = self._models[4]
+        policy = self._models[0]
+        ppo_value = self._models[5]
+        value = self._models[3]
+        self.model_manager.set_model_sync(ppo_policy, policy)
+        self.model_manager.set_model_sync(ppo_value, value)
+        self.model_manager.remote()
+        self.remote_models = self.model_manager.remote_models
+        self.named_models = {model.name: model for model in self.remote_models}
+        self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = self.remote_models
 
+        
     def setup(self):
         super().setup()
-        self.model_manager.set_model_sync(self.ppo_policy, self.policy)
-        self.model_manager.set_model_sync(self.ppo_value, self.value)
+        self.env = self.create_env(self.policy, self.reference, self.reward, self.value)
+        self.env.set_dataset(self._dataset, self._drop_last)
+        self.trainer = self.create_trainer(self.ppo_policy, self.ppo_value)
+        if self.evaluator is not None:
+            self.evaluator.update_models(self.remote_models)
+        self.model_manager.build_parameter_group()
         self.model_manager.start_error_monitor()
 
 
@@ -137,12 +158,14 @@ class RLHFEngine(Engine):
                      value)
         return env
 
+
     def create_trainer(self, ppo_policy, ppo_value):
         return PPOTrainer(self.rlhf_args, ppo_policy.replicas[0], ppo_value.replicas[0])
 
 
     def set_dataset(self, dataset, drop_last=False):
-        self.env.set_dataset(dataset, drop_last)
+        self._dataset = dataset
+        self._drop_last = drop_last
 
 
     def set_trainer(self, trainer):
@@ -152,7 +175,6 @@ class RLHFEngine(Engine):
 
     def set_evaluator(self, evaluator):
         self.evaluator = evaluator
-        self.evaluator.update_models(self.remote_models)
 
 
     def logging_summary(self, iteration):
@@ -184,7 +206,7 @@ class RLHFEngine(Engine):
                                                    self.rlhf_args.train_micro_batch_size,
                                                    self.env._padding_config, cache=True)
             self.trainer.set_data_loader(ppo_data_loader)
-            logger.info(f"set dataloader for environment done")
+            logger.info(f"set dataloader for trainer done")
             self.trainer.train(ppo_iter)
             logger.info(f"train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode} done")
             self.timers("sync_parameters").start()

@@ -45,7 +45,7 @@ class ResourceManager:
         while self.get_placement_group_state(pg) == "PENDING":
             if warn_once:
                 logger.info(ray.experimental.state.api.list_nodes())
-                logger.info(f"waiting for placement group to be created {pg.bundle_specs}")
+                logger.info(f"waiting for placement group to be created for {model.name} {pg.bundle_specs}")
                 warn_once = False
             time.sleep(1)
         logger.info(f"create placement_group {pg.bundle_specs} for model {model.name} done")

@@ -31,7 +31,7 @@ class ModelManager:
         self.error_signal = ErrorSignalActor.remote()
         self._storage = Storage.remote()
         self.parameter_sync_groups = {}
-        self.remote()
+        self._parameter_sync_model_mapping = {}
 
     
     def remote(self) -> list:
@@ -47,6 +47,7 @@ class ModelManager:
             remote_model = self._to_dist_model(model)
             self.remote_models.append(remote_model)
             name2model[model.name] = remote_model
+        self.name2model = name2model
         
         for group in self.rlhf_args.colocation:
             colocate_models = [name2model[name] for name in group]
@@ -56,9 +57,16 @@ class ModelManager:
         for model in self.remote_models:
             if model.name not in remote_states:
                 self.place_models_to_remote_devices([model])
-
         self.converted = True
         return self.remote_models
+
+
+    def build_parameter_group(self):
+        # set ParameterSyncGroup
+        for src_model, dst_model in self._parameter_sync_model_mapping.items():
+            group_name = self._get_group_name(src_model, dst_model)
+            sync_group = ParameterSyncGroup(self.name2model[src_model.name], self.name2model[dst_model.name], group_name)
+            self.parameter_sync_groups[group_name] = sync_group
 
 
     def start_error_monitor(self):
@@ -66,17 +74,16 @@ class ModelManager:
         self.error_monitor = ErrorMonitor.remote(self.error_signal, self.remote_models, group_names)
         self.error_monitor.monitor.remote()
 
+    def _get_group_name(self, src_model, dst_model):
+        return src_model.name + dst_model.name
+        
 
     def set_model_sync(self, src_model, tgt_model):
-        group_name = ""
-        for model in [src_model, tgt_model]:
-            tag = model.name
-            group_name += tag
+        group_name = self._get_group_name(src_model, tgt_model)
         if group_name in self.parameter_sync_groups:
             logger.warn(f"{group_name} already set, ignore")
         else:
-            sync_group = ParameterSyncGroup(src_model, tgt_model, group_name)
-            self.parameter_sync_groups[group_name] = sync_group
+            self._parameter_sync_model_mapping[src_model] = tgt_model
 
 
     def sync_parameters(self):
@@ -144,6 +151,18 @@ class ModelManager:
             self.place_replica_to_remote_devices([m.replicas[replica_id] for m in models])
 
 
+    def _find_models_to_revert(self, models):
+        if len(models) < 2:
+            return []
+        model_names = [model.name for model in models]
+        models_to_revert = []
+        for model in models:
+            for src, tgt in self._parameter_sync_model_mapping.items():
+                if src.name in model_names and model.name == tgt.name:
+                    models_to_revert.append(model)
+        return models_to_revert
+
+
     def place_replica_to_remote_devices(self, models):
         """
         Args:
@@ -163,14 +182,22 @@ class ModelManager:
         num_actors = num_device // gpu_per_process
         num_actors = max(num_actors, 1)
         num_gpus = gpu_per_process / len(models)
-        
+
         for i in range(num_actors):
             group = i // gpu_per_node
             for model in models:
                 # put actor to corresponding bundle
-                model.create_actor(num_gpus, i, placement_group, group)
+                model.create_actor(num_gpus, placement_group, group)
+        models_to_revert = self._find_models_to_revert(models)
         for model in models:
-            model.preprocess_actors()
+            if model in models_to_revert:
+                # Reverse the placement of tgt models, so that shared models not in the same GPU
+                # NCCL limit: NCCL WARN Duplicate GPU detected : rank 1 and rank 0 both on CUDA device
+                # TODO: One GPU task still not work
+                reverse_device_placement = True
+            else:
+                reverse_device_placement = False
+            model.preprocess_actors(reverse_device_placement)
 
 
     def clean(self):
@@ -234,6 +261,12 @@ class DistModel:
 
 
     @property
+    def module_args(self):
+        return self.replicas[0].module_args
+
+
+
+    @property
     def actor_num(self):
         return sum([len(dist_actor.all_actors) for dist_actor in self.replicas])
 
@@ -263,7 +296,8 @@ class DistModel:
                           "validate",
                           "destroy_collective_group",
                           "terminate",
-                          "peak_memory"]:
+                          "peak_memory",
+                          "empty_cache"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 
@@ -290,3 +324,7 @@ class DistModel:
     @property
     def all_ranks(self):
         return [dist_actor.all_ranks for dist_actor in self.replicas]
+
+
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.name})"

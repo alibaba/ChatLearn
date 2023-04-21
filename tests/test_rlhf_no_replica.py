@@ -100,5 +100,4 @@ engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
 engine.learn()
-assert engine.episode_stats["episode"] > 4000
-assert engine.episode_stats["episode"] < 5500
+

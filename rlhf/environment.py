@@ -1,10 +1,10 @@
 import math
 import ray
 from rlhf.logger import logger
-from rlhf.utils import split_index
 from rlhf import utils
 from ray.util.queue import Queue
 from itertools import cycle
+from tqdm import tqdm
 
 
 class BaseEnv:
@@ -25,8 +25,8 @@ class PPOEnv(BaseEnv):
         self.value = value
         self.num_rollout_worker = args.num_rollout_worker
         self.remote_models = [policy, reference, reward, value]
-        self.batch_size = args.generation_batch_size
-        assert self.sample_per_episode % self.batch_size == 0, "currently sample_per_episode should be times of generation_batch_size"
+        self.batch_size = self.policy.module_args.generation_batch_size
+        assert self.sample_per_episode % self.batch_size == 0, f"currently sample_per_episode {self.sample_per_episode} should be times of generation_batch_size {self.batch_size}"
         self.batch_per_episode = math.ceil(self.sample_per_episode / self.batch_size)
         self._dataset = None
         self.data_iter = None
@@ -62,14 +62,14 @@ class PPOEnv(BaseEnv):
 
         for i, (start, end) in enumerate(indices):
             data_part = dataset[start:end]
-            drop_len = len(data_part) % self.args.generation_batch_size
+            drop_len = len(data_part) % self.batch_size
             if drop_len:
                 if drop_last:
                     data_part = data_part[:-drop_len]
                 else:
-                    wrap_len = self.args.generation_batch_size - drop_len
+                    wrap_len = self.batch_size - drop_len
                     data_part = data_part + data_part[:wrap_len]
-                assert len(data_part) % self.args.generation_batch_size == 0
+                assert len(data_part) % self.batch_size == 0
             self._dataset.append(data_part)
 
 
@@ -120,6 +120,13 @@ class PPOEnv(BaseEnv):
             return self.encode_data(mb0, data_list)
         return data_list
 
+    def get_all_merged_data(self, queues, out_queue, encode=True):
+        queue0 = queues[0]
+        while queue0.qsize() > 0:
+            res = self.get_merged_data(queues, encode)
+            out_queue.put(res)
+
+
 
     def _get_model(self, model):
         if len(model.replicas) == 1:
@@ -129,7 +136,7 @@ class PPOEnv(BaseEnv):
         return next(self.model2iter[model])
 
 
-    def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
+    def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step", sync=False):
         """
         Args:
             model: DistModel
@@ -150,6 +157,10 @@ class PPOEnv(BaseEnv):
             output = func(query)
         if isinstance(output, list):
             output = output[0]
+        encoded_data = self.encode_data(mb, output)
+        if sync:
+            # TODO: optimize sync with only one signal
+            data = utils.get(encoded_data)
         if isinstance(out_queue, list):
             for oq in out_queue:
                 oq.put(self.encode_data(mb, output))
@@ -158,6 +169,13 @@ class PPOEnv(BaseEnv):
         return out_queue
 
 
+    def generate_loop_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
+        for mb in tqdm(range(self.batch_per_episode), desc=f"{model.name} {func_name}"):
+            self.generate_step_one_model(model, in_queue, out_queue, func_name, sync=True)
+        # empty cache, so that other models can use
+        refs = model.empty_cache()
+        utils.get(refs)
+
 
     def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue):
         # TODO: generate data_flow by ast parser
@@ -165,7 +183,30 @@ class PPOEnv(BaseEnv):
         self.generate_step_one_model(self.reference, policy_out_queue[0], ref_out_queue)
         self.generate_step_one_model(self.value, policy_out_queue[1], old_value_out_queue)
         self.generate_step_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue], reward_out_queue)
-        return self.get_merged_data([policy_out_queue[3], ref_out_queue[1], reward_out_queue], encode=True)
+        data = []
+        if self.policy.module_args.return_rlhf_data:
+            data.append(policy_out_queue[3])
+        if self.reference.module_args.return_rlhf_data:
+            data.append(ref_out_queue[1])
+        if self.reward.module_args.return_rlhf_data:
+            data.append(reward_out_queue)
+        return self.get_merged_data(data, encode=False)
+    
+
+    def generate_loop_sync(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, out_queue):
+        # TODO: generate data_flow by ast parser
+        self.generate_loop_one_model(self.policy, data_queue, policy_out_queue)
+        self.generate_loop_one_model(self.reference, policy_out_queue[0], ref_out_queue)
+        self.generate_loop_one_model(self.value, policy_out_queue[1], old_value_out_queue)
+        self.generate_loop_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue], reward_out_queue)
+        data = []
+        if self.policy.module_args.return_rlhf_data:
+            data.append(policy_out_queue[3])
+        if self.reference.module_args.return_rlhf_data:
+            data.append(ref_out_queue[1])
+        if self.reward.module_args.return_rlhf_data:
+            data.append(reward_out_queue)
+        return self.get_all_merged_data(data, out_queue, encode=False)
 
 
     def make_experiences(self):
@@ -181,15 +222,22 @@ class PPOEnv(BaseEnv):
         reward_out_queue = Queue()
 
         policy_iter = cycle(iter(self.policy.replicas))
+        if self.args.colocation:
+            for mb in range(self.batch_per_episode):
+                # TODO: independent data loader
+                policy = next(policy_iter)
+                query = policy.master.next_batch.remote()
+                data_queue.put(self.encode_data(mb, query))
+            self.generate_loop_sync(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue, out_queue)
+        else:
+            for mb in range(self.batch_per_episode):
+                # TODO: independent data loader
+                policy = next(policy_iter)
+                query = policy.master.next_batch.remote()
+                data_queue.put(self.encode_data(mb, query))
+                data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue)
+                out_queue.put(data)
 
-        for mb in range(self.batch_per_episode):
-            # TODO: independent data loader
-            policy = next(policy_iter)
-            query = policy.master.next_batch.remote()
-            data_queue.put(self.encode_data(mb, query))
-            data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue)
-            mb, data = self.decode_data(data)
-            out_queue.put(data)
         for policy in self.policy.replicas:
             ref = policy.master.add_step.remote(self.batch_per_episode)
             utils.get(ref)

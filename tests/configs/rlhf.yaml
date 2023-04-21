@@ -40,6 +40,7 @@ models:
         trainable: True
 
 rlhf:
+    debug: True
     num_rollout_worker: 1
     generation_batch_size: 4
     train_micro_batch_size: 5

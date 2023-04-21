@@ -59,10 +59,31 @@ class PPOTrainer(BaseTrainer):
             if epoch > 0:
                 ret = self._data_loader.shuffle.remote()
                 ray.get(ret)
-            for step in range(self.num_training_iteration):
-                train_data = self.next_batch(self.iteration)
-                if train_data:
-                    train_info = {"iteration": self.iteration}
-                    self.train_step(train_data, train_info)
-                    self.iteration += 1
-                    logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
+            if not self.args.colocation:
+                for step in range(self.num_training_iteration):
+                    train_data = self.next_batch(self.iteration)
+                    if train_data:
+                        train_info = {"iteration": self.iteration}
+                        self.train_step(train_data, train_info)
+                        self.iteration += 1
+                        logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
+            else:
+                batches = []
+                for step in range(self.num_training_iteration):
+                    train_data = self.next_batch(self.iteration)
+                    if train_data:
+                        batches.append(train_data)
+                cur_iteration = self.iteration
+                for batch in batches:
+                    train_info = {"iteration": cur_iteration}
+                    value_loss = self.ppo_value_model.train_step(batch, train_info)
+                    ray.get(value_loss)
+                    cur_iteration += 1
+                cur_iteration = self.iteration
+                for batch in batches:
+                    train_info = {"iteration": cur_iteration}
+                    policy_loss = self.ppo_policy_model.train_step(batch, train_info)
+                    ray.get(policy_loss)
+                    cur_iteration += 1
+                self.iteration = cur_iteration
+                logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
