@@ -12,6 +12,7 @@ from rlhf import utils
 from rlhf.timer import Timers
 from rlhf.evaluator import Evaluator
 from rlhf.checkpoint_manager import CheckpointManager
+import torch
 
 
 LOG_START = ">>>>>>>>>>>"
@@ -30,7 +31,7 @@ class Engine:
         resource_manager = ResourceManager(self._models, self.rlhf_args.colocation)
         self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
         self.model_manager.remote()
-        self.remote_models = self.model_manager.remote_models
+        self.remote_models = self.model_manager.dist_models
         self.named_models = {model.name: model for model in self.remote_models}
 
 
@@ -134,7 +135,7 @@ class RLHFEngine(Engine):
         self.model_manager.set_model_sync(ppo_policy, policy)
         self.model_manager.set_model_sync(ppo_value, value)
         self.model_manager.remote()
-        self.remote_models = self.model_manager.remote_models
+        self.remote_models = self.model_manager.dist_models
         self.named_models = {model.name: model for model in self.remote_models}
         self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = self.remote_models
 
@@ -198,6 +199,11 @@ class RLHFEngine(Engine):
         self.logging_memory()
         self.resume_from_data_checkpoint()
         for ppo_iter in range(self._start_episode, self.rlhf_args.num_ppo_episode):
+            if self.rlhf_args.nsys:
+                if ppo_iter == 4:
+                    torch.cuda.cudart().cudaProfilerStart()
+                if ppo_iter == 5:
+                    torch.cuda.cudart().cudaProfilerStop()
             self.timers("episode").start()
             self.before_episode()
             logger.info(f"start train ppo_iter: {ppo_iter+1}/{self.rlhf_args.num_ppo_episode}")

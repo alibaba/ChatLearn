@@ -11,7 +11,7 @@ import time
 import ray.util.collective as col
 from rlhf.decorator import timeit, preprocess_compute, monitor_error
 from rlhf.decorator import decorate_class_func
-
+from collections import defaultdict
 
 
 class ModelManager:
@@ -19,7 +19,7 @@ class ModelManager:
     def __init__(self, rlhf_models, resouce_manager, global_args):
         self.local_models = rlhf_models
         self.resouce_manager = resouce_manager
-        self.remote_models = []
+        self.dist_models = []
         self.env_args = global_args.env_args
         self.rlhf_args = global_args.rlhf_args
         self.converted = False
@@ -39,44 +39,44 @@ class ModelManager:
         convert model to remote
         """
         if self.converted:
-            return self.remote_models
+            return self.dist_models
 
-        name2model = {}
+        self._name2distmodel = {}
         remote_states = set()
         for model in self.local_models:
-            remote_model = self._to_dist_model(model)
-            self.remote_models.append(remote_model)
-            name2model[model.name] = remote_model
-        self.name2model = name2model
-        
+            dist_model = self._to_dist_model(model)
+            self.dist_models.append(dist_model)
+            self._name2distmodel[model.name] = dist_model
+
         for group in self.rlhf_args.colocation:
-            colocate_models = [name2model[name] for name in group]
+            colocate_models = [self._name2distmodel[name] for name in group]
             self.place_models_to_remote_devices(colocate_models)
             for name in group:
                 remote_states.add(name)
-        for model in self.remote_models:
+        for model in self.dist_models:
+            # place non-colocate models
             if model.name not in remote_states:
                 self.place_models_to_remote_devices([model])
         self.converted = True
-        return self.remote_models
+        return self.dist_models
 
 
     def build_parameter_group(self):
         # set ParameterSyncGroup
         for src_model, dst_model in self._parameter_sync_model_mapping.items():
             group_name = self._get_group_name(src_model, dst_model)
-            sync_group = ParameterSyncGroup(self.name2model[src_model.name], self.name2model[dst_model.name], group_name)
+            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name], group_name)
             self.parameter_sync_groups[group_name] = sync_group
 
 
     def start_error_monitor(self):
         group_names = [_ for _ in self.parameter_sync_groups.keys()]
-        self.error_monitor = ErrorMonitor.remote(self.error_signal, self.remote_models, group_names)
+        self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
 
     def _get_group_name(self, src_model, dst_model):
         return src_model.name + dst_model.name
-        
+
 
     def set_model_sync(self, src_model, tgt_model):
         group_name = self._get_group_name(src_model, tgt_model)
@@ -136,22 +136,12 @@ class ModelManager:
             dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, free_port, replica_id, self._storage)
             dist_model.add_replica(dist_actor)
         return dist_model
-    
 
-    def place_models_to_remote_devices(self, models):
+
+    def _find_param_recv_models(self, models):
         """
-        Args:
-            models: a list of DistModel
+        find models that recv parameters
         """
-        num_replica = len(models[0].replicas)
-        for model in models:
-            # TODO: relax this constraints later
-            assert num_replica == len(model.replicas)
-        for replica_id in range(num_replica):
-            self.place_replica_to_remote_devices([m.replicas[replica_id] for m in models])
-
-
-    def _find_models_to_revert(self, models):
         if len(models) < 2:
             return []
         model_names = [model.name for model in models]
@@ -163,32 +153,75 @@ class ModelManager:
         return models_to_revert
 
 
-    def place_replica_to_remote_devices(self, models):
+    def find_model_packing_strategy(self, models, total_device):
         """
-        Args:
-            models: a list of DistActor
+        Find model packing strategies that can pack all models into num_device
+        try to balance the models among devices, i.e., each device holds similar number of model parts
+        e.g., given models A:8, B:4, C:4, total_device: 8
+        then the pack strategy is [(A), (B,C)]
         """
-        num_device = models[0].num_device
-        gpu_per_process = models[0].gpu_per_process
-        gpu_per_node = self.resouce_manager.gpu_per_node
-        # create placement_group for colocation models
-        placement_group = self.resouce_manager.create_placement_group(models[0])
+        sorted_models = sorted(models, key=lambda x: x.total_device, reverse=True)
+        assert sorted_models[0].total_device <= total_device
+        final_packs = []
+        # key is the remaining device
+        unfinished_packs = defaultdict(list)
+        for model in sorted_models:
+            device = model.total_device
+            if device == total_device:
+                final_packs.append([model])
+            else:
+                if device in unfinished_packs:
+                    # find a pack
+                    packs = unfinished_packs[device].pop(0)
+                    packs.append(model)
+                    final_packs.append(packs)
+                else:
+                    near_devices = [d for d in unfinished_packs if d > device]
 
+                    if near_devices:
+                        near_device = sorted(near_devices)[0]
+                        packs = unfinished_packs[near_device].pop(0)
+                        packs.append(model)
+                        # update the remaining device number
+                        unfinished_packs[near_device - device].append(packs)
+                    else:
+                        # add model and wait for packing
+                        unfinished_packs[total_device - device].append([model])
+        for device, packs_list in unfinished_packs.items():
+            if packs_list:
+                final_packs.extend(packs_list)
+        return final_packs
+
+
+
+    def place_models_to_remote_devices(self, models):
+        max_device = max(m.total_device for m in models)
+        placement_group = self.resouce_manager.create_placement_group(max_device)
+        logger.info(f"create placement_group {placement_group.bundle_specs} for model {models} done")
         if len(models) > 1:
             for model in models:
-                assert num_device == model.num_device
-                assert gpu_per_process == model.gpu_per_process
+                # TODO: for colocate gpu_per_process > 1, support later
+                assert model.gpu_per_process == 1
+        model_packs = self.find_model_packing_strategy(models, max_device)
+        num_gpus = 1.0 / len(model_packs)
 
-        num_actors = num_device // gpu_per_process
-        num_actors = max(num_actors, 1)
-        num_gpus = gpu_per_process / len(models)
+        def _get_model_replica_from_pack(device_index, model_pack):
+            device_offset = 0
+            for model in model_pack:
+                if device_index < device_offset + model.total_device:
+                    # compute the model rank
+                    model_rank = device_index - device_offset
+                    replica_id = model_rank // model.num_device_per_replica
+                    return model.replicas[replica_id]
+                device_offset += model.total_device
 
-        for i in range(num_actors):
-            group = i // gpu_per_node
-            for model in models:
-                # put actor to corresponding bundle
-                model.create_actor(num_gpus, placement_group, group)
-        models_to_revert = self._find_models_to_revert(models)
+        # for model_pack in model_packs:
+        for i in range(max_device):
+            group = i // self.resouce_manager.gpu_per_node
+            for model_pack in model_packs:
+                replica = _get_model_replica_from_pack(i, model_pack)
+                replica.create_actor(num_gpus, placement_group, group)
+        models_to_revert = self._find_param_recv_models(models)
         for model in models:
             if model in models_to_revert:
                 # Reverse the placement of tgt models, so that shared models not in the same GPU
@@ -197,7 +230,8 @@ class ModelManager:
                 reverse_device_placement = True
             else:
                 reverse_device_placement = False
-            model.preprocess_actors(reverse_device_placement)
+            for replica in model.replicas:
+                replica.preprocess_actors(reverse_device_placement)
 
 
     def clean(self):
@@ -276,6 +310,20 @@ class DistModel:
         return len(self.replicas)
 
 
+    @property
+    def total_device(self):
+        return self.num_replica * self.replicas[0].num_device
+
+
+    @property
+    def num_device_per_replica(self):
+        return self.replicas[0].num_device
+
+    @property
+    def gpu_per_process(self):
+        return self.replicas[0].gpu_per_process
+
+
     def get_actor(self, rank):
         # given rank, return the actor
         for dist_actor in self.replicas:
@@ -328,3 +376,6 @@ class DistModel:
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'

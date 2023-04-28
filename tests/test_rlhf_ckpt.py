@@ -130,5 +130,4 @@ if run == "resume":
         fn_resume = f"data_{i}_2.pkl"
         fn = f"data_{i+4}.pkl"
         assert (data[fn_resume]['query'] == data[fn]['query']).all()
-    import pdb; pdb.set_trace()
 assert engine.trainer.iteration == 8

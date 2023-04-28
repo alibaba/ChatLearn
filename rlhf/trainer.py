@@ -1,6 +1,7 @@
 import math
 import ray
 from rlhf.logger import logger
+from rlhf import utils
 
 
 class BaseTrainer:
@@ -74,16 +75,24 @@ class PPOTrainer(BaseTrainer):
                     if train_data:
                         batches.append(train_data)
                 cur_iteration = self.iteration
+                results = []
                 for batch in batches:
                     train_info = {"iteration": cur_iteration}
                     value_loss = self.ppo_value_model.train_step(batch, train_info)
-                    ray.get(value_loss)
+                    results.append(value_loss[0])
                     cur_iteration += 1
+                utils.wait(results, "ppo_value train")
                 cur_iteration = self.iteration
+                value_cache_refs = self.ppo_value_model.empty_cache()
+                utils.get(value_cache_refs)
+                results = []
                 for batch in batches:
                     train_info = {"iteration": cur_iteration}
                     policy_loss = self.ppo_policy_model.train_step(batch, train_info)
-                    ray.get(policy_loss)
+                    results.append(policy_loss[0])
                     cur_iteration += 1
+                utils.wait(results, "ppo_policy train")
                 self.iteration = cur_iteration
+                refs = self.ppo_policy_model.empty_cache()
+                utils.get(refs)
                 logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")

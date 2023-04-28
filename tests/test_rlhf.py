@@ -92,7 +92,6 @@ assert policy.num_replica == 1
 assert reference.num_replica == 1
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
-assert len(engine.env._dataset[0]) == 36, len(engine.env._dataset[0])
-engine.set_dataset([data] * 35, drop_last=True)
-assert len(engine.env._dataset[0]) == 32, len(engine.env._dataset[0])
+
 engine.learn()
+assert len(engine.env._dataset[0]) == 36, len(engine.env._dataset[0])

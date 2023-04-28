@@ -250,7 +250,7 @@ class RLHFModule:
         """
         pass
 
-    
+
     def reset_eval_data_iter(self):
         self._eval_data_iter = iter(self._eval_dataloader)
 
@@ -623,17 +623,19 @@ class RLHFMegatronModule(RLHFTorchModule):
             model = self.model
         name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
         return name_mapping
-    
+
 
     def get_param_ranks(self):
         """
         :meta private:
         """
-        if self._param_ranks is None:
-            from megatron import mpu
-            param_ranks = [ranks[0] for ranks in mpu.get_all_data_parallel_group_ranks()]
-            self.set_param_ranks(param_ranks)
-            return param_ranks
-        return self._param_ranks
+        # TODO: remove param_ranks in user's code
+        # TODO: replace data_parallel ranks with existing methods
+        from megatron import mpu
+        param_ranks = []
+        for i in range(self.data_parallel_size):
+            param_ranks.append([ranks[i] for ranks in mpu.get_all_data_parallel_group_ranks()])
+        self.set_param_ranks(param_ranks)
+        return param_ranks
 
 

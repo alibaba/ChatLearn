@@ -5,6 +5,7 @@ import traceback
 from rlhf.logger import logger, log_rank_0
 from rlhf import utils
 from rlhf.data import create_from_type, get_iter_keys
+import torch.cuda.nvtx as nvtx
 
 
 def monitor_error(func, func_name):
@@ -22,6 +23,8 @@ def monitor_error(func, func_name):
 def timeit(func, func_name):
 
     def inner(self, *args, **kwargs):
+        if self.rlhf_args.nsys:
+            nvtx.range_push(func_name)
         if self.rank == 0:
             # for the class inherited from base, it may call multiple times, so use the first start time
             if not self.timers(func_name).started_:
@@ -30,6 +33,8 @@ def timeit(func, func_name):
             self.timers(func_name).stop()
         else:
             ret = func(self, *args, **kwargs)
+        if self.rlhf_args.nsys:
+            nvtx.range_pop()
         return ret
 
     return inner

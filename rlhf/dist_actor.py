@@ -87,8 +87,10 @@ class DistActor:
             placement_group=placement_group,
             placement_group_bundle_index=group_index,
             )
+        # use max_concurrency=1 to make sure only one task execute at one time
         actor = ray.remote(num_gpus=num_gpus)(self.model.__class__) \
-                   .options(scheduling_strategy=scheduling_strategy) \
+                   .options(scheduling_strategy=scheduling_strategy,
+                            max_concurrency=1) \
                    .remote(self.model.name, self.model.global_args, self.replica_id)
         actor.set_error_signal.remote(self.error_signal)
         actor.set_storage.remote(self.storage)
@@ -129,6 +131,9 @@ class DistActor:
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"
+    
+    def __repr__(self):
+        return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'
 
 
 class DistTorchActor(DistActor):

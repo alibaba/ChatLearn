@@ -4,7 +4,6 @@ from rlhf.logger import logger
 from rlhf import utils
 from ray.util.queue import Queue
 from itertools import cycle
-from tqdm import tqdm
 
 
 class BaseEnv:
@@ -157,21 +156,20 @@ class PPOEnv(BaseEnv):
             output = func(query)
         if isinstance(output, list):
             output = output[0]
-        encoded_data = self.encode_data(mb, output)
-        if sync:
-            # TODO: optimize sync with only one signal
-            data = utils.get(encoded_data)
         if isinstance(out_queue, list):
             for oq in out_queue:
                 oq.put(self.encode_data(mb, output))
         else:
             out_queue.put(self.encode_data(mb, output))
-        return out_queue
+        return out_queue, output
 
 
     def generate_loop_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
-        for mb in tqdm(range(self.batch_per_episode), desc=f"{model.name} {func_name}"):
-            self.generate_step_one_model(model, in_queue, out_queue, func_name, sync=True)
+        results = []
+        for mb in range(self.batch_per_episode):
+            _, data = self.generate_step_one_model(model, in_queue, out_queue, func_name, sync=True)
+            results.append(data)
+        utils.wait(results, f"{model.name} {func_name}")
         # empty cache, so that other models can use
         refs = model.empty_cache()
         utils.get(refs)
@@ -191,7 +189,7 @@ class PPOEnv(BaseEnv):
         if self.reward.module_args.return_rlhf_data:
             data.append(reward_out_queue)
         return self.get_merged_data(data, encode=False)
-    
+
 
     def generate_loop_sync(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, out_queue):
         # TODO: generate data_flow by ast parser

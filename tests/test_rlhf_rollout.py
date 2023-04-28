@@ -104,17 +104,15 @@ assert reward.num_replica == 2
 assert reference.num_replica == 2
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
-assert len(engine.env._dataset[0]) == 20, len(engine.env._dataset[0])
-assert len(engine.env._dataset[1]) == 20, len(engine.env._dataset[0])
-engine.set_dataset([data] * 35, drop_last=True)
-assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
-assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
+
 #visible_devices = engine.models[0].replicas[0].get_visible_gpus()
 for model in engine.models:
     for replica in model.replicas:
         print(model.name, replica, rlhf.get(replica.get_visible_gpus()), "====", flush=True)
 
 data = torch.ones([1024])
-engine.set_dataset([data] * 35)
+engine.set_dataset([data] * 35, drop_last=True)
 engine.learn()
 
+assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
+assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])

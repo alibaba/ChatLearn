@@ -5,6 +5,7 @@ import ast
 import textwrap
 import ray
 import torch
+from tqdm import tqdm
 
 
 def get_attributes(cls):
@@ -127,3 +128,15 @@ def to_device(device, args):
     elif isinstance(args, torch.Tensor):
         args = args.to(device)
     return args
+
+
+def wait(refs, desc=None):
+    """
+    wait until all computation finish
+    """
+    total = len(refs)
+    pbar = tqdm(total=len(refs), desc=desc)
+    while refs:
+        done, refs = ray.wait(refs)
+        pbar.update(len(done))
+    pbar.close()

@@ -4,7 +4,7 @@ from rlhf.logger import logger
 from rlhf import utils
 from rlhf import get_args
 import threading
-import ray
+from itertools import cycle
 patch_ray()
 
 
@@ -68,13 +68,16 @@ class ParameterSyncGroup:
                 raise Exception(f"src_ranks {src_ranks} or tgt_ranks {tgt_ranks} should not be None")
             
 
-        assert len(src_ranks) % len(tgt_ranks[0]) == 0, f"src training model ranks should be times of tgt ranks, but got {len(src_ranks)}and{len(tgt_ranks[0])}"
-        mapping_interval = len(src_ranks) // len(tgt_ranks[0])
+        assert len(src_ranks[0]) % len(tgt_ranks[0]) == 0, f"src training model ranks should be times of tgt ranks, but got {len(src_ranks)} and {len(tgt_ranks[0])}"
+        mapping_interval = len(src_ranks[0]) // len(tgt_ranks[0])
+
+        replica_rank_iter = cycle(iter(src_ranks))
 
         for tgt_replica_ranks in tgt_ranks:
+            src_replica_ranks = next(replica_rank_iter)
             for i, tgt_rank in enumerate(tgt_replica_ranks):
                 for j in range(i*mapping_interval, (i+1)*mapping_interval):
-                    self.add_recv_actor(src_ranks[j], tgt_rank)
+                    self.add_recv_actor(src_replica_ranks[j], tgt_rank)
 
     def sync_send_recv(self, send_actor, recv_actor):
         rank = self.actor2rank[send_actor]
@@ -98,8 +101,7 @@ class ParameterSyncGroup:
             if not recv_tensor_exist:
                 logger.info(f"recv tensor {tgt_name} not exists")
                 all_tgt_layer_names = utils.get(recv_actor.get_parameter_names.remote())
-                logger.warn(f"recv tensor {tgt_name} not exists, while recv model has following layers {all_tgt_layer_names}")
-                continue
+                raise Exception(f"recv tensor {tgt_name} not exists, while recv model has following layers {all_tgt_layer_names}")
             send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
             recv_ref = recv_actor.recv_parameter.remote(tgt_name, self.actor2rank[send_actor], self.group_name)
             utils.get([send_ref, recv_ref])

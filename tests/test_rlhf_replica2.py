@@ -97,23 +97,24 @@ ppo_value = PPOValue("ppo_value")
 
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
+#engine.setup()
+
 #assert policy.num_replica == 2
+
+data = torch.ones([1024])
+engine.set_dataset([data] * 35)
+engine.learn()
 if policy.num_replica == 2:
     assert reference.num_replica == 1
     data = torch.ones([1024])
     engine.set_dataset([data] * 35)
     assert len(engine.env._dataset[0]) == 20, len(engine.env._dataset[0])
     assert len(engine.env._dataset[1]) == 20, len(engine.env._dataset[0])
-    engine.set_dataset([data] * 35, drop_last=True)
-    assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
-    assert len(engine.env._dataset[0]) == 16, len(engine.env._dataset[0])
     visible_devices = engine.models[0].replicas[0].get_visible_gpus()
     visible_devices = rlhf.get(visible_devices)
     assert visible_devices == [[0]], visible_devices
     visible_devices = engine.models[0].replicas[1].get_visible_gpus()
     visible_devices = rlhf.get(visible_devices)
     assert visible_devices == [[1]], visible_devices
-data = torch.ones([1024])
-engine.set_dataset([data] * 35)
-engine.learn()
+
 

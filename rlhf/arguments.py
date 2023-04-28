@@ -194,6 +194,8 @@ class RLHFConfig(BaseConfig):
     dynamic_train_samples = False
     #: private
     debug = False
+    #: enable nsys nvtx
+    nsys = False
 
     def __init__(self):
         super().__init__()

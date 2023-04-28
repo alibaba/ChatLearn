@@ -27,26 +27,23 @@ class ResourceManager:
             logger.warn(f"fail to get placement_group state {e}")
 
 
-    def create_placement_group(self, model, strategy="PACK"):
+    def create_placement_group(self, num_gpus, strategy="PACK"):
         """
         create resource placement group given model device args
         """
-        num_device = model.num_device
-        if num_device <= self.gpu_per_node:
-            cpu_count = int(self.cpu_per_node * num_device / self.gpu_per_node)
-            bundles = [{"GPU": num_device, "CPU": cpu_count}]
+        if num_gpus <= self.gpu_per_node:
+            cpu_count = int(self.cpu_per_node * num_gpus / self.gpu_per_node)
+            bundles = [{"GPU": num_gpus, "CPU": cpu_count}]
         else:
-            assert num_device % self.gpu_per_node == 0
-            num_nodes = num_device // self.gpu_per_node
+            assert num_gpus % self.gpu_per_node == 0
+            num_nodes = num_gpus // self.gpu_per_node
             bundles = [{"GPU": self.gpu_per_node, "CPU": self.cpu_per_node} for _ in range(num_nodes)]
         pg = placement_group(bundles, strategy=strategy)
-        model.placement_group = pg
         warn_once = True
         while self.get_placement_group_state(pg) == "PENDING":
             if warn_once:
                 logger.info(ray.experimental.state.api.list_nodes())
-                logger.info(f"waiting for placement group to be created for {model.name} {pg.bundle_specs}")
+                logger.info(f"waiting for placement group to be created for {num_gpus}GPUs {pg.bundle_specs}")
                 warn_once = False
             time.sleep(1)
-        logger.info(f"create placement_group {pg.bundle_specs} for model {model.name} done")
         return pg

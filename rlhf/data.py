@@ -135,7 +135,7 @@ class StreamDataset():
             yield batched_data
             batch_count += 1
             self.produce_index += len(data_to_batch)
-        assert batch_count == self.num_batches
+        assert batch_count == self._num_batches
         assert self.produce_index == len(self.relay_buffer)
 
 
