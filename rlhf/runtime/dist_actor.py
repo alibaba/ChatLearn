@@ -1,12 +1,13 @@
-import ray
-from rlhf.model_wrapper import RLHFModule
-from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 import inspect
-from rlhf.utils import parse_function_args
 from functools import partial
-from rlhf import dlc_utils
 
+import ray
+from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
+from rlhf.utils import utils
+from rlhf.launcher import dlc_utils
+from rlhf.models.rlhf_module import RLHFModule
+from rlhf.utils.utils import parse_function_args
 
 RAY_REMOTE = "remote"
 
@@ -181,3 +182,105 @@ class DistTorchActor(DistActor):
         super().preprocess_actors()
         self.set_dist_env(revert_placement)
         return self
+
+
+class DistModel:
+
+    def __init__(self):
+        self.replicas = []
+        self.name = None
+        self.rank_to_actors = {}
+        self.register_serial_func()
+        self.register_func()
+
+
+    def add_replica(self, replica):
+        self.replicas.append(replica)
+        self.name = replica.name
+
+
+    @property
+    def module_args(self):
+        return self.replicas[0].module_args
+
+
+
+    @property
+    def actor_num(self):
+        return sum([len(dist_actor.all_actors) for dist_actor in self.replicas])
+
+
+    @property
+    def num_replica(self):
+        return len(self.replicas)
+
+
+    @property
+    def total_device(self):
+        return self.num_replica * self.replicas[0].num_device
+
+
+    @property
+    def num_device_per_replica(self):
+        return self.replicas[0].num_device
+
+    @property
+    def gpu_per_process(self):
+        return self.replicas[0].gpu_per_process
+
+
+    def get_actor(self, rank):
+        # given rank, return the actor
+        for dist_actor in self.replicas:
+            if rank in dist_actor.rank_to_actors:
+                return dist_actor.rank_to_actors[rank]
+
+
+    def register_serial_func(self):
+        for func_name in ["init"]:
+            dist_call = partial(self.call_replica_serial_func, func_name)
+            setattr(self, func_name, dist_call)
+
+
+    def register_func(self):
+        for func_name in ["setup",
+                          "before_episode",
+                          "after_episode",
+                          "validate",
+                          "destroy_collective_group",
+                          "terminate",
+                          "peak_memory",
+                          "empty_cache"]:
+            dist_call = partial(self.call_replica_func, func_name)
+            setattr(self, func_name, dist_call)
+
+
+    def call_replica_func(self, func, *args, **kwargs):
+        refs = []
+        for dist_actor in self.replicas:
+            ref = getattr(dist_actor, func)(*args, **kwargs)
+            if ref is not None:
+                refs.append(ref)
+        return refs
+
+
+    def call_replica_serial_func(self, func, *args, **kwargs):
+        results = []
+        for dist_actor in self.replicas:
+            ref = getattr(dist_actor, func)(*args, **kwargs)
+            if ref is not None:
+                res = utils.get(ref)
+                results.append(res)
+        return results
+
+
+    @property
+    def all_ranks(self):
+        return [dist_actor.all_ranks for dist_actor in self.replicas]
+
+
+    def __str__(self):
+        return f"{self.__class__.__name__}({self.name})"
+
+    def __repr__(self):
+        return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'

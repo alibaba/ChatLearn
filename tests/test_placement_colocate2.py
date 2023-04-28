@@ -1,9 +1,10 @@
-import torch
-from rlhf.engine import RLHFEngine
-from rlhf.model_wrapper import RLHFTorchModule
 import time
-import rlhf
 
+import torch
+
+import rlhf
+from rlhf import RLHFEngine
+from rlhf import RLHFTorchModule
 
 rlhf.init()
 

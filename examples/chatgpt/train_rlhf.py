@@ -3,9 +3,8 @@ import torch
 from gpt_megatron import GPTMegatron
 from gpt_allspark import GPTAllSpark
 import rlhf
-from rlhf.engine import RLHFEngine
+from rlhf import RLHFEngine
 from datasets import load_dataset
-from tqdm import tqdm
 from transformers import AutoTokenizer
 from torch.utils.data import Dataset
 

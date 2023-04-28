@@ -1,12 +1,13 @@
 import os
 import subprocess
 import time
-import ray
-from rlhf.global_vars import set_exit_actor
-from rlhf.global_vars import get_args
-from rlhf.logger import logger
-from rlhf import utils
 
+import ray
+
+from rlhf.utils import utils
+from rlhf.utils.global_vars import get_args
+from rlhf.utils.global_vars import set_exit_actor
+from rlhf.utils.logger import logger
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
 JOB_NAME_KEY = "JOB_NAME"

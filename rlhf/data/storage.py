@@ -1,5 +1,7 @@
 import ray
-from rlhf.logger import logger
+
+from rlhf.utils.logger import logger
+
 
 @ray.remote
 class Storage:

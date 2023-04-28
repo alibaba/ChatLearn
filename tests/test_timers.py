@@ -1,5 +1,6 @@
-from rlhf.timer import Timers
 import time
+
+from rlhf.utils.timer import Timers
 
 timers = Timers()
 timers("aaa").start()

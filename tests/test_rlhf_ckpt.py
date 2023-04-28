@@ -1,13 +1,14 @@
-import torch
-import rlhf
-from rlhf.engine import RLHFEngine
-from rlhf.model_wrapper import RLHFTorchModule
-import time
-import rlhf
 import os
+import pickle
+import time
+
+import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
-import pickle
+
+import rlhf
+from rlhf import RLHFEngine
+from rlhf import RLHFTorchModule
 
 
 class CustomDataset(Dataset):
@@ -92,7 +93,7 @@ class PPOValue(RLHFTorchModule):
         time.sleep(0.1)
         return num_mb
 
-import sys
+
 run = os.environ["RUN_FLAG"]
 
 

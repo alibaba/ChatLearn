@@ -1,12 +1,13 @@
-import torch
-import rlhf
-from rlhf.engine import RLHFEngine
-from rlhf.model_wrapper import RLHFTorchModule
 import time
-import rlhf
-import os
+
+import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
+
+import rlhf
+from rlhf import RLHFEngine
+from rlhf import RLHFTorchModule
+
 
 class CustomDataset(Dataset):
     def __init__(self, data):

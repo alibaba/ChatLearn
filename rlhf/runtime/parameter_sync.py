@@ -1,10 +1,12 @@
-from collections import defaultdict
-from rlhf.initialize import patch_ray
-from rlhf.logger import logger
-from rlhf import utils
-from rlhf import get_args
 import threading
+from collections import defaultdict
 from itertools import cycle
+
+from rlhf import get_args
+from rlhf.utils import utils
+from rlhf.launcher.initialize import patch_ray
+from rlhf.utils.logger import logger
+
 patch_ray()
 
 

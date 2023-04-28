@@ -1,6 +1,6 @@
 import torch.utils.dlpack
 from pyhie import allspark
-from rlhf.model_wrapper import RLHFModule
+from models.rlhf_module import RLHFModule
 
 
 class GPTAllSpark(RLHFModule):

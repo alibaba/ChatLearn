@@ -5,11 +5,12 @@ import os
 import pickle
 import random
 import shutil
+from itertools import cycle
 
 import numpy as np
 import torch
-from rlhf.logger import log_rank_0
-from itertools import cycle
+
+from rlhf.utils.logger import log_rank_0
 
 
 class _DataLoader:

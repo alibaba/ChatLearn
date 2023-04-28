@@ -1,19 +1,17 @@
-import ray
-from ray.util.queue import Queue
-from rlhf.model_manager import ModelManager
-from rlhf.resource import ResourceManager
-from rlhf.model_wrapper import RLHFModule
-from rlhf.environment import PPOEnv
-from rlhf.trainer import PPOTrainer
-from rlhf.global_vars import get_args
-from rlhf.logger import logger
-from rlhf.data import StreamDataset, RLHFDataLoader
-from rlhf import utils
-from rlhf.timer import Timers
-from rlhf.evaluator import Evaluator
-from rlhf.checkpoint_manager import CheckpointManager
 import torch
 
+from rlhf.utils import utils
+from rlhf.checkpoint.checkpoint_manager import CheckpointManager
+from rlhf.data.data import StreamDataset
+from rlhf.models.rlhf_module import RLHFModule
+from rlhf.runtime.environment import PPOEnv
+from rlhf.runtime.evaluator import Evaluator
+from rlhf.runtime.trainer import PPOTrainer
+from rlhf.schedule.model_manager import ModelManager
+from rlhf.schedule.resource import ResourceManager
+from rlhf.utils.global_vars import get_args
+from rlhf.utils.logger import logger
+from rlhf.utils.timer import Timers
 
 LOG_START = ">>>>>>>>>>>"
 

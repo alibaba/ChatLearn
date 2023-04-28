@@ -1,8 +1,10 @@
+import time
+
 import ray
 import ray.experimental.state.api
-from rlhf.logger import logger
 from ray.util.placement_group import placement_group
-import time
+
+from rlhf.utils.logger import logger
 
 
 class ResourceManager:

@@ -1,11 +1,11 @@
-import torch
-import time
-import ray
 import traceback
-from rlhf.logger import logger, log_rank_0
-from rlhf import utils
-from rlhf.data import create_from_type, get_iter_keys
+
+import ray
+import torch
 import torch.cuda.nvtx as nvtx
+
+from rlhf.utils import utils
+from rlhf.utils.logger import logger
 
 
 def monitor_error(func, func_name):

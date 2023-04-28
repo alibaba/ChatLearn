@@ -1,29 +1,33 @@
-import inspect
-from contextlib import closing
-import socket
 import ast
+import inspect
+import socket
 import textwrap
+from contextlib import closing
+
 import ray
 import torch
 from tqdm import tqdm
 
 
 def get_attributes(cls):
-  """Get attributes from class."""
-  return [(name, attr) for name, attr in inspect.getmembers(cls)
-          if not (name.startswith('_')) and (not callable(attr))]
+    """Get attributes from class."""
+    return [(name, attr) for name, attr in inspect.getmembers(cls)
+            if not (name.startswith('_')) and (not callable(attr))]
 
 
 def parse_function_args(func):
     args = []
+
     def parse_func_args(node):
         for argument in node.args.args:
             args.append(argument.arg)
+
     node_iter = ast.NodeVisitor()
     node_iter.visit_FunctionDef = parse_func_args
     code = textwrap.dedent(inspect.getsource(func))
     res = node_iter.visit(ast.parse(code))
     return args
+
 
 def get_return_lines(node):
     for line in node.body:
@@ -32,6 +36,7 @@ def get_return_lines(node):
     for line in node.body:
         if isinstance(line, ast.If):
             return get_return_lines(line)
+
 
 def get_return_value_num(ret):
     if isinstance(ret.value, ast.Name):
@@ -44,6 +49,7 @@ def get_return_value_num(ret):
 
 def parse_function_return_num(func):
     results = []
+
     def parse_func_return(node):
         ret = get_return_lines(node)
         return_num = 0
@@ -105,7 +111,7 @@ def split_index(length, num_splits):
         if remainder > 0:
             end += 1
             remainder -= 1
-        indices.append((start,end))
+        indices.append((start, end))
         start = end
 
     # Return the list of indices

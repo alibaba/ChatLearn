@@ -15,7 +15,8 @@
 """UT for args."""
 
 import os
-from rlhf.arguments import parse_args
+
+from rlhf.utils.arguments import parse_args
 
 
 def test_args():

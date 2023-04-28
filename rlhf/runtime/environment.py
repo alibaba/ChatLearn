@@ -1,9 +1,11 @@
 import math
-import ray
-from rlhf.logger import logger
-from rlhf import utils
-from ray.util.queue import Queue
 from itertools import cycle
+
+import ray
+from ray.util.queue import Queue
+
+from rlhf.utils import utils
+from rlhf.utils.logger import logger
 
 
 class BaseEnv:

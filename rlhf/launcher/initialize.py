@@ -1,13 +1,16 @@
 import os
-import ray
 import sys
-from rlhf import dlc_utils
-from rlhf.arguments import parse_args
-from rlhf.global_vars import set_global_variables
-from rlhf.global_vars import set_initialized
-from cupy.cuda import nccl
+
+import ray
 import torch
+from cupy.cuda import nccl
 from ray.util.collective.collective_group.nccl_util import TORCH_NCCL_DTYPE_MAP
+
+from rlhf.launcher import dlc_utils
+from rlhf.utils.arguments import parse_args
+from rlhf.utils.global_vars import set_global_variables
+from rlhf.utils.global_vars import set_initialized
+
 
 # TODO: check whether need to set here?
 def patch_ray():

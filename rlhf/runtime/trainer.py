@@ -1,7 +1,9 @@
 import math
+
 import ray
-from rlhf.logger import logger
-from rlhf import utils
+
+from rlhf.utils import utils
+from rlhf.utils.logger import logger
 
 
 class BaseTrainer:

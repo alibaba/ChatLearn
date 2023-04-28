@@ -1,6 +1,5 @@
-import re
 import functools
-
+import re
 
 # regex to parse out layer number from param name
 layer_re = re.compile('layers\.([0-9]+)')

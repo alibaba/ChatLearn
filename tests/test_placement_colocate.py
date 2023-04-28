@@ -1,11 +1,10 @@
-import torch
-import rlhf
-from rlhf.engine import Engine
-from rlhf.model_wrapper import RLHFTorchModule
 import time
-import rlhf
-import os
 
+import torch
+
+import rlhf
+from rlhf import Engine
+from rlhf import RLHFTorchModule
 
 rlhf.init()
 rlhf.get_args().models["policy"].num_device = 2

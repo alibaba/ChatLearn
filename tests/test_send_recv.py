@@ -1,14 +1,15 @@
 
 import ray
-import torch
-import rlhf
 import ray.util.collective as collective
+import torch
+
+import rlhf
 
 
 @ray.remote(num_gpus=1)
 class Worker:
     def __init__(self):
-        from rlhf.initialize import patch_ray
+        from rlhf.launcher.initialize import patch_ray
         patch_ray()
         self.send1 = torch.ones((4,), dtype=torch.bfloat16, device="cuda")
         self.send1 = torch.nn.parameter.Parameter(self.send1)

@@ -1,7 +1,7 @@
 import torch
 import rlhf
 from gpt_allspark import GPTAllSpark
-from rlhf.engine import Engine
+from rlhf import Engine
 
 rlhf.init()
 policy = GPTAllSpark("policy")

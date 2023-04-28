@@ -20,8 +20,8 @@ import os
 
 import yaml
 
-from rlhf.logger import logger
-from rlhf.utils import get_attributes
+from rlhf.utils.logger import logger
+from rlhf.utils.utils import get_attributes
 
 
 def get_path(fn, folder):

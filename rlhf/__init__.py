@@ -14,13 +14,13 @@
 # ==============================================================================
 """init"""
 
-from rlhf.initialize import init
-from rlhf.global_vars import get_args
-from rlhf.utils import get
+from rlhf.launcher.initialize import init
+from rlhf.utils.global_vars import get_args
+from rlhf.utils.utils import get
 
-from rlhf.model_wrapper import RLHFModule
-from rlhf.model_wrapper import RLHFTorchModule
-from rlhf.model_wrapper import RLHFMegatronModule
+from rlhf.models.rlhf_module import RLHFModule
+from rlhf.models.rlhf_module import RLHFTorchModule
+from rlhf.models.rlhf_module import RLHFMegatronModule
 
-from rlhf.evaluator import Evaluator
-from rlhf.engine import RLHFEngine
+from rlhf.runtime.evaluator import Evaluator
+from rlhf.runtime.engine import Engine, RLHFEngine

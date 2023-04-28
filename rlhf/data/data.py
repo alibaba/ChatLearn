@@ -1,10 +1,10 @@
-import random
 import math
+import random
+from itertools import cycle
+
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from itertools import cycle
-from rlhf.logger import log_rank_0
 
 
 def get_iter_keys(data):

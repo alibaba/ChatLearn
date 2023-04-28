@@ -1,12 +1,14 @@
 import math
-import ray
-from rlhf.environment import PPOEnv
-from rlhf import utils
-from ray.util.queue import Queue
 from itertools import cycle
-from rlhf.model_wrapper import RLHFModule
-from rlhf.global_vars import get_args
+
+import ray
+from ray.util.queue import Queue
 from tqdm import tqdm
+
+from rlhf.utils import utils
+from rlhf.models.rlhf_module import RLHFModule
+from rlhf.runtime.environment import PPOEnv
+from rlhf.utils.global_vars import get_args
 
 
 class Evaluator(PPOEnv):

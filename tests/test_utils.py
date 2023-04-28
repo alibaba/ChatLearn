@@ -16,9 +16,9 @@
 
 import unittest
 import ray
-from rlhf.utils import parse_function_return_num
-from rlhf.utils import get
-from rlhf.utils import split_index
+from rlhf.utils.utils import parse_function_return_num
+from rlhf.utils.utils import get
+from rlhf.utils.utils import split_index
 
 
 # pylint: disable=missing-class-docstring

@@ -1,5 +1,7 @@
 import time
+
 import torch
+
 
 class _Timer:
     """Timer."""
@@ -56,7 +58,7 @@ class Timers:
 
     def __init__(self):
         self.timers = {}
-    
+
     def __call__(self, name):
         if name not in self.timers:
             self.timers[name] = _Timer(name)
@@ -82,7 +84,7 @@ class Timers:
         for name in names:
             elapsed_time, num = self.timers[name].elapsed(reset=reset, return_num=True)
             elapsed_time = elapsed_time * 1000.0 / normalizer
-            
+
             if num >= 1:
                 avg_elapsed_time = elapsed_time / num
                 string += ' | {}: {:.2f}(avg: {:.2f})'.format(name, elapsed_time, avg_elapsed_time)
