@@ -23,4 +23,6 @@ from rlhf.models.rlhf_module import RLHFTorchModule
 from rlhf.models.rlhf_module import RLHFMegatronModule
 
 from rlhf.runtime.evaluator import Evaluator
-from rlhf.runtime.engine import Engine, RLHFEngine
+from rlhf.runtime.engine import Engine
+from rlhf.runtime.engine import EvalEngine
+from rlhf.runtime.engine import RLHFEngine
