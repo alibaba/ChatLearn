@@ -62,7 +62,7 @@ class ModelManager:
         # set ParameterSyncGroup
         for src_model, dst_model in self._parameter_sync_model_mapping.items():
             group_name = self._get_group_name(src_model, dst_model)
-            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name], group_name)
+            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name], group_name, self.error_signal)
             self.parameter_sync_groups[group_name] = sync_group
 
 

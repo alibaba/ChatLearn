@@ -37,9 +37,14 @@ class DistActor:
         self._placement_group = None
         self.rank_to_actors = {}
 
+
     @property
     def module_args(self):
         return self.model.module_args
+
+    @property
+    def rlhf_args(self):
+        return self.model.rlhf_args
 
 
     @property

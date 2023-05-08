@@ -15,7 +15,7 @@ def monitor_error(func, func_name):
             return func(self, *args, **kwargs)
         except Exception as e:
             logger.exception(f"catch exception ========= in {self.name} {e}, {traceback.format_exc()}")
-            ray.get(self.error_signal.set.remote())
+            ray.get(self.error_signal.set.remote(traceback.format_exc()))
             raise
     return inner
 

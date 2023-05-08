@@ -1,13 +1,16 @@
 import os
+from collections import defaultdict
 from itertools import cycle
 
 import ray
 import ray.util.collective as col
 import torch
+from tqdm import tqdm
 
 from rlhf.utils import utils
 from rlhf.checkpoint.checkpoint_manager import CheckpointManager
 from rlhf.launcher import dlc_utils
+from rlhf.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from rlhf.utils.utils import get_free_port, get_host_addr
 from rlhf.utils.global_vars import get_args
 from rlhf.utils.global_vars import set_global_variables
@@ -42,6 +45,9 @@ class RLHFModule:
         assert self._num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
+        self._param_to_name = None
+        self._parameters = None
+        self._coalesced_parameters = None
         self.error_signal = None
         self._rank = None
         self._world_size = None
@@ -58,6 +64,7 @@ class RLHFModule:
         self.data_ckpt_manager = None
         self._peak_memory = 0
         self._return_rlhf_data = self._module_args.return_rlhf_data
+        self._parameters_to_sync = defaultdict(list)
 
 
 
@@ -93,11 +100,11 @@ class RLHFModule:
         self.error_signal = error_signal
 
 
-    def error(self):
+    def error(self, error_msg=None):
         """
         :meta private:
         """
-        ray.get(self.error_signal.set.remote())
+        ray.get(self.error_signal.set.remote(error_msg))
 
 
     def init(self):
@@ -313,6 +320,23 @@ class RLHFModule:
     def get_rank(self):
         return self.rank
 
+    
+    @property
+    def parameters(self):
+        """
+        :meta private:
+        """
+        if self._parameters is None:
+            if not isinstance(self.model, list):
+                model = [self.model]
+            else:
+                model = self.model
+            self._parameters = []
+            for partition in model:
+                for item in partition.parameters():
+                    self._parameters.append(item)
+        return self._parameters
+
 
     @property
     def named_parameters(self):
@@ -330,16 +354,39 @@ class RLHFModule:
                     self._named_parameters[item[0]] = item[1]
         return self._named_parameters
 
+    @property
+    def param_to_name(self):
+        """
+        :meta private:
+        """
+        if self._param_to_name is None:
+            if not isinstance(self.model, list):
+                model = [self.model]
+            else:
+                model = self.model
+            self._param_to_name = {}
+            for partition in model:
+                for item in partition.named_parameters():
+                    self._param_to_name[item[1]] = item[0]
+        return self._param_to_name
+
+
+    def set_sync_parameters(self, trainable_param_names, pipe_stage=0):
+        if pipe_stage not in self._parameters_to_sync or len(self._parameters_to_sync[pipe_stage]) == 0:
+            for name in trainable_param_names:
+                self._parameters_to_sync[pipe_stage].append(self.named_parameters[name])
+
 
     def get_parameter_names(self, requires_grad=True):
         """
         :meta private:
         """
+        param_to_name = self.param_to_name
         if requires_grad:
-            names = [key for key, param in self.named_parameters.items() if param.requires_grad]
+            return [param_to_name[param] for param in self.parameters if param.requires_grad]
         else:
-            names = [key for key in self.named_parameters]
-        return names
+            return [param_to_name[param] for param in self.parameters]
+
 
 
     def get_parameter(self, name):
@@ -365,28 +412,34 @@ class RLHFModule:
         return self.get_parameter(name).shape
 
 
-    def send_parameter(self, name, dst_rank, group_name):
+    def send_recv_parameter(self, name, rank, group_name, func, pipe_stage=0):
+        if self.rlhf_args.coalesce_param:
+            assert name is None
+            tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+            dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
+            log_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
+            for bucket in tqdm(dense_buckets):
+                coalesced_comm_dense(bucket, func, extra_args=(rank, group_name))
+            for param in sparse_bucket:
+                func(param, rank, group_name)
+        else:
+            tensor = self.get_parameter(name)
+            func(tensor, rank, group_name)
+
+        
+
+    def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
         """
         :meta private:
         """
-        try:
-            tensor = self.get_parameter(name)
-            col.send(tensor, dst_rank, group_name)
-        except Exception as e:
-            self.error()
-            raise
+        self.send_recv_parameter(name, dst_rank, group_name, col.send, pipe_stage)
 
 
-    def recv_parameter(self, name, src_rank, group_name):
+    def recv_parameter(self, name, src_rank, group_name, pipe_stage=0):
         """
         :meta private:
         """
-        try:
-            tensor = self.get_parameter(name)
-            col.recv(tensor, src_rank, group_name)
-        except Exception as e:
-            self.error()
-            raise
+        self.send_recv_parameter(name, src_rank, group_name, col.recv, pipe_stage)
 
     
     def pipeline_model_parallel_size(self):
@@ -545,6 +598,14 @@ class RLHFTorchModule(RLHFModule):
         log_rank_0(f"{self.name} after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024**3)}GB")
 
 
+    def check_param_exists(self, names):
+        """
+        check if the given names exists in current model
+        :meta private
+        """
+        return all(self.exist_parameter(name) for name in names)
+
+
 class RLHFMegatronModule(RLHFTorchModule):
 
 
@@ -601,6 +662,10 @@ class RLHFMegatronModule(RLHFTorchModule):
         from megatron import mpu
         return mpu.get_data_parallel_rank()
 
+    def pipeline_parallel_rank(self):
+        from megatron import mpu
+        return mpu.get_pipeline_model_parallel_rank()
+
 
     def num_layers(self):
         """
@@ -609,7 +674,7 @@ class RLHFMegatronModule(RLHFTorchModule):
         return self.megatron_args.num_layers
 
 
-    def build_pipeline_layer_name_mapping(self):
+    def build_pipeline_layer_name_mapping(self, requires_grad=True):
         """
         :meta private:
         """
@@ -622,7 +687,7 @@ class RLHFMegatronModule(RLHFTorchModule):
             model = self.model[0]
         else:
             model = self.model
-        name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model)
+        name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model, requires_grad)
         return name_mapping
 
 

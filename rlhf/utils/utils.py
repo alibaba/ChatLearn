@@ -139,10 +139,25 @@ def to_device(device, args):
 def wait(refs, desc=None):
     """
     wait until all computation finish
+    TODO: note this function will hide errors!
     """
-    total = len(refs)
-    pbar = tqdm(total=len(refs), desc=desc)
+    if desc is not None:
+        pbar = tqdm(total=len(refs), desc=desc)
     while refs:
         done, refs = ray.wait(refs)
-        pbar.update(len(done))
-    pbar.close()
+        if desc is not None:
+            pbar.update(len(done))
+    if desc is not None:
+        pbar.close()
+
+
+def get_or_cache(cache, key, func):
+    """
+    get results if cached
+    otherwise call the func to get the results, and cache the results
+    """
+    if key in cache:
+        return cache[key]
+    res = func()
+    cache[key] = res
+    return res

@@ -1,6 +1,7 @@
 import time
 
 import ray
+import ray.util.collective as col
 
 from rlhf.utils.logger import logger
 
@@ -18,9 +19,10 @@ class ErrorMonitor:
         while True:
             catch_err = ray.get(self.error_signal.is_set.remote())
             if catch_err:
+                error_msg = ray.get(self.error_signal.error_msg.remote())
                 break
             time.sleep(2)
-        logger.exception("error found")
+        logger.exception(f"Error found {error_msg}")
         for group_name in self.collective_groups:
             col.destroy_collective_group(group_name)
         for model in self.remote_models:
@@ -37,9 +39,16 @@ class ErrorMonitor:
 class ErrorSignalActor:
     def __init__(self):
         self.error_state = False
+        self.err_msg = None
 
-    def set(self):
+    def set(self, err_msg=None):
         self.error_state = True
+        if err_msg is not None:
+            self.err_msg = err_msg
 
     def is_set(self):
         return self.error_state
+
+
+    def error_msg(self):
+        return self.err_msg

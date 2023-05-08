@@ -196,6 +196,10 @@ class RLHFConfig(BaseConfig):
     debug = False
     #: enable nsys nvtx
     nsys = False
+    #: coalesce parameters in model sync
+    coalesce_param = True
+    #: coalesce_buffer size in mb
+    coalesced_buffer_mb = 100
 
     def __init__(self):
         super().__init__()

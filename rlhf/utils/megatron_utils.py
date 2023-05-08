@@ -12,9 +12,12 @@ def update_layer_num(layers_per_part, rank, m):
     return f'layers.{layer}'
 
 
-def build_pipeline_layer_name_mapping(layers_per_stage, rank, model):
+def build_pipeline_layer_name_mapping(layers_per_stage, rank, model, requires_grad):
     name_mapping = {}
     for src_name, partition_param in model.named_parameters():
+        if requires_grad:
+            if not partition_param.requires_grad:
+                continue
         if src_name.endswith("word_embeddings.weight") and "language_model" not in src_name:
             # See comment in MegatronModule.initialize_word_embeddings()
             tgt_name = src_name.replace("word_embeddings.weight", "language_model.embedding.word_embeddings.weight")
