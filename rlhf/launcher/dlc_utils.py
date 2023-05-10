@@ -81,6 +81,17 @@ def get_free_ports():
     # port for DLC jobs
     assert DLC_PORT_KEY in os.environ, f"cannot find port {DLC_PORT_KEY} in DLC"
     free_ports = [int(port) for port in os.environ[DLC_PORT_KEY].strip().split(PORT_SEP)]
+    # remove ports that reserved by ray
+    # 'client_server': 10001, 'dashboard': 8265, 'dashboard_agent_grpc': 49948, 'dashboard_agent_http': 52365,
+    # 'metrics_export': 63529, 'redis_shards': 'random', 'worker_ports': '9998 ports from 10002 to 19999'
+    def _valid_port(port):
+        if port in [10001, 8265, 49948, 52365, 63529]:
+            return False
+        if 10002 <= port <= 19999:
+            return False
+        return True
+
+    free_ports = [port for port in free_ports if _valid_port(port)]
     return free_ports
 
 
