@@ -162,6 +162,7 @@ class ModelManager:
         final_packs = []
         # key is the remaining device
         unfinished_packs = defaultdict(list)
+                
         for model in sorted_models:
             device = model.total_device
             if device == total_device:
@@ -170,6 +171,8 @@ class ModelManager:
                 if device in unfinished_packs:
                     # find a pack
                     packs = unfinished_packs[device].pop(0)
+                    if len(unfinished_packs[device]) == 0:
+                        unfinished_packs.pop(device)
                     packs.append(model)
                     final_packs.append(packs)
                 else:
@@ -178,6 +181,9 @@ class ModelManager:
                     if near_devices:
                         near_device = sorted(near_devices)[0]
                         packs = unfinished_packs[near_device].pop(0)
+
+                        if len(unfinished_packs[device]) == 0:
+                            unfinished_packs.pop(device)
                         packs.append(model)
                         # update the remaining device number
                         unfinished_packs[near_device - device].append(packs)
