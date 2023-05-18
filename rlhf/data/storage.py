@@ -1,5 +1,6 @@
 import ray
 
+from rlhf.utils import future
 from rlhf.utils.logger import logger
 
 
@@ -20,5 +21,5 @@ class Storage:
         if ref is None:
             logger.warn(f"{key} is not found in storage")
             return None
-        return ray.get(ref)
+        return future.get(ref)
 

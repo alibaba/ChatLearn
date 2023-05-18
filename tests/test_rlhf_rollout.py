@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 import rlhf
+from rlhf.utils import future
 from rlhf import RLHFEngine
 from rlhf import RLHFTorchModule
 
@@ -109,7 +110,7 @@ engine.set_dataset([data] * 35)
 #visible_devices = engine.models[0].replicas[0].get_visible_gpus()
 for model in engine.models:
     for replica in model.replicas:
-        print(model.name, replica, rlhf.get(replica.get_visible_gpus()), "====", flush=True)
+        print(model.name, replica, future.get(replica.get_visible_gpus()), "====", flush=True)
 
 data = torch.ones([1024])
 engine.set_dataset([data] * 35, drop_last=True)

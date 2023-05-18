@@ -4,9 +4,7 @@ import socket
 import textwrap
 from contextlib import closing
 
-import ray
 import torch
-from tqdm import tqdm
 
 
 def get_attributes(cls):
@@ -83,18 +81,6 @@ def get_free_port():
         return handle.getsockname()[1]
 
 
-def get(data):
-    if isinstance(data, (list, tuple)):
-        dtype = type(data)
-        ret = dtype(get(item) for item in data)
-        return ret
-    if isinstance(data, dict):
-        return {key: get(value) for key, value in data.items()}
-    while isinstance(data, ray.ObjectRef):
-        data = ray.get(data)
-    return data
-
-
 def split_index(length, num_splits):
     # Calculate the size of each split
     size = length // num_splits
@@ -136,21 +122,6 @@ def to_device(device, args):
     return args
 
 
-def wait(refs, desc=None):
-    """
-    wait until all computation finish
-    TODO: note this function will hide errors!
-    """
-    if desc is not None:
-        pbar = tqdm(total=len(refs), desc=desc)
-    while refs:
-        done, refs = ray.wait(refs)
-        if desc is not None:
-            pbar.update(len(done))
-    if desc is not None:
-        pbar.close()
-
-
 def get_or_cache(cache, key, func):
     """
     get results if cached
@@ -161,3 +132,13 @@ def get_or_cache(cache, key, func):
     res = func()
     cache[key] = res
     return res
+
+
+def flatten(nested_list):
+    flat = []
+    for elem in nested_list:
+        if isinstance(elem, list):
+            flat.extend(flatten(elem))
+        else:
+            flat.append(elem)
+    return flat

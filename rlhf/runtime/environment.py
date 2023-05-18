@@ -4,6 +4,7 @@ from itertools import cycle
 import ray
 from ray.util.queue import Queue
 
+from rlhf.utils import future
 from rlhf.utils import utils
 from rlhf.utils.logger import logger
 
@@ -34,6 +35,7 @@ class PPOEnv(BaseEnv):
         self._padding_config = {}
         self.merged_buffer = {}
         self.model2iter = {}
+        self.model2group = {}
 
 
     def setup(self):
@@ -45,13 +47,22 @@ class PPOEnv(BaseEnv):
             for i, policy_replica in enumerate(self.policy.replicas):
                 ref = policy_replica.master._build_dataloader.remote(self._dataset[i])
                 refs.append(ref)
-            utils.get(refs)
+            future.get(refs)
             logger.info("set dataset for policy")
 
         for dist_model in [self.policy, self.reference, self.reward, self.value]:
             model = dist_model.replicas[0]
-            config = ray.get(model.master.padding_config.remote())
+            config = future.get(model.master.padding_config.remote())
             self._padding_config.update(config)
+        model_names = [m.name for m in self.remote_models]
+        # self.args.colocation
+        for group in self.args.colocation:
+            new_group = []
+            for model in group:
+                if model in model_names:
+                    new_group.append(model)
+                    self.model2group[model] = new_group
+
 
 
     def set_dataset(self, dataset, drop_last=False):
@@ -137,7 +148,7 @@ class PPOEnv(BaseEnv):
         return next(self.model2iter[model])
 
 
-    def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step", sync=False):
+    def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
         """
         Args:
             model: DistModel
@@ -165,16 +176,22 @@ class PPOEnv(BaseEnv):
             out_queue.put(self.encode_data(mb, output))
         return out_queue, output
 
-
-    def generate_loop_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
-        results = []
-        for mb in range(self.batch_per_episode):
-            _, data = self.generate_step_one_model(model, in_queue, out_queue, func_name, sync=True)
-            results.append(data)
-        utils.wait(results, f"{model.name} {func_name}")
+    def wait_and_empty_cache(self, model, results, func_name):
+        future.wait(results, f"{model.name} {func_name}")
         # empty cache, so that other models can use
         refs = model.empty_cache()
-        utils.get(refs)
+        future.get(refs)
+
+    def generate_loop_one_model(self, model, in_queue, out_queue, func_name, to_clear_cache):
+        results = []
+        for mb in range(self.batch_per_episode):
+            _, data = self.generate_step_one_model(model, in_queue, out_queue, func_name)
+            results.append(data)
+        if model.name in self.model2group and len(self.model2group[model.name]) > 1:
+            self.wait_and_empty_cache(model, results, func_name)
+        else:
+            to_clear_cache.append(model)
+            return results
 
 
     def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue):
@@ -195,10 +212,18 @@ class PPOEnv(BaseEnv):
 
     def generate_loop_sync(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, out_queue):
         # TODO: generate data_flow by ast parser
-        self.generate_loop_one_model(self.policy, data_queue, policy_out_queue)
-        self.generate_loop_one_model(self.reference, policy_out_queue[0], ref_out_queue)
-        self.generate_loop_one_model(self.value, policy_out_queue[1], old_value_out_queue)
-        self.generate_loop_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue], reward_out_queue)
+        func_name = "forward_step"
+        to_clear_cache = []
+        self.generate_loop_one_model(self.policy, data_queue, policy_out_queue, func_name, to_clear_cache)
+        self.generate_loop_one_model(self.reference, policy_out_queue[0], ref_out_queue, func_name, to_clear_cache)
+        self.generate_loop_one_model(self.value, policy_out_queue[1], old_value_out_queue, func_name, to_clear_cache)
+        self.generate_loop_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue], reward_out_queue, func_name, to_clear_cache)
+
+        refs = []
+        for model in to_clear_cache:
+            refs += model.empty_cache()
+        future.wait(refs)
+
         data = []
         if self.policy.module_args.return_rlhf_data:
             data.append(policy_out_queue[3])
@@ -240,5 +265,5 @@ class PPOEnv(BaseEnv):
 
         for policy in self.policy.replicas:
             ref = policy.master.add_step.remote(self.batch_per_episode)
-            utils.get(ref)
+            future.get(ref)
         return out_queue

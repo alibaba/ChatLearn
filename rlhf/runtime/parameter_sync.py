@@ -5,6 +5,7 @@ from collections import defaultdict
 from itertools import cycle
 from tqdm import tqdm
 
+from rlhf.utils import future
 from rlhf import get_args
 from rlhf.utils import utils
 from rlhf.launcher.initialize import patch_ray
@@ -49,7 +50,7 @@ class ParameterSyncGroup:
                 refs += replica._setup_collective_group(rank_offset, world_size, self.group_name)
                 rank_offset += replica.actor_num
 
-        utils.get(refs)
+        future.get(refs)
         logger.info(f"init collective group done for {self.group_name}")
 
 
@@ -69,15 +70,15 @@ class ParameterSyncGroup:
         self.actor2rank[dst_actor] = dst_rank
 
         if self._debug:
-            src_gpu = utils.get(src_actor.get_visible_gpus.remote())
-            dst_gpu = utils.get(dst_actor.get_visible_gpus.remote())
+            src_gpu = future.get(src_actor.get_visible_gpus.remote())
+            dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
             logger.info(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}")
         self.send_recv_actor_mappings[src_actor].append(dst_actor)
         self.recv_send_actor_mappings[dst_actor].append(src_actor)
         if self._num_src_pipeline_stage is None:
-            self._num_src_pipeline_stage = utils.get(src_actor.pipeline_model_parallel_size.remote())
+            self._num_src_pipeline_stage = future.get(src_actor.pipeline_model_parallel_size.remote())
         if self._num_dst_pipeline_stage is None:
-            self._num_dst_pipeline_stage = utils.get(dst_actor.pipeline_model_parallel_size.remote())
+            self._num_dst_pipeline_stage = future.get(dst_actor.pipeline_model_parallel_size.remote())
             # TODO: support num_stage>1 for inference
             assert self._num_dst_pipeline_stage == 1, "Now only supports num_stage==1 for inference, otherwise we need to update the name mapping"
 
@@ -85,7 +86,7 @@ class ParameterSyncGroup:
     def build_rank_mapping(self):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
-        src_ranks = utils.get(self.src_model.replicas[0].master.get_param_ranks.remote())
+        src_ranks = future.get(self.src_model.replicas[0].master.get_param_ranks.remote())
         dst_ranks = self.dst_model.all_ranks
         if src_ranks is None or dst_ranks is None:
             if self._debug:
@@ -121,8 +122,8 @@ class ParameterSyncGroup:
             # check the value of src model and tgt model
             random_names = random.sample(list(zip(src_names, dst_names)), 5)
             for src_name, dst_name in tqdm(random_names):
-                src_tensor = utils.get(send_actor.get_parameter.remote(src_name))
-                dst_tensor = utils.get(recv_actor.get_parameter.remote(dst_name))
+                src_tensor = future.get(send_actor.get_parameter.remote(src_name))
+                dst_tensor = future.get(recv_actor.get_parameter.remote(dst_name))
                 assert (src_tensor == dst_tensor).all(), f"after weight sync {name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
             return True
 
@@ -137,19 +138,19 @@ class ParameterSyncGroup:
         if self.enable_coalesce_param:
             send_ref = send_actor.send_parameter.remote(None, self.actor2rank[recv_actor], self.group_name, pipe_stage)
             recv_ref = recv_actor.recv_parameter.remote(None, self.actor2rank[send_actor], self.group_name, pipe_stage)
-            utils.get([send_ref, recv_ref])
+            future.get([send_ref, recv_ref])
             logger.info(f"sync all parameters from {send_actor} to {recv_actor}")
         else:
             for send_name, dst_name in zip(src_names, dst_names):
                 dst_name = self._get_dst_name(send_name)
-                recv_tensor_exist = utils.get(recv_actor.exist_parameter.remote(dst_name))
+                recv_tensor_exist = future.get(recv_actor.exist_parameter.remote(dst_name))
                 if not recv_tensor_exist:
                     logger.info(f"recv tensor {dst_name} not exists")
-                    all_dst_layer_names = utils.get(recv_actor.get_parameter_names.remote())
+                    all_dst_layer_names = future.get(recv_actor.get_parameter_names.remote())
                     raise Exception(f"recv tensor {dst_name} not exists, while recv model has following layers {all_dst_layer_names}")
                 send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
                 recv_ref = recv_actor.recv_parameter.remote(dst_name, self.actor2rank[send_actor], self.group_name)
-                utils.get([send_ref, recv_ref])
+                future.get([send_ref, recv_ref])
             logger.info(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
         self.validate_sync_results(send_actor, recv_actor, src_names, dst_names)
 
@@ -158,7 +159,7 @@ class ParameterSyncGroup:
         try:
             self._sync_send_recv(send_actor, recv_actor)
         except Exception as e:
-            utils.get(self.error_signal.set.remote(traceback.format_exc()))
+            future.get(self.error_signal.set.remote(traceback.format_exc()))
 
     
     def set_model_prefix(self, src_names, dst_names):
@@ -176,24 +177,24 @@ class ParameterSyncGroup:
     def check_param_names(self, send_actor, recv_actor, src_names, dst_names):
         ref0 = send_actor.check_param_exists.remote(src_names)
         ref1 = recv_actor.check_param_exists.remote(dst_names)
-        states = utils.get([ref0, ref1])
+        states = future.get([ref0, ref1])
         assert all(states), "Check parameters to sync fail"
 
 
     def get_actor_pipe_stage(self, actor):
-        func = lambda: utils.get(actor.pipeline_parallel_rank.remote())
+        func = lambda: future.get(actor.pipeline_parallel_rank.remote())
         return utils.get_or_cache(self._actor2pipe, actor, func)
 
 
     def _set_sync_param_names(self, send_actor, recv_actor):
         if self._num_src_pipeline_stage > 1:
-            dst_src_mappings = utils.get(send_actor.build_pipeline_layer_name_mapping.remote(requires_grad=True))
+            dst_src_mappings = future.get(send_actor.build_pipeline_layer_name_mapping.remote(requires_grad=True))
             dst_names = dst_src_mappings.keys()
             src_names = dst_src_mappings.values()
         else:
-            src_names = dst_names = utils.get(send_actor.get_parameter_names.remote(requires_grad=True))
+            src_names = dst_names = future.get(send_actor.get_parameter_names.remote(requires_grad=True))
         if self._dst_prefix is None and self._src_prefix is None:
-            dst_names_ref = utils.get(recv_actor.get_parameter_names.remote(requires_grad=False))
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
             self.set_model_prefix(src_names, dst_names_ref)
 
         dst_names = [self._get_dst_name(name) for name in dst_names]
@@ -202,7 +203,7 @@ class ParameterSyncGroup:
         refs = []
         refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
         refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
-        utils.get(refs)
+        future.get(refs)
         return src_names, dst_names
 
 

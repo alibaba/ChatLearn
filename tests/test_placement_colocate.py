@@ -3,6 +3,7 @@ import time
 import torch
 
 import rlhf
+from rlhf.utils import future
 from rlhf import Engine
 from rlhf import RLHFTorchModule
 
@@ -46,13 +47,13 @@ model = engine.models[0]
 model2 = engine.models[1]
 
 for replica_id in range(len(model.replicas)):
-    visible_devices = rlhf.get(model.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(model.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
         assert visible_devices == [[0], [1]], visible_devices
     else:
         assert visible_devices == [[2], [3]], visible_devices
     print(visible_devices)
-    visible_devices = rlhf.get(model2.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(model2.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
         assert visible_devices == [[0], [1]], visible_devices
     else:

@@ -3,6 +3,7 @@ import time
 import torch
 
 import rlhf
+from rlhf.utils import future
 from rlhf import Engine
 from rlhf import RLHFTorchModule
 
@@ -41,15 +42,15 @@ b = torch.ones([1])
 model = engine.models[0].replicas[0]
 model2 = engine.models[1].replicas[0]
 res0 = model.forward_step({'a': a, 'b': b})
-res0 = rlhf.get(res0)[0]
+res0 = future.get(res0)[0]
 res0 = model.forward_step({'a': a, 'b': b})
-res0 = rlhf.get(res0)[0]
+res0 = future.get(res0)[0]
 assert res0['a'].device.type == 'cpu', res0['a'].device
 
 visible_devices = model.get_visible_gpus()
-visible_devices = rlhf.get(visible_devices)
+visible_devices = future.get(visible_devices)
 visible_devices2 = model2.get_visible_gpus()
-visible_devices2 = rlhf.get(visible_devices2)
+visible_devices2 = future.get(visible_devices2)
 assert visible_devices == [[0], [1]], visible_devices
 assert visible_devices2 == [[2], [3]], visible_devices2
 

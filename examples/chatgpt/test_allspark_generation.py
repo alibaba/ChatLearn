@@ -1,5 +1,6 @@
 import torch
 import rlhf
+from rlhf.utils import future
 from gpt_allspark import GPTAllSpark
 from rlhf import Engine
 
@@ -15,5 +16,5 @@ torch_input = {
     "attention_mask": in_mask,
 }
 res = engine.models[0].forward_step(torch_input)
-print(rlhf.get(res))
+print(future.get(res))
 

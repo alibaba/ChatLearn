@@ -1,8 +1,6 @@
 import math
 
-import ray
-
-from rlhf.utils import utils
+from rlhf.utils import future
 from rlhf.utils.logger import logger
 
 
@@ -26,17 +24,28 @@ class PPOTrainer(BaseTrainer):
         self.num_training_iteration = math.ceil(args.sample_per_episode / args.train_global_batch_size)
         self.num_micro_batch = args.train_global_batch_size // args.train_micro_batch_size
         self.iteration = 0
+        model_names = [m.name for m in self.models]
+        self._colocation = False
+        for group in self.args.colocation:
+            new_group = []
+            for model in group:
+                if model in model_names:
+                    new_group.append(model)
+            if len(new_group) > 1:
+                self._colocation = True
 
 
     def setup(self):
         pass
 
     
-    def train_step(self, train_data, train_info):
-        value_loss = self.ppo_value_model.train_step(train_data, train_info)
-        policy_loss = self.ppo_policy_model.train_step(train_data, train_info)
-        ray.get(value_loss + policy_loss)
-        return 'ok'
+    def train_step(self, train_data, train_info, wait=True):
+        ref0 = self.ppo_value_model.train_step(train_data, train_info)
+        ref1 = self.ppo_policy_model.train_step(train_data, train_info)
+        if wait:
+            future.wait(ref0 + ref1)
+        else:
+            return [ref0[0], ref1[0]]
 
 
     def set_data_loader(self, data_loader):
@@ -47,7 +56,7 @@ class PPOTrainer(BaseTrainer):
         batches = []
         for _ in range(self.num_micro_batch):
             data = self._data_loader.next.remote()
-            if ray.get(self._data_loader.has_next.remote()):
+            if future.get(self._data_loader.has_next.remote()):
                 batches.append(data)
         if not batches:
             return
@@ -57,20 +66,37 @@ class PPOTrainer(BaseTrainer):
             return batches
 
     
+    def wait_and_empty_cache(self, models, results):
+        desc = " ".join(model.name for model in models)
+        future.wait(results, desc)
+        # empty cache, so that other models can use
+        refs = []
+        for model in models:
+            refs.extend(model.empty_cache())
+        future.wait(refs)
+
+
     def train(self, episode):
         for epoch in range(self.args.num_training_epoch):
             if epoch > 0:
                 ret = self._data_loader.shuffle.remote()
-                ray.get(ret)
-            if not self.args.colocation:
-                for step in range(self.num_training_iteration):
-                    train_data = self.next_batch(self.iteration)
+                future.wait(ret)
+            if not self._colocation:
+                logger.info(f"{self.ppo_policy_model.name} and {self.ppo_value_model.name} execute concurrently")
+                train_refs = []
+                train_datas = [self.next_batch(self.iteration) for step in range(self.num_training_iteration)]
+                for train_data in train_datas:
                     if train_data:
                         train_info = {"iteration": self.iteration}
-                        self.train_step(train_data, train_info)
+                        train_refs.extend(self.train_step(train_data, train_info, wait=False))
                         self.iteration += 1
-                        logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
+                future.wait(train_refs, 'ppo training')
+                if self.args.colocation and epoch == self.args.num_training_epoch - 1:
+                    value_cache_refs = self.ppo_value_model.empty_cache()
+                    policy_cache_refs = self.ppo_policy_model.empty_cache()
+                    future.wait(value_cache_refs + policy_cache_refs)
             else:
+                logger.info(f"{self.ppo_policy_model.name} and {self.ppo_value_model.name} execute serially")
                 batches = []
                 for step in range(self.num_training_iteration):
                     train_data = self.next_batch(self.iteration)
@@ -83,18 +109,14 @@ class PPOTrainer(BaseTrainer):
                     value_loss = self.ppo_value_model.train_step(batch, train_info)
                     results.append(value_loss[0])
                     cur_iteration += 1
-                utils.wait(results, "ppo_value train")
+                self.wait_and_empty_cache([self.ppo_value_model], results)
                 cur_iteration = self.iteration
-                value_cache_refs = self.ppo_value_model.empty_cache()
-                utils.get(value_cache_refs)
                 results = []
                 for batch in batches:
                     train_info = {"iteration": cur_iteration}
                     policy_loss = self.ppo_policy_model.train_step(batch, train_info)
                     results.append(policy_loss[0])
                     cur_iteration += 1
-                utils.wait(results, "ppo_policy train")
+                self.wait_and_empty_cache([self.ppo_policy_model], results)
                 self.iteration = cur_iteration
-                refs = self.ppo_policy_model.empty_cache()
-                utils.get(refs)
                 logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")

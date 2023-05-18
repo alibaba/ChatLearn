@@ -1,9 +1,9 @@
 import traceback
 
-import ray
 import torch
 import torch.cuda.nvtx as nvtx
 
+from rlhf.utils import future
 from rlhf.utils import utils
 from rlhf.utils.logger import logger
 
@@ -15,7 +15,7 @@ def monitor_error(func, func_name):
             return func(self, *args, **kwargs)
         except Exception as e:
             logger.exception(f"catch exception ========= in {self.name} {e}, {traceback.format_exc()}")
-            ray.get(self.error_signal.set.remote(traceback.format_exc()))
+            future.wait(self.error_signal.set.remote(traceback.format_exc()))
             raise
     return inner
 
@@ -85,7 +85,7 @@ def preprocess_compute(func, merge_input):
     3. convert output to cpu
     """
     def inner(self, *args, **kwargs):
-        args = utils.get(args)
+        args = future.get(args)
         if merge_input and len(args) > 1:
             if all(isinstance(arg, dict) for arg in args):
                 merged = {}

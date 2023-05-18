@@ -6,6 +6,8 @@ import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
 
+from rlhf.utils import future
+
 
 def get_iter_keys(data):
   if isinstance(data, (list, tuple)):
@@ -122,7 +124,7 @@ class StreamDataset():
                     data = self.queue.get()
                     merged_data = {}
                     for d in data:
-                        local_data = ray.get(d)
+                        local_data = future.get(d)
                         merged_data.update(local_data)
                     samples = split_batch(merged_data)
                     self.relay_buffer += samples
@@ -152,7 +154,7 @@ class StreamDataset():
                 data = self.queue.get()
                 merged_data = {}
                 for d in data:
-                    local_data = ray.get(d)
+                    local_data = future.get(d)
                     merged_data.update(local_data)
                 samples = split_batch(merged_data)
                 self.relay_buffer += samples

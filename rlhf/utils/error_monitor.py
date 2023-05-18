@@ -3,6 +3,7 @@ import time
 import ray
 import ray.util.collective as col
 
+from rlhf.utils import future
 from rlhf.utils.logger import logger
 
 
@@ -17,9 +18,9 @@ class ErrorMonitor:
 
     def monitor(self):
         while True:
-            catch_err = ray.get(self.error_signal.is_set.remote())
+            catch_err = future.get(self.error_signal.is_set.remote())
             if catch_err:
-                error_msg = ray.get(self.error_signal.error_msg.remote())
+                error_msg = future.get(self.error_signal.error_msg.remote())
                 break
             time.sleep(2)
         logger.exception(f"Error found {error_msg}")

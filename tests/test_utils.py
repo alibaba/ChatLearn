@@ -17,7 +17,7 @@
 import unittest
 import ray
 from rlhf.utils.utils import parse_function_return_num
-from rlhf.utils.utils import get
+from rlhf import get
 from rlhf.utils.utils import split_index
 
 

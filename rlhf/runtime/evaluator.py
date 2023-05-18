@@ -1,10 +1,10 @@
 import math
 from itertools import cycle
 
-import ray
 from ray.util.queue import Queue
 from tqdm import tqdm
 
+from rlhf.utils import future
 from rlhf.utils import utils
 from rlhf.models.rlhf_module import RLHFModule
 from rlhf.runtime.environment import PPOEnv
@@ -55,10 +55,10 @@ class Evaluator(PPOEnv):
         for i, model_replica in enumerate(self.models[0].replicas):
             ref = model_replica.master._build_dataloader.remote(self._dataset[i], is_eval=True)
             refs.append(ref)
-        utils.get(refs)
+        future.get(refs)
 
         for model in self.models:
-            config = ray.get(model.replicas[0].master.padding_config.remote())
+            config = future.get(model.replicas[0].master.padding_config.remote())
             self._padding_config.update(config)
             self._name2models[model.name] = model
 
@@ -117,7 +117,7 @@ class Evaluator(PPOEnv):
         refs = []
         for model in self.models[0].replicas:
             refs.append(model.master.reset_eval_data_iter.remote())
-        utils.get(refs)
+        future.get(refs)
         data_providers = cycle(iter(self.models[0].replicas))
         out_queues = {}
 
@@ -141,7 +141,7 @@ class Evaluator(PPOEnv):
             # last one is None
             total = queue.qsize()
             for i in tqdm(range(total), desc="evaluation"):
-                res = utils.get(queue.get())
+                res = future.get(queue.get())
                 if return_last:
                     res = res[0]
                 results.append(res)

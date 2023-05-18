@@ -7,7 +7,7 @@ import ray.util.collective as col
 import torch
 from tqdm import tqdm
 
-from rlhf.utils import utils
+from rlhf.utils import future
 from rlhf.checkpoint.checkpoint_manager import CheckpointManager
 from rlhf.launcher import dlc_utils
 from rlhf.utils.dist_utils import bucket_tensors, coalesced_comm_dense
@@ -104,7 +104,7 @@ class RLHFModule:
         """
         :meta private:
         """
-        ray.get(self.error_signal.set.remote(error_msg))
+        future.wait(self.error_signal.set.remote(error_msg))
 
 
     def init(self):
@@ -197,7 +197,7 @@ class RLHFModule:
             key: use key to get
         """
         ref = self._storage.get.remote(key)
-        return utils.get(ref)
+        return future.get(ref)
 
 
     def validate(self):

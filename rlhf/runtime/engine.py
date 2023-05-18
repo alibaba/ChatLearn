@@ -1,6 +1,6 @@
 import torch
 
-from rlhf.utils import utils
+from rlhf.utils import future
 from rlhf.checkpoint.checkpoint_manager import CheckpointManager
 from rlhf.data.data import StreamDataset
 from rlhf.models.rlhf_module import RLHFModule
@@ -43,19 +43,19 @@ class Engine:
         for model in self.remote_models:
             refs += model.setup()
             refs_val += model.validate()
-        utils.get(refs)
-        utils.get(refs_val)
+        future.wait(refs)
+        future.wait(refs_val)
         logger.info("done setup all models")
 
 
     def before_episode(self):
         for model in self.remote_models:
-            utils.get(model.before_episode()) 
+            future.get(model.before_episode())
     
 
     def after_episode(self):
         for model in self.remote_models:
-            utils.get(model.after_episode())
+            future.get(model.after_episode())
 
 
     @property
@@ -78,7 +78,7 @@ class Engine:
         for model in self.remote_models:
             mem_ref = model.peak_memory()
             refs.append(mem_ref)
-        summaries = utils.get(refs)
+        summaries = future.get(refs)
 
         logger.info(f"{LOG_START} memory summary:")
         for model, summary in zip(self.remote_models, summaries):
@@ -92,7 +92,7 @@ class Engine:
         for model in self.remote_models:
             time_ref = model.replicas[0].timer_summary()
             refs.append(time_ref)
-        summaries = utils.get(refs)
+        summaries = future.get(refs)
 
         logger.info(f"{LOG_START} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
@@ -251,7 +251,7 @@ class RLHFEngine(Engine):
             refs = [ref0, ref1]
             for i, model in enumerate(self.policy.replicas):
                 refs.append(model.save_data_checkpoint(i, self.trainer.iteration, ppo_iter))
-            utils.get(refs)
+            future.get(refs)
             logger.info(f"save checkpoint episode {ppo_iter}, train iteration {self.trainer.iteration} done")
 
 

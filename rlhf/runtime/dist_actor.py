@@ -4,7 +4,7 @@ from functools import partial
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
-from rlhf.utils import utils
+from rlhf.utils import future
 from rlhf.launcher import dlc_utils
 from rlhf.models.rlhf_module import RLHFModule
 from rlhf.utils.utils import parse_function_args
@@ -150,7 +150,7 @@ class DistTorchActor(DistActor):
         count = 0
         actor_gpus = []
         for actor in actors:
-            gpus = ray.get(actor.get_visible_gpus.remote())
+            gpus = future.get(actor.get_visible_gpus.remote())
             count += len(gpus)
             actor_gpus.append((actor, gpus))
             if count == gpu_per_node:
@@ -165,7 +165,7 @@ class DistTorchActor(DistActor):
 
     def set_dist_env(self, revert_placement=False):
         self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
-        master_addr, master_port = ray.get(self.master.get_addr_port.remote())
+        master_addr, master_port = future.get(self.master.get_addr_port.remote())
         if dlc_utils.in_dlc_env():
             master_port = self.port
 
@@ -180,7 +180,7 @@ class DistTorchActor(DistActor):
                 local_rank = rank % self.model.gpu_per_process
             env_config["LOCAL_RANK"] = local_rank
             ret.append(actor.set_env.remote(env_config))
-        status = sum(ray.get(ret))
+        status = sum(future.get(ret))
         assert status == world_size
 
     def preprocess_actors(self, revert_placement=False):
@@ -274,7 +274,7 @@ class DistModel:
         for dist_actor in self.replicas:
             ref = getattr(dist_actor, func)(*args, **kwargs)
             if ref is not None:
-                res = utils.get(ref)
+                res = future.get(ref)
                 results.append(res)
         return results
 

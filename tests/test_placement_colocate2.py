@@ -3,6 +3,7 @@ import time
 import torch
 
 import rlhf
+from rlhf.utils import future
 from rlhf import RLHFEngine
 from rlhf import RLHFTorchModule
 
@@ -116,30 +117,30 @@ engine.learn()
 
 
 for replica_id in range(len(engine.ppo_policy.replicas)):
-    visible_devices = rlhf.get(engine.ppo_policy.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(engine.ppo_policy.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
         assert visible_devices == [[0], [1], [2], [3], [4], [5], [6], [7]], visible_devices
 
 for replica_id in range(len(engine.policy.replicas)):
-    visible_devices = rlhf.get(engine.policy.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(engine.policy.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
         assert visible_devices == [[3], [2], [1], [0]], visible_devices
     else:
         assert visible_devices == [[7], [6], [5], [4]], visible_devices
 
 for replica_id in range(len(engine.reference.replicas)):
-    visible_devices = rlhf.get(engine.reference.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(engine.reference.replicas[replica_id].get_visible_gpus())
     if replica_id == 0:
         assert visible_devices == [[0], [1], [2], [3]], visible_devices
     else:
         assert visible_devices == [[4], [5], [6], [7]], visible_devices
 
 for replica_id in range(len(engine.value.replicas)):
-    visible_devices = rlhf.get(engine.value.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(engine.value.replicas[replica_id].get_visible_gpus())
     assert visible_devices[0][0] == replica_id+4, visible_devices
 
 for replica_id in range(len(engine.reward.replicas)):
-    visible_devices = rlhf.get(engine.reward.replicas[replica_id].get_visible_gpus())
+    visible_devices = future.get(engine.reward.replicas[replica_id].get_visible_gpus())
     assert visible_devices[0][0] == replica_id, visible_devices
 
 

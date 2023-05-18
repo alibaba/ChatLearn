@@ -5,6 +5,7 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 import rlhf
+from rlhf.utils import future
 from rlhf import RLHFEngine
 from rlhf import RLHFTorchModule
 
@@ -112,10 +113,10 @@ if policy.num_replica == 2:
     assert len(engine.env._dataset[0]) == 20, len(engine.env._dataset[0])
     assert len(engine.env._dataset[1]) == 20, len(engine.env._dataset[0])
     visible_devices = engine.models[0].replicas[0].get_visible_gpus()
-    visible_devices = rlhf.get(visible_devices)
+    visible_devices = future.get(visible_devices)
     assert visible_devices == [[0]], visible_devices
     visible_devices = engine.models[0].replicas[1].get_visible_gpus()
-    visible_devices = rlhf.get(visible_devices)
+    visible_devices = future.get(visible_devices)
     assert visible_devices == [[1]], visible_devices
 
 

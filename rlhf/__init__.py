@@ -16,7 +16,7 @@
 
 from rlhf.launcher.initialize import init
 from rlhf.utils.global_vars import get_args
-from rlhf.utils.utils import get
+from rlhf.utils.future import get
 
 from rlhf.models.rlhf_module import RLHFModule
 from rlhf.models.rlhf_module import RLHFTorchModule
