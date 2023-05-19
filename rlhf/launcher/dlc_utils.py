@@ -6,7 +6,6 @@ import ray
 
 from rlhf.utils import utils
 from rlhf.utils.global_vars import get_args
-from rlhf.utils.global_vars import set_exit_actor
 from rlhf.utils.logger import logger
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
@@ -95,6 +94,19 @@ def get_free_ports():
     return free_ports
 
 
+def execute(cmd, check=False):
+    """
+    Execute cmd in shell
+    
+    Args:
+        check: if returncode is non-zero, raise error
+    """
+    ret = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
+    state = ret.returncode == 0
+    msg = ret.stdout if state else ret.stderr
+    return state, msg
+
+    
 def start_ray_cluster():
     port = get_free_ports()[0]
     master_addr = get_master_addr()
@@ -104,36 +116,24 @@ def start_ray_cluster():
     else:
         cmd = f"ray start --address={master_addr}:{port}"
     logger.info(f"execute {cmd}")
-    subprocess.run(cmd, shell=True)
-
-
-@ray.remote
-class ExitActor:
-
-    def notify(self):
-        return 1
+    execute(cmd, check=True)
 
 
 def start_exit_listener():
-    name = "ExitActor"
-    if get_rank() == 0:
-        actor = ExitActor.options(name=name).remote()
-        # avoid actor GC
-        set_exit_actor(actor)
-    else:
-        # wait for the head node to create ExitActor
+    if get_rank() != 0:
+        # wait for the head node to be created
         head_created = False
         counter = 0
         while True:
-            try:
-                ray.get_actor(name)
+            cluster_state, msg = execute("ray status")
+            if cluster_state:
                 head_created = True
                 # log per one hour
                 if counter % 720 == 0:
                     logger.info("worker is listening to head")
-                    subprocess.run("ray status", shell=True)
+                    logger.info(msg)
                 counter += 1
-            except ValueError:
+            else:
                 if head_created:
                     logger.info("head has exited, exit worker ...")
                     subprocess.run("ray stop", shell=True)

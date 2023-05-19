@@ -7,6 +7,9 @@ def wait(refs, desc=None):
     """
     wait until all computation finish
     """
+    if isinstance(refs, ray.ObjectRef):
+        ray.get(refs)
+        return
     if len(refs) == 0:
         return
     refs = flatten(refs)

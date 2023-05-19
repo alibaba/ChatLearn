@@ -44,7 +44,3 @@ def set_global_variables(args):
     global _GLOBAL_ARGS
     _GLOBAL_ARGS = args
 
-
-def set_exit_actor(actor):
-    global _EXIT_ACTOR
-    _EXIT_ACTOR = actor
