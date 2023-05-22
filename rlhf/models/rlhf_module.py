@@ -653,17 +653,17 @@ class RLHFMegatronModule(RLHFTorchModule):
 
     @property
     def data_parallel_size(self):
-        from megatron import mpu
+        from megatron.core import mpu
         return mpu.get_data_parallel_world_size()
 
 
     @property
     def data_parallel_rank(self):
-        from megatron import mpu
+        from megatron.core import mpu
         return mpu.get_data_parallel_rank()
 
     def pipeline_parallel_rank(self):
-        from megatron import mpu
+        from megatron.core import mpu
         return mpu.get_pipeline_model_parallel_rank()
 
 
@@ -678,7 +678,7 @@ class RLHFMegatronModule(RLHFTorchModule):
         """
         :meta private:
         """
-        from megatron import mpu
+        from megatron.core import mpu
         layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
         rank = mpu.get_pipeline_model_parallel_rank()
         logger.info(f"build mapping for rank {rank} =========")
@@ -697,7 +697,8 @@ class RLHFMegatronModule(RLHFTorchModule):
         """
         # TODO: remove param_ranks in user's code
         # TODO: replace data_parallel ranks with existing methods
-        from megatron import mpu
+        from megatron.core import mpu
+        
         param_ranks = []
         for i in range(self.data_parallel_size):
             param_ranks.append([ranks[i] for ranks in mpu.get_all_data_parallel_group_ranks()])
