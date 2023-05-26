@@ -152,7 +152,7 @@ class ModelManager:
 
     def find_model_packing_strategy(self, models, total_device):
         """
-        Find model packing strategies that can pack all models into num_device
+        Find model packing strategies that can pack all models into total_device
         try to balance the models among devices, i.e., each device holds similar number of model parts
         e.g., given models A:8, B:4, C:4, total_device: 8
         then the pack strategy is [(A), (B,C)]

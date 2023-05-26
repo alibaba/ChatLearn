@@ -9,20 +9,19 @@ from rlhf import RLHFTorchModule
 
 rlhf.init()
 
-def set_model(name, num_device, gpu_per_process, num_replica):
+def set_model(name, tp, gpu_per_process, num_device):
     print(rlhf.get_args().models.keys())
     rlhf.get_args().models[name].num_device = num_device
     rlhf.get_args().models[name].gpu_per_process = gpu_per_process
-    rlhf.get_args().models[name].num_replica = num_replica
+    rlhf.get_args().models[name].tensor_model_parallel_size = tp
 
-set_model("policy", 4, 1, 2)
+set_model("policy", 4, 1, 8)
 set_model("value", 1, 1, 4)
 set_model("reward", 1, 1, 4)
-set_model("reference", 4, 1, 2)
-set_model("ppo_policy", 8, 1, 1)
-set_model("ppo_value", 8, 1, 1)
+set_model("reference", 4, 1, 8)
+set_model("ppo_policy", 8, 1, 8)
+set_model("ppo_value", 8, 1, 8)
 
-rlhf.get_args().rlhf_args.num_rollout_worker = 1
 rlhf.get_args().rlhf_args.colocation = [["policy", "reference", "reward", "value", "ppo_policy", "ppo_value"]]
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset

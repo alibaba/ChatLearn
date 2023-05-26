@@ -9,7 +9,10 @@ from rlhf import RLHFTorchModule
 
 rlhf.init()
 rlhf.get_args().models["policy"].num_device = 2
+rlhf.get_args().models["policy"].tensor_model_parallel_size = 2
 rlhf.get_args().models["reference"].num_device = 2
+rlhf.get_args().models["reference"].tensor_model_parallel_size = 2
+
 class PolicyModel(RLHFTorchModule):
 
     def setup(self):

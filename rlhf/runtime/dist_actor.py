@@ -21,8 +21,9 @@ class DistActor:
                  port=None,
                  replica_id=0,
                  storage=None):
-        self.num_device = model.num_device
+        self.total_device = model.total_device
         self.gpu_per_process = model.gpu_per_process
+        self.num_device_per_replica = model.num_device_per_replica
         self.gpu_per_node = gpu_per_node
         self.model = model
         self.all_actors = []
@@ -145,7 +146,7 @@ class DistActor:
 class DistTorchActor(DistActor):
     
     def reorder_actors(self, actors, revert_placement=False):
-        gpu_per_node = min(self.gpu_per_node, self.model.num_device)
+        gpu_per_node = min(self.gpu_per_node, self.model.num_device_per_replica)
         ordered_actors = []
         count = 0
         actor_gpus = []
@@ -222,12 +223,12 @@ class DistModel:
 
     @property
     def total_device(self):
-        return self.num_replica * self.replicas[0].num_device
+        return self.replicas[0].total_device
 
 
     @property
     def num_device_per_replica(self):
-        return self.replicas[0].num_device
+        return self.replicas[0].num_device_per_replica
 
     @property
     def gpu_per_process(self):

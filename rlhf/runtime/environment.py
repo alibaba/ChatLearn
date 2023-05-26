@@ -25,7 +25,6 @@ class PPOEnv(BaseEnv):
         self.reference = reference
         self.reward = reward
         self.value = value
-        self.num_rollout_worker = args.num_rollout_worker
         self.remote_models = [policy, reference, reward, value]
         self.batch_size = self.policy.module_args.generation_batch_size
         assert self.sample_per_episode % self.batch_size == 0, f"currently sample_per_episode {self.sample_per_episode} should be times of generation_batch_size {self.batch_size}"

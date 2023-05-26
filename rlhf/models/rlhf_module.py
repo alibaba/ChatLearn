@@ -31,17 +31,22 @@ class RLHFModule:
             set_global_variables(args)
         self.global_args = global_args
         args = global_args.models[name]
-        self.num_device = args.num_device
+        self.total_device = args.num_device
         self.gpu_per_process = args.gpu_per_process
         self.trainable = args.trainable
         self._rlhf_args = self.global_args.rlhf_args
         self._module_args = args
         self.replica_id = replica_id
         self.config_dir = args.config_dir
-        if args.num_replica > 1:
-            self._num_replica = args.num_replica
+        self._num_device_per_replica = args.tensor_model_parallel_size * args.pipeline_model_parallel_size
+        assert self._num_device_per_replica <= self.total_device
+        assert self.total_device % self._num_device_per_replica == 0
+        if not self.trainable:
+            self._num_replica = args.num_device // self._num_device_per_replica
         else:
-            self._num_replica = self._rlhf_args.num_rollout_worker if not self.trainable else 1
+            # For trainable models, perform the DP inside DistActor
+            self._num_replica = 1
+            self._num_device_per_replica = self.total_device
         assert self._num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
@@ -75,7 +80,7 @@ class RLHFModule:
 
     @property
     def model_args(self):
-        return self._module_args.model_args
+        return self._module_args.args_dict
 
     @property
     def module_args(self):
@@ -276,6 +281,11 @@ class RLHFModule:
     @property
     def num_replica(self):
         return self._num_replica
+
+    
+    @property
+    def num_device_per_replica(self):
+        return self._num_device_per_replica
 
 
     def setup_collective_group(self, rank, world_size, backend, group_name):
@@ -617,18 +627,6 @@ class RLHFMegatronModule(RLHFTorchModule):
         else:
             self.model_args["micro_batch_size"] = self.rlhf_args.train_micro_batch_size
             self.model_args["global_batch_size"] = self.rlhf_args.train_global_batch_size
-
-
-    def validate(self):
-        """
-        :meta private:
-        """
-        min_device = self.pipeline_model_parallel_size() * self.tensor_model_parallel_size()
-        if self.num_device < min_device:
-            self.error()
-            raise RuntimeError(f"num_device {self.num_device} should be greater than" \
-                f"pipe size {self.pipeline_model_parallel_size()}" \
-                f"x tensor parallel size {self.tensor_model_parallel_size()}")
 
 
     @property

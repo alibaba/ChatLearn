@@ -41,7 +41,6 @@ function run_all_tests {
   run_test python test_timers.py
   run_test python test_rlhf_no_replica.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_replica2.py -c "configs/rlhf.yaml"
-  run_test python test_rlhf_rollout.py -c "configs/rlhf.yaml"
   run_test python test_send_recv.py
   run_test python test_rlhf_replica.py -c "configs/rlhf.yaml"
   run_test python test_rlhf.py -c "configs/rlhf.yaml"

@@ -8,11 +8,12 @@ from rlhf import Engine
 from rlhf import RLHFTorchModule
 
 rlhf.init()
-rlhf.get_args().models["policy"].num_device = 2
-rlhf.get_args().models["reference"].num_device = 2
+rlhf.get_args().models["policy"].num_device = 4
+rlhf.get_args().models["policy"].tensor_model_parallel_size = 2
+rlhf.get_args().models["reference"].num_device = 4
+rlhf.get_args().models["reference"].tensor_model_parallel_size = 2
 rlhf.get_args().models["policy"].gpu_per_process = 1
 rlhf.get_args().models["reference"].gpu_per_process = 1
-rlhf.get_args().rlhf_args.num_rollout_worker = 2
 rlhf.get_args().rlhf_args.colocation = [["policy", "reference"]]
 
 class PolicyModel(RLHFTorchModule):

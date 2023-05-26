@@ -143,15 +143,17 @@ class ModelConfig(BaseConfig):
     gpu_per_process = 1
     #: [required] whether model is trainable
     trainable = False
+    #: [optional] tensor model parallel size
+    tensor_model_parallel_size = None
+    #: [optional] pipeline model parallel size
+    pipeline_model_parallel_size = None
     #: [optional] config file for model
     model_config_file = ""
     config_dir = ""
     #: [optional] model type, e.g., Torch/Tensorflow, etc
     model_type = ""
     #: [optional] placeholder for other args
-    model_args = {}
-    #: [optional] number of worker to replicate models
-    num_replica = 1
+    args_dict = {}
     #: [optional] generation batch size, will overwrite generation batch size in RLHFConfig
     generation_batch_size = -1
     #: [optional] return rlhf data
@@ -160,8 +162,6 @@ class ModelConfig(BaseConfig):
 
 
 class RLHFConfig(BaseConfig):
-    #: [optional] number of inference concurrent workers, if `num_rollout_worker` > 1, then apply data parallel for inference models. default set to 1
-    num_rollout_worker = 1
     #: [required] number of ppo episodes. One episode includes a inference and training loop.
     num_ppo_episode = 5000
     #: [required] number of samples per episode.
@@ -292,7 +292,7 @@ class Config(BaseConfig):
             self.models[model_name] = model_config
             if model_config.model_config_file:
                 model_config.model_config_file = get_path(model_config.model_config_file, self.config_dir)
-                model_config.model_args = parse_args_from_yaml(model_config.model_config_file, self.config_dir)
+                model_config.args_dict = parse_args_from_yaml(model_config.model_config_file, self.config_dir)
 
         def set_param(namespace, config_cls, instance):
             if namespace not in param_dict:
@@ -341,9 +341,14 @@ class Config(BaseConfig):
 
         for name, model_args in self.models.items():
             assert model_args.gpu_per_process <= model_args.num_device
-            if model_args.num_replica > 1:
-                assert self.rlhf_args.num_rollout_worker == 1, \
-                    f"do not support setting both num_rollout_worker({self.rlhf_args.num_rollout_worker}) and model num_replica(model_args.num_replica)"
             if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
                 if self.rlhf_args.generation_batch_size:
                     model_args.generation_batch_size = self.rlhf_args.generation_batch_size
+            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size"]:
+                if model_args.args_dict.get(key) is not None:
+                    setattr(model_args, key, model_args.args_dict.get(key))
+                    assert getattr(model_args, key) >= 1
+                else:
+                    setattr(model_args, key, 1)
+            assert model_args.num_device % (model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size) == 0
+            model_args.num_replica = model_args.num_device // (model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)
