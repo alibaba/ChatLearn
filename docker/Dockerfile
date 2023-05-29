@@ -1,10 +1,11 @@
-FROM registry.cn-hangzhou.aliyuncs.com/pai-dlc/pai-pytorch-training:torch-1.12-cuda11.3-py38-acc-230219
+FROM registry.cn-hangzhou.aliyuncs.com/pai-dlc/pytorch-training:1.12-ubuntu20.04-py3.10-cuda11.3-llm
 
 
 RUN pip install --no-cache-dir -U \
     ray[default]==2.3.0 \
+    gpustat==1.0.0 \
     regex \
-    flash-attn \
+    flash-attn==1.0.4 \
     tokenizers \
     h5py \
     rjieba \
@@ -12,9 +13,10 @@ RUN pip install --no-cache-dir -U \
     transformers \
     datasets \
     cupy \
-    torchtyping
+    torchtyping \
+    protobuf==3.19.6 \
+    http://odps-release.cn-hangzhou.oss.aliyun-inc.com/torchacc/torch_demo/datasets/gpt/bladnn-0.0.1-py3-none-any.whl
 
-RUN echo NCCL_SOCKET_IFNAME=eth0 > /etc/nccl.conf
 
 # prepare for dlc
 RUN touch /usr/bin/prepare_dlc_environment
