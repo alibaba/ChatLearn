@@ -94,7 +94,7 @@ def get_free_ports():
     return free_ports
 
 
-def execute(cmd, check=False):
+def execute(cmd, check=False, retry=1):
     """
     Execute cmd in shell
     
@@ -104,6 +104,10 @@ def execute(cmd, check=False):
     ret = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
     state = ret.returncode == 0
     msg = ret.stdout if state else ret.stderr
+    if not state and retry > 1:
+        logger.warn(f"execute {cmd} got error {msg}, retry...")
+        time.sleep(1)
+        return execute(cmd, check, retry-1)
     return state, msg
 
     
@@ -125,7 +129,7 @@ def start_exit_listener():
         head_created = False
         counter = 0
         while True:
-            cluster_state, msg = execute("ray status")
+            cluster_state, msg = execute("ray status", retry=3)
             if cluster_state:
                 head_created = True
                 # log per one hour
@@ -133,11 +137,14 @@ def start_exit_listener():
                     logger.info("worker is listening to head")
                     logger.info(msg)
                 counter += 1
-            else:
+            elif "StatusCode.UNAVAILABLE" in msg and "Connection refused" in msg:
                 if head_created:
+                    logger.info(f"ray status got error {msg}")
                     logger.info("head has exited, exit worker ...")
                     subprocess.run("ray stop", shell=True)
                     return
                 else:
                     logger.info("wait for head to be created.")
+            else:
+                logger.warn(f"ray status got error {msg}")
             time.sleep(5)

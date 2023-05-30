@@ -10,6 +10,8 @@ from rlhf.launcher import dlc_utils
 from rlhf.utils.arguments import parse_args
 from rlhf.utils.global_vars import set_global_variables
 from rlhf.utils.global_vars import set_initialized
+from rlhf.utils.logger import logger
+from rlhf.utils.version import VERSION
 
 
 # TODO: check whether need to set here?
@@ -54,3 +56,4 @@ def init(args=None):
         if dlc_utils.get_rank() > 0:
             # other workers exit after head exit
             sys.exit(0)
+    logger.info(f"init rlhf done, rlhf version {VERSION}")
