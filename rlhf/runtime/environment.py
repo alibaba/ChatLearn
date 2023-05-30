@@ -1,7 +1,22 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Environment"""
+
 import math
 from itertools import cycle
 
-import ray
 from ray.util.queue import Queue
 
 from rlhf.utils import future
@@ -10,6 +25,7 @@ from rlhf.utils.logger import logger
 
 
 class BaseEnv:
+    """BaseEnv"""
     def __init__(self, args):
         self.args = args
 
@@ -18,6 +34,7 @@ class PPOEnv(BaseEnv):
     """
     PPO environment
     """
+
     def __init__(self, args, policy, reference, reward, value):
         super().__init__(args)
         self.sample_per_episode = args.sample_per_episode
@@ -27,7 +44,8 @@ class PPOEnv(BaseEnv):
         self.value = value
         self.remote_models = [policy, reference, reward, value]
         self.batch_size = self.policy.module_args.generation_batch_size
-        assert self.sample_per_episode % self.batch_size == 0, f"currently sample_per_episode {self.sample_per_episode} should be times of generation_batch_size {self.batch_size}"
+        assert self.sample_per_episode % self.batch_size == 0, \
+            f"currently sample_per_episode {self.sample_per_episode} should be times of generation_batch_size {self.batch_size}"
         self.batch_per_episode = math.ceil(self.sample_per_episode / self.batch_size)
         self._dataset = None
         self.data_iter = None
@@ -36,9 +54,8 @@ class PPOEnv(BaseEnv):
         self.model2iter = {}
         self.model2group = {}
 
-
     def setup(self):
-        data_loader = self.build_data_loader()
+        data_loader = self.build_data_loader() # pylint: disable=assignment-from-no-return
         if data_loader is not None:
             self.data_iter = iter(data_loader)
         else:
@@ -62,8 +79,6 @@ class PPOEnv(BaseEnv):
                     new_group.append(model)
                     self.model2group[model] = new_group
 
-
-
     def set_dataset(self, dataset, drop_last=False):
         self._dataset = []
         # TODO: compare with use only master dataloader
@@ -71,7 +86,7 @@ class PPOEnv(BaseEnv):
         data_part_num = self.policy.num_replica
         indices = utils.split_index(data_len, data_part_num)
 
-        for i, (start, end) in enumerate(indices):
+        for start, end in indices:
             data_part = dataset[start:end]
             drop_len = len(data_part) % self.batch_size
             if drop_len:
@@ -83,23 +98,18 @@ class PPOEnv(BaseEnv):
                 assert len(data_part) % self.batch_size == 0
             self._dataset.append(data_part)
 
-
     def build_data_loader(self):
         """generate prompts data loader"""
-        pass
         # TODO: temply comment out, use dataloader from policy, consider later
         # return RLHFDataLoader(self._dataset, self.batch_size)
 
-
     def encode_data(self, mb, data):
         return {"env_iter": mb, "data": data}
-
 
     def decode_data(self, data):
         mb = data["env_iter"]
         data = data["data"]
         return mb, data
-        
 
     def get_merged_data(self, queues, encode=True):
         queue0 = queues[0]
@@ -125,8 +135,7 @@ class PPOEnv(BaseEnv):
                 if mb == mb0:
                     data_list.append(data)
                     break
-                else:
-                    self.merged_buffer[index][mb] = data
+                self.merged_buffer[index][mb] = data
         if encode:
             return self.encode_data(mb0, data_list)
         return data_list
@@ -137,15 +146,12 @@ class PPOEnv(BaseEnv):
             res = self.get_merged_data(queues, encode)
             out_queue.put(res)
 
-
-
     def _get_model(self, model):
         if len(model.replicas) == 1:
             return model.replicas[0]
         if model not in self.model2iter:
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
-
 
     def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step"):
         """
@@ -183,7 +189,7 @@ class PPOEnv(BaseEnv):
 
     def generate_loop_one_model(self, model, in_queue, out_queue, func_name, to_clear_cache):
         results = []
-        for mb in range(self.batch_per_episode):
+        for _ in range(self.batch_per_episode):
             _, data = self.generate_step_one_model(model, in_queue, out_queue, func_name)
             results.append(data)
         if model.name in self.model2group and len(self.model2group[model.name]) > 1:
@@ -192,13 +198,13 @@ class PPOEnv(BaseEnv):
             to_clear_cache.append(model)
             return results
 
-
     def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue):
         # TODO: generate data_flow by ast parser
         self.generate_step_one_model(self.policy, data_queue, policy_out_queue)
         self.generate_step_one_model(self.reference, policy_out_queue[0], ref_out_queue)
         self.generate_step_one_model(self.value, policy_out_queue[1], old_value_out_queue)
-        self.generate_step_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue], reward_out_queue)
+        self.generate_step_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue],
+                                     reward_out_queue)
         data = []
         if self.policy.module_args.return_rlhf_data:
             data.append(policy_out_queue[3])
@@ -208,15 +214,16 @@ class PPOEnv(BaseEnv):
             data.append(reward_out_queue)
         return self.get_merged_data(data, encode=False)
 
-
-    def generate_loop_sync(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, out_queue):
+    def generate_loop_sync(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue,
+                           out_queue):
         # TODO: generate data_flow by ast parser
         func_name = "forward_step"
         to_clear_cache = []
         self.generate_loop_one_model(self.policy, data_queue, policy_out_queue, func_name, to_clear_cache)
         self.generate_loop_one_model(self.reference, policy_out_queue[0], ref_out_queue, func_name, to_clear_cache)
         self.generate_loop_one_model(self.value, policy_out_queue[1], old_value_out_queue, func_name, to_clear_cache)
-        self.generate_loop_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue], reward_out_queue, func_name, to_clear_cache)
+        self.generate_loop_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue],
+                                     reward_out_queue, func_name, to_clear_cache)
 
         refs = []
         for model in to_clear_cache:
@@ -231,7 +238,6 @@ class PPOEnv(BaseEnv):
         if self.reward.module_args.return_rlhf_data:
             data.append(reward_out_queue)
         return self.get_all_merged_data(data, out_queue, encode=False)
-
 
     def make_experiences(self):
         """
@@ -252,14 +258,16 @@ class PPOEnv(BaseEnv):
                 policy = next(policy_iter)
                 query = policy.master.next_batch.remote()
                 data_queue.put(self.encode_data(mb, query))
-            self.generate_loop_sync(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue, out_queue)
+            self.generate_loop_sync(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue,
+                                    out_queue)
         else:
             for mb in range(self.batch_per_episode):
                 # TODO: independent data loader
                 policy = next(policy_iter)
                 query = policy.master.next_batch.remote()
                 data_queue.put(self.encode_data(mb, query))
-                data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue)
+                data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue,
+                                          reward_out_queue)
                 out_queue.put(data)
 
         for policy in self.policy.replicas:

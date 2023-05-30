@@ -1,3 +1,19 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""model manager"""
+
 from collections import defaultdict
 
 from rlhf.data.storage import Storage
@@ -12,6 +28,7 @@ from rlhf.utils.logger import logger
 
 
 class ModelManager:
+    """ModelManager"""
 
     def __init__(self, rlhf_models, resouce_manager, global_args):
         self.local_models = rlhf_models
@@ -30,7 +47,6 @@ class ModelManager:
         self.parameter_sync_groups = {}
         self._parameter_sync_model_mapping = {}
 
-    
     def remote(self) -> list:
         """
         convert model to remote
@@ -57,36 +73,33 @@ class ModelManager:
         self.converted = True
         return self.dist_models
 
-
     def build_parameter_group(self):
         # set ParameterSyncGroup
         for src_model, dst_model in self._parameter_sync_model_mapping.items():
             group_name = self._get_group_name(src_model, dst_model)
-            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name], group_name, self.error_signal)
+            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name],
+                                            group_name, self.error_signal)
             self.parameter_sync_groups[group_name] = sync_group
 
-
     def start_error_monitor(self):
-        group_names = [_ for _ in self.parameter_sync_groups.keys()]
+        #group_names = [_ for _ in self.parameter_sync_groups.keys()]
+        group_names = list(self.parameter_sync_groups.keys())
         self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
 
     def _get_group_name(self, src_model, dst_model):
         return src_model.name + dst_model.name
 
-
     def set_model_sync(self, src_model, tgt_model):
         group_name = self._get_group_name(src_model, tgt_model)
         if group_name in self.parameter_sync_groups:
-            logger.warn(f"{group_name} already set, ignore")
+            logger.warning(f"{group_name} already set, ignore")
         else:
             self._parameter_sync_model_mapping[src_model] = tgt_model
 
-
     def sync_parameters(self):
-        for group_name, sync_group in self.parameter_sync_groups.items():
+        for _, sync_group in self.parameter_sync_groups.items():
             sync_group.sync()
-
 
     def get_free_port(self):
         port = self.free_ports[self.port_index]
@@ -109,7 +122,6 @@ class ModelManager:
                           "save_checkpoint", "setup"]:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
 
-
     def _to_dist_model(self, model):
         """
         Convert one model to DistActor and place it to devices
@@ -118,6 +130,7 @@ class ModelManager:
             model: RLHFModule
         """
         self.set_func_decorator(model)
+
         def actor_type():
             if isinstance(model, RLHFTorchModule):
                 return DistTorchActor
@@ -130,10 +143,10 @@ class ModelManager:
             if isinstance(model, RLHFTorchModule):
                 if dlc_utils.in_dlc_env():
                     free_port = self.get_free_port()
-            dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, free_port, replica_id, self._storage)
+            dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, free_port,
+                                      replica_id, self._storage)
             dist_model.add_replica(dist_actor)
         return dist_model
-
 
     def _find_param_recv_models(self, models):
         """
@@ -149,7 +162,6 @@ class ModelManager:
                     models_to_revert.append(model)
         return models_to_revert
 
-
     def find_model_packing_strategy(self, models, total_device):
         """
         Find model packing strategies that can pack all models into total_device
@@ -162,7 +174,7 @@ class ModelManager:
         final_packs = []
         # key is the remaining device
         unfinished_packs = defaultdict(list)
-                
+
         for model in sorted_models:
             device = model.total_device
             if device == total_device:
@@ -195,8 +207,6 @@ class ModelManager:
                 final_packs.extend(packs_list)
         return final_packs
 
-
-
     def place_models_to_remote_devices(self, models):
         max_device = max(m.total_device for m in models)
         placement_group = self.resouce_manager.create_placement_group(max_device)
@@ -226,7 +236,7 @@ class ModelManager:
                 replica.create_actor(num_gpus, placement_group, group)
         models_to_revert = self._find_param_recv_models(models)
         for model in models:
-            if model in models_to_revert:
+            if model in models_to_revert: # pylint: disable=simplifiable-if-statement
                 # Reverse the placement of tgt models, so that shared models not in the same GPU
                 # NCCL limit: NCCL WARN Duplicate GPU detected : rank 1 and rank 0 both on CUDA device
                 # TODO: One GPU task still not work
@@ -236,9 +246,6 @@ class ModelManager:
             for replica in model.replicas:
                 replica.preprocess_actors(reverse_device_placement)
 
-
     def clean(self):
         for group in self.parameter_sync_groups.values():
             group.destroy_collective_group()
-
-

@@ -1,3 +1,19 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""resource manager"""
+
 import time
 
 import ray
@@ -12,7 +28,7 @@ class ResourceManager:
     Manage hardware resources for each task.
     """
 
-    def __init__(self, models, colocation_groups=None):
+    def __init__(self, models):
         self.models = models
         self.name2models = {model.name: model for model in self.models}
         self.model_to_placegroup = {}
@@ -20,14 +36,12 @@ class ResourceManager:
         self.gpu_per_node = int(resource['GPU'])
         self.cpu_per_node = int(resource['CPU'])
 
-
     def get_placement_group_state(self, pg):
         try:
             state = ray.experimental.state.api.get_placement_group(pg.id.hex())["state"]
             return state
         except Exception as e:
-            logger.warn(f"fail to get placement_group state {e}")
-
+            logger.warning(f"fail to get placement_group state {e}")
 
     def create_placement_group(self, num_gpus, strategy="PACK"):
         """

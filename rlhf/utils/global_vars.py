@@ -34,7 +34,6 @@ def is_initialized():
 
 
 def set_initialized():
-    global _GLOBAL_ARGS
     _GLOBAL_ARGS.initialized = True
 
 
@@ -43,4 +42,3 @@ def set_global_variables(args):
     assert args is not None
     global _GLOBAL_ARGS
     _GLOBAL_ARGS = args
-

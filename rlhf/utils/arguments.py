@@ -34,7 +34,7 @@ def get_path(fn, folder):
 def convert_type(data):
     try:
         return ast.literal_eval(data)
-    except:
+    except Exception:
         return data
 
 
@@ -48,14 +48,13 @@ def parse_value(value):
             placeholder = value.replace("${", "")[:-1]
             placeholder = placeholder.split(":")
             env_name = placeholder[0]
-            default_value = convert_type(placeholder[1]) if len(placeholder) > 1 else None
             if env_name in os.environ:
                 value = convert_type(os.environ[env_name])
             else:
                 if len(placeholder) > 1:
                     value = convert_type(placeholder[1])
                 else:
-                    logger.warn(f"cannot find value for {env_name}, set to None")
+                    logger.warning(f"cannot find value for {env_name}, set to None")
                     value = None
     return value
 
@@ -107,7 +106,7 @@ def parse_args():
     return config
 
 
-class BaseConfig(object):
+class BaseConfig:
     """Base class includes some common format functions."""
 
     def __init__(self):
@@ -160,8 +159,9 @@ class ModelConfig(BaseConfig):
     return_rlhf_data = False
 
 
-
 class RLHFConfig(BaseConfig):
+    """RLHF config"""
+
     #: [required] number of ppo episodes. One episode includes a inference and training loop.
     num_ppo_episode = 5000
     #: [required] number of samples per episode.
@@ -213,7 +213,7 @@ class RLHFConfig(BaseConfig):
             key: key to get config
         """
         if key not in self._args_dict:
-            logger.warn(f"{key} not found in RLHFConfig")
+            logger.warning(f"{key} not found in RLHFConfig")
         else:
             return self._args_dict[key]
 
@@ -249,7 +249,7 @@ class RuntimeEnvConfig(BaseConfig):
             key: key to get config
         """
         if key not in self._args_dict:
-            logger.warn(f"{key} not found in RuntimeConfig")
+            logger.warning(f"{key} not found in RuntimeConfig")
         else:
             return self._args_dict[key]
 
@@ -284,10 +284,11 @@ class Config(BaseConfig):
                 if hasattr(ModelConfig, user_attribute):
                     original_value = getattr(ModelConfig, user_attribute)
                     if original_value is not None:
-                        assert type(user_value) == type(original_value), f"ModelConfig.{user_attribute} should be type of {type(original_value)} but got {type(user_value)} ({user_value})"
+                        assert isinstance(user_value, type(original_value)), \
+                            f"ModelConfig.{user_attribute} should be type of {type(original_value)} but got {type(user_value)} ({user_value})"
                     setattr(model_config, user_attribute, user_value)
                 else:
-                    logger.warn(f"unknown argument {user_attribute}")
+                    logger.warning(f"unknown argument {user_attribute}")
 
             self.models[model_name] = model_config
             if model_config.model_config_file:
@@ -310,8 +311,9 @@ class Config(BaseConfig):
                     value = default_value
                 original_value = getattr(instance, attribute)
                 if original_value is not None:
-                    assert type(original_value) == type(value), f"{instance}.{attribute} should be type of {type(original_value)} but got {type(value)}"
-                
+                    assert isinstance(original_value, type(value)), \
+                        f"{instance}.{attribute} should be type of {type(original_value)} but got {type(value)}"
+
                 setattr(instance, attribute, value)
             for user_attribute in user_args:
                 if not hasattr(config_cls, user_attribute):
@@ -339,7 +341,7 @@ class Config(BaseConfig):
             f"train_global_batch_size should be times of train_micro_batch_size," \
             f"but got {self.rlhf_args.train_global_batch_size}/{self.rlhf_args.train_micro_batch_size}"
 
-        for name, model_args in self.models.items():
+        for _, model_args in self.models.items():
             assert model_args.gpu_per_process <= model_args.num_device
             if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
                 if self.rlhf_args.generation_batch_size:
@@ -350,5 +352,7 @@ class Config(BaseConfig):
                     assert getattr(model_args, key) >= 1
                 else:
                     setattr(model_args, key, 1)
-            assert model_args.num_device % (model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size) == 0
-            model_args.num_replica = model_args.num_device // (model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)
+            assert model_args.num_device % (
+                model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size) == 0
+            model_args.num_replica = model_args.num_device // (
+                model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)

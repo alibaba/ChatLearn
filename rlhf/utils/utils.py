@@ -1,3 +1,19 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""utils"""
+
 import ast
 import inspect
 import socket
@@ -23,7 +39,7 @@ def parse_function_args(func):
     node_iter = ast.NodeVisitor()
     node_iter.visit_FunctionDef = parse_func_args
     code = textwrap.dedent(inspect.getsource(func))
-    res = node_iter.visit(ast.parse(code))
+    node_iter.visit(ast.parse(code))
     return args
 
 
@@ -92,7 +108,7 @@ def split_index(length, num_splits):
     # Loop over the number of splits and append indices
     start = 0
     end = 0
-    for i in range(num_splits):
+    for _ in range(num_splits):
         end += size
         if remainder > 0:
             end += 1

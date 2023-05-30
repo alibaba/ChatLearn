@@ -1,13 +1,29 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Evaluator"""
+
 import math
 from itertools import cycle
 
 from ray.util.queue import Queue
 from tqdm import tqdm
 
-from rlhf.utils import future
-from rlhf.utils import utils
 from rlhf.models.rlhf_module import RLHFModule
 from rlhf.runtime.environment import PPOEnv
+from rlhf.utils import future
+from rlhf.utils import utils
 from rlhf.utils.global_vars import get_args
 
 
@@ -15,7 +31,8 @@ class Evaluator(PPOEnv):
     """
     evaluator
     """
-    def __init__(self, models, args=None):
+
+    def __init__(self, models, args=None): # pylint: disable=super-init-not-called
         self._lazy_init = False
         self.args = args
         if not isinstance(models, list):
@@ -31,21 +48,18 @@ class Evaluator(PPOEnv):
         self._original_dataset = None
         self._post_process_func = None
 
-
     @property
     def batch_size(self):
         return self.args.generation_batch_size
 
-
     def update_models(self, models):
         new_models = []
-        name_to_new_models = {model.name:model for model in models}
+        name_to_new_models = {model.name: model for model in models}
         for model in self.models:
             new_models.append(name_to_new_models[model.name])
         self.models = new_models
         if self.args is None:
             self.args = get_args().rlhf_args
-
 
     def setup(self):
         if self._lazy_init:
@@ -62,8 +76,7 @@ class Evaluator(PPOEnv):
             self._padding_config.update(config)
             self._name2models[model.name] = model
 
-
-    def set_dataset(self, dataset):
+    def set_dataset(self, dataset): # pylint: disable=arguments-differ
         if isinstance(self.models[0], RLHFModule):
             self._original_dataset = dataset
             self._lazy_init = True
@@ -72,22 +85,19 @@ class Evaluator(PPOEnv):
         data_part_num = self.models[0].num_replica
         indices = utils.split_index(data_len, data_part_num)
 
-        for i, (start, end) in enumerate(indices):
+        for start, end in indices:
             data_part = dataset[start:end]
             self._dataset.append(data_part)
         return self
-
 
     @property
     def num_eval_iteration(self):
         return sum(math.ceil(len(data) / self.batch_size) for data in self._dataset)
 
-
     def register_func(self, model_name, func):
         self._model2funcs[model_name] = func
         return self
 
-    
     def eval_step(self, data_queue, model_out_queues, return_last=True):
         in_queue = data_queue
         for model in self.models:
@@ -104,11 +114,9 @@ class Evaluator(PPOEnv):
             out_queues = [model_out_queues[model][1] for model in self.models]
         return self.get_merged_data(out_queues, encode=False)
 
-
     def set_post_process_func(self, post_process_func):
         self._post_process_func = post_process_func
         return self
-
 
     def eval(self, ppo_iter=None, train_iteration=None, return_queue=False, return_last=True):
         queue = Queue()
@@ -153,4 +161,3 @@ class Evaluator(PPOEnv):
                     eval_info["train_iteration"] = train_iteration
                 self._post_process_func(results, eval_info)
             return results
-

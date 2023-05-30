@@ -1,8 +1,22 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""DLC utils"""
+
 import os
 import subprocess
 import time
-
-import ray
 
 from rlhf.utils import utils
 from rlhf.utils.global_vars import get_args
@@ -34,9 +48,9 @@ def in_dlc_env():
     for key in [DLC_PORT_KEY, JOB_NAME_KEY, RANK_KEY]:
         if key not in os.environ:
             if not _warn_once:
-                logger.warn(f"cannot find {key} in DLC env, please check whether whether the job is submitted in DLC" \
-                            " or whether customPortList/createSvcForAllWorkers is set")
-                logger.warn(f"fallback to local mode")
+                logger.warning(f"cannot find {key} in DLC env, please check whether the job is submitted in DLC "
+                               f"or whether customPortList/createSvcForAllWorkers is set")
+                logger.warning("fallback to local mode")
                 _warn_once = True
             return False
     return True
@@ -64,7 +78,7 @@ def get_rank():
 
 def get_addr():
     if is_local():
-        return utils.get_host_addr() 
+        return utils.get_host_addr()
     rank = get_rank()
     job_name = get_job_name()
     if rank == 0:
@@ -80,6 +94,7 @@ def get_free_ports():
     # port for DLC jobs
     assert DLC_PORT_KEY in os.environ, f"cannot find port {DLC_PORT_KEY} in DLC"
     free_ports = [int(port) for port in os.environ[DLC_PORT_KEY].strip().split(PORT_SEP)]
+
     # remove ports that reserved by ray
     # 'client_server': 10001, 'dashboard': 8265, 'dashboard_agent_grpc': 49948, 'dashboard_agent_http': 52365,
     # 'metrics_export': 63529, 'redis_shards': 'random', 'worker_ports': '9998 ports from 10002 to 19999'
@@ -105,12 +120,12 @@ def execute(cmd, check=False, retry=1):
     state = ret.returncode == 0
     msg = ret.stdout if state else ret.stderr
     if not state and retry > 1:
-        logger.warn(f"execute {cmd} got error {msg}, retry...")
+        logger.warning(f"execute {cmd} got error {msg}, retry...")
         time.sleep(1)
         return execute(cmd, check, retry-1)
     return state, msg
 
-    
+
 def start_ray_cluster():
     port = get_free_ports()[0]
     master_addr = get_master_addr()
@@ -141,10 +156,10 @@ def start_exit_listener():
                 if head_created:
                     logger.info(f"ray status got error {msg}")
                     logger.info("head has exited, exit worker ...")
-                    subprocess.run("ray stop", shell=True)
+                    execute("ray stop", check=True)
                     return
                 else:
                     logger.info("wait for head to be created.")
             else:
-                logger.warn(f"ray status got error {msg}")
+                logger.warning(f"ray status got error {msg}")
             time.sleep(5)

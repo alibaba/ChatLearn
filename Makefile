@@ -12,9 +12,7 @@ lint:
 	@$(PYTHON) -m pylint \
 		--rcfile=.pylintrc --output-format=parseable --jobs=8 \
 		$(shell git ls-tree --full-tree --name-only -r HEAD rlhf | grep \.py$) \
-		$(shell git diff --cached --name-only rlhf | grep \.py$) \
-		$(shell git ls-tree --full-tree --name-only -r HEAD tests | grep \.py$) \
-		$(shell git diff --cached --name-only tests | grep \.py$)
+		$(shell git diff --cached --name-only rlhf | grep \.py$)
 
 
 .DEFAULT_GOAL := lint

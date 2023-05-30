@@ -1,20 +1,38 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Sync parameters"""
+
 import random
 import threading
 import traceback
 from collections import defaultdict
 from itertools import cycle
+
 from tqdm import tqdm
 
-from rlhf.utils import future
 from rlhf import get_args
-from rlhf.utils import utils
 from rlhf.launcher.initialize import patch_ray
+from rlhf.utils import future
+from rlhf.utils import utils
 from rlhf.utils.logger import logger
 
 patch_ray()
 
 
 class ParameterSyncGroup:
+    """ParameterSyncGroup"""
 
     def __init__(self, src_model, dst_model, group_name, error_signal):
         self.src_model = src_model
@@ -36,7 +54,6 @@ class ParameterSyncGroup:
         self.build_rank_mapping()
         self.enable_coalesce_param = get_args().rlhf_args.coalesce_param
 
-
     def setup_collective_group(self):
         refs = []
         # we put src_model first, so we don't need to change the rank of training model
@@ -44,15 +61,15 @@ class ParameterSyncGroup:
         world_size = sum(model.actor_num for model in models)
 
         rank_offset = 0
-        for i, model in enumerate(models):
-            logger.info(f"start setup_collective_group for {model.name}, group_name: {self.group_name}, world_size: {world_size}, rank_offset: {rank_offset}")
+        for model in models:
+            logger.info(
+                f"start setup_collective_group for {model.name}, group_name: {self.group_name}, world_size: {world_size}, rank_offset: {rank_offset}")
             for replica in model.replicas:
                 refs += replica._setup_collective_group(rank_offset, world_size, self.group_name)
                 rank_offset += replica.actor_num
 
         future.get(refs)
         logger.info(f"init collective group done for {self.group_name}")
-
 
     def destroy_collective_group(self):
         try:
@@ -61,7 +78,6 @@ class ParameterSyncGroup:
             logger.info(f"destroy_collective_group success for {self.group_name}")
         except Exception as e:
             logger.exception(f"destroy_collective_group fail for {self.group_name} {e}")
-
 
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -82,7 +98,6 @@ class ParameterSyncGroup:
             # TODO: support num_stage>1 for inference
             assert self._num_dst_pipeline_stage == 1, "Now only supports num_stage==1 for inference, otherwise we need to update the name mapping"
 
-
     def build_rank_mapping(self):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
@@ -90,12 +105,14 @@ class ParameterSyncGroup:
         dst_ranks = self.dst_model.all_ranks
         if src_ranks is None or dst_ranks is None:
             if self._debug:
-                logger.warn(f"DEBUG MODE! src_ranks {src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
+                logger.warning(
+                    f"DEBUG MODE! src_ranks {src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
                 return
             else:
                 raise Exception(f"src_ranks {src_ranks} or dst_ranks {dst_ranks} should not be None")
 
-        assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, f"src training model ranks should be times of dst ranks, but got {len(src_ranks)} and {len(dst_ranks[0])}"
+        assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
+            f"src training model ranks should be times of dst ranks, but got {len(src_ranks)} and {len(dst_ranks[0])}"
 
         replica_rank_iter = cycle(iter(src_ranks))
         logger.info(f"src_ranks: {src_ranks}")
@@ -107,14 +124,12 @@ class ParameterSyncGroup:
                 i = j % len(dst_replica_ranks)
                 self.add_recv_actor(src_rank, dst_replica_ranks[i])
 
-
     def _get_dst_name(self, src_name):
         if self._src_prefix:
             dst_name = src_name[len(self._src_prefix):]
         else:
             dst_name = self._dst_prefix + src_name
         return dst_name
-
 
     def validate_sync_results(self, send_actor, recv_actor, src_names, dst_names):
 
@@ -124,12 +139,12 @@ class ParameterSyncGroup:
             for src_name, dst_name in tqdm(random_names):
                 src_tensor = future.get(send_actor.get_parameter.remote(src_name))
                 dst_tensor = future.get(recv_actor.get_parameter.remote(dst_name))
-                assert (src_tensor == dst_tensor).all(), f"after weight sync {name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
+                assert (
+                        src_tensor == dst_tensor).all(), f"after weight sync {name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
             return True
 
         if self._debug:
             utils.get_or_cache(self._validate_params, (send_actor, recv_actor), validate)
-
 
     def _sync_send_recv(self, send_actor, recv_actor):
         src_names, dst_names = self.get_sync_param_names(send_actor, recv_actor)
@@ -147,21 +162,20 @@ class ParameterSyncGroup:
                 if not recv_tensor_exist:
                     logger.info(f"recv tensor {dst_name} not exists")
                     all_dst_layer_names = future.get(recv_actor.get_parameter_names.remote())
-                    raise Exception(f"recv tensor {dst_name} not exists, while recv model has following layers {all_dst_layer_names}")
+                    raise Exception(
+                        f"recv tensor {dst_name} not exists, while recv model has following layers {all_dst_layer_names}")
                 send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
                 recv_ref = recv_actor.recv_parameter.remote(dst_name, self.actor2rank[send_actor], self.group_name)
                 future.get([send_ref, recv_ref])
             logger.info(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
         self.validate_sync_results(send_actor, recv_actor, src_names, dst_names)
 
-
     def sync_send_recv(self, send_actor, recv_actor):
         try:
             self._sync_send_recv(send_actor, recv_actor)
-        except Exception as e:
+        except Exception:
             future.get(self.error_signal.set.remote(traceback.format_exc()))
 
-    
     def set_model_prefix(self, src_names, dst_names):
         for sname, dname in zip(src_names, dst_names):
             if sname in dname:
@@ -173,18 +187,16 @@ class ParameterSyncGroup:
                 self._src_prefix = prefix
                 return
 
-
     def check_param_names(self, send_actor, recv_actor, src_names, dst_names):
         ref0 = send_actor.check_param_exists.remote(src_names)
         ref1 = recv_actor.check_param_exists.remote(dst_names)
         states = future.get([ref0, ref1])
         assert all(states), "Check parameters to sync fail"
 
-
     def get_actor_pipe_stage(self, actor):
-        func = lambda: future.get(actor.pipeline_parallel_rank.remote())
-        return utils.get_or_cache(self._actor2pipe, actor, func)
-
+        def inner_func():
+            return future.get(actor.pipeline_parallel_rank.remote())
+        return utils.get_or_cache(self._actor2pipe, actor, inner_func)
 
     def _set_sync_param_names(self, send_actor, recv_actor):
         if self._num_src_pipeline_stage > 1:
@@ -206,11 +218,9 @@ class ParameterSyncGroup:
         future.get(refs)
         return src_names, dst_names
 
-
     def get_sync_param_names(self, send_actor, recv_actor):
         return utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
-                lambda : self._set_sync_param_names(send_actor, recv_actor))
-
+                                  lambda: self._set_sync_param_names(send_actor, recv_actor))
 
     def sync(self):
         threads = []
@@ -228,4 +238,4 @@ class ParameterSyncGroup:
                 thread.start()
             for thread in threads:
                 thread.join()
-        logger.info(f"sync all parameters done")
+        logger.info("sync all parameters done")

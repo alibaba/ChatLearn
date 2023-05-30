@@ -1,5 +1,18 @@
-"""Checkpoint Manager.
-Code modified from https://code.alibaba-inc.com/algo/aimaster/blob/master/aimaster/python/torch/easyckpt/checkpoint_manager.py"""
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Checkpoint Manager."""
 
 import os
 import pickle
@@ -33,6 +46,7 @@ class _DataLoader:
 
 
 def path_exists(path):
+    """path exits"""
     return path and os.path.exists(path)
 
 
@@ -56,13 +70,11 @@ class CheckpointManager:
         ckpt_path = os.path.join(self._path, name)
         return ckpt_path
 
-
     def _make_checkpoint_path(self, replica_id, step):
         ckpt_path = self._get_checkpoint_path_name(replica_id, step)
         if not path_exists(ckpt_path):
             os.mkdir(ckpt_path)
         return ckpt_path
-
 
     def _delete_ckpt_files(self):
         """Delete checkpoint files."""
@@ -83,8 +95,10 @@ class CheckpointManager:
                     log_rank_0("Permission Denied: Please check the checkpoint file permissions.")
 
     def save_checkpoint(self, replica_id, train_iter, episode):
+        """save data checkpoint"""
         ckpt_path = self._make_checkpoint_path(replica_id, train_iter)
-        log_rank_0(f"save data checkpoint to {ckpt_path}, replica: {replica_id}, train_iter: {train_iter}, episode: {episode}")
+        log_rank_0(
+            f"save data checkpoint to {ckpt_path}, replica: {replica_id}, train_iter: {train_iter}, episode: {episode}")
 
         def _get_path(fn):
             return os.path.join(ckpt_path, fn)
@@ -109,7 +123,6 @@ class CheckpointManager:
         log_rank_0("Checkpointing is done.")
         return True
 
-
     def resume_meta(self):
         ckpt_dir = self._get_checkpoint_path()
         if ckpt_dir is None:
@@ -118,7 +131,7 @@ class CheckpointManager:
             return pickle.load(f)
 
     def _set_latest_iteration(self, iteration):
-        with open(self._meta_file, 'w') as f:
+        with open(self._meta_file, 'w', encoding='utf-8') as f:
             f.write(f"{iteration}")
 
     def _get_latest_iteration(self):
@@ -126,10 +139,9 @@ class CheckpointManager:
             return self.load_iteration
         if not path_exists(self._meta_file):
             return
-        with open(self._meta_file) as f:
+        with open(self._meta_file, encoding='utf-8') as f:
             iteration = f.read().strip()
             return iteration
-
 
     def _get_checkpoint_path(self):
         """Get checkpoint path."""
@@ -143,7 +155,6 @@ class CheckpointManager:
             return ckpt_path
         log_rank_0(f"checkpoint path {ckpt_path} not exists")
         return
-
 
     def resume(self):
         """Resume data structures."""
@@ -167,7 +178,6 @@ class CheckpointManager:
                 log_rank_0(f"resume from data checkpoint {loaders_path}")
                 with open(loaders_path, 'rb') as file:
                     self.loaders = pickle.load(file)
-                steps = [loader['step'] for _, loader in self.loaders.items()]
 
     def _init_states(self):
         loader_states = {'step': 0,
@@ -226,14 +236,14 @@ class CheckpointManager:
         if self.loader_index in self.loaders:
             loader_states = self.loaders[self.loader_index]
             self._load_state(loader_states, generator)
-            data_loader_iter = loader.__iter__()
+            data_loader_iter = loader.__iter__() # pylint: disable=unnecessary-dunder-call
             data_loader_iter._base_seed = loader_states['base_seed']  # pylint: disable=protected-access
 
             if is_cycle:
                 cycle_data_loader_iter = cycle(data_loader_iter)
             else:
                 cycle_data_loader_iter = data_loader_iter
-                
+
             if loader_states['step'] > 0:
                 for _ in range(loader_states['step']):
                     next(cycle_data_loader_iter)
@@ -242,7 +252,7 @@ class CheckpointManager:
             return cycle_data_loader_iter
         loader_states = self._init_states()
         self._cache_state(loader_states, generator)
-        data_loader_iter = loader.__iter__()
+        data_loader_iter = loader.__iter__() # pylint: disable=unnecessary-dunder-call
         if is_cycle:
             cycle_data_loader_iter = cycle(data_loader_iter)
         loader_states['num_workers'] = data_loader_iter._num_workers  # pylint: disable=protected-access
