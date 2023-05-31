@@ -67,7 +67,7 @@ def batching(tensors, padding_value=0.0, padding_type="right"):
         if isinstance(batched[0], torch.Tensor):
             batched = batching(batched, pad, ptype)
         batch[key] = batched
-        return batch
+    return batch
 
 
 def split_batch(batch):
