@@ -216,7 +216,6 @@ class ModelManager:
                 # TODO: for colocate gpu_per_process > 1, support later
                 assert model.gpu_per_process == 1
         model_packs = self.find_model_packing_strategy(models, max_device)
-        num_gpus = 1.0 / len(model_packs)
 
         def _get_model_replica_from_pack(device_index, model_pack):
             device_offset = 0
@@ -227,13 +226,23 @@ class ModelManager:
                     replica_id = model_rank // model.num_device_per_replica
                     return model.replicas[replica_id]
                 device_offset += model.total_device
-
-        # for model_pack in model_packs:
+        # 1. we list the models to place on each device
+        # 2. for device i, the number of models is N, then the num_gpus for each ray actor is 1.0/N
+        device_to_replicas = []
         for i in range(max_device):
-            group = i // self.resouce_manager.gpu_per_node
+            colocate_models = []
             for model_pack in model_packs:
                 replica = _get_model_replica_from_pack(i, model_pack)
+                if replica is not None:
+                    colocate_models.append(replica)
+            device_to_replicas.append(colocate_models)
+
+        for i, replicas in enumerate(device_to_replicas):
+            num_gpus = 1.0 / len(replicas)
+            group = i // self.resouce_manager.gpu_per_node
+            for replica in replicas:
                 replica.create_actor(num_gpus, placement_group, group)
+
         models_to_revert = self._find_param_recv_models(models)
         for model in models:
             if model in models_to_revert: # pylint: disable=simplifiable-if-statement
