@@ -200,6 +200,9 @@ class RLHFConfig(BaseConfig):
     coalesce_param = True
     #: coalesce_buffer size in mb
     coalesced_buffer_mb = 100
+    #: enable lora
+    enable_lora = False
+    lora_layer = "ColumnParallelLinear,Embedding,LinearLayer,RowParallelLinear,VocabParallelEmbedding"
 
     def __init__(self):
         super().__init__()

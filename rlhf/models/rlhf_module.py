@@ -25,6 +25,7 @@ from tqdm import tqdm
 
 from rlhf.checkpoint.checkpoint_manager import CheckpointManager
 from rlhf.launcher import dlc_utils
+from rlhf.opt.lora import fuse_lora_layer, unfuse_lora_layer
 from rlhf.utils import future
 from rlhf.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from rlhf.utils.global_vars import get_args
@@ -295,6 +296,15 @@ class RLHFModule:
         """
         :meta private:
         """
+
+
+    def fuse_lora_layer(self):
+        fuse_lora_layer(self.model)
+
+
+    def unfuse_lora_layer(self):
+        unfuse_lora_layer(self.model)
+
 
     @property
     def rank(self):

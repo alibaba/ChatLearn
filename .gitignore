@@ -1,3 +1,4 @@
+*.diff
 *.pyc
 *.idea
 *.DS_Store

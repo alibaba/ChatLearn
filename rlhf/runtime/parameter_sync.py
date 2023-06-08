@@ -26,6 +26,7 @@ from rlhf import get_args
 from rlhf.launcher.initialize import patch_ray
 from rlhf.utils import future
 from rlhf.utils import utils
+from rlhf.utils.constant import LORA_WEIGHT_PREFIX
 from rlhf.utils.logger import logger
 
 patch_ray()
@@ -188,10 +189,18 @@ class ParameterSyncGroup:
                 return
 
     def check_param_names(self, send_actor, recv_actor, src_names, dst_names):
+        if get_args().rlhf_args.enable_lora:
+            ref = send_actor.fuse_lora_layer.remote()
+            state = future.get([ref])
+            assert state, "Check fuse lora layer fail."
         ref0 = send_actor.check_param_exists.remote(src_names)
         ref1 = recv_actor.check_param_exists.remote(dst_names)
         states = future.get([ref0, ref1])
         assert all(states), "Check parameters to sync fail"
+        if get_args().rlhf_args.enable_lora:
+            ref = send_actor.unfuse_lora_layer.remote()
+            state = future.get([ref])
+            assert state, "Check unfuse lora layer fail."
 
     def get_actor_pipe_stage(self, actor):
         def inner_func():
@@ -204,7 +213,13 @@ class ParameterSyncGroup:
             dst_names = dst_src_mappings.keys()
             src_names = dst_src_mappings.values()
         else:
-            src_names = dst_names = future.get(send_actor.get_parameter_names.remote(requires_grad=True))
+            if get_args().rlhf_args.enable_lora:
+                # TODO(jiangle.jl): support freeze layer.
+                all_params = future.get(send_actor.get_parameter_names.remote(requires_grad=False))
+                src_names = dst_names = [ele for ele in all_params if LORA_WEIGHT_PREFIX not in ele]
+            else:
+                src_names = dst_names = future.get(send_actor.get_parameter_names.remote(requires_grad=True))
+
         if self._dst_prefix is None and self._src_prefix is None:
             dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
             self.set_model_prefix(src_names, dst_names_ref)
