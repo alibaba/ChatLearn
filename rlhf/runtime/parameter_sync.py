@@ -141,20 +141,30 @@ class ParameterSyncGroup:
                 src_tensor = future.get(send_actor.get_parameter.remote(src_name))
                 dst_tensor = future.get(recv_actor.get_parameter.remote(dst_name))
                 assert (
-                        src_tensor == dst_tensor).all(), f"after weight sync {name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
+                        src_tensor == dst_tensor).all(), f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
             return True
 
         if self._debug:
+            logger.info("Going to validate transmitted tensors...")
             utils.get_or_cache(self._validate_params, (send_actor, recv_actor), validate)
+            logger.info("Validation passed!")
 
     def _sync_send_recv(self, send_actor, recv_actor):
         src_names, dst_names = self.get_sync_param_names(send_actor, recv_actor)
         pipe_stage = self.get_actor_pipe_stage(send_actor)
+        send_gpu = future.get(send_actor.get_visible_gpus.remote())
+        recv_gpu = future.get(recv_actor.get_visible_gpus.remote())
+        is_the_same_gpu = (len(send_gpu) == len(recv_gpu) and len(send_gpu) == 1 and send_gpu[0] == recv_gpu[0])
 
         if self.enable_coalesce_param:
-            send_ref = send_actor.send_parameter.remote(None, self.actor2rank[recv_actor], self.group_name, pipe_stage)
-            recv_ref = recv_actor.recv_parameter.remote(None, self.actor2rank[send_actor], self.group_name, pipe_stage)
-            future.get([send_ref, recv_ref])
+            if is_the_same_gpu:
+                name2ref = send_actor.ray_put_parameter.remote(None, self.group_name, pipe_stage)
+                recv_ref = recv_actor.ray_get_parameter.remote(None, self.group_name, name2ref, pipe_stage)
+                future.get(recv_ref)
+            else:
+                send_ref = send_actor.send_parameter.remote(None, self.actor2rank[recv_actor], self.group_name, pipe_stage)
+                recv_ref = recv_actor.recv_parameter.remote(None, self.actor2rank[send_actor], self.group_name, pipe_stage)
+                future.get([send_ref, recv_ref])
             logger.info(f"sync all parameters from {send_actor} to {recv_actor}")
         else:
             for send_name, dst_name in zip(src_names, dst_names):
@@ -165,6 +175,8 @@ class ParameterSyncGroup:
                     all_dst_layer_names = future.get(recv_actor.get_parameter_names.remote())
                     raise Exception(
                         f"recv tensor {dst_name} not exists, while recv model has following layers {all_dst_layer_names}")
+                if is_the_same_gpu:
+                    raise Exception("In the single gpu case, enable_coalesce_param must be True, not False.")
                 send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
                 recv_ref = recv_actor.recv_parameter.remote(dst_name, self.actor2rank[send_actor], self.group_name)
                 future.get([send_ref, recv_ref])

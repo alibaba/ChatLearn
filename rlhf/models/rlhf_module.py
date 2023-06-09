@@ -23,6 +23,7 @@ import ray.util.collective as col
 import torch
 from tqdm import tqdm
 
+from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 from rlhf.checkpoint.checkpoint_manager import CheckpointManager
 from rlhf.launcher import dlc_utils
 from rlhf.opt.lora import fuse_lora_layer, unfuse_lora_layer
@@ -424,6 +425,52 @@ class RLHFModule:
         :meta private:
         """
         self.send_recv_parameter(name, src_rank, group_name, col.recv, pipe_stage)
+
+    def ray_put_parameter(self, name, group_name, pipe_stage=0):
+        """
+        :meta private:
+        """
+        name2ref = {}
+        if self.rlhf_args.coalesce_param:
+            assert name is None
+            tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+            dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
+            log_rank_0(f"{self.name} Put dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
+            for bucket_id, bucket in enumerate(dense_buckets):
+                flat_tensors = _flatten_dense_tensors(bucket)
+                flat_tensors_ref = ray.put(flat_tensors)
+                name2ref[group_name + ":dense_bucket_" + str(bucket_id)] = flat_tensors_ref
+            for param_id, param in enumerate(sparse_bucket):
+                param_ref = ray.put(param)
+                name2ref[group_name + ":sparse_bucket_" + str(param_id)] = param_ref
+        else:
+            tensor = self.get_parameter(name)
+            tensor_ref = ray.put(tensor)
+            name2ref[group_name + ":" + name] = tensor_ref
+        return name2ref
+
+    def ray_get_parameter(self, name, group_name, name2ref, pipe_stage=0):
+        """
+        :meta private:
+        """
+        if self.rlhf_args.coalesce_param:
+            assert name is None
+            tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+            dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
+            log_rank_0(f"{self.name} Get dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
+            for bucket_id, bucket in enumerate(dense_buckets):
+                put_ref = name2ref[group_name + ":dense_bucket_" + str(bucket_id)]
+                flat_tensors = ray.get(put_ref)
+                for tensor, synced in zip(
+                    bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
+                    tensor.copy_(synced)
+            for param_id, param in enumerate(sparse_bucket):
+                put_ref = name2ref[group_name + ":sparse_bucket_" + str(param_id)]
+                param.copy_(ray.get(put_ref))
+        else:
+            tensor = self.get_parameter(name)
+            put_ref = name2ref[group_name + ":" + name]
+            tensor.copy_(ray.get(put_ref))
 
     def pipeline_model_parallel_size(self):
         """
