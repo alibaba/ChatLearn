@@ -20,6 +20,7 @@ import os
 
 import yaml
 
+from rlhf.utils.constant import LORA_LAYER
 from rlhf.utils.logger import logger
 from rlhf.utils.utils import get_attributes
 
@@ -202,7 +203,12 @@ class RLHFConfig(BaseConfig):
     coalesced_buffer_mb = 100
     #: enable lora
     enable_lora = False
-    lora_layer = "ColumnParallelLinear,Embedding,LinearLayer,RowParallelLinear,VocabParallelEmbedding"
+    part_module_name = None
+    lora_dim = 8
+    lora_dropout = 0.0
+    lora_scaling = 1.0
+    lora_layer = LORA_LAYER
+    column_only_qkv = False
 
     def __init__(self):
         super().__init__()

@@ -36,9 +36,11 @@ from megatron.core.parallel_state import (
 )
 from megatron.core.tensor_parallel.layers import (
     ColumnParallelLinear,
+    LinearWithGradAccumulationAndAsyncCommunication,
     RowParallelLinear,
     VocabParallelEmbedding,
-    _initialize_affine_weight_gpu
+    _initialize_affine_weight_gpu,
+    linear_with_grad_accumulation_and_async_allreduce,
 )
 
 from megatron.core.tensor_parallel.mappings import (
@@ -58,6 +60,9 @@ except ImportError:
     _grad_accum_fusion_available = False
 
 from rlhf import get_args as get_rlhf_args
+from rlhf.utils.arguments import RLHFConfig
+from rlhf.utils.constant import LORA_LAYER, QKV_LAYER_NAME
+from rlhf.utils.global_vars import is_initialized
 
 
 class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Function):
@@ -266,7 +271,8 @@ def linear_with_grad_accumulation_and_async_allreduce_LoRA(
     return LinearWithGradAccumulationAndAsyncCommunication_LoRA.apply(*args)
 
 linear_with_grad_accumulation_and_async_allreduce_LoRA.warned = False
-
+linear_with_grad_accumulation_and_async_allreduce = linear_with_grad_accumulation_and_async_allreduce_LoRA
+LinearWithGradAccumulationAndAsyncCommunication.backward = LinearWithGradAccumulationAndAsyncCommunication_LoRA.backward
 
 class ColumnParallelLinear_LoRA(torch.nn.Module):
     """Linear layer with column parallelism.
@@ -295,7 +301,7 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
     def __init__(self, weight,
                  lora_dim=0,
                  lora_scaling=1,
-                 lora_droppout=0,
+                 lora_dropout=0,
                  bias=None,
                  **kwargs):
         super(ColumnParallelLinear_LoRA, self).__init__()
@@ -340,8 +346,8 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
         self.lora_left_weight = nn.Parameter(torch.zeros(rows, lora_dim))
         self.lora_scaling = lora_scaling / lora_dim
 
-        if lora_droppout > 0:
-            self.lora_dropout = nn.Dropout(lora_droppout)
+        if lora_dropout > 0:
+            self.lora_dropout = nn.Dropout(lora_dropout)
         else:
             self.lora_dropout = nn.Identity()
 
@@ -455,7 +461,7 @@ class RowParallelLinear_LoRA(torch.nn.Module):
     def __init__(self, weight,
                  lora_dim=0,
                  lora_scaling=1,
-                 lora_droppout=0,
+                 lora_dropout=0,
                  bias=None,
                  **kwargs):
         super(RowParallelLinear_LoRA, self).__init__()
@@ -487,8 +493,8 @@ class RowParallelLinear_LoRA(torch.nn.Module):
         self.lora_left_weight = nn.Parameter(torch.zeros(rows, lora_dim))
         self.lora_scaling = lora_scaling / lora_dim
 
-        if lora_droppout > 0:
-            self.lora_dropout = nn.Dropout(lora_droppout)
+        if lora_dropout > 0:
+            self.lora_dropout = nn.Dropout(lora_dropout)
         else:
             self.lora_dropout = nn.Identity()
 
@@ -581,7 +587,7 @@ class LinearLayer_LoRA(nn.Module):
                  weight,
                  lora_dim=0,
                  lora_scaling=1,
-                 lora_droppout=0,
+                 lora_dropout=0,
                  bias=None,
                  **kwargs):
         super(LinearLayer_LoRA, self).__init__()
@@ -604,8 +610,8 @@ class LinearLayer_LoRA(nn.Module):
         self.lora_left_weight = nn.Parameter(torch.zeros(lora_dim, rows))
         self.lora_scaling = lora_scaling / lora_dim
 
-        if lora_droppout > 0:
-            self.lora_dropout = nn.Dropout(lora_droppout)
+        if lora_dropout > 0:
+            self.lora_dropout = nn.Dropout(lora_dropout)
         else:
             self.lora_dropout = nn.Identity()
 
@@ -665,7 +671,7 @@ class VocabParallelEmbedding_LoRA(nn.Module):
                  weight,
                  lora_dim=0,
                  lora_scaling=1,
-                 lora_droppout=0,
+                 lora_dropout=0,
                  bias=None,
                  **kwargs):
         super(VocabParallelEmbedding_LoRA, self).__init__()
@@ -699,8 +705,8 @@ class VocabParallelEmbedding_LoRA(nn.Module):
         self.lora_left_weight = nn.Parameter(torch.zeros(lora_dim, rows))
         self.lora_scaling = lora_scaling / lora_dim
 
-        if lora_droppout > 0:
-            self.lora_dropout = nn.Dropout(lora_droppout)
+        if lora_dropout > 0:
+            self.lora_dropout = nn.Dropout(lora_dropout)
         else:
             self.lora_dropout = nn.Identity()
 
@@ -770,7 +776,7 @@ class Embedding_LoRA(nn.Module):
                  weight,
                  lora_dim=0,
                  lora_scaling=1,
-                 lora_droppout=0,
+                 lora_dropout=0,
                  bias=None,
                  **kwargs):
         super(Embedding_LoRA, self).__init__()
@@ -796,8 +802,8 @@ class Embedding_LoRA(nn.Module):
         self.lora_left_weight = nn.Parameter(torch.zeros(lora_dim, rows))
         self.lora_scaling = lora_scaling / lora_dim
 
-        if lora_droppout > 0:
-            self.lora_dropout = nn.Dropout(lora_droppout)
+        if lora_dropout > 0:
+            self.lora_dropout = nn.Dropout(lora_dropout)
         else:
             self.lora_dropout = nn.Identity()
 
@@ -864,16 +870,36 @@ LORA_LAYER_MAP = {
 }
 
 
-# convert the linear layer to LoRA
-def convert_linear_layer_to_lora(model,
-                                 part_module_name=None,
-                                 lora_dim=8,
-                                 lora_scaling=1,
-                                 lora_droppout=0):
+# convert layer to LoRA
+def convert_layer_to_lora(model,
+                          part_module_name=None,
+                          lora_dim=None,
+                          lora_scaling=None,
+                          lora_dropout=None,
+                          lora_layer=None,
+                          column_only_qkv=None):
+
+    if is_initialized():
+        func = get_rlhf_args().rlhf_args
+    else:
+        func = RLHFConfig
+    rlhf_part_module_name = func.part_module_name
+    rlhf_lora_dim = func.lora_dim
+    rlhf_lora_scaling = func.lora_scaling
+    rlhf_lora_dropout = func.lora_dropout
+    rlhf_lora_layer = func.lora_layer
+    rlhf_column_only_qkv = func.column_only_qkv
+
+    part_module_name = part_module_name if part_module_name is not None else rlhf_part_module_name
+    lora_dim = lora_dim if lora_dim is not None else rlhf_lora_dim
+    lora_scaling = lora_scaling if lora_scaling is not None else rlhf_lora_scaling
+    lora_dropout = lora_dropout if lora_dropout is not None else rlhf_lora_dropout
+    layers_to_convert = lora_layer if lora_layer is not None else rlhf_lora_layer
+    column_only_qkv = column_only_qkv if column_only_qkv is not None else rlhf_lora_layer
+
     if lora_dim <= 0:
         return model
 
-    layers_to_convert = get_rlhf_args().rlhf_args.lora_layer
     layers_to_convert = layers_to_convert.split(",")
     assert all([layer in LORA_LAYER_MAP for layer in layers_to_convert]), \
         "Unsupport layer to enable lora, {}. Only support {} for now.".format(layers_to_convert, DEFAULT_LORA_LAYER)
@@ -887,6 +913,8 @@ def convert_linear_layer_to_lora(model,
         elif isinstance(module, RowParallelLinear) and "RowParallelLinear" in layers_to_convert:
             repalce_name[name] = RowParallelLinear_LoRA
         elif isinstance(module, ColumnParallelLinear) and "ColumnParallelLinear" in layers_to_convert:
+            if column_only_qkv and any([ele not in name for ele in QKV_LAYER_NAME]):
+                continue
             repalce_name[name] = ColumnParallelLinear_LoRA
         elif isinstance(module, VocabParallelEmbedding) and "VocabParallelEmbedding" in layers_to_convert:
             repalce_name[name] = VocabParallelEmbedding_LoRA
@@ -921,9 +949,12 @@ def convert_linear_layer_to_lora(model,
         if hasattr(module, "num_embeddings"):
             kwargs["num_embeddings"] = module.num_embeddings
         tmp = func(
-            module.weight, lora_dim, lora_scaling, lora_droppout,
+            module.weight, lora_dim, lora_scaling, lora_dropout,
             module.bias if hasattr(module, "bias") else None, **kwargs).to(module.weight.device).to(module.weight.dtype)
         recursive_setattr(model, name, tmp)
+
+    only_optimize_lora_parameters(model)
+
     return model
 
 

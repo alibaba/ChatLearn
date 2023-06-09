@@ -14,8 +14,8 @@
 # ==============================================================================
 "lora layers."
 
-from .layers import convert_linear_layer_to_lora
-from .layers import only_optimize_lora_parameters
+from .layers import convert_layer_to_lora
 from .layers import fuse_lora_layer
-from .layers import unfuse_lora_layer
 from .layers import linear_with_grad_accumulation_and_async_allreduce_LoRA
+from .layers import only_optimize_lora_parameters
+from .layers import unfuse_lora_layer

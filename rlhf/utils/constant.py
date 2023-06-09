@@ -17,3 +17,5 @@
 
 # LoRA
 LORA_WEIGHT_PREFIX = "lora"
+LORA_LAYER = "ColumnParallelLinear,Embedding,LinearLayer,RowParallelLinear,VocabParallelEmbedding"
+QKV_LAYER_NAME = ["query_key_value"]

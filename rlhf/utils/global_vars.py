@@ -30,6 +30,8 @@ def get_args():
 
 
 def is_initialized():
+    if _GLOBAL_ARGS is None:
+        return False
     return _GLOBAL_ARGS.initialized
 
 
