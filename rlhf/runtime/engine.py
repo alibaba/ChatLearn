@@ -290,3 +290,6 @@ class EvalEngine(Engine):
         self.evaluator.setup()
         queue = self.evaluator.eval()
         return queue
+    
+    def stop(self):
+        self.model_manager.clean()

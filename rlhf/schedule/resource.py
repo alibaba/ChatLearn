@@ -32,6 +32,7 @@ class ResourceManager:
         self.models = models
         self.name2models = {model.name: model for model in self.models}
         self.model_to_placegroup = {}
+        self.placement_groups = []
         resource = ray.nodes()[0]['Resources']
         self.gpu_per_node = int(resource['GPU'])
         self.cpu_per_node = int(resource['CPU'])
@@ -62,4 +63,12 @@ class ResourceManager:
                 logger.info(f"waiting for placement group to be created for {num_gpus}GPUs {pg.bundle_specs}")
                 warn_once = False
             time.sleep(1)
+        self.placement_groups.append(pg)
         return pg
+
+    def remove_placement_groups(self):
+        for pg in self.placement_groups:
+            ray.util.remove_placement_group(pg)
+            while self.get_placement_group_state(pg) != "REMOVED":
+                time.sleep(0.5)
+        logger.info("Remove placement groups done")

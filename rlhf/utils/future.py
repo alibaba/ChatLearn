@@ -20,7 +20,7 @@ from rlhf.utils.logger import logging_tqdm
 from rlhf.utils.utils import flatten
 
 
-def wait(refs, desc=None):
+def wait(refs, desc=None, return_output=False):
     """
     wait until all computation finish
     """
@@ -30,15 +30,20 @@ def wait(refs, desc=None):
     if len(refs) == 0:
         return
     refs = flatten(refs)
+    outputs = []
     if desc is not None:
         pbar = logging_tqdm(total=len(refs), desc=desc)
     while refs:
         done, refs = ray.wait(refs)
         if desc is not None:
             pbar.update(len(done))
-        ray.get(done[0])
+        res = ray.get(done[0])
+        if return_output:
+            outputs.append(res)
     if desc is not None:
         pbar.close()
+    if return_output:
+        return outputs
 
 
 def get(data):

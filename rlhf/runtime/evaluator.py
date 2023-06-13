@@ -118,8 +118,8 @@ class Evaluator(PPOEnv):
         self._post_process_func = post_process_func
         return self
 
-    def eval(self, ppo_iter=None, train_iteration=None, return_queue=False, return_last=True):
-        queue = Queue()
+    def eval(self, ppo_iter=None, train_iteration=None, return_last=True):
+        result_refs = []
         data_queue = Queue()
         num_batch = self.num_eval_iteration
         refs = []
@@ -139,25 +139,21 @@ class Evaluator(PPOEnv):
             query = next(data_providers).master.next_batch.remote(is_eval=True)
             data_queue.put(self.encode_data(mb, query))
             data = self.eval_step(data_queue, out_queues)
-            queue.put(data)
-        if return_queue:
-            # end of evaluation
-            queue.put(None)
-            return queue
-        else:
-            results = []
-            # last one is None
-            total = queue.qsize()
-            for i in tqdm(range(total), desc="evaluation"):
-                res = future.get(queue.get())
-                if return_last:
-                    res = res[0]
-                results.append(res)
-            if self._post_process_func is not None:
-                eval_info = {}
-                if ppo_iter is not None:
-                    eval_info["episode_iteration"] = ppo_iter
-                if train_iteration is not None:
-                    eval_info["train_iteration"] = train_iteration
-                self._post_process_func(results, eval_info)
-            return results
+            result_refs.append(data)
+        element_size = len(result_refs[0])
+        results = future.wait(result_refs, desc="evaluator", return_output=True)
+        results_nested = []
+        for i in range(0, len(results), element_size):
+            sublist = results[i:i+element_size]
+            results_nested.append(sublist)
+        results = results_nested
+        if return_last:
+            results = [res[0] for res in results]
+        if self._post_process_func is not None:
+            eval_info = {}
+            if ppo_iter is not None:
+                eval_info["episode_iteration"] = ppo_iter
+            if train_iteration is not None:
+                eval_info["train_iteration"] = train_iteration
+            self._post_process_func(results, eval_info)
+        return results

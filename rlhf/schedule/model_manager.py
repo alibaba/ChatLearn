@@ -16,6 +16,9 @@
 
 from collections import defaultdict
 
+import ray
+import ray.experimental.state.api
+
 from rlhf.data.storage import Storage
 from rlhf.launcher import dlc_utils
 from rlhf.models.rlhf_module import RLHFTorchModule
@@ -258,3 +261,12 @@ class ModelManager:
     def clean(self):
         for group in self.parameter_sync_groups.values():
             group.destroy_collective_group()
+        for dist_model in self._name2distmodel.values():
+            for dist_actor in dist_model.replicas:
+                for actor in dist_actor.all_actors:
+                    ray.kill(actor)
+        ray.kill(self._storage)
+        ray.kill(self.error_signal)
+        self.resouce_manager.remove_placement_groups()
+
+
