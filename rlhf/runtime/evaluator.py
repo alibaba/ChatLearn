@@ -18,7 +18,6 @@ import math
 from itertools import cycle
 
 from ray.util.queue import Queue
-from tqdm import tqdm
 
 from rlhf.models.rlhf_module import RLHFModule
 from rlhf.runtime.environment import PPOEnv

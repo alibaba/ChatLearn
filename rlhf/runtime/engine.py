@@ -110,6 +110,9 @@ class Engine:
             logger.info(f"{LOG_START} [{model.name}] {summary[0]}")
         self.logging_memory()
 
+    def stop(self):
+        self.model_manager.clean()
+
 
 class RLHFEngine(Engine):
     """rlhf engine"""
@@ -231,7 +234,6 @@ class RLHFEngine(Engine):
         self.timers("rlhf").stop()
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
         logger.info("train rlhf done")
-        self.model_manager.clean()
 
     def resume_from_data_checkpoint(self):
         if self.rlhf_args.data_checkpoint_path:
@@ -290,6 +292,3 @@ class EvalEngine(Engine):
         self.evaluator.setup()
         queue = self.evaluator.eval()
         return queue
-    
-    def stop(self):
-        self.model_manager.clean()

@@ -268,5 +268,3 @@ class ModelManager:
         ray.kill(self._storage)
         ray.kill(self.error_signal)
         self.resouce_manager.remove_placement_groups()
-
-
