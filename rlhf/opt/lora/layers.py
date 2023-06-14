@@ -14,44 +14,49 @@
 # ==============================================================================
 """lora layers."""
 
+import importlib.util
 import os
 import math
 from typing import Optional
-import ray
+
 import torch
 from torch import nn
 from torch.nn import Embedding
 import torch.nn.functional as F
-import torch.nn.init as init
-from .utils import recursive_getattr, recursive_setattr
 from torch.cuda.amp import custom_fwd, custom_bwd
 
+from rlhf import get_args as get_rlhf_args
+from rlhf.opt.lora.utils import recursive_getattr, recursive_setattr
+from rlhf.utils.arguments import RLHFConfig
+from rlhf.utils.constant import QKV_LAYER_NAME
+from rlhf.utils.global_vars import is_initialized
 
-from megatron import get_args
-from megatron.core.parallel_state import (
-    get_tensor_model_parallel_rank,
-    get_tensor_model_parallel_world_size,
-    get_tensor_model_parallel_group,
-    get_global_memory_buffer,
-)
-from megatron.core.tensor_parallel.layers import (
-    ColumnParallelLinear,
-    LinearWithGradAccumulationAndAsyncCommunication,
-    RowParallelLinear,
-    VocabParallelEmbedding,
-    _initialize_affine_weight_gpu,
-    linear_with_grad_accumulation_and_async_allreduce,
-)
+megatron_exist = importlib.util.find_spec("megatron")
+if megatron_exist:
+    from megatron import get_args
+    from megatron.core.parallel_state import (
+        get_tensor_model_parallel_rank,
+        get_tensor_model_parallel_world_size,
+        get_tensor_model_parallel_group,
+        get_global_memory_buffer
+    )
+    from megatron.core.tensor_parallel.layers import (  # pylint: disable=unused-import
+        ColumnParallelLinear,
+        LinearWithGradAccumulationAndAsyncCommunication,
+        RowParallelLinear,
+        VocabParallelEmbedding,
+        linear_with_grad_accumulation_and_async_allreduce
+    )
 
-from megatron.core.tensor_parallel.mappings import (
-    copy_to_tensor_model_parallel_region,
-    gather_from_tensor_model_parallel_region,
-    gather_from_sequence_parallel_region,
-    reduce_from_tensor_model_parallel_region,
-    scatter_to_tensor_model_parallel_region,
-    reduce_scatter_to_sequence_parallel_region,
-)
-from megatron.core.tensor_parallel.utils import VocabUtility
+    from megatron.core.tensor_parallel.mappings import (
+        copy_to_tensor_model_parallel_region,
+        gather_from_tensor_model_parallel_region,
+        reduce_from_tensor_model_parallel_region,
+        scatter_to_tensor_model_parallel_region,
+        reduce_scatter_to_sequence_parallel_region
+    )
+    from megatron.core.tensor_parallel.utils import VocabUtility
+
 
 _grad_accum_fusion_available = True
 try:
@@ -59,20 +64,15 @@ try:
 except ImportError:
     _grad_accum_fusion_available = False
 
-from rlhf import get_args as get_rlhf_args
-from rlhf.utils.arguments import RLHFConfig
-from rlhf.utils.constant import LORA_LAYER, QKV_LAYER_NAME
-from rlhf.utils.global_vars import is_initialized
 
-
-class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Function):
+class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Function):  # pylint: disable=abstract-method
     """See linear_with_grad_accumulation_and_async_allreduce_LoRA"""
 
     @staticmethod
     @custom_fwd
-    def forward(ctx, input, weight, bias, gradient_accumulation_fusion,
+    def forward(ctx, inputs, weight, bias, gradient_accumulation_fusion,  # pylint: disable=arguments-differ
                 async_grad_allreduce, sequence_parallel):
-        ctx.save_for_backward(input, weight)
+        ctx.save_for_backward(inputs, weight)
         ctx.use_bias = bias is not None
         ctx.gradient_accumulation_fusion = gradient_accumulation_fusion
         ctx.async_grad_allreduce = async_grad_allreduce
@@ -80,18 +80,18 @@ class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Functi
 
         if sequence_parallel:
             world_size = get_tensor_model_parallel_world_size()
-            dim_size = list(input.size())
+            dim_size = list(inputs.size())
             dim_size[0] = dim_size[0] * world_size
 
             all_gather_buffer = \
-                get_global_memory_buffer().get_tensor(dim_size, input.dtype, "mpu")
+                get_global_memory_buffer().get_tensor(dim_size, inputs.dtype, "mpu")
             torch.distributed._all_gather_base(
                 all_gather_buffer,
-                input,
+                inputs,
                 group=get_tensor_model_parallel_group())
             total_input = all_gather_buffer
         else:
-            total_input = input
+            total_input = inputs
 
         output = torch.matmul(total_input, weight.t())
         if bias is not None:
@@ -100,35 +100,35 @@ class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Functi
 
     @staticmethod
     @custom_bwd
-    def backward(ctx, grad_output):
-        input, weight = ctx.saved_tensors
+    def backward(ctx, grad_output):  # pylint: disable=arguments-differ
+        inputs, weight = ctx.saved_tensors
         use_bias = ctx.use_bias
 
         if ctx.sequence_parallel:
             world_size = get_tensor_model_parallel_world_size()
-            dim_size = list(input.size())
+            dim_size = list(inputs.size())
             dim_size[0] = dim_size[0] * world_size
 
             all_gather_buffer = \
-                get_global_memory_buffer().get_tensor(dim_size, input.dtype, "mpu")
+                get_global_memory_buffer().get_tensor(dim_size, inputs.dtype, "mpu")
             handle = torch.distributed._all_gather_base(
                 all_gather_buffer,
-                input,
+                inputs,
                 group=get_tensor_model_parallel_group(), async_op=True)
 
             # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
             # gather is scheduled before the input gradient computation
             total_input = all_gather_buffer
         else:
-            total_input = input
+            total_input = inputs
         grad_input = grad_output.matmul(weight)
 
         if ctx.sequence_parallel:
             handle.wait()
 
-        # Doing gather + slicing during the NeMo forward pass can make this tensor 
-        # not be contiguous. PyTorch only checks if the tensor is contiguous, and only 
-        # clones it if it's not contiguous: 
+        # Doing gather + slicing during the NeMo forward pass can make this tensor
+        # not be contiguous. PyTorch only checks if the tensor is contiguous, and only
+        # clones it if it's not contiguous:
         # https://github.com/pytorch/pytorch/blob/c47cf9bc7f9e02f649ab4ed53fe4d35732c92ab6/torch/_refs/__init__.py#L2761
         grad_output = grad_output.contiguous()
         # Convert the tensor shapes to 2D for execution compatibility
@@ -146,8 +146,8 @@ class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Functi
 
         if ctx.sequence_parallel:
             assert not ctx.async_grad_allreduce
-            dim_size = list(input.size())
-            sub_grad_input = torch.empty(dim_size, dtype=input.dtype,
+            dim_size = list(inputs.size())
+            sub_grad_input = torch.empty(dim_size, dtype=inputs.dtype,
                                          device=torch.cuda.current_device(),
                                          requires_grad=False)
             # reduce_scatter
@@ -161,9 +161,9 @@ class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Functi
         if weight.requires_grad:
             if ctx.gradient_accumulation_fusion:
                 if weight.main_grad.dtype == torch.float32:
-                    fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp32(total_input, grad_output, weight.main_grad)
+                    fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp32(total_input, grad_output, weight.main_grad)  # pylint: disable=c-extension-no-member
                 elif weight.main_grad.dtype == torch.float16:
-                    fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp16(total_input, grad_output, weight.main_grad)
+                    fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp16(total_input, grad_output, weight.main_grad)  # pylint: disable=c-extension-no-member
                 else:
                     raise RuntimeError("Unsupported gradient type for gradient accumulation fusion")
                 grad_weight = None
@@ -184,7 +184,7 @@ class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Functi
 
 
 def linear_with_grad_accumulation_and_async_allreduce_LoRA(
-    input: torch.Tensor,
+    input: torch.Tensor,  # pylint: disable=redefined-builtin
     weight: torch.Tensor,
     bias: Optional[torch.Tensor],
     gradient_accumulation_fusion: bool,
@@ -270,32 +270,21 @@ def linear_with_grad_accumulation_and_async_allreduce_LoRA(
 
     return LinearWithGradAccumulationAndAsyncCommunication_LoRA.apply(*args)
 
-linear_with_grad_accumulation_and_async_allreduce_LoRA.warned = False
-linear_with_grad_accumulation_and_async_allreduce = linear_with_grad_accumulation_and_async_allreduce_LoRA
-LinearWithGradAccumulationAndAsyncCommunication.backward = LinearWithGradAccumulationAndAsyncCommunication_LoRA.backward
+if megatron_exist:
+    linear_with_grad_accumulation_and_async_allreduce_LoRA.warned = False
+    linear_with_grad_accumulation_and_async_allreduce = linear_with_grad_accumulation_and_async_allreduce_LoRA
+    LinearWithGradAccumulationAndAsyncCommunication.backward = LinearWithGradAccumulationAndAsyncCommunication_LoRA.backward
+
 
 class ColumnParallelLinear_LoRA(torch.nn.Module):
-    """Linear layer with column parallelism.
-
-    The linear layer is defined as Y = XA + b. A is parallelized along
-    its second dimension as A = [A_1, ..., A_p].
+    """LoRA version of megatron.core.tensor_parallel.layers.ColumnParallelLinear.
 
     Arguments:
-        input_size: first dimension of matrix A.
-        output_size: second dimension of matrix A.
-        bias: If true, add bias
-        gather_output: If true, call all-gather on output and make Y available
-                       to all GPUs, otherwise, every GPU will have its output
-                       which is Y_i = XA_i
-        init_method: method to initialize weights. Note that bias is always set
-                     to zero.
-        stride: For the strided linear layers.
-        keep_master_weight_for_test: This was added for testing and should be
-                                     set to False. It returns the master weights
-                                     used for initialization.
-        skip_bias_add: This was added to enable performance optimations where bias
-                       can be fused with other elementwise operations. we skip
-                       adding bias but instead return it.
+        weight: weight of original ColumnParallelLinear module.
+        lora_dim: lora rank dim.
+        lora_scaling: lora scaling value.
+        bias: bias of original ColumnParallelLinear module.
+        kwargs: args of original ColumnParallelLinear module.
     """
 
     def __init__(self, weight,
@@ -304,7 +293,7 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
                  lora_dropout=0,
                  bias=None,
                  **kwargs):
-        super(ColumnParallelLinear_LoRA, self).__init__()
+        super().__init__()
 
         # Keep input parameters
         self.gather_output = kwargs.get("gather_output", True)
@@ -313,8 +302,6 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
 
         # Divide the weight matrix along the last dimension.
         self.skip_bias_add = kwargs.get("skip_bias_add", False)
-        input_size = kwargs.get("input_size")
-        output_size = kwargs.get("output_size")
 
         # Parameters.
         # Note: torch.nn.functional.linear performs XA^T + b and as a result
@@ -429,33 +416,14 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
 
 
 class RowParallelLinear_LoRA(torch.nn.Module):
-    """Linear layer with row parallelism.
+    """LoRA version of megatron.core.tensor_parallel.layers.RowParallelLinear.
 
-    The linear layer is defined as Y = XA + b. A is parallelized along
-    its first dimension and X along its second dimension as:
-               -   -
-              | A_1 |
-              | .   |
-          A = | .   |        X = [X_1, ..., X_p]
-              | .   |
-              | A_p |
-               -   -
     Arguments:
-        input_size: first dimension of matrix A.
-        output_size: second dimension of matrix A.
-        bias: If true, add bias. Note that bias is not parallelized.
-        input_is_parallel: If true, we assume that the input is already
-                           split across the GPUs and we do not split
-                           again.
-        init_method: method to initialize weights. Note that bias is always set
-                     to zero.
-        stride: For the strided linear layers.
-        keep_master_weight_for_test: This was added for testing and should be
-                                     set to False. It returns the master weights
-                                     used for initialization.
-        skip_bias_add: This was added to enable performance optimization where bias
-                       can be fused with other elementwise operations. We skip
-                       adding bias but instead return it.
+        weight: weight of original RowParallelLinear module.
+        lora_dim: lora rank dim.
+        lora_scaling: lora scaling value.
+        bias: bias of original RowParallelLinear module.
+        kwargs: args of original RowParallelLinear module.
     """
 
     def __init__(self, weight,
@@ -464,7 +432,7 @@ class RowParallelLinear_LoRA(torch.nn.Module):
                  lora_dropout=0,
                  bias=None,
                  **kwargs):
-        super(RowParallelLinear_LoRA, self).__init__()
+        super().__init__()
 
         self.input_is_parallel = kwargs.get("input_is_parallel", False)
         # Divide the weight matrix along the last dimension.
@@ -581,16 +549,22 @@ class RowParallelLinear_LoRA(torch.nn.Module):
 
 
 class LinearLayer_LoRA(nn.Module):
-    # an simple implementation of LoRA
-    # for now only support Linear Layer
+    """LoRA version of torch.nn.Linear.
+
+    Arguments:
+        weight: weight of original torch.nn.Linear module.
+        lora_dim: lora rank dim.
+        lora_scaling: lora scaling value.
+        bias: bias of original torch.nn.Linear module.
+        kwargs: args of original torch.nn.Linear module.
+    """
     def __init__(self,
                  weight,
                  lora_dim=0,
                  lora_scaling=1,
                  lora_dropout=0,
-                 bias=None,
-                 **kwargs):
-        super(LinearLayer_LoRA, self).__init__()
+                 bias=None):
+        super().__init__()
         self.weight = weight
         self.bias = bias
 
@@ -602,7 +576,7 @@ class LinearLayer_LoRA(nn.Module):
         try:
             # for zero stage 3
             rows, columns = weight.ds_shape
-        except:
+        except:  # pylint: disable=bare-except
             rows, columns = weight.shape
         self.lora_right_weight = nn.Parameter(torch.zeros(
             columns,
@@ -646,25 +620,25 @@ class LinearLayer_LoRA(nn.Module):
                 self.lora_left_weight, self.lora_right_weight)
         self.fuse_lora = False
 
-    def forward(self, input):
+    def forward(self, inputs):
         if self.fuse_lora:
-            return F.linear(input, self.weight, self.bias)
+            return F.linear(inputs, self.weight, self.bias)
         else:
             return F.linear(
-                input, self.weight,
-                self.bias) + (self.lora_dropout(input) @ self.lora_right_weight
+                inputs, self.weight,
+                self.bias) + (self.lora_dropout(inputs) @ self.lora_right_weight
                               @ self.lora_left_weight) * self.lora_scaling
 
 
 class VocabParallelEmbedding_LoRA(nn.Module):
-    """Embedding parallelized in the vocabulary dimension.
+    """LoRA version of megatron.core.tensor_parallel.layers.VocabParallelEmbedding.
 
-    This is mainly adapted from torch.nn.Embedding and all the default
-    values are kept.
     Arguments:
-        num_embeddings: vocabulary size.
-        embedding_dim: size of hidden state.
-        init_method: method to initialize weights.
+        weight: weight of original VocabParallelEmbedding module.
+        lora_dim: lora rank dim.
+        lora_scaling: lora scaling value.
+        bias: bias of original VocabParallelEmbedding module.
+        kwargs: args of original VocabParallelEmbedding module.
     """
 
     def __init__(self,
@@ -674,7 +648,7 @@ class VocabParallelEmbedding_LoRA(nn.Module):
                  lora_dropout=0,
                  bias=None,
                  **kwargs):
-        super(VocabParallelEmbedding_LoRA, self).__init__()
+        super().__init__()
         # Set the detauls for compatibility.
         self.padding_idx = kwargs.get("padding_idx", None)
         self.max_norm = kwargs.get("max_norm", None)
@@ -772,6 +746,15 @@ class VocabParallelEmbedding_LoRA(nn.Module):
 
 
 class Embedding_LoRA(nn.Module):
+    """LoRA version of torch.nn.Embedding.
+
+    Arguments:
+        weight: weight of original torch.nn.Embedding module.
+        lora_dim: lora rank dim.
+        lora_scaling: lora scaling value.
+        bias: bias of original torch.nn.Embedding module.
+        kwargs: args of original torch.nn.Embedding module.
+    """
     def __init__(self,
                  weight,
                  lora_dim=0,
@@ -779,7 +762,7 @@ class Embedding_LoRA(nn.Module):
                  lora_dropout=0,
                  bias=None,
                  **kwargs):
-        super(Embedding_LoRA, self).__init__()
+        super().__init__()
         self.padding_idx = kwargs.get("padding_idx", None)
         self.max_norm = kwargs.get("max_norm", None)
         self.norm_type = kwargs.get("norm_type", 2.)
@@ -848,9 +831,8 @@ class Embedding_LoRA(nn.Module):
                     input_, self.lora_left_weight.T, self.padding_idx, self.max_norm,
                     self.norm_type, self.scale_grad_by_freq, self.sparse
             )
-            output += (after_A @ self.lora_right_weight.T) * self.lora_scaling    
+            output += (after_A @ self.lora_right_weight.T) * self.lora_scaling
         return output
-
 
 
 ALL_LORA_LAYER = (
@@ -878,7 +860,6 @@ def convert_layer_to_lora(model,
                           lora_dropout=None,
                           lora_layer=None,
                           column_only_qkv=None):
-
     if is_initialized():
         func = get_rlhf_args().rlhf_args
     else:
@@ -895,13 +876,13 @@ def convert_layer_to_lora(model,
     lora_scaling = lora_scaling if lora_scaling is not None else rlhf_lora_scaling
     lora_dropout = lora_dropout if lora_dropout is not None else rlhf_lora_dropout
     layers_to_convert = lora_layer if lora_layer is not None else rlhf_lora_layer
-    column_only_qkv = column_only_qkv if column_only_qkv is not None else rlhf_lora_layer
+    column_only_qkv = column_only_qkv if column_only_qkv is not None else rlhf_column_only_qkv
 
     if lora_dim <= 0:
         return model
 
     layers_to_convert = layers_to_convert.split(",")
-    assert all([layer in LORA_LAYER_MAP for layer in layers_to_convert]), \
+    assert all(layer in LORA_LAYER_MAP for layer in layers_to_convert), \
         "Unsupport layer to enable lora, {}. Only support {} for now.".format(layers_to_convert, DEFAULT_LORA_LAYER)
 
     repalce_name = {}
@@ -913,7 +894,7 @@ def convert_layer_to_lora(model,
         elif isinstance(module, RowParallelLinear) and "RowParallelLinear" in layers_to_convert:
             repalce_name[name] = RowParallelLinear_LoRA
         elif isinstance(module, ColumnParallelLinear) and "ColumnParallelLinear" in layers_to_convert:
-            if column_only_qkv and any([ele not in name for ele in QKV_LAYER_NAME]):
+            if column_only_qkv and any(ele not in name for ele in QKV_LAYER_NAME):
                 continue
             repalce_name[name] = ColumnParallelLinear_LoRA
         elif isinstance(module, VocabParallelEmbedding) and "VocabParallelEmbedding" in layers_to_convert:
@@ -922,10 +903,10 @@ def convert_layer_to_lora(model,
             repalce_name[name] = Embedding_LoRA
         else:
             pass
-        
+
     for name, func in repalce_name.items():
         module = recursive_getattr(model, name)
-        kwargs = dict()
+        kwargs = {}
         if hasattr(module, "input_is_parallel"):
             kwargs["input_is_parallel"] = module.input_is_parallel
         if hasattr(module, "skip_bias_add"):
@@ -961,24 +942,26 @@ def convert_layer_to_lora(model,
 def fuse_lora_layer(model):
     if isinstance(model, list):
         model = model[0]
-    for name, module in model.named_modules():
+    for _, module in model.named_modules():
         if isinstance(module, ALL_LORA_LAYER):
             module.fuse_lora_weight()
 
 def unfuse_lora_layer(model):
     if isinstance(model, list):
         model = model[0]
-    for name, module in model.named_modules():
+    for _, module in model.named_modules():
         if isinstance(module, ALL_LORA_LAYER):
             module.unfuse_lora_weight()
 
 
-def only_optimize_lora_parameters(model, excluded_flags=["bias"], excluded_attrs=["sequence_parallel"], is_training=True):
+def only_optimize_lora_parameters(model, excluded_flags="bias", excluded_attrs="sequence_parallel", is_training=True):
     # turn off the gradient of all the parameters except the LoRA parameters
+    excluded_flags = excluded_flags.split(",")
+    excluded_attrs = excluded_attrs.split(",")
     for name, param in model.named_parameters():
         if "lora_right_weight" in name or "lora_left_weight" in name or \
-                any([getattr(param, ele, False) for ele in excluded_attrs]) or \
-                any([ele in name for ele in excluded_flags]):
+                any(getattr(param, ele, False) for ele in excluded_attrs) or \
+                any(ele in name for ele in excluded_flags):
             param.requires_grad = is_training
         else:
             param.requires_grad = False
@@ -994,7 +977,7 @@ def print_trainable_parameters(model):
     """
     trainable_params = 0
     all_param = 0
-    for name, param in model.named_parameters():
+    for _, param in model.named_parameters():
         all_param += param.numel()
         if param.requires_grad:
             trainable_params += param.numel()

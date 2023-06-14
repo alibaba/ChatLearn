@@ -45,5 +45,4 @@ def recursive_setattr(model, module_name, module):
     output = model
     for name in split_list[:-1]:
         output = getattr(output, name)
-    output.__setattr__(split_list[-1], module)
-
+    setattr(output, split_list[-1], module)
