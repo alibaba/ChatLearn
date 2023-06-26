@@ -26,6 +26,7 @@ import torch.nn.functional as F
 from torch.cuda.amp import custom_fwd, custom_bwd
 
 from rlhf import get_args as get_rlhf_args
+from rlhf.opt.lora.initializer import distributed_kaiming_uniform_
 from rlhf.opt.lora.utils import recursive_getattr, recursive_setattr
 from rlhf.utils.arguments import RLHFConfig
 from rlhf.utils.constant import QKV_LAYER_NAME
@@ -327,6 +328,7 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
             )
 
         rows, columns = weight.shape
+        self.fan_in = columns
         self.lora_right_weight = nn.Parameter(torch.zeros(
             lora_dim, columns
             ))  # apply transpose so in forward we do not need to
@@ -354,7 +356,7 @@ class ColumnParallelLinear_LoRA(torch.nn.Module):
         # self.unfuse_lora_weight()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.lora_right_weight, a=math.sqrt(5))
+        distributed_kaiming_uniform_(self.lora_right_weight, self.fan_in, a=math.sqrt(5))
         nn.init.zeros_(self.lora_left_weight)
 
     def fuse_lora_weight(self):
@@ -455,6 +457,7 @@ class RowParallelLinear_LoRA(torch.nn.Module):
             )
 
         rows, columns = weight.shape
+        self.fan_in = columns
         self.lora_right_weight = nn.Parameter(torch.zeros(
             lora_dim, columns
             ))  # apply transpose so in forward we do not need to
@@ -482,7 +485,7 @@ class RowParallelLinear_LoRA(torch.nn.Module):
         # self.unfuse_lora_weight()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.lora_right_weight, a=math.sqrt(5))
+        distributed_kaiming_uniform_(self.lora_right_weight, self.fan_in, a=math.sqrt(5))
         nn.init.zeros_(self.lora_left_weight)
 
     def fuse_lora_weight(self):
@@ -578,6 +581,7 @@ class LinearLayer_LoRA(nn.Module):
             rows, columns = weight.ds_shape
         except:  # pylint: disable=bare-except
             rows, columns = weight.shape
+        self.fan_in = columns
         self.lora_right_weight = nn.Parameter(torch.zeros(
             columns,
             lora_dim))  # apply transpose so in forward we do not need to
@@ -605,7 +609,7 @@ class LinearLayer_LoRA(nn.Module):
         # self.unfuse_lora_weight()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.lora_right_weight, a=math.sqrt(5))
+        distributed_kaiming_uniform_(self.lora_right_weight, self.fan_in, a=math.sqrt(5))
         nn.init.zeros_(self.lora_left_weight)
 
     def fuse_lora_weight(self):
@@ -673,6 +677,7 @@ class VocabParallelEmbedding_LoRA(nn.Module):
             )
 
         rows, columns = weight.shape
+        self.fan_in = columns
         self.lora_right_weight = nn.Parameter(torch.zeros(
             columns,
             lora_dim))  # apply transpose so in forward we do not need to
@@ -700,7 +705,7 @@ class VocabParallelEmbedding_LoRA(nn.Module):
         # self.unfuse_lora_weight()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.lora_right_weight, a=math.sqrt(5))
+        distributed_kaiming_uniform_(self.lora_right_weight, self.fan_in, a=math.sqrt(5))
         nn.init.zeros_(self.lora_left_weight)
 
     def fuse_lora_weight(self):
@@ -779,6 +784,7 @@ class Embedding_LoRA(nn.Module):
             )
 
         rows, columns = weight.shape
+        self.fan_in = columns
         self.lora_right_weight = nn.Parameter(torch.zeros(
             columns,
             lora_dim))  # apply transpose so in forward we do not need to
@@ -807,7 +813,7 @@ class Embedding_LoRA(nn.Module):
         # self.unfuse_lora_weight()
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.lora_right_weight, a=math.sqrt(5))
+        distributed_kaiming_uniform_(self.lora_right_weight, self.fan_in, a=math.sqrt(5))
         nn.init.zeros_(self.lora_left_weight)
 
     def fuse_lora_weight(self):
