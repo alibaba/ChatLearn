@@ -95,111 +95,90 @@ def split_batch(batch):
 
 
 @ray.remote
-class StreamDataset():
+class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, queue, total_samples, batch_size, padding_config=None, cache=False):
+    def __init__(self, data_loader_type, batch_size, padding_config=None, max_relay_episode=1):
         """
         Args:
-            total_samples: if total_samples is 0, then this is dynamic size Dataset
+            data_loader_type: fixed/dynamic/relay
         """
-        self.queue = queue
-        self.total_samples = total_samples
-        if self.total_samples == 0:
-            self._dynamic_dataset = True
-            self._num_batches = 0
-        else:
+        if data_loader_type == "fixed":
             self._dynamic_dataset = False
-            self._num_batches = math.ceil(total_samples / batch_size)
+        else:
+            self._dynamic_dataset = True
         self.batch_size = batch_size
-        self.produce_index = 0
-        self.cache = cache
-        self.relay_buffer = []
-        self.iter = self.__iter__()
         self._padding_config = padding_config if padding_config is not None else {}
-        self._padding_value = {key: value["padding_value"] for key, value in self._padding_config.items()}
-        self._padding_type = {key: value["padding_type"] for key, value in self._padding_config.items()}
-        self._has_next = True
+        self._padding_value = {key: value["padding_value"] for key, value in padding_config.items()}
+        self._padding_type = {key: value["padding_type"] for key, value in padding_config.items()}
+        if max_relay_episode < 0:
+            max_relay_episode = math.inf
+        self._max_relay_episode = max_relay_episode
+        self._episode_relay_buffers = []
+
 
     def shuffle(self):
         """
         shuffle relay buffer
         """
-        random.shuffle(self.relay_buffer)
+        self.relay_buffer.shuffle()
         self.iter = self.__iter__() # pylint: disable=unnecessary-dunder-call
         self._has_next = True
 
     def __iter__(self):
-        if self._dynamic_dataset:
+        if self._dynamic_dataset and not self._read_data_complete:
             return self.iter_dynamic()
         return self.iter_fixed()
+
+    def _get_batch(self, start_index):
+        end_index = min(start_index + self.batch_size, len(self.relay_buffer))
+        data_to_batch = self.relay_buffer.get_samples(start_index, end_index)
+        if len(data_to_batch) < self.batch_size:
+            data_to_batch += self.relay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
+        batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
+        return batched_data
 
     def iter_fixed(self):
         """
         iteration with fixed batch size
         """
-        self.produce_index = 0
-        if len(self.relay_buffer) == self.total_samples:
-            self.cache = False
+        produce_index = 0
         batch_count = 0
-        while self.produce_index < self.total_samples:
+        while produce_index < self._total_samples:
             # read from cache
-            if len(self.relay_buffer) < self.total_samples:
-                while len(self.relay_buffer) < self.total_samples and \
-                    (len(self.relay_buffer) - self.produce_index) < self.batch_size:
-                    if self.queue.qsize() == 0:
-                        raise ValueError("WARN: data queue is empty")
-                    # get from queue
-                    data = self.queue.get()
-                    merged_data = {}
-                    for item in data:
-                        local_data = future.get(item)
-                        merged_data.update(local_data)
-                    samples = split_batch(merged_data)
-                    self.relay_buffer += samples
-            start_index = self.produce_index
-            end_index = min(self.produce_index + self.batch_size, len(self.relay_buffer))
-            data_to_batch = self.relay_buffer[start_index: end_index]
-            if len(data_to_batch) < self.batch_size:
-                data_to_batch += self.relay_buffer[:self.batch_size - len(data_to_batch)]
-            batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
+            if len(self.relay_buffer) < self._total_samples:
+                while len(self.relay_buffer) < self._total_samples and \
+                    (len(self.relay_buffer) - produce_index) < self.batch_size:
+                    self.relay_buffer.add_raw_batch()
+            batched_data = self._get_batch(produce_index)
             yield batched_data
             batch_count += 1
-            self.produce_index += len(data_to_batch)
-        assert batch_count == self._num_batches
-        assert self.produce_index == len(self.relay_buffer)
+            produce_index += self.batch_size
+        assert batch_count == math.ceil(self._total_samples / self.batch_size)
+        assert produce_index >= len(self.relay_buffer), \
+               f"produce_index: {produce_index} < len(self.relay_buffer) {len(self.relay_buffer)}"
 
     def iter_dynamic(self):
         """
         iteration with dynamic batch size
         """
-        self.produce_index = 0
-        if self.total_samples > 0:
+        produce_index = 0
+        if self._read_data_complete:
             return self.iter_fixed()
         batch_count = 0
 
-        while self.queue.qsize() > 0:
-            while self.queue.qsize() > 0 and \
-                (len(self.relay_buffer) - self.produce_index) < self.batch_size:
+        while self.relay_buffer.queue_not_empty():
+            while self.relay_buffer.queue_not_empty() and \
+                (len(self.relay_buffer) - produce_index) < self.batch_size:
                 # get from queue
-                data = self.queue.get()
-                merged_data = {}
-                for item in data:
-                    local_data = future.get(item)
-                    merged_data.update(local_data)
-                samples = split_batch(merged_data)
-                self.relay_buffer += samples
-            start_index = self.produce_index
-            end_index = min(self.produce_index + self.batch_size, len(self.relay_buffer))
-            data_to_batch = self.relay_buffer[start_index: end_index]
-            if len(data_to_batch) < self.batch_size:
-                data_to_batch += self.relay_buffer[:self.batch_size - len(data_to_batch)]
-            batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
+                self.relay_buffer.add_raw_batch()
+            batched_data = self._get_batch(produce_index)
             yield batched_data
             batch_count += 1
-            self.produce_index += len(data_to_batch)
-        self.total_samples = len(self.relay_buffer)
-        self.num_batches = batch_count
+            produce_index += self.batch_size
+        self._read_data_complete = True
+        assert len(self.relay_buffer) == self._total_samples
+        self._num_batches = batch_count
 
     def next(self):
         """get next batch"""
@@ -215,6 +194,100 @@ class StreamDataset():
         has next batch
         """
         return self._has_next
+
+    def set_dataset(self, queue, episode_id, relay_sample_fn=None):
+        relay_buffer = EpisodeRelayBuffer(episode_id, queue=queue)
+        if self._max_relay_episode > 1:
+            self._episode_relay_buffers.append(relay_buffer)
+            if len(self._episode_relay_buffers) > self._max_relay_episode:
+                old_buffer = self._episode_relay_buffers.pop(0)
+                del old_buffer
+        if self._max_relay_episode > 1:
+            # this function will sync until all data computing finished,
+            # which will block training until environment rollout finished.
+            relay_buffer.sync()
+            if relay_sample_fn is not None:
+                buffer = relay_sample_fn(self._episode_relay_buffers)
+            else:
+                raise Exception("default relay sample function is not currently supported")
+            self.relay_buffer = EpisodeRelayBuffer(episode_id, buffer=buffer)
+            self._total_samples = len(self.relay_buffer)
+            self._read_data_complete = True
+        else:
+            num_rollout_batches = queue.qsize()
+            self.relay_buffer = relay_buffer
+            self.relay_buffer.add_raw_batch()
+            total_samples = self.relay_buffer._rollout_batch_size * num_rollout_batches
+            self._total_samples = total_samples
+            self._read_data_complete = num_rollout_batches <= 1
+        self.iter = iter(self)
+        self._has_next = True
+
+    def episode_relay_buffers(self):
+        return self._episode_relay_buffers
+
+    def total_samples(self):
+        return self._total_samples
+
+    def batch_per_episode(self):
+        return math.ceil(self._total_samples / self.batch_size)
+
+
+class EpisodeRelayBuffer:
+    """EpisodeRelayBuffer"""
+
+    def __init__(self, episode_id, queue=None, buffer=None):
+        self._episode_id = episode_id
+        assert (queue is None or buffer is None) and (queue is not None or buffer is not None)
+        if buffer is not None:
+            assert queue is None
+            self._buffer = buffer
+        else:
+            assert queue is not None
+            self._buffer = []
+        self.queue = queue
+        self._rollout_batch_size = -1
+
+    def add_raw_batch(self):
+        if self.queue.qsize() == 0:
+            raise ValueError("WARN: data queue is empty")
+        # get from queue
+        data = self.queue.get()
+        merged_data = {}
+        for item in data:
+            local_data = future.get(item)
+            merged_data.update(local_data)
+        samples = split_batch(merged_data)
+        if self._rollout_batch_size < 0:
+            self._rollout_batch_size = len(samples)
+        else:
+            assert self._rollout_batch_size == len(samples)
+        self._buffer += samples
+        return samples
+
+    def queue_not_empty(self):
+        return self.queue.qsize() > 0
+
+    def shuffle(self):
+        random.shuffle(self._buffer)
+
+    def get_samples(self, start_index, end_index):
+        return self._buffer[start_index: end_index]
+
+    def __len__(self):
+        return len(self._buffer)
+
+    def sync(self):
+        while self.queue_not_empty():
+            self.add_raw_batch()
+
+    @property
+    def buffer(self):
+        return self._buffer
+
+    @property
+    def episode_id(self):
+        return self._episode_id
 
 
 class RLHFDataLoader:

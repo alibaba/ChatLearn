@@ -35,6 +35,9 @@ function run_test {
 
 
 function run_all_tests {
+  run_test python test_fixed_data.py -c "configs/rlhf.yaml"
+  run_test python test_dynamic_data.py -c "configs/rlhf.yaml"
+  run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate3.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate2.py -c "configs/rlhf.yaml"
   RUN_FLAG=0 run_test python test_rlhf_ckpt.py -c "configs/rlhf.yaml"

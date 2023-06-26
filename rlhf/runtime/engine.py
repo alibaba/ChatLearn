@@ -134,6 +134,8 @@ class RLHFEngine(Engine):
         self._start_episode = 0
         self._dataset = None
         self._drop_last = False
+        self._relay_sample_fn = None
+        self._ppo_data_loader = None
 
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
@@ -188,6 +190,9 @@ class RLHFEngine(Engine):
         self.episode_stats = episode_stats
         return episode_stats
 
+    def set_relay_sample_fn(self, relay_sample_fn):
+        self._relay_sample_fn = relay_sample_fn
+
     def learn(self):
         self.timers("rlhf").start()
         self.timers("setup").start()
@@ -200,36 +205,37 @@ class RLHFEngine(Engine):
         logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
         self.resume_from_data_checkpoint()
-        for ppo_iter in range(self._start_episode, self.rlhf_args.num_ppo_episode):
+
+        ppo_data_loader = StreamDataset.remote(self.rlhf_args.stream_data_loader_type,
+                                               self.rlhf_args.train_micro_batch_size,
+                                               self.env._padding_config,
+                                               self.rlhf_args.max_relay_episode)
+        self._ppo_data_loader = ppo_data_loader
+        for episode_id in range(self._start_episode, self.rlhf_args.num_ppo_episode):
             if self.rlhf_args.nsys:
-                if ppo_iter == 4:
+                if episode_id == 4:
                     torch.cuda.cudart().cudaProfilerStart()
-                if ppo_iter == 5:
+                if episode_id == 5:
                     torch.cuda.cudart().cudaProfilerStop()
             self.timers("episode").start()
             self.before_episode()
-            logger.info(f"start train ppo_iter: {ppo_iter + 1}/{self.rlhf_args.num_ppo_episode}")
+            logger.info(f"start train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode}")
             queue = self.env.make_experiences()
-            if self.rlhf_args.dynamic_train_samples:
-                sample_per_episode = 0
-            else:
-                sample_per_episode = self.rlhf_args.sample_per_episode
-            ppo_data_loader = StreamDataset.remote(queue, sample_per_episode,
-                                                   self.rlhf_args.train_micro_batch_size,
-                                                   self.env._padding_config, cache=True)
+            refs = ppo_data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn)
+            future.wait(refs)
             self.trainer.set_data_loader(ppo_data_loader)
             logger.info("set dataloader for trainer done")
-            self.trainer.train(ppo_iter)
-            logger.info(f"train ppo_iter: {ppo_iter + 1}/{self.rlhf_args.num_ppo_episode} done")
+            self.trainer.train(episode_id)
+            logger.info(f"train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode} done")
             self.timers("sync_parameters").start()
             self.model_manager.sync_parameters()
             self.timers("sync_parameters").stop()
-            logger.info(f"train ppo_iter: {ppo_iter + 1}/{self.rlhf_args.num_ppo_episode} parameter sync done")
+            logger.info(f"train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode} parameter sync done")
             self.after_episode()
             self.timers("episode").stop()
-            self.logging_summary(ppo_iter)
-            self.save_checkpoint(ppo_iter)
-            self.evaluate(ppo_iter)
+            self.logging_summary(episode_id)
+            self.save_checkpoint(episode_id)
+            self.evaluate(episode_id)
 
         self.timers("rlhf").stop()
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
@@ -245,27 +251,27 @@ class RLHFEngine(Engine):
                 self._start_episode = meta["episode"] + 1
                 self.trainer.iteration = meta["train_iteration"]
 
-    def save_checkpoint(self, ppo_iter):
+    def save_checkpoint(self, episode_id):
         if self.rlhf_args.save_episode_interval and \
-            (ppo_iter + 1) % self.rlhf_args.save_episode_interval == 0:
+            (episode_id + 1) % self.rlhf_args.save_episode_interval == 0:
             ref0 = self.ppo_policy.replicas[0].save_checkpoint(self.trainer.iteration)
             ref1 = self.ppo_value.replicas[0].save_checkpoint(self.trainer.iteration)
             refs = [ref0, ref1]
             for i, model in enumerate(self.policy.replicas):
-                refs.append(model.save_data_checkpoint(i, self.trainer.iteration, ppo_iter))
+                refs.append(model.save_data_checkpoint(i, self.trainer.iteration, episode_id))
             future.get(refs)
-            logger.info(f"save checkpoint episode {ppo_iter}, train iteration {self.trainer.iteration} done")
+            logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
-    def evaluate(self, ppo_iter):
+    def evaluate(self, episode_id):
 
         if self.evaluator is not None and \
             self.rlhf_args.eval_episode_interval and \
-            (ppo_iter + 1) % self.rlhf_args.eval_episode_interval == 0:
+            (episode_id + 1) % self.rlhf_args.eval_episode_interval == 0:
             logger.info("start evaluate")
             self.timers("evaluate").start()
-            self.evaluator.eval(ppo_iter, self.trainer.iteration)
+            self.evaluator.eval(episode_id, self.trainer.iteration)
             self.timers("evaluate").stop()
-            super().logging_summary(ppo_iter)
+            super().logging_summary(episode_id)
             logger.info(f"evaluate done {self.timers.log(names=['evaluate'])}")
 
 

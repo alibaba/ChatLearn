@@ -191,8 +191,8 @@ class RLHFConfig(BaseConfig):
     max_data_ckpt_nums = None
     #: [optional]: load data checkpoint from iteration
     load_data_checkpoint_iteration = None
-    #: [optional]: dynamic training samples
-    dynamic_train_samples = False
+    #: [optional]: stream_data_loader type, ["fixed", "dynamic", "relay"]
+    stream_data_loader_type = "fixed"
     #: private
     debug = False
     #: enable nsys nvtx
@@ -201,6 +201,8 @@ class RLHFConfig(BaseConfig):
     coalesce_param = True
     #: coalesce_buffer size in mb
     coalesced_buffer_mb = 100
+    #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
+    max_relay_episode = 1
     #: enable lora
     enable_lora = False
     part_module_name = None
@@ -348,7 +350,8 @@ class Config(BaseConfig):
             self.rlhf_args.train_global_batch_size = self.rlhf_args.train_micro_batch_size
         assert self.rlhf_args.train_global_batch_size % self.rlhf_args.train_micro_batch_size == 0, \
             f"train_global_batch_size should be times of train_micro_batch_size," \
-            f"but got {self.rlhf_args.train_global_batch_size}/{self.rlhf_args.train_micro_batch_size}"
+            f"but got {self.rlhf_args.train_global_batch_size}/{self.rlhf_args.train_micro_batch_size}" 
+        assert self.rlhf_args.stream_data_loader_type.lower() in ["fixed", "dynamic", "relay"]
 
         for _, model_args in self.models.items():
             assert model_args.gpu_per_process <= model_args.num_device

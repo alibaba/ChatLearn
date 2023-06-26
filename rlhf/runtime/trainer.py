@@ -15,6 +15,7 @@
 """Trainer"""
 
 import math
+import ray
 
 from rlhf.utils import future
 from rlhf.utils.logger import logger
@@ -39,7 +40,7 @@ class PPOTrainer(BaseTrainer):
         self.ppo_policy_model = ppo_policy_model
         self.ppo_value_model = ppo_value_model
         self.models = [ppo_policy_model, ppo_value_model]
-        self.num_training_iteration = math.ceil(args.sample_per_episode / args.train_global_batch_size)
+        self.args = args
         self.num_micro_batch = args.train_global_batch_size // args.train_micro_batch_size
         self.iteration = 0
         model_names = [m.name for m in self.models]
@@ -88,7 +89,14 @@ class PPOTrainer(BaseTrainer):
             refs.extend(model.empty_cache())
         future.wait(refs)
 
+    def num_training_iteration(self):
+        # Given that we have incorporated support for relay buffer and dynamic reward outputs,
+        # the number of training data batches per episode may differ, hence we dynamically determine the total number of batches per episode.
+        _sample_per_episode = ray.get(self._data_loader.total_samples.remote())
+        return math.ceil(_sample_per_episode / self.args.train_global_batch_size)
+
     def train(self, episode):
+        _num_training_iteration = self.num_training_iteration()
         for epoch in range(self.args.num_training_epoch):
             if epoch > 0:
                 ret = self._data_loader.shuffle.remote()
@@ -96,7 +104,7 @@ class PPOTrainer(BaseTrainer):
             if not self._colocation:
                 logger.info(f"{self.ppo_policy_model.name} and {self.ppo_value_model.name} execute concurrently")
                 train_refs = []
-                train_datas = [self.next_batch() for step in range(self.num_training_iteration)]
+                train_datas = [self.next_batch() for step in range(_num_training_iteration)]
                 for train_data in train_datas:
                     if train_data:
                         train_info = {"iteration": self.iteration}
@@ -110,7 +118,7 @@ class PPOTrainer(BaseTrainer):
             else:
                 logger.info(f"{self.ppo_policy_model.name} and {self.ppo_value_model.name} execute serially")
                 batches = []
-                for step in range(self.num_training_iteration):
+                for step in range(_num_training_iteration):
                     train_data = self.next_batch()
                     if train_data:
                         batches.append(train_data)
