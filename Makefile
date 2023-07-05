@@ -19,5 +19,9 @@ lint:
 		$(shell git ls-tree --full-tree --name-only -r HEAD rlhf | grep \.py$) \
 		$(shell git diff --cached --name-only rlhf | grep \.py$)
 
+.PHONY: doc
+doc:
+	cd docs; make html
+
 
 .DEFAULT_GOAL := lint

@@ -8,3 +8,4 @@ dist/
 .nfs*
 *.dot
 *.egg-info/
+docs/zh/api/doc/*.rst

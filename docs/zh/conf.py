@@ -26,10 +26,10 @@ sys.path.insert(0, os.path.abspath("../../"))
 
 
 import rlhf
-from rlhf import arguments
+from rlhf.utils import arguments
 
 from importlib.machinery import SourceFileLoader
-version = SourceFileLoader("rlhf.version", "../../rlhf/version.py") \
+version = SourceFileLoader("rlhf.version", "../../rlhf/utils/version.py") \
     .load_module().VERSION
 
 # -- General configuration ---------------------------------------------------

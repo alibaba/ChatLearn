@@ -91,14 +91,26 @@ class RLHFModule:
 
     @property
     def rlhf_args(self):
+        """
+        Return the arguments related to RLHF training,
+        the settings that are specified under the "rlhf" section of the YAML configuration file.
+        """
         return self._rlhf_args
 
     @property
     def model_args(self):
+        """
+        Return model arguments, such as those related to Megatron,
+        should be specified in a separate configuration yaml file for the model being used.
+        """
         return self._module_args.args_dict
 
     @property
     def module_args(self):
+        """
+        Return module arguments.
+        module arguments include `num_device`, `gpu_per_process`, `model_config_file`, etc.
+        """
         return self._module_args
 
     def set_env(self, args):
