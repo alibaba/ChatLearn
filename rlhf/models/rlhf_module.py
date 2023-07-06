@@ -14,27 +14,21 @@
 # ==============================================================================
 """RLHF base module"""
 
-import os
 from collections import defaultdict
 from itertools import cycle
 
 import ray
 import ray.util.collective as col
-import torch
 from tqdm import tqdm
 
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 from rlhf.checkpoint.checkpoint_manager import CheckpointManager
-from rlhf.launcher import dlc_utils
 from rlhf.utils import future
 from rlhf.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from rlhf.utils.global_vars import get_args
 from rlhf.utils.global_vars import set_global_variables
 from rlhf.utils.logger import log_rank_0
-from rlhf.utils.logger import logger
-from rlhf.utils.megatron_utils import build_pipeline_layer_name_mapping
 from rlhf.utils.timer import Timers
-from rlhf.utils.utils import get_free_port, get_host_addr
 
 
 class RLHFModule:
@@ -141,8 +135,14 @@ class RLHFModule:
 
     def setup(self):
         """
-        create model / data
+        create model / optimizer / opt_param_scheduler / etc
         """
+
+    def model_setup(self):
+        """
+        :meta private:
+        """
+        self.setup()
 
     def forward_step(self, data):
         """
@@ -552,159 +552,3 @@ class RLHFModule:
     def add_step(self, step):
         if self.data_ckpt_manager is not None:
             self.data_ckpt_manager.add_step(step)
-
-
-class RLHFTorchModule(RLHFModule):
-    """RLHFTorchModule"""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def get_addr_port(self):
-        """
-        Get node address and port
-
-        :meta private:
-        """
-        if dlc_utils.in_dlc_env():
-            addr = dlc_utils.get_addr()
-            port = None
-        else:
-            addr = get_host_addr()
-            port = get_free_port()
-        return addr, port
-
-    def get_visible_gpus(self):
-        """
-        :meta private:
-        """
-        return ray.get_gpu_ids()
-
-    def set_env(self, args):
-        """
-        :meta private:
-        """
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
-            assert key in args, f"{key} is not set for RLHFTorchWrapper"
-            os.environ[key] = str(args[key])
-        self._rank = int(os.environ['RANK'])
-        return 1
-
-    def get_dist_env(self):
-        envs = {}
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
-            envs[key] = os.environ[key]
-        return envs
-
-    def peak_memory(self):
-        """
-        :meta private:
-        """
-        self._peak_memory = max(self._peak_memory, torch.cuda.max_memory_allocated() / (1024 ** 3))
-        return self._peak_memory
-
-    @property
-    def data_parallel_size(self):
-        """
-        data parallel size
-        """
-
-    @property
-    def data_parallel_rank(self):
-        """
-        data parallel rank
-        """
-
-    def empty_cache(self):
-        log_rank_0(f"{self.name} before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-        log_rank_0(f"{self.name} after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
-
-    def check_param_exists(self, names):
-        """
-        check if the given names exists in current model
-        :meta private
-        """
-        return all(self.exist_parameter(name) for name in names)
-
-
-# pylint: disable=import-outside-toplevel
-class RLHFMegatronModule(RLHFTorchModule):
-    """RLHFMegatronModule"""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        if not self.trainable:
-            # inference only
-            self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
-        else:
-            self.model_args["micro_batch_size"] = self.rlhf_args.train_micro_batch_size
-            self.model_args["global_batch_size"] = self.rlhf_args.train_global_batch_size
-
-    @property
-    def megatron_args(self):
-        import megatron
-        return megatron.get_args()
-
-    def pipeline_model_parallel_size(self):
-        """
-        get pipeline_model_parallel_size
-        """
-        return self.megatron_args.pipeline_model_parallel_size
-
-    def tensor_model_parallel_size(self):
-        """
-        get tensor_model_parallel_size
-        """
-        return self.megatron_args.tensor_model_parallel_size
-
-    @property
-    def data_parallel_size(self):
-        from megatron.core import mpu
-        return mpu.get_data_parallel_world_size()
-
-    @property
-    def data_parallel_rank(self):
-        from megatron.core import mpu
-        return mpu.get_data_parallel_rank()
-
-    def pipeline_parallel_rank(self):
-        from megatron.core import mpu
-        return mpu.get_pipeline_model_parallel_rank()
-
-    def num_layers(self):
-        """
-        :meta private:
-        """
-        return self.megatron_args.num_layers
-
-    def build_pipeline_layer_name_mapping(self, requires_grad=True):
-        """
-        :meta private:
-        """
-        from megatron.core import mpu
-        layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
-        rank = mpu.get_pipeline_model_parallel_rank()
-        logger.info(f"build mapping for rank {rank} =========")
-        if isinstance(self.model, list):
-            assert len(self.model) == 1
-            model = self.model[0]
-        else:
-            model = self.model
-        name_mapping = build_pipeline_layer_name_mapping(layers_per_stage, rank, model, requires_grad)
-        return name_mapping
-
-    def get_param_ranks(self):
-        """
-        :meta private:
-        """
-        # TODO: remove param_ranks in user's code
-        # TODO: replace data_parallel ranks with existing methods
-        from megatron.core import mpu
-
-        param_ranks = []
-        for i in range(self.data_parallel_size):
-            param_ranks.append([ranks[i] for ranks in mpu.get_all_data_parallel_group_ranks()])
-        self.set_param_ranks(param_ranks)
-        return param_ranks

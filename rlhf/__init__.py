@@ -19,8 +19,8 @@ from rlhf.utils.global_vars import get_args
 from rlhf.utils.future import get
 
 from rlhf.models.rlhf_module import RLHFModule
-from rlhf.models.rlhf_module import RLHFTorchModule
-from rlhf.models.rlhf_module import RLHFMegatronModule
+from rlhf.models.torch_module import RLHFTorchModule
+from rlhf.models.megatron_module import RLHFMegatronModule
 
 from rlhf.runtime.evaluator import Evaluator
 from rlhf.runtime.engine import Engine

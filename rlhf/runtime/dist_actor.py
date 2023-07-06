@@ -244,7 +244,7 @@ class DistModel:
             setattr(self, func_name, dist_call)
 
     def register_func(self):
-        for func_name in ["setup",
+        for func_name in ["model_setup",
                           "before_episode",
                           "after_episode",
                           "validate",

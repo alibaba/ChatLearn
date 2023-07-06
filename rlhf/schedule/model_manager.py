@@ -21,7 +21,7 @@ import ray.experimental.state.api
 
 from rlhf.data.storage import Storage
 from rlhf.launcher import dlc_utils
-from rlhf.models.rlhf_module import RLHFTorchModule
+from rlhf.models.torch_module import RLHFTorchModule
 from rlhf.runtime.decorator import decorate_class_func
 from rlhf.runtime.decorator import timeit, preprocess_compute, monitor_error
 from rlhf.runtime.dist_actor import DistActor, DistTorchActor, DistModel
@@ -116,13 +116,13 @@ class ModelManager:
             decorate_class_func(model_cls, func_name, preprocess_compute, merge_input)
 
         for func_name in ["forward_step", "train_step",
-                          "save_checkpoint", "setup"]:
+                          "save_checkpoint", "model_setup"]:
             decorate_class_func(model_cls, func_name, timeit, func_name)
 
         # public user function
         # TODO: use decorator to annotate
         for func_name in ["forward_step", "train_step",
-                          "save_checkpoint", "setup"]:
+                          "save_checkpoint", "model_setup"]:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
 
     def _to_dist_model(self, model):

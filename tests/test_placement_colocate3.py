@@ -46,6 +46,7 @@ class PolicyModel(RLHFTorchModule):
         print("policy forward =========", flush=True)
         query = data["query"]
         time.sleep(1)
+        self.put("policy_put", 100)
         data["policy_out"] = query
         return data
 
@@ -71,6 +72,8 @@ class RewardModel(RLHFTorchModule):
     def forward_step(self, data):
         print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
+        policy_put = self.get("policy_put")
+        assert policy_put == 100
         time.sleep(0.01)
         return data
 

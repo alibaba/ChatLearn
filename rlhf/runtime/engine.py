@@ -57,7 +57,7 @@ class Engine:
         refs = []
         refs_val = []
         for model in self.remote_models:
-            refs += model.setup()
+            refs += model.model_setup()
             refs_val += model.validate()
         future.wait(refs)
         future.wait(refs_val)
