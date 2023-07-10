@@ -1,0 +1,69 @@
+# num_layers: 12
+# hidden_size: 768
+# num_attention_heads: 12
+# num_layers: 24
+# hidden_size: 2048
+# num_attention_heads: 32
+
+llama: True
+tokenizer_type: LLAMATokenizer
+vocab_file: /cpfs01/shared/Group-m6/xianyan.xianyanjia/llama/megatron_models/vicuna-13b/
+num_layers: 10
+hidden_size: 5120
+num_attention_heads: 40
+max_position_embeddings: 1024
+ffn_hidden_size: 13824
+fp16: True
+seq_length: 1024
+out_seq_length: 1024
+fix_kl_coef: ${fix_kl_coef:True}
+log_dir: ${log_dir:/mnt/alinlp/tianhang_workspace/new_rlhf/Megatron-v3/logs}
+exp_name: ${exp_name:test}
+tensorboard_dir: ${tensorboard_dir:/mnt/alinlp/tianhang_workspace/new_rlhf/rlhf/tensorboards/}
+loss_on_prompts: ${loss_on_prompts:False}
+numerical_stable: True
+
+build_path: ${build_path:build}
+
+
+init_kl_coef: ${init_kl_coef:0.02}
+target: 6
+horizon: 10000
+gamma: 1
+lam: 0.95
+cliprange: 0.2
+cliprange_value: ${cliprange_value:0.1}
+scale_reward: "None"
+
+cliprange_reward: 100
+
+max_new_tokens: 512
+
+
+ngram_coef: ${ngram_coef:1}
+lm_coef: ${lm_coef:1}
+math_coef: ${math_coef:0}
+raw_reward_coeff: ${raw_reward_coeff:1}
+
+clipped_value_only: ${clipped_value_only:1}
+num_inference_per_prompt: ${num_inference_per_prompt:1}
+
+continue_train: ${continue_train:0}
+continue_train_global_batch_size: ${continue_train_global_batch_size:-1}
+continue_inference_instances: ${continue_inference_instances:-1}
+continue_inference_batch_size: ${continue_inference_batch_size:-1}
+
+save: ${save_dir:/mnt/alinlp/tianhang_workspace/new_rlhf/save_models/}
+save_interval: 1000
+gradient_accumulation_fusion: 0
+max_tokens_to_oom: 99999999
+
+
+hysteresis: 2
+use_flash_attn: 1
+make_ffn_dim_multiple_of: 256
+activation: geglu
+pos_emb: rotary
+make_vocab_size_divisible_by: 64
+log_entropy: False
+do_math_eval: 0

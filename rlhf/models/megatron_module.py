@@ -33,10 +33,16 @@ class RLHFMegatronModule(RLHFTorchModule):
         super().__init__(*args, **kwargs)
         if not self.trainable:
             # inference only
+            if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
+                logger.warning(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
             self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
         else:
             self.model_args["micro_batch_size"] = self.rlhf_args.train_micro_batch_size
             self.model_args["global_batch_size"] = self.rlhf_args.train_global_batch_size
+            if self.model_args.get("micro_batch_size") != self.rlhf_args.train_micro_batch_size:
+                logger.warning(f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}")
+            if self.model_args.get("global_batch_size") != self.rlhf_args.train_global_batch_size:
+                logger.warning(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
 
     def add_extra_args(self, parser):
         """

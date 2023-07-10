@@ -1,0 +1,14 @@
+# load: "/mnt/alinlp/lcl193798/sft_cal/Megatron-v3/save_model/13b_sftV27_dialogue_v2_pair_loss_10epoch"
+# load_iteration: 15594
+
+#load: ${policy_load:/cpfs01/shared/Group-m6/tianhang_zhu/checkpoints/13b.new1.data-v10.15.5-13B-bf16-mp4-pp1-lr-1e-5-minlr-1e-6-bs-128-gpus-64-seqlen-8192}
+# load: None
+load: ${policy_load}
+
+# num_layers: 40
+# hidden_size: 5120
+# num_attention_heads: 40
+# num_layers: 24
+# hidden_size: 2048
+# num_attention_heads: 32
+use_distributed_optimizer: True

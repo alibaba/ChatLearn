@@ -1,0 +1,5 @@
+includes:
+  - base_inference.yaml
+  - reward_shared.yaml
+
+top_p: 0.9

@@ -1,6 +1,6 @@
 #!/bin/bash
 set -exo pipefail
-export PYTHONPATH=$(cd ../ && pwd)
+export PYTHONPATH=$(cd ../ && pwd):${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
 rm -rf core*

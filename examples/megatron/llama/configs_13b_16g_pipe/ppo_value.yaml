@@ -1,0 +1,33 @@
+includes:
+  - base_train.yaml
+  - reward_shared.yaml
+
+# load: ${ppo_value_load:/cpfs01/shared/Group-m6/yuanzheng.yz/QWen_rm/reward_model_aligptdata/checkpoint/Reward-Model-refine-m6rm.13b.sft-13B-bf16-mp8-pp2-lr-2e-5-minlr-1e-6-bs-32-gpus-8-seqlen-1024/}
+# load_iteration: ${reward_load_iteration:10000}
+#load: /cpfs01/shared/Group-m6/xianyan.xianyanjia/llama/megatron_models/llama_hh_rm_2023-06-29_gpt_13B_1w8g_tp8_pp2_mb4_gbs64_sp_do_bf16/
+load: ${ppo_value_load:/cpfs01/shared/Group-m6/xianyan.xianyanjia/llama/megatron_models/llama_hh_rm_2023-06-29_gpt_13B_1w8g_tp8_pp2_mb4_gbs64_sp_do_bf16/}
+# load_iteration: ${ppo_value_load_iteration:3600}
+lr_decay_iters: 12000
+lr_warmup_iters: 100
+lr: ${value_lr:0.000005}
+min_lr: 0.0000005
+lr_decay_style: ${value_lr_decay_style:linear}
+weight_decay: 0.01
+log_interval: 1
+
+use_checkpoint_opt_param_scheduler: False
+adam_beta1: 0.9
+adam_beta2: 0.95
+num_workers: 8
+init_method_std: 0.006
+
+recompute_granularity: selective
+# recompute_method: uniform
+# recompute_granularity: full
+sequence_parallel: True
+
+no_load_optim: True
+no_load_rng: True
+no_load_args: True
+no_load_scheduler: True
+dummy: 0

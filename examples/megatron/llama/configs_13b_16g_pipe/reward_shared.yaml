@@ -1,0 +1,19 @@
+# load: "/mnt/alinlp/yuanhongyi_dlc/Megatron-v3/yhy_save_model_final/run_13b_sftV23_pair_loss_10epoch_dlc_reward_model_train_prompt_rlhf_v21_10w_2try0-10000-alldata-date_23-03-17_time_16-59-26"
+# load: ${reward_load:/mnt/shared/Group-m6/tianhang_zhu/move/1d3b_dlc_exp5_run2-date_23-04-19_time_07-31-27}
+# load: ${reward_load:/cpfs01/shared/Group-m6/yuanzheng.yz/QWen_rm/reward_model_aligptdata/checkpoint/Reward-Model-refine-m6rm.13b.sft-13B-bf16-mp8-pp1-lr-2e-5-minlr-1e-6-bs-32-gpus-8-seqlen-1024/}
+# # load: None
+# load_iteration: ${reward_load_iteration:10000}
+
+
+# load: /mnt/alinlp/yuanhongyi_dlc/Megatron-v3/yhy_save_model_final/run_13b_sftV23_pair_loss_10epoch_dlc_reward_model_train_prompt_rlhf_v21_10w_2try0-10000-alldata-date_23-03-17_time_16-59-26
+# load_iteration: 867
+load: ${reward_load:/cpfs01/shared/Group-m6/yuanhongyi.yhy/megatron_llama/Megatron-LM/experiments/llama_hh_rm_2023-06-29_gpt_13B_1w8g_tp8_pp1_mb4_seqlen{seq_len}_gbs64_sp_do_bf16/}
+load_iteration: ${reward_load_iteration:3600}
+use_distributed_optimizer: True
+# num_layers: 24
+# hidden_size: 2048
+# num_attention_heads: 32
+
+num_layers: 40
+hidden_size: 5120
+num_attention_heads: 40

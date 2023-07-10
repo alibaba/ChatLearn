@@ -1,0 +1,6 @@
+includes:
+  - base_inference.yaml
+  - policy_shared.yaml
+
+top_p: 0.9
+parallel_output: True

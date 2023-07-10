@@ -1,0 +1,15 @@
+# load: "/mnt/alinlp/lcl193798/sft_cal/Megatron-v3/save_model/13b_sftV27_dialogue_v2_pair_loss_10epoch"
+# load_iteration: 15594
+
+# load: None
+load: ${policy_inference_load:/cpfs01/shared/Group-m6/xianyan.xianyanjia/llama/megatron_models/vicuna-13b-new-tp8/}
+# load_iteration: ${policy_load_iteration:1}
+num_layers: 40
+hidden_size: 5120
+num_attention_heads: 40
+# num_layers: 24
+# hidden_size: 2048
+# num_attention_heads: 32
+use_distributed_optimizer: True
+# to load checkpoint converted from TP=4
+# make_vocab_size_divisible_by: 64

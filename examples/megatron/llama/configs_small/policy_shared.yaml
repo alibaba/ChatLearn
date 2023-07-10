@@ -1,0 +1,15 @@
+# load: "/mnt/alinlp/lcl193798/sft_cal/Megatron-v3/save_model/13b_sftV27_dialogue_v2_pair_loss_10epoch"
+# load_iteration: 15594
+
+# load: None
+# load: ${policy_load:/mnt/shared/Group-m6/xianyan.xianyanjia/checkpoint/13b.new1.data-v10.15.5-13B-bf16-mp4-pp1-lr-1e-5-minlr-1e-6-bs-128-gpus-64-seqlen-8192-tp8-pp1}
+# load_iteration: 8000
+num_layers: 10
+hidden_size: 5120
+num_attention_heads: 40
+# num_layers: 24
+# hidden_size: 2048
+# num_attention_heads: 32
+use_distributed_optimizer: True
+# to load checkpoint converted from TP=4
+make_vocab_size_divisible_by: 64

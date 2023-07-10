@@ -1,0 +1,13 @@
+includes:
+  - base.yaml
+
+tensor_model_parallel_size: 8
+pipeline_model_parallel_size: 1
+temperature: 1.0
+seed: 42
+no_load_optim: True
+no_load_rng: True
+no_load_args: True
+no_load_scheduler: True
+log_num_zeros_in_grad: True
+use_bladnn: ${use_bladnn:False}
