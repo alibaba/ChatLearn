@@ -1,0 +1,6 @@
+includes:
+  - base_inference.yaml
+  - reward_shared.yaml
+
+tokenizer_type: LLAMATokenizer
+reward_bias: 0

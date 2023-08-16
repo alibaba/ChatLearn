@@ -1,0 +1,30 @@
+includes:
+        - base_train.yaml
+        - policy_shared.yaml
+
+
+pipeline_model_parallel_size: ${ppo_policy_pp}
+bf16: True
+use_checkpoint_opt_param_scheduler: False
+adam_beta1: 0.9
+adam_beta2: 0.95
+num_workers: 8
+init_method_std: 0.006
+
+recompute_activations: ${policy_recompute_activations:False}
+recompute_granularity: ${policy_recompute_granularity:None}
+sequence_parallel: True
+
+log_num_zeros_in_grad: True
+no_load_optim: True
+no_load_rng: True
+no_load_args: True
+no_load_scheduler: True
+
+
+lr_decay_iters: 4000
+lr_warmup_iters: 80
+lr: ${policy_lr:0.00000008}
+min_lr: 0.000000001
+lr_decay_style: constant
+weight_decay: 0.01

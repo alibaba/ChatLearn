@@ -1,0 +1,18 @@
+runtime_env:
+  platform: DLC
+  excludes:
+    - "*pt"
+    - "logs"
+    - "tensorboards"
+    - ".nfs*"
+
+
+models:
+  reward:
+    model_config_file: reward_inference.yaml
+    num_device: ${reward_device:1}
+    gpu_per_process: 1
+    trainable: False
+rlhf:
+  generation_batch_size: ${generation_batch_size:4}
+  eval_data_path: ${eval_data_path}
