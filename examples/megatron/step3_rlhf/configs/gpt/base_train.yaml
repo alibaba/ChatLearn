@@ -1,0 +1,10 @@
+includes:
+    - base.yaml
+distributed_backend: nccl
+train_iters: 4000
+
+clip_grad: 0.5
+log_interval: 0
+save_interval: 500
+log_num_zeros_in_grad: True
+save: ${save_dir}
