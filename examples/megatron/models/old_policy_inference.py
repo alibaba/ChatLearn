@@ -1,29 +1,43 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""old policy inference"""
+
 import numpy as np
+import torch
+import torch.nn.functional as F
 from dataset.prompt_dataset import PromptPipeline
+from megatron import get_args, get_tokenizer
+from megatron import print_rank_0
+from megatron.checkpointing import load_checkpoint
 from megatron.global_vars import get_tensorboard_writer
 from megatron.text_generation.communication import broadcast_float_list, \
     broadcast_int_list, broadcast_tensor
 from megatron.text_generation.generation import generate_tokens_probs_and_return_on_first_stage
+from megatron.training import get_model
 from models.policy_model import PolicyModel
 
-from chatlearn.opt.batch_generation.generation import generate_tokens_probs_and_return_on_first_stage as \
-    generate_tokens_probs_and_return_on_first_stage_batch_generation
-from .utils import tensorboard_scalar_dict, get_loss_mask
-
-"""Sample Generate GPT"""
-
-from megatron import get_args, get_tokenizer
-from megatron import print_rank_0
-from megatron.training import get_model
-import torch.nn.functional as F
 import chatlearn
 from chatlearn import RLHFMegatronModule
-import torch
+from chatlearn.opt.batch_generation.generation import generate_tokens_probs_and_return_on_first_stage as \
+    generate_tokens_probs_and_return_on_first_stage_batch_generation
 from chatlearn.utils import to_device
-from megatron.checkpointing import load_checkpoint
+from .utils import tensorboard_scalar_dict, get_loss_mask
 
 
-class PolicyMegatronInference(RLHFMegatronModule):
+class PolicyInference(RLHFMegatronModule):
+    """Policy Megatron Inference"""
 
     def add_extra_args(self, parser):
         group = parser.add_argument_group(title='text generation')
@@ -50,10 +64,17 @@ class PolicyMegatronInference(RLHFMegatronModule):
         self.model = model[0]
         self.model.eval()
 
+        if hasattr(self.args,
+                   "use_eod_token_for_early_termination") and not self.args.use_eod_token_for_early_termination:
+            use_eod_token_for_early_termination = False
+            print_rank_0(
+                f"use_eod_token_for_early_termination: {use_eod_token_for_early_termination} for benchmark only, " \
+                + "please set it to True for real application")
+
         # this is sum
         get_args().entropy_sum = 0
 
-        # init num 
+        # init num
         get_args().entropy_num = 0
         get_args().latest_entropies = []
         return 'ok'
@@ -116,7 +137,7 @@ class PolicyMegatronInference(RLHFMegatronModule):
 
         return str_samples, str_prompts, str_outputs, response_ids
 
-    def _tokenize_prompts_and_batch(self, prompts_tokens, tokens_to_generate, add_BOS):
+    def _tokenize_prompts_and_batch(self, prompts_tokens, tokens_to_generate):
         """Given a set of prompts and number of tokens to generate:
         prompts_tokens: THIS must be left padded to the same length!!!!!
             - tokenize prompts
@@ -162,8 +183,7 @@ class PolicyMegatronInference(RLHFMegatronModule):
         # assert torch.all(prompts_length_tensor ==  max_prompt_len), "because left padded"
         return prompts_tokens_tensor, prompts_length_tensor
 
-    def tokenize_prompts(self, prompts_ids=None, tokens_to_generate=None,
-                         add_BOS=None, rank=0):
+    def tokenize_prompts(self, prompts_ids=None, tokens_to_generate=None, rank=0):
         """Tokenize prompts and make them avaiable on all ranks."""
 
         # On all ranks set to None so we can pass them to functions
@@ -177,7 +197,7 @@ class PolicyMegatronInference(RLHFMegatronModule):
             assert tokens_to_generate is not None
             # Tensor of tokens padded and their unpadded length.
             prompts_tokens_cuda_long_tensor, prompts_length_cuda_long_tensor = \
-                self._tokenize_prompts_and_batch(prompts_ids, tokens_to_generate, add_BOS)
+                self._tokenize_prompts_and_batch(prompts_ids, tokens_to_generate)
             # We need the sizes of these tensors for the boradcast
             sizes_list = [prompts_tokens_cuda_long_tensor.size(0),  # Batch size
                           prompts_tokens_cuda_long_tensor.size(1)]  # Sequence length
@@ -245,16 +265,10 @@ class PolicyMegatronInference(RLHFMegatronModule):
             assert prompts_ids is not None
 
         prompts_ids, context_length_tensor = self.tokenize_prompts(
-            prompts_ids=prompts_ids, tokens_to_generate=tokens_to_generate, add_BOS=add_BOS)
+            prompts_ids=prompts_ids, tokens_to_generate=tokens_to_generate)
 
         # Main inference function.
         # Note that the outputs are available on the first stage.
-
-        # context_length_tensor = torch.ones(prompts_ids.size(0), dtype=torch.long, device=torch.cuda.current_device()) * prompts_ids.size(1)
-        if hasattr(self.args,
-                   "use_eod_token_for_early_termination") and not self.args.use_eod_token_for_early_termination:
-            use_eod_token_for_early_termination = False
-            print_rank_0(f"use_eod_token_for_early_termination: {use_eod_token_for_early_termination} for benchmark only, please set it to True for real application")
         batch_generation_num_max_tokens = chatlearn.get_args().active_module_args.batch_generation.num_max_tokens
         batch_generation_min_prompt_length = chatlearn.get_args().active_module_args.batch_generation.min_prompt_length
         if batch_generation_num_max_tokens or batch_generation_min_prompt_length:
@@ -329,22 +343,8 @@ class PolicyMegatronInference(RLHFMegatronModule):
         '''
 
         no_padded_query_ids = to_device('cuda', data["input_ids"])
-
-        tokenizer = get_tokenizer().tokenizer
-        for d in no_padded_query_ids:
-            d_str = tokenizer.decode(
-                d.tolist(), skip_special_tokens=True
-            )
-
-        '''
-                        "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
-                        "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
-                        "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                        "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                        "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                '''
         # tokens: [b, qs + rs],
-        tokens, lengths, all_log_probs = self.generate(
+        tokens, _, all_log_probs = self.generate(
             self.model,
             prompts_ids=no_padded_query_ids,
             tokens_to_generate=self.args.max_new_tokens,

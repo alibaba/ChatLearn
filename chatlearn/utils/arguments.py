@@ -17,6 +17,7 @@
 import argparse
 import ast
 import os
+from typing import List
 
 import yaml
 
@@ -135,98 +136,114 @@ class BaseConfig:
 
 class LoraConfig(BaseConfig):
     """Config for lora"""
-    #: enable lora
-    enable_lora = False
-    part_module_name = None
-    lora_dim = 8
-    lora_dropout = 0.0
-    lora_scaling = 1.0
-    lora_layer = LORA_LAYER
-    column_only_qkv = False
+    #: enable lora, default False.
+    enable_lora: bool = False
+    #: The "name_scope" parameter is used to specify a particular module to be converted to its LoRA.
+    #: By default, it is set to None, which means there is no restriction on the module and any module
+    #: can be converted using the "lora_layer" parameter. However, if "name_scope" is set to a specific
+    #: value (e.g., "encoder"), only the modules whose name_scope contains the value "encoder" will be converted to LoRA.
+    part_module_name: str = None
+    #: The rank value of the LoRA, which is the r dimension of the A/B matrix.
+    lora_dim: int = 8
+    #: The LoRA dropout ratio refers to whether dropout computation is inserted in the forward pass
+    #: of the LoRA layer. By default, the dropout ratio is set to 0.0.
+    lora_dropout: float = 0.0
+    #: When adding the values of the LoRA A and B matrices to the original weight matrix,
+    #: the scaling value is set as "W = W + A * B * lora_scaling". By default, the scaling value
+    #: is set to 1.0.
+    lora_scaling: float = 1.0
+    #: The layer class names involved in LoRA training in the model, separated by commas.
+    lora_layer: str = LORA_LAYER
+    #: LoRA training is enabled only in the ColumnParallelLinear layer of the MHA QKV module.
+    column_only_qkv: bool = False
 
 
 class BatchGenerationConfig(BaseConfig):
     """Config for batch generation ranking and memory-efficiency."""
-    ranking = False
-    num_max_tokens = 0
-    min_prompt_length = 0
+
+    #: [optional] sort prompts by length each episode.
+    ranking: bool = False
+    #: [optional] max tokens in the first stage of batch generation.
+    num_max_tokens: int = 0
+    #: [optional] min prompt length in the first stage of batch generation.
+    min_prompt_length: int = 0
 
 
 class ModelConfig(BaseConfig):
     """Config for model."""
 
-    #: [required] number of device used for one model
-    num_device = 1
+    #: [required] number of device used for one model, default 1.
+    num_device: int = 1
     #: [optional] gpu per process, e.g., for PyTorch DDP, Megatron, DeepSpeed, `gpu_per_process` is set to 1
-    gpu_per_process = 1
+    gpu_per_process: int = 1
     #: [required] whether model is trainable
-    trainable = False
+    trainable: bool = False
     #: [optional] tensor model parallel size
-    tensor_model_parallel_size = None
+    tensor_model_parallel_size: int = None
     #: [optional] pipeline model parallel size
-    pipeline_model_parallel_size = None
+    pipeline_model_parallel_size: int = None
     #: [optional] config file for model
-    model_config_file = ""
-    config_dir = ""
+    model_config_file: str = ""
+    config_dir: str = ""
     #: [optional] model type, e.g., Torch/Tensorflow, etc
-    model_type = ""
+    model_type: str = ""
     #: [optional] placeholder for other args
-    args_dict = {}
+    args_dict: dict = {}
     #: [optional] generation batch size, will overwrite generation batch size in RLHFConfig
-    generation_batch_size = -1
+    generation_batch_size: int = -1
     #: [optional] return rlhf data
-    return_rlhf_data = False
+    return_rlhf_data: bool = False
     #: lora config
-    lora = LoraConfig()
+    lora: LoraConfig = LoraConfig()
     #: batch generation config
-    batch_generation = BatchGenerationConfig()
+    batch_generation: BatchGenerationConfig = BatchGenerationConfig()
 
 
 class RLHFConfig(BaseConfig):
-    """RLHF config"""
+    """RLHF training related configs."""
 
     #: [required] number of ppo episodes. One episode includes a inference and training loop.
-    num_ppo_episode = 5000
+    num_ppo_episode: int = 5000
     #: [required] number of samples per episode.
-    sample_per_episode = 1000
+    sample_per_episode: int = 1000
     #: [optional] number of training epoch per episode. default set to 1.
-    num_training_epoch = 1
+    num_training_epoch: int = 1
     #: [required] generation(inference) batch size.
-    generation_batch_size = 2
+    generation_batch_size: int = 2
     #: [required] training micro batch size.
-    train_micro_batch_size = 2
+    train_micro_batch_size: int = 2
     #: [required] training global batch size.
-    train_global_batch_size = None
+    train_global_batch_size: int = None
     #: [required] save checkpoint per `save_episode_interval` episodes.
-    save_episode_interval = None
+    save_episode_interval: int = None
     #: [optional] log time and memory per `log_interval` iterations.
-    log_interval = 1
+    log_interval: int = 1
     #: [required]: data_path for dataset
-    data_path = None
+    data_path: str = None
     #: [optional]: colocate models into the same device
-    colocation = []
+    colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval
-    eval_episode_interval = 0
+    eval_episode_interval: int = 0
     #: [optional]: checkpoint for dataloader
-    data_checkpoint_path = None
+    data_checkpoint_path: str = None
     #: [optional]: max data checkpoint nums
-    max_data_ckpt_nums = None
+    max_data_ckpt_nums: int = None
     #: [optional]: load data checkpoint from iteration
-    load_data_checkpoint_iteration = None
+    load_data_checkpoint_iteration: int = None
     #: [optional]: stream_data_loader type, ["fixed", "dynamic", "relay"]
-    stream_data_loader_type = "fixed"
+    stream_data_loader_type: str = "fixed"
     #: private
-    debug = False
+    debug: bool = False
     #: enable nsys nvtx
-    nsys = False
+    nsys: bool = False
     #: coalesce parameters in model sync
-    coalesce_param = True
+    coalesce_param: bool = True
     #: coalesce_buffer size in mb
-    coalesced_buffer_mb = 100
+    coalesced_buffer_mb: int = 100
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
-    max_relay_episode = 1
+    max_relay_episode: int = 1
     #: enable indivisible batch size for generation
-    enable_indivisible_batch_size = False
+    enable_indivisible_batch_size: bool = False
 
     def __init__(self):
         super().__init__()
@@ -234,10 +251,12 @@ class RLHFConfig(BaseConfig):
 
     def get(self, key):
         """
-        get other config by key
+        Get other config by key.
 
-        Args:
-            key: key to get config
+        Args
+        ----
+        key: str
+            key to get config
         """
         if key not in self._args_dict:
             logger.warning(f"{key} not found in RLHFConfig")
@@ -245,24 +264,27 @@ class RLHFConfig(BaseConfig):
             return self._args_dict[key]
 
     def validate(self):
+        """
+        :meta private:
+        """
         for key in self._args_dict:
             if key == "save_interval":
                 raise Exception("save_interval is deprecated, please use save_episode_interval to save checkpoints")
 
 
 class RuntimeEnvConfig(BaseConfig):
-    """runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""
+    """Runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""
 
     #: pip install packages
-    pip = []
+    pip: List[str] = []
     #: python modules
-    py_modules = []
+    py_modules: List[str] = []
     #: working directory
-    working_dir = os.getcwd()
+    working_dir: str = os.getcwd()
     #: platform, e.g., DLC
-    platform = ""
+    platform: str = ""
     #: excludes files from packaging
-    excludes = []
+    excludes: List[str] = []
 
     def __init__(self):
         super().__init__()
@@ -270,10 +292,12 @@ class RuntimeEnvConfig(BaseConfig):
 
     def get(self, key):
         """
-        get other config by key
+        Get other config by key
 
-        Args:
-            key: key to get config
+        Args
+        ----
+        key: str
+            Key to get config.
         """
         if key not in self._args_dict:
             logger.warning(f"{key} not found in RuntimeConfig")
@@ -282,10 +306,12 @@ class RuntimeEnvConfig(BaseConfig):
 
 
 class Config(BaseConfig):
-    """A class to manage epl configuration.
+    """A class to manage chatlearn configuration.
 
-    Args:
-      param_dict: Dict format of parameters."""
+    Args
+    ----
+      param_dict: dict
+      dict format of parameters."""
 
     def __init__(self, param_dict=None, config_dir=None):
         super().__init__()

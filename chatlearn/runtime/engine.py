@@ -51,6 +51,9 @@ class Engine:
         self.named_models = {model.name: model for model in self.remote_models}
 
     def setup(self):
+        """
+        :meta private:
+        """
         # include compile in init, compile dependencies need to be called serially
         for model in self.remote_models:
             model.init()
@@ -116,7 +119,24 @@ class Engine:
 
 
 class RLHFEngine(Engine):
-    """rlhf engine"""
+    """
+    RLHF engine.
+
+    Args
+    ----
+    policy : RLHFModule
+        policy inference model
+    reference : RLHFModule
+        reference inference model
+    reward : RLHFModule
+        reward inference model
+    value : RLHFModule
+        value inference model
+    ppo_policy : RLHFModule
+        ppo policy training model
+    ppo_value : RLHFModule
+        ppo value training model
+    """
 
     def __init__(self,
                  policy: RLHFModule,
@@ -125,17 +145,6 @@ class RLHFEngine(Engine):
                  value: RLHFModule,
                  ppo_policy: RLHFModule,
                  ppo_value: RLHFModule):
-        """
-        RLHF engine.
-
-        Args:
-            policy: policy inference model
-            reference: reference inference model
-            reward: reward inference model
-            value: value inference model
-            ppo_policy: ppo policy training model
-            ppo_value: ppo value training model
-        """
         for model in [policy, reference, reward, value]:
             model.register_func("forward_step")
         for model in [ppo_policy, ppo_value]:
@@ -151,6 +160,9 @@ class RLHFEngine(Engine):
         self._ppo_data_loader = None
 
     def _create_remote_models(self):
+        """
+        :meta private:
+        """
         resource_manager = ResourceManager(self._models)
         self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
         ppo_policy = self._models[4]
@@ -165,6 +177,9 @@ class RLHFEngine(Engine):
         self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = self.remote_models
 
     def setup(self):
+        """
+        :meta private:
+        """
         super().setup()
         self.env = self.create_env(self.policy, self.reference, self.reward, self.value)
         self.env.set_dataset(self._dataset, self._drop_last, self._wrap_data)
@@ -175,6 +190,9 @@ class RLHFEngine(Engine):
         self.model_manager.start_error_monitor()
 
     def create_env(self, policy, reference, reward, value):
+        """
+        :meta private:
+        """
         env = PPOEnv(self.rlhf_args,
                      policy,
                      reference,
@@ -183,20 +201,24 @@ class RLHFEngine(Engine):
         return env
 
     def create_trainer(self, ppo_policy, ppo_value):
+        """
+        :meta private:
+        """
         return PPOTrainer(self.rlhf_args, ppo_policy.replicas[0], ppo_value.replicas[0])
 
-    def set_dataset(self, dataset, drop_last=False, enable_indivisible_batch_size=False):
+    def set_dataset(self, dataset, drop_last=False):
         """
-        set prompt dataset.
+        Set prompt dataset.
 
-        Args:
-            dataset: a list of prompt string
-            drop_last: drop last samples if dataset is indivisible by `sample_per_episode`
-            enable_indivisible_batch_size: allow batch size that is indivisible by samples_per_episode,
-                                           this may result in some samples being left out in the final batch.
+        Args
+        ----
+        dataset : list
+            a list of prompt string
+        drop_last : bool
+            drop last samples if dataset is indivisible by `sample_per_episode`
         """
         self._dataset = dataset
-        if not enable_indivisible_batch_size:
+        if not self.rlhf_args.enable_indivisible_batch_size:
             # When enable_indivisible_batch_size is set to False, the dataloader either discards
             # the last incomplete batch or complements the last batch.
             self._drop_last = drop_last
@@ -207,17 +229,20 @@ class RLHFEngine(Engine):
             self._drop_last = False
             self._wrap_data = False
 
-    def set_trainer(self, trainer):
-        self.trainer = trainer
-        return self
-
     def set_evaluator(self, evaluator):
         """
-        set model evaluator
+        Set model evaluator.
+
+        Args
+        ----
+        evaluator - Evaluator
         """
         self.evaluator = evaluator
 
     def logging_summary(self, iteration=-1):
+        """
+        :meta private:
+        """
         super().logging_summary(iteration)
         episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
         logger.info(f"{LOG_START} RLHF episode summary episode iteration {iteration} {episode_str}")
@@ -225,23 +250,30 @@ class RLHFEngine(Engine):
         return episode_stats
 
     def set_relay_sample_fn(self, relay_sample_fn):
+        """
+        Set custom relay_sample_fn.
+
+        Args
+        ----
+            relay_sample_fn: inputs List[EpisodeRelayBuffer], return a list of dict.
+        """
         self._relay_sample_fn = relay_sample_fn
 
     def learn(self):
         """
-        start rlhf training.
+        Start rlhf training.
         """
         self.timers("rlhf").start()
         self.timers("setup").start()
         self.setup()
-        self.trainer.setup()
+        self.trainer.setup(self.model_manager.model_packs)
         self.env.setup(self.model_manager.model_packs)
         if self.evaluator:
             self.evaluator.setup(self.model_manager.model_packs)
         self.timers("setup").stop()
         logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
-        self.resume_from_data_checkpoint()
+        self._resume_from_data_checkpoint()
 
         ppo_data_loader = StreamDataset.remote(self.rlhf_args.stream_data_loader_type,
                                                self.rlhf_args.train_micro_batch_size,
@@ -279,7 +311,7 @@ class RLHFEngine(Engine):
         logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
         logger.info("train rlhf done")
 
-    def resume_from_data_checkpoint(self):
+    def _resume_from_data_checkpoint(self):
         if self.rlhf_args.data_checkpoint_path:
             data_ckpt_manager = CheckpointManager(self.policy.replicas[0], self.rlhf_args.data_checkpoint_path,
                                                   self.rlhf_args.max_data_ckpt_nums,
@@ -295,6 +327,9 @@ class RLHFEngine(Engine):
                     model.set_start_iteration(start_iteration)
 
     def save_checkpoint(self, episode_id):
+        """
+        :meta private:
+        """
         if self.rlhf_args.save_episode_interval and \
             (episode_id + 1) % self.rlhf_args.save_episode_interval == 0:
             ref0 = self.ppo_policy.replicas[0].save_checkpoint(self.trainer.iteration)
@@ -306,7 +341,9 @@ class RLHFEngine(Engine):
             logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
     def evaluate(self, episode_id):
-
+        """
+        :meta private:
+        """
         if self.evaluator is not None and \
             self.rlhf_args.eval_episode_interval and \
             (episode_id + 1) % self.rlhf_args.eval_episode_interval == 0:
@@ -328,9 +365,20 @@ class EvalEngine(Engine):
         self.evaluator = Evaluator(self.remote_models, self.rlhf_args)
 
     def set_dataset(self, dataset):
+        """
+        Set prompt dataset.
+
+        Args
+        ----
+        dataset : list
+            a list of prompt string
+        """
         self.evaluator.set_dataset(dataset)
 
     def eval(self):
+        """
+        Start evaluating.
+        """
         self.setup()
         self.evaluator.setup(self.model_manager.model_packs)
         queue = self.evaluator.eval()

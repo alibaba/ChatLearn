@@ -23,9 +23,18 @@ from chatlearn.utils.utils import get_free_port, get_host_addr
 from .rlhf_module import RLHFModule
 
 class RLHFTorchModule(RLHFModule):
-    """RLHFTorchModule"""
+    """RLHFTorchModule is the class for RLHF Torch models.
+
+    Args
+    ----
+    name : str
+        model name
+    """
 
     def __init__(self, *args, **kwargs):
+        """
+        nihao
+        """
         super().__init__(*args, **kwargs)
 
     def get_addr_port(self):
@@ -59,6 +68,9 @@ class RLHFTorchModule(RLHFModule):
         return 1
 
     def get_dist_env(self):
+        """
+        :meta private:
+        """
         envs = {}
         for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
             envs[key] = os.environ[key]
@@ -75,15 +87,22 @@ class RLHFTorchModule(RLHFModule):
     def data_parallel_size(self):
         """
         data parallel size
+
+        :meta private:
         """
 
     @property
     def data_parallel_rank(self):
         """
         data parallel rank
+
+        :meta private:
         """
 
     def empty_cache(self):
+        """
+        :meta private:
+        """
         if not self.timers("empty_cache").started_:
             self.timers("empty_cache").start()
         log_rank_0(f"{self.name} before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
@@ -95,7 +114,8 @@ class RLHFTorchModule(RLHFModule):
     def check_param_exists(self, names):
         """
         check if the given names exists in current model
-        :meta private
+        
+        :meta private:
         """
         not_exists = []
         for name in names:

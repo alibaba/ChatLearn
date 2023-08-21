@@ -61,7 +61,7 @@ NNODES=$WORLD_SIZE
 dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp))
 gbs=$(($gbs * $dp))
 
-CHECKPOINT_PATH=experiments/llamasft_hh_rm_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
+CHECKPOINT_PATH=${CHATLEARN}/output/step2_reward/llamasft_hh_rm_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
 mkdir -p $CHECKPOINT_PATH
 

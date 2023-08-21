@@ -49,19 +49,19 @@ class PPOTrainer(BaseTrainer):
             self.ppo_policy_name: False,
             self.ppo_value_name: False
         }
-        self.is_ppo_models_colocate = False
-        for group in self.args.colocation:
-            new_group = []
-            for model in group:
-                for name in self.names2colocate:
-                    if model == name:
-                        new_group.append(model)
-                        self.names2colocate[model] = (len(group) > 1)
-            if len(new_group) > 1:
-                self.is_ppo_models_colocate = True
+        self.is_ppo_models_colocate = True
 
-    def setup(self):
-        pass
+    def setup(self, model_packs=None):
+        for group in self.args.colocation:
+            for model in group:
+                if model in self.names2colocate:
+                    self.names2colocate[model] = (len(group) > 1)
+        for model_pack in model_packs:
+            model_name_pack = [model.name for model in model_pack]
+            if len(model_name_pack) > 1 \
+                    and self.ppo_policy_name in model_name_pack \
+                    and self.ppo_value_name in model_name_pack:
+                self.is_ppo_models_colocate = False
 
     def train_step(self, train_data, train_info, wait=True, to_empty_value_cache=False, to_empty_policy_cache=False):
         ref0 = self.ppo_value_model.train_step(train_data, train_info, to_empty_cache=to_empty_value_cache)

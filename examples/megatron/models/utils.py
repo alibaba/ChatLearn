@@ -1,8 +1,25 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""utils"""
+
 import json
 import math
 import os
 import random
 from numbers import Number
+from pathlib import Path
 from typing import Tuple, Optional
 
 import jsonlines
@@ -15,7 +32,6 @@ from megatron.checkpointing import get_checkpoint_tracker_filename, read_metadat
 from megatron.core import mpu
 from megatron.global_vars import get_tensorboard_writer
 from megatron.training import print_datetime
-from pathlib import Path
 from torchtyping import TensorType
 
 
@@ -108,8 +124,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
         else:
             value = loss_dict[key].float().sum().item()
             is_nan = value == float('inf') or \
-                     value == -float('inf') or \
-                     value != value
+                     value == -float('inf')
             got_nan = got_nan or is_nan
     total_loss_dict[nan_iters_key] = total_loss_dict.get(
         nan_iters_key, 0) + int(got_nan)
@@ -267,13 +282,9 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
 
 def get_tensor_stats(xs: torch.Tensor, mask: torch.Tensor, n: int):
     mean = (xs * mask).sum() / n
-    return dict(
-        mean=mean,
-        min=torch.where(mask.bool(), xs, np.inf).min(),
-        max=torch.where(mask.bool(), xs, -np.inf).max(),
-        std=torch.sqrt(((xs - mean) * mask).pow(2).sum() / n),
-    )
-
+    return {'mean': mean, 'min': torch.where(mask.bool(), xs, np.inf).min(),
+            'max': torch.where(mask.bool(), xs, -np.inf).max(),
+            'std': torch.sqrt(((xs - mean) * mask).pow(2).sum() / n)}
 
 def print_rank_0(*message):
     """
@@ -332,7 +343,7 @@ def listdict_to_dictlist(ld, list_extend=True):
 
 
 def tensorboard_scalar_dict(tensorboard_writer, prefix, global_step, scalar_dict):
-    if isinstance(scalar_dict, float) or isinstance(scalar_dict, int):
+    if isinstance(scalar_dict, (float, int)):
         name = prefix
         value = scalar_dict
         tensorboard_writer.add_scalar(name, value, global_step)
@@ -417,7 +428,7 @@ def read_latest_ppo_iter(network_name):
 
     # Otherwise, read the tracker file and either set the iteration or
     # mark it as a release checkpoint.
-    iteration, release = read_metadata(tracker_filename)
+    iteration, _ = read_metadata(tracker_filename)
     return iteration
 
 

@@ -9,7 +9,7 @@ ENV NVIDIA_VISIBLE_DEVICES= \
 
 # Install common libs
 RUN pip3 install --no-cache-dir -U \
-    ray[default]==2.3.0 \
+    ray[default]==2.6.3 \
     gpustat==1.0.0 \
     tokenizers \
     h5py \

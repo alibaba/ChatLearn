@@ -44,7 +44,12 @@ version = SourceFileLoader("chatlearn.version", "../../chatlearn/utils/version.p
 extensions = [
   "myst_parser",
   "sphinx.ext.autosummary",
-  "sphinx_markdown_builder"
+  "sphinx_markdown_builder",
+  "sphinx.ext.autodoc",
+  "sphinx.ext.viewcode",
+  "sphinx.ext.githubpages",
+  "sphinx.ext.napoleon",
+  "sphinx_markdown_checkbox",
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -113,5 +118,5 @@ html_static_path = ['images']
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = 'RLHFdoc'
+htmlhelp_basename = 'ChatLearnDoc'
 autodoc_member_order = 'bysource'

@@ -1,3 +1,19 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""reference"""
+
 import torch
 import torch.nn.functional as F
 from megatron import get_args
@@ -10,12 +26,11 @@ from models.policy_model import PolicyModel
 from chatlearn.utils import to_device
 from .constants_ppo import get_ltor_masks_and_position_ids
 from .forward_step import forward_step_helper
-from .old_policy_inference import PolicyMegatronInference
-
-"""Sample Generate GPT"""
+from .old_policy_inference import PolicyInference
 
 
-class PolicyReference(PolicyMegatronInference):
+class PolicyReference(PolicyInference):
+    """PolicyReference"""
 
     def model_provider(self, pre_process=True, post_process=True):
         """Build the model."""
@@ -33,12 +48,10 @@ class PolicyReference(PolicyMegatronInference):
 
         return model
 
-    def score_and_return_on_first_stage(self, model, tokens):
+    def score_and_return_on_first_stage(self, tokens):
         """Function for just scoring.
         Arguments:
-            model: no interleaving is supported.
             tokens: prompt tokens extended to be of size [b, max_prompt_length]
-            lengths: original prompt length, size: [b]
         Note: Outside of model, other parameters only need to be available on
               rank 0.
         Outputs:
@@ -56,9 +69,9 @@ class PolicyReference(PolicyMegatronInference):
         output_log_probs_size = (batch_size, max_sequence_length - 1)
 
         if mpu.is_pipeline_last_stage():
-	        output_log_probs = torch.empty(output_log_probs_size,
+            output_log_probs = torch.empty(output_log_probs_size,
                                            dtype=torch.float32,
-	                                       device=torch.cuda.current_device())
+                                           device=torch.cuda.current_device())
 
         # =============
         # Run infernece
@@ -151,7 +164,7 @@ class PolicyReference(PolicyMegatronInference):
 
         return output_log_probs
 
-    def forward_step(self, data, iteration):
+    def forward_step(self, data, iteration=None):
         '''
 
         RLHF calling
@@ -161,5 +174,5 @@ class PolicyReference(PolicyMegatronInference):
         :return:
         '''
         all_tokens = to_device("cuda", data["all_tokens"])
-        ref_logprobs = self.score_and_return_on_first_stage(self.model, all_tokens)
+        ref_logprobs = self.score_and_return_on_first_stage(all_tokens)
         return {"ref_logprobs": ref_logprobs}

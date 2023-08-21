@@ -15,7 +15,7 @@ if [ -z "${exp_name}" ]; then
     export exp_name=$(date +%F)_llama-rlhf-${model_size}-${model_size}
 fi
 
-[ -z "$OUTPUT_DIR" ] && OUTPUT_DIR=${CHATLEARN}/output
+[ -z "$OUTPUT_DIR" ] && OUTPUT_DIR=${CHATLEARN}/output/step3_rlhf/
 LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
 TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
 SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}

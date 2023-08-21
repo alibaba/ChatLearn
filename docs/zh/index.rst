@@ -1,22 +1,21 @@
 ChatLearn Documentation
 =======================
 
-ChatLearn is a distributed system for training chat-gpt.
 
 .. toctree::
    :maxdepth: 1
-   :caption: Index
+   :caption: ChatLearn: 超大规模 RLHF 高效训练框架
 
-   getting_started
+   chatlearn
 
 |
 |
 
 .. toctree::
    :maxdepth: 1
-   :caption: Installation
+   :caption: Tutorial
 
-   installation_instructions
+   tutorial
 
 |
 |
@@ -26,6 +25,10 @@ ChatLearn is a distributed system for training chat-gpt.
    :maxdepth: 1
    :caption: API Documentation
 
+   programming
+   config_yaml
+   advanced
    api/index
 
-
+|
+|

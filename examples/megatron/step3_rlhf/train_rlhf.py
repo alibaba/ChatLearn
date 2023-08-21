@@ -1,16 +1,31 @@
-"""examples"""
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""entry file"""
 
 import random
 
 import numpy
 import torch
-from models.old_policy_inference import PolicyMegatronInference as PolicyModel
-from models.old_value_inference import ValueMegatronInference as ValueModel
-from models.policy_trainer import MegatronPolicy
-from models.reference import PolicyReference as ReferenceModel
-from models.reward_inference import RewardModelMegatronInference as RewardModel
+from models import PolicyInference
+from models import PolicyReference
+from models import PolicyTrainer
+from models import RewardInference
+from models import ValueInference
+from models import ValueTrainer
 from models.utils import write_jsonl, read_jsonl, tensorboard_scalar_dict, listdict_to_dictlist
-from models.value_trainer import ValueMegatronTrainer
+from torch.utils.tensorboard import SummaryWriter
 
 import chatlearn
 from chatlearn import Evaluator
@@ -39,16 +54,16 @@ def get_prompts(fp, num_limit=-1):
         formatted_prompts = [f"\n\nHuman: {p}\n\nAssistant: " for p in prompts]
         return formatted_prompts
 
+
 if __name__ == "__main__":
     chatlearn.init()
     args = chatlearn.get_args()
-    models = {}
-    policy_model = PolicyModel("policy")
-    value_model = ValueModel("value")
-    reference_model = ReferenceModel("reference")
-    reward_model = RewardModel("reward")
-    ppo_policy_model = MegatronPolicy("ppo_policy")
-    ppo_value_model = ValueMegatronTrainer("ppo_value")
+    policy_model = PolicyInference("policy")
+    value_model = ValueInference("value")
+    reference_model = PolicyReference("reference")
+    reward_model = RewardInference("reward")
+    ppo_policy_model = PolicyTrainer("ppo_policy")
+    ppo_value_model = ValueTrainer("ppo_value")
     if args.rlhf_args.eval_episode_interval > 0:
         policy_model.register_eval_func("eval_forward")
         reward_model.register_eval_func("eval_forward")
@@ -64,10 +79,7 @@ if __name__ == "__main__":
 
 
     def eval_post_process(results, eval_info):
-
         results = listdict_to_dictlist(results)
-
-        from torch.utils.tensorboard import SummaryWriter
         writer = SummaryWriter(
             log_dir=args.models["policy"].args_dict['tensorboard_dir'],
             max_queue=99999)
@@ -78,12 +90,12 @@ if __name__ == "__main__":
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == (
                 torch.distributed.get_world_size() - 1):
-                tensorboard_scalar_dict(writer, prefix=f"eval_reward_each/",
+                tensorboard_scalar_dict(writer, prefix="eval_reward_each/",
                                         global_step=train_iteration,
                                         scalar_dict=eval_reward_stats)
 
         else:
-            tensorboard_scalar_dict(writer, prefix=f"eval_reward_each/",
+            tensorboard_scalar_dict(writer, prefix="eval_reward_each/",
                                     global_step=train_iteration,
                                     scalar_dict=eval_reward_stats)
 
@@ -93,10 +105,10 @@ if __name__ == "__main__":
 
     if args.rlhf_args.eval_episode_interval > 0:
         val_prompts = all_prompts[num_train:]
-        num_limit = args.rlhf_args.get('eval_data_num_limit')
-        if num_limit:
-            num_limit = min(num_limit, len(val_prompts))
-            val_prompts = val_prompts[:num_limit]
+        eval_num_limit = args.rlhf_args.get('eval_data_num_limit')
+        if eval_num_limit:
+            eval_num_limit = min(eval_num_limit, len(val_prompts))
+            val_prompts = val_prompts[:eval_num_limit]
         evaluator = Evaluator([policy_model, reward_model]) \
             .set_dataset(val_prompts) \
             .set_post_process_func(eval_post_process)

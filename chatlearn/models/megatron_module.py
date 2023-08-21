@@ -28,7 +28,13 @@ from .torch_module import RLHFTorchModule
 
 # pylint: disable=import-outside-toplevel
 class RLHFMegatronModule(RLHFTorchModule):
-    """RLHFMegatronModule"""
+    """RLHFMegatronModule is the class for RLHF Megatron models.
+
+    Args
+    ----
+    name : str
+        model name
+    """
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -48,10 +54,18 @@ class RLHFMegatronModule(RLHFTorchModule):
     def add_extra_args(self, parser):
         """
         Add extra arguments for megatron.
+
+        Args
+        ----
+        parser : ArgumentParser
+            Add extra arguments.
         """
         return parser
 
     def init(self):
+        """
+        :meta private:
+        """
         initialize_megatron(extra_args_provider=self.add_extra_args,
                             ignore_unknown_args=True,
                             args_dict=self.model_args)
@@ -75,30 +89,46 @@ class RLHFMegatronModule(RLHFTorchModule):
 
     @property
     def megatron_args(self):
+        """
+        :meta private:
+        """
         return megatron.get_args()
 
 
     def pipeline_model_parallel_size(self):
         """
         get pipeline_model_parallel_size
+
+        :meta private:
         """
         return self.megatron_args.pipeline_model_parallel_size
 
     def tensor_model_parallel_size(self):
         """
         get tensor_model_parallel_size
+
+        :meta private:
         """
         return self.megatron_args.tensor_model_parallel_size
 
     @property
     def data_parallel_size(self):
+        """
+        :meta private:
+        """
         return mpu.get_data_parallel_world_size()
 
     @property
     def data_parallel_rank(self):
+        """
+        :meta private:
+        """
         return mpu.get_data_parallel_rank()
 
     def pipeline_parallel_rank(self):
+        """
+        :meta private:
+        """
         return mpu.get_pipeline_model_parallel_rank()
 
     def num_layers(self):
@@ -114,6 +144,7 @@ class RLHFMegatronModule(RLHFTorchModule):
             num_target_pipe_stage: number of pipeline stage in target model
             target_pipe_rank: target model pipeline rank
             requires_grad: whether the returned layer requires_grad, as we only need to sync parameters that have changed
+
         :meta private:
         """
         src_layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
@@ -150,6 +181,8 @@ class RLHFMegatronModule(RLHFTorchModule):
         """
         save checkpoint at `iteration`
         :param iteration: save iteration
+        
+        :meta private:
         """
         if self.enable_lora:
             self.fuse_lora_layer()

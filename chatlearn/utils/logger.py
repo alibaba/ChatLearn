@@ -79,7 +79,7 @@ class logging_tqdm(tqdm):
             return self._logger
         return logger
 
-    def display(self, msg=None, pos=None):
+    def display(self, msg=None, pos=None): # pylint: disable=unused-argument
         if not self.n:
             # skip progress bar before having processed anything
             return

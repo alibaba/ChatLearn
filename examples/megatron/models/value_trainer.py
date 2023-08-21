@@ -1,4 +1,19 @@
-"""GPT"""
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""value trainer"""
+
 from functools import partial
 
 import torch
@@ -20,7 +35,7 @@ from .constants_ppo import get_ltor_masks_and_position_ids, select_actions_from_
 from .utils import tensorboard_scalar_dict, training_log
 
 
-class ValueMegatronTrainer(BaseTrainer):
+class ValueTrainer(BaseTrainer):
     """gpt model wrapper"""
 
     def setup(self):
@@ -63,38 +78,31 @@ class ValueMegatronTrainer(BaseTrainer):
             buffer=self.buffer
         )
         if self.module_args.lora.enable_lora:
-            from chatlearn.opt.lora import convert_layer_to_lora
+            from chatlearn.opt.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
             model = convert_layer_to_lora(model)
         return model
 
     def get_batch(self, batch_data):
-        """Generate a batch"""
+        """Generate a batch
+            "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
+            "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
+            "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
+            "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
+            "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
+        """
         args = self.args
-
-        # Items and their type.
-        '''
-                "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
-                "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
-                "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
-        '''
-        int64_keys = ['all_token_ids_right_padded', 'action_start_indices']
-        float32_keys = ["action_logprobs", "action_values", 'action_rewards']
-
         data_b = next(batch_data)
 
         # TODO: move to ChatLearn framework later. add pad to max length config
         all_token_ids_right_padded = pad_to_max_len(data_b["all_token_ids_right_padded"], args.seq_length,
                                                     pad_value=get_tokenizer().eod_id)
-        # NOTE this pad to max is even better than get_loss_mask again because for the maxedout response cases, get_loss_mask will
-        # add a loss mask = 1 to the first eod token which is WRONG because they didn't want to stop and most likely it shouldn't stop. it's just maxed out.
+        # NOTE this pad to max is even better than get_loss_mask again because for the maxedout response cases,
+        # get_loss_mask will add a loss mask = 1 to the first eod token which is WRONG because they didn't want
+        # to stop and most likely it shouldn't stop. it's just maxed out.
         all_token_loss_mask = pad_to_max_len(data_b["loss_mask"], args.seq_length, pad_value=0)
 
         all_token_attention_mask, all_token_position_ids = get_ltor_masks_and_position_ids(
             all_token_ids_right_padded)
-        # print(f"all_token_position_ids: {all_token_position_ids}")
-        response_length = data_b["action_rewards"].shape[1]
 
         inputs = {
             "all_token_position_ids": all_token_position_ids,
@@ -134,10 +142,7 @@ class ValueMegatronTrainer(BaseTrainer):
         averaged_loss = average_losses_across_data_parallel_group([loss])
 
         # Reduce loss for logging.
-        stats_update = dict(
-            value_loss=averaged_loss[0],
-
-        )
+        stats_update = {"value_loss": averaged_loss[0]}
         self.stats.update(stats_update)
         return loss, {'lm loss': averaged_loss[0]}
 
@@ -160,18 +165,10 @@ class ValueMegatronTrainer(BaseTrainer):
         return losses, partial(self.aggregate_loss_func,
                                inputs)  # will call loss_func(loss_mask, output_tensor) to get loss
 
-    def train_step(self, data_list, train_info):
-
-        '''
-
-        :param data_list: global batch?
-        :param train_info: global iter
-        :return:
-        '''
-        """Single training step."""
+    def train_step(self, data, train_info):
         iteration = train_info["iteration"]
 
-        data_iterator = iter(data_list)
+        data_iterator = iter(data)
 
         _, skipped_iter, grad_norm, num_zeros_in_grad = megatron_train_step(self._forward_step, data_iterator,
                                                                             self.model, self.optimizer,
@@ -243,9 +240,9 @@ class ValueMegatronTrainer(BaseTrainer):
             params_norm = calc_params_l2_norm(self.model)
         if self.args.log_interval > 0 and iteration % self.args.log_interval == 0:
             training_log(loss_dict, {},
-                          self.optimizer.param_groups[0]['lr'],
-                          iteration, loss_scale, skipped_iter,
-                          grad_norm, params_norm, num_zeros_in_grad, self.stats,
-                          name="value_trainer")
+                         self.optimizer.param_groups[0]['lr'],
+                         iteration, loss_scale, skipped_iter,
+                         grad_norm, params_norm, num_zeros_in_grad, self.stats,
+                         name="value_trainer")
 
 # pylint: enable=unused-variable,invalid-name

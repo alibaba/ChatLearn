@@ -32,11 +32,11 @@ while True:
 prefix = os.path.join(sys.argv[1], 'rlhf')
 if not os.path.exists(prefix):
     os.makedirs(prefix)
-with open(os.path.join(prefix, 'train.jsonl'), 'w') as f:
+with open(os.path.join(prefix, 'train.jsonl'), 'w', encoding="utf-8") as f:
     for item in tqdm(rlhf_data['train']):
         item.pop('chosen')
         f.write(json.dumps(item) + '\n')
-with open(os.path.join(prefix, 'dev.jsonl'), 'w') as f:
+with open(os.path.join(prefix, 'dev.jsonl'), 'w', encoding="utf-8") as f:
     for item in tqdm(rlhf_data['test']):
         item.pop('chosen')
         f.write(json.dumps(item) + '\n')
