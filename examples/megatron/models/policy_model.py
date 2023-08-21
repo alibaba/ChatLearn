@@ -1,5 +1,18 @@
-# ======main:
-
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""policy model"""
 
 from megatron import get_args
 from megatron.global_vars import get_tokenizer
@@ -12,6 +25,7 @@ from .utils import get_advantages_and_returns
 
 
 class PolicyModel(GPTModel):
+    """PolicyModel"""
 
     def __init__(self,
                  num_tokentypes=0,
@@ -20,11 +34,7 @@ class PolicyModel(GPTModel):
                  post_process=True,
                  stats=None):
 
-        super(PolicyModel, self).__init__(num_tokentypes,
-                                          parallel_output,
-                                          pre_process,
-                                          post_process)
-
+        super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
         self.args = get_args()
         self.tokenizer = get_tokenizer()
         self.stats = stats
@@ -73,17 +83,6 @@ class PolicyModel(GPTModel):
             # TODO do we need to transpose????
             return all_token_logits
         else:
-            '''
-            "all_token_position_ids": all_token_position_ids,
-            "all_token_ids_right_padded" : data_b["all_token_ids_right_padded"],
-            "all_token_attention_mask": all_token_attention_mask.bool(),
-            "all_token_loss_mask": all_token_loss_mask.bool(),
-
-            "action_starts": data_b['action_start_indices'],
-            "action_logprobs" : data_b["action_logprobs"].float(), #response size
-            "action_values" : data_b["action_values"].float(),
-            "action_rewards" : data_b["action_rewards"].float(),
-            '''
             old_logprobs = training_inputs['action_logprobs']  # [b, responses size]
             old_values = training_inputs['action_values']  # [b, responses size]
             old_rewards = training_inputs['action_rewards']  # [b, responses size]

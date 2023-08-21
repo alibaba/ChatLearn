@@ -1,9 +1,25 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""reward inference"""
+
 import codecs
 import json
 import re
 from collections import defaultdict
+from pathlib import Path
 from time import time
-from typing import List
 
 import torch
 from megatron import get_args
@@ -16,7 +32,6 @@ from megatron.text_generation.communication import broadcast_from_last_to_first_
 from megatron.training import get_model
 from megatron.utils import get_ltor_masks_and_position_ids
 from models.reward_model import batch_padded_tokenize_data, RewardModel
-from pathlib import Path
 
 from chatlearn import RLHFMegatronModule
 from chatlearn.utils import to_device
@@ -49,7 +64,8 @@ def save_list_str(list_strs, iteration):
     dump_jsonl_chinese(res, inference_output_path, mode="a")
 
 
-class RewardModelMegatronInference(RLHFMegatronModule):
+class RewardInference(RLHFMegatronModule):
+    """RewardInference"""
 
     def setup(self):
         self.buffer = {}
@@ -108,13 +124,9 @@ class RewardModelMegatronInference(RLHFMegatronModule):
         return model
 
     def normalized_and_clip(self, scores):
-
-        all_scores_mean, all_scores_std = self.running.update(scores)
-
         if self.model_args['scale_reward'] == "running":
             if self.running.count >= 2:
                 scores /= self.running.std
-
         clip_reward = self.model_args['cliprange_reward']
         if clip_reward:
             scores = torch.clip(scores, -clip_reward, clip_reward)
@@ -167,8 +179,7 @@ class RewardModelMegatronInference(RLHFMegatronModule):
 
             # if diff is less than ngram size it's overlapping then count as 1
             diff = (torch.diff(indices).float().mean() - n).item()
-            if diff < 1.0:
-                diff = 1.0
+            diff = max(diff, 1.0)
         else:
             diff = None
         return max_count, diff
@@ -179,9 +190,9 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             p = p.strip()
             p_num = " ".join(p.split('\n'))
             if p_num:
-                p_num = re.sub('\([^\(\)]*[^0-9,\(\)./]+[^\(\)]*\)', '', p_num)
+                p_num = re.sub(r'\([^\(\)]*[^0-9,\(\)./]+[^\(\)]*\)', '', p_num)
 
-            p_num = re.findall('(-?[\d,]+)(\.[\d,]+)?(/-?[\d,]+)?(\.[\d,]+)?', p_num)
+            p_num = re.findall(r'(-?[\d,]+)(\.[\d,]+)?(/-?[\d,]+)?(\.[\d,]+)?', p_num)
 
             if p_num:
                 p_num = ["".join(p) for p in p_num]
@@ -189,7 +200,7 @@ class RewardModelMegatronInference(RLHFMegatronModule):
                 p_num = [p for p in p_num if p]
                 if p_num:
                     try:
-                        ret = float(eval(p_num[-1]))
+                        ret = float(eval(p_num[-1])) # pylint: disable=eval-used
                         return ret
                     except BaseException:
                         return INVALID_ANS
@@ -221,25 +232,12 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             score = -1.0
         return score
 
-    def get_all_rewards(self, action_starts, action_ends, loss_mask, list_strs: List[List[str]], logprobs,
-                        ref_logprobs, kl_ctl, action_tokens: List):
-        '''
-        # list_strs = [['sada asjdkha dfnkalbkfd', 'sa sajidha ahkjdfa jsdkaj'], ['sada asjdkha dfnsda sdkalbkfd', 'sa sajidha ahkjass s sdfa jsdkaj']]
-
-        :param query_tensors:
-        :param loss_mask:
-        :param list_strs:
-        :param logprobs: logprob of prompt + response
-        :param ref_logprobs: logprob of prompt + response
-        :param kl_ctl:
-        :return:
-        '''
-
-        # ngram reward
+    def get_all_rewards(self, action_starts, action_ends, loss_mask, all_tokens_right_padded, logprobs,
+                        ref_logprobs, kl_ctl, action_tokens, list_strs):
 
         n = loss_mask.size(0)
         if self.args.raw_reward_coeff > 0:
-            scores = self.get_raw_reward(list_strs)
+            scores = self.get_raw_reward(all_tokens_right_padded, action_ends)
             if mpu.is_pipeline_first_stage():
                 scores = self.args.raw_reward_coeff * scores.view(-1, 1)
             else:
@@ -334,7 +332,7 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             self.stats["rewards/all_rw_sum_min"] = all_rw_means.min()
         return all_rewards
 
-    def forward_step(self, data, iteration):
+    def forward_step(self, data, iteration=None):
         '''
         framework source: reward_output = self.reward.forward_step(policy_output[0], ref_output[0], old_values[0])
 
@@ -346,7 +344,7 @@ class RewardModelMegatronInference(RLHFMegatronModule):
         '''
         loss_mask = to_device("cuda", data["loss_mask"])
         no_padded_query_ids = to_device("cuda", data["no_padded_query_ids"])
-        all_tokens_right_padded = data["all_tokens"]
+        all_tokens_right_padded = to_device("cuda", data["all_tokens"])
         str_prompts = data["str_prompts"]
         str_outputs = data["str_outputs"]
 
@@ -356,7 +354,7 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             if torch.distributed.is_initialized():
                 if torch.distributed.get_rank() == (
                     torch.distributed.get_world_size() - 1):
-                    # last rank save infernece output
+                    # last rank save inference output
                     save_list_str(list_strs, iteration)
 
         old_value = data["old_values"]
@@ -370,13 +368,11 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             if kl_coef is None:
                 kl_coef = self.args.init_kl_coef
 
-        '''
-                "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
-                "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
-                "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
-        '''
+        # "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
+        # "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
+        # "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
+        # "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
+        # "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
         if self.args.log_interval > 0:
             assert ref_logprobs.size(1) + 1 == all_tokens_right_padded.size(
                 1), f"{ref_logprobs.size(1)}, {all_tokens_right_padded.size(1)} "
@@ -386,7 +382,10 @@ class RewardModelMegatronInference(RLHFMegatronModule):
                 1), f"{old_value.size(1)}, {all_tokens_right_padded.size(1)} "
 
         n = all_tokens_right_padded.shape[0]
-        # if ends with a eos_token also pad, it doesn't change. if stopped due to len limit, discard last token to align with rewards. because reward is r(s,a) which is a state action pair starts from state, thus the last unstopped token has no reward assigned and thus need to discard
+        # if ends with a eos_token also pad, it doesn't change.
+        # if stopped due to len limit, discard last token to align with rewards.
+        # because reward is r(s,a) which is a state action pair starts from state,
+        # thus the last unstopped token has no reward assigned and thus need to discard
         values = old_value[:, :-1]
 
         if self.args.loss_on_prompts:
@@ -399,8 +398,9 @@ class RewardModelMegatronInference(RLHFMegatronModule):
         # -1 because logprobs are logprobs of action_id[1:]!!! so it's already shifted right, to get logprob of first action, we need -1
         if self.args.log_interval > 0:
             for ix, rs in enumerate(starts):
-                assert ends[ix] - starts[
-                    ix] > 0, f"no_padded_query_id: {no_padded_query_ids[ix]}. ends[ix]: {ends[ix]} starts[ix]: {starts[ix]} loss_mask[ix] {loss_mask[ix]} all_tokens_right_padded[ix]: {all_tokens_right_padded[ix, starts[ix]:]}"
+                assert ends[ix] - rs > 0, \
+                    f"no_padded_query_id: {no_padded_query_ids[ix]}. ends[ix]: {ends[ix]} starts[ix]: {rs} " \
+                    + f"loss_mask[ix] {loss_mask[ix]} all_tokens_right_padded[ix]: {all_tokens_right_padded[ix, rs:]}"
         # start = query_tensors.shape[1] - 1 is because we need state's value!! so 1 step ahead
         # eg [ pad, q1, q2, q3, a1, a2, a3, pad, pad] -> ends[i] = 4
         # eg [ pad, q1, q2, q3, a1, a2, a3] -> [ pad, q1, q2, q3, a1, a2] ends[i] = 3
@@ -409,8 +409,8 @@ class RewardModelMegatronInference(RLHFMegatronModule):
 
         action_tokens = [all_tokens_right_padded[ix, starts[ix]: ends[ix]] for ix in range(n)]
 
-        all_rewards = self.get_all_rewards(starts, ends, loss_mask, list_strs, logprobs,
-                                           ref_logprobs, kl_coef, action_tokens)
+        all_rewards = self.get_all_rewards(starts, ends, loss_mask, all_tokens_right_padded, logprobs,
+                                           ref_logprobs, kl_coef, action_tokens, list_strs)
 
         # [ pad, q1, q2, q3, a1, a2, a3], logprobs= logprob[ q1, q2, q3, a1, a2, a3]
         # start = 4 - 1 = 3 ends[i] = 4  logprobs[3: 3 + 4=7] = logprob[a1, a2, a3]]
@@ -466,6 +466,17 @@ class RewardModelMegatronInference(RLHFMegatronModule):
         '''
         str_prompts = policy_res["str_prompts"]
         str_outputs = policy_res["str_outputs"]
+        all_tokens_right_padded = to_device("cuda", policy_res["all_tokens"])
+        no_padded_query_ids = to_device("cuda", policy_res["no_padded_query_ids"])
+        loss_mask = to_device("cuda", policy_res["loss_mask"])
+
+        if self.args.loss_on_prompts:
+            # because first token has no prob and serve as the first token to attend to so no loss
+            starts = torch.tensor([1 for no_padded_query_id in no_padded_query_ids], dtype=torch.long)
+        else:
+            starts = torch.tensor([len(no_padded_query_id) for no_padded_query_id in no_padded_query_ids],
+                                  dtype=torch.long)
+        ends = torch.tensor([start + loss_mask[i, start:].sum() for i, start in enumerate(starts)], dtype=torch.long)
 
         list_strs = [[str_prompt, str_output] for str_prompt, str_output in zip(str_prompts, str_outputs)]
 
@@ -481,7 +492,7 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             reward_model_scores = torch.tensor(math_rewards, device="cuda")
 
         else:
-            reward_model_scores = self.get_raw_reward(list_strs).view(-1, 1)
+            reward_model_scores = self.get_raw_reward(all_tokens_right_padded, ends).view(-1, 1)
         self.per_episode_metrics["eval_rewards/reward_model_scores"].update(reward_model_scores)
 
         reward_checkpoint = self.args.load
@@ -499,10 +510,21 @@ class RewardModelMegatronInference(RLHFMegatronModule):
 
         return {"eval_jsonl": output, "rewards": rewards_output}
 
-    def forward_step_pipeline(self, list_strs):
+    def forward_step_pipeline(self, list_strs=None, all_tokens_right_padded=None, ends=None):
         self.model.eval()
         args = get_args()
-        input_ids, pooling_sequence_index = batch_padded_tokenize_data(list_strs, self.tokenizer, args.seq_length)
+
+        if list_strs:
+            assert not all_tokens_right_padded and not ends, \
+                "Expected all_tokens_right_padded=None and ends=None in forward_step_pipeline, " \
+                f"but got {type(all_tokens_right_padded)} and {type(ends)}."
+            input_ids, pooling_sequence_index = batch_padded_tokenize_data(list_strs, self.tokenizer, args.seq_length)
+        else:
+            assert all_tokens_right_padded is not None and ends is not None, \
+                "Expected non-empty all_tokens_right_padded and ends in forward_step_pipeline, " \
+                f"but got {type(all_tokens_right_padded)} and {type(ends)}."
+            input_ids, pooling_sequence_index = all_tokens_right_padded, ends - 1
+
         input_ids = input_ids.cuda()
         pooling_sequence_index = pooling_sequence_index.cuda()
 
@@ -513,31 +535,28 @@ class RewardModelMegatronInference(RLHFMegatronModule):
             args.reset_attention_mask,
             args.eod_mask_loss)
 
-        args = get_args()
-
         batch_size = input_ids.size(0)
-        max_length = input_ids.size(1)
 
         # Log probability of the sequence (prompt + generated tokens).
         output_rewards = None
         output_rewards_size = (batch_size,)
 
         if mpu.is_pipeline_last_stage():
-	        output_rewards = torch.empty(output_rewards_size,
-	                                     dtype=torch.float32,
-	                                     device=torch.cuda.current_device())
+            output_rewards = torch.empty(output_rewards_size,
+                                         dtype=torch.float32,
+                                         device=torch.cuda.current_device())
 
         # =============
         # Run infernece
         # =============
         with torch.no_grad():
             # logits will be meanigful only in the last pipeline stage.
-            lm_output = forward_step_helper(self.model, input_ids, position_ids, attention_mask, pooling_sequence_index, pooling=True)
+            lm_output = forward_step_helper(self.model, input_ids, position_ids, attention_mask, pooling_sequence_index,
+                                            pooling=True)
             if mpu.is_pipeline_last_stage():
                 # Always the last stage should have an output.
                 assert lm_output is not None
                 output_rewards = lm_output
-
                 assert batch_size == 1 or output_rewards.size(0) == batch_size
 
         # ======================================
@@ -548,18 +567,16 @@ class RewardModelMegatronInference(RLHFMegatronModule):
 
         return output_rewards
 
-    def get_raw_reward(self, list_strs: List[List[str]]):
+    def get_raw_reward(self, all_tokens_right_padded, ends):
         exp_score_time = time()
-        scores = self.forward_step_pipeline(list_strs)
+        scores = self.forward_step_pipeline(all_tokens_right_padded=all_tokens_right_padded, ends=ends)
         # minus the sft baseline
         if mpu.is_pipeline_first_stage():
             scores -= self.reward_bias
         if self.args.log_interval > 0:
             self.stats["time/exp_score"] = time() - exp_score_time
-
             self.stats["rewards/reward_model_scores_max"] = scores.max()
             self.stats["rewards/reward_model_scores_min"] = scores.min()
-
             self.per_episode_metrics["rewards/reward_model_scores"].update(scores)
         if mpu.is_pipeline_first_stage():
             scores = self.normalized_and_clip(scores)

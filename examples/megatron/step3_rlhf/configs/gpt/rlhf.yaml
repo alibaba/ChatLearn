@@ -66,6 +66,7 @@ models:
 rlhf:
     colocation:
             - policy,reference,reward,value,ppo_policy,ppo_value
+    generation_batch_size: ${generation_batch_size:16}
     train_micro_batch_size: ${train_micro_batch_size:16}
     train_global_batch_size: ${train_global_batch_size:64}
     num_ppo_episode: ${num_ppo_episode:5}
@@ -78,6 +79,7 @@ rlhf:
     eval_episode_interval: ${eval_episode_interval:0}
     mini_data: ${mini_data:/path/to/mini.txt}
     eval_data_path: ${eval_data_path:/path/to/eval_data}
+    eval_output_dir: ${eval_output_dir}
     eval_data_num_limit: 20
     nsys: False
     enable_indivisible_batch_size: ${enable_indivisible_batch_size:True}

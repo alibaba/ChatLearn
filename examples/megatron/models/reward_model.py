@@ -52,7 +52,7 @@ class LinearPooler(MegatronModule):
     """
 
     def __init__(self, hidden_size, init_method, score_dimensions):
-        super(LinearPooler, self).__init__()
+        super().__init__()
         args = get_args()
         self.dense1 = get_linear_layer(hidden_size, hidden_size, init_method)
         self.dense2 = get_linear_layer(hidden_size, score_dimensions, init_method)
@@ -74,13 +74,14 @@ class LinearPooler(MegatronModule):
             selected_hidden = selected_hidden.diagonal(dim1=0, dim2=1).T
             pooled = self.dense2(torch.nn.functional.relu(self.dense1(selected_hidden)))
         else:
-            selected_hidden = hidden_states # [s, b, h]
-            pooled = self.dense2(torch.nn.functional.relu(self.dense1(selected_hidden))).squeeze() # [s, b, scoredim]
+            selected_hidden = hidden_states  # [s, b, h]
+            pooled = self.dense2(torch.nn.functional.relu(self.dense1(selected_hidden))).squeeze()  # [s, b, scoredim]
 
         return pooled
 
 
 class RewardModel(GPTModel):
+    """RewardModel"""
 
     def __init__(self,
                  num_tokentypes=0,
@@ -101,9 +102,9 @@ class RewardModel(GPTModel):
 
     def forward(self, input_ids=None, position_ids=None, attention_mask=None,
                 ret_input_ids=None, ret_position_ids=None, ret_attn_mask=None,
-                labels=None, tokentype_ids=None, inference_params=None,
-                pooling_sequence_index=None,  ## add args
-                list_strs=None,  ## add args
+                labels=None, tokentype_ids=None, inference_params=None, # pylint: disable=unused-argument
+                pooling_sequence_index=None,
+                list_strs=None,  # pylint: disable=unused-argument
                 ):
         lm_output = self.language_model(
             input_ids,

@@ -1,16 +1,32 @@
-# ======main:
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""value model"""
 
 import torch
 import torch.distributed as dist
 from megatron.core import mpu
 from megatron.global_vars import get_args
 from megatron.global_vars import get_tokenizer
+
 from .constants_ppo import select_actions_from_right_padded
 from .reward_model import RewardModel
 from .utils import get_advantages_and_returns
 
 
 class ValueModel(RewardModel):
+    """ValueModel"""
 
     def __init__(self,
                  num_tokentypes=0,
@@ -20,15 +36,13 @@ class ValueModel(RewardModel):
                  stats=None,
                  buffer=None):
 
-        super(ValueModel, self).__init__(num_tokentypes,
-                                         parallel_output,
-                                         pre_process,
-                                         post_process)
+        super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
         self.args = get_args()
         self.tokenizer = get_tokenizer()
         self.stats = stats
         self.buffer = buffer
 
+    # pylint: disable=arguments-differ
     def forward(self, all_token_ids, all_position_ids, all_token_attention_mask, training_inputs=None,
                 inference_params=None, ret_input_ids=None, ret_position_ids=None, ret_attn_mask=None):
         lm_output = self.language_model(

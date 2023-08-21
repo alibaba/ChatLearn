@@ -37,9 +37,9 @@ def get_ppo_batches(modify_generation_batch_size=False):
     assert reference.num_replica == 1
     data = torch.ones([1024])
     dataset = [data * i for i in range(35)]
-    engine.set_dataset(dataset, enable_indivisible_batch_size=engine.rlhf_args.enable_indivisible_batch_size)
+    engine.set_dataset(dataset)
     engine.setup()
-    engine.trainer.setup()
+    engine.trainer.setup(engine.model_manager.model_packs)
     engine.env.setup(engine.model_manager.model_packs)
     if engine.evaluator:
         engine.evaluator.setup(engine.model_namager.model_packs)

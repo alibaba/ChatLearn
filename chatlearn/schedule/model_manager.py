@@ -28,6 +28,7 @@ from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistModel
 from chatlearn.runtime.parameter_sync import ParameterSyncGroup
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
+from chatlearn.utils.global_vars import set_decorated, is_decorated
 
 
 class ModelManager:
@@ -116,6 +117,9 @@ class ModelManager:
         return port
 
     def set_func_decorator(self, model):
+        if is_decorated(model.name):
+            return
+
         model_cls = model.__class__
         for func_name in model.call_funcs:
             is_forward_step = func_name == "forward_step"
@@ -130,6 +134,7 @@ class ModelManager:
         for func_name in ["forward_step", "train_step",
                           "save_checkpoint", "model_setup"]:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
+        set_decorated(model.name)
 
     def _to_dist_model(self, model):
         """

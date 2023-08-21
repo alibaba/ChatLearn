@@ -33,7 +33,13 @@ from chatlearn.utils.timer import Timers
 
 
 class RLHFModule:
-    """RLHFModule"""
+    """RLHFModule is the base class for RLHF models.
+
+    Args
+    ----
+    name : str
+        model name
+    """
 
     def __init__(self, name, args=None, replica_id=0):
         self.name = name
@@ -108,8 +114,7 @@ class RLHFModule:
     @property
     def module_args(self):
         """
-        Return module arguments.
-        module arguments include `num_device`, `gpu_per_process`, `model_config_file`, etc.
+        Return module arguments. module_args include `num_device`, `gpu_per_process`, `model_config_file`, etc.
         """
         return self._module_args
 
@@ -136,12 +141,12 @@ class RLHFModule:
 
     def init(self):
         """
-        init env
+        Init env.
         """
 
     def setup(self):
         """
-        create model / optimizer / opt_param_scheduler / etc
+        Create model / optimizer / opt_param_scheduler / etc.
         """
 
     def model_setup(self):
@@ -152,48 +157,65 @@ class RLHFModule:
 
     def forward_step(self, data, iteration=None):
         """
-        perform forward step for one batch
+        Perform forward step for one batch.
 
-        Args:
-            data: data for forward_step, type is dict
-            iteration: local forward iteration
-        Returns:
-            k/v dict
+        Args
+        ----
+        data : dict
+            data for forward_step
+        iteration : int
+            local forward iteration
+        
+        Returns
+        -------
+        Dict
+            A dict of results, where key is the string type, and the value is the tensor or a list,
+            where the first dim of tensor or the len of list equals to batch size
         """
 
     def train_step(self, data, train_info):
         """
-        Perform train_step for one batch, including a list of micro-batches
+        Perform train_step for one batch, including a list of micro-batches.
 
-        Args:
-            data: data for train_step, type is a list of dict, each dict is a micro-batch
-            train_info: includes training information, e.g., "iteration"
-
+        Args
+        ----
+        data : [Dict]
+            A list of micro-batch for train_step, type of each micro-batch is dict
+        train_info : Dict
+            A dict of training meta, includes training information, e.g., "iteration"
         """
 
     def eval_step(self, data):
         """
         Perform eval_step for one batch
 
-        Args:
-            data: data for eval_step, type is dict
+        Args
+        ----
+            data: Dict
+                Data for eval_step.
 
-        Returns:
-            k/v dict
+        Returns
+        -------
+            Dict
+                A dict of results, where key is the string type, and the value is the tensor or a list,
+                where the first dim of tensor or the len of list equals to batch size
         """
 
     def save_checkpoint(self, iteration):
         """
         Save checkpoint given iteration.
 
-        Args:
-            iteration: current training iteration
-
+        Args
+        ----
+            iteration: int
+                Current training iteration
         """
 
     def save_data_checkpoint(self, replica_id, iteration, ppo_iter):
         """
-        save checkpoint for dataloader
+        Save checkpoint for dataloader.
+
+        :meta private:
         """
         if self.data_ckpt_manager is not None:
             self.data_ckpt_manager.save_checkpoint(replica_id, iteration, ppo_iter)
@@ -202,9 +224,12 @@ class RLHFModule:
         """
         Put the data to shared storage.
 
-        Args:
-            key: use key to put
-            data: data to save
+        Args
+        ----
+            key: Str
+                Use key to put.
+            data
+                data to save
         """
         self._storage.put.remote(key, data)
 
@@ -212,8 +237,10 @@ class RLHFModule:
         """
         Get data from shared storage using key
 
-        Args:
-            key: use key to get
+        Args
+        ----
+            key: Str
+                use key to get
         """
         ref = self._storage.get.remote(key)
         return future.get(ref)
@@ -226,12 +253,26 @@ class RLHFModule:
 
     def before_episode(self):
         """
-        operations before one episode
+        Operations before one episode.
         """
 
     def after_episode(self):
         """
-        operations after one episode
+        Operations after one episode.
+        """
+
+    def build_dataset(self, train_prompts):
+        """
+        Build prompt dataset
+
+        Args
+        ----
+            train_prompts: [Str]
+                A list of prompt string.
+        Returns
+        -------
+            torch.utils.data.Dataset
+                Dataset with user-defined collate_fn
         """
 
     def _build_dataloader(self, data, sample_per_episode_per_replica=-1, is_eval=False):
@@ -250,7 +291,7 @@ class RLHFModule:
             assert sample_per_episode_per_replica > 0, \
                 "The dataloader for training expect positive sample_per_episode_per_replica, "\
                 f"but got {sample_per_episode_per_replica}"
-        dataset = self.build_dataset(data)
+        dataset = self.build_dataset(data) # pylint: disable=assignment-from-no-return
         assert hasattr(dataset, 'collate_fn'), \
             f"{dataset.__class__.__name__} has no attribute `collate_fn`. If you would like "\
             "to use the default collate_fn to batch samples, try adding `self.collate_fn = None` "\
@@ -298,6 +339,8 @@ class RLHFModule:
             sample_per_episode_per_replica: an integer indicate how many samples 
                 per episode and per replica will consume (default: `-1`)
             is_eval: set to `True` to build a dataloader for evaluation (default: `False`)
+
+        :meta private:
         """
         if self.rlhf_args.enable_indivisible_batch_size and not is_eval:
             log_rank_0("Creating EpisodeDataLoader...")
@@ -314,6 +357,9 @@ class RLHFModule:
             )
 
     def reset_eval_data_iter(self):
+        """
+        :meta private:
+        """
         self._eval_data_iter = iter(self._eval_dataloader)
 
     def next_batch(self, is_eval=False):
@@ -327,10 +373,16 @@ class RLHFModule:
 
     @property
     def num_replica(self):
+        """
+        :meta private:
+        """
         return self._num_replica
 
     @property
     def num_device_per_replica(self):
+        """
+        :meta private:
+        """
         return self._num_device_per_replica
 
     def setup_collective_group(self, rank, world_size, backend, group_name):
@@ -350,7 +402,7 @@ class RLHFModule:
 
     def set_param_ranks(self, param_ranks):
         """
-        set the ranks for parameters of first replica
+        Set the ranks for parameters of first replica.
         """
         self._param_ranks = param_ranks
 
@@ -359,16 +411,19 @@ class RLHFModule:
         :meta private:
         """
 
-
     def fuse_lora_layer(self):
+        """
+        :meta private:
+        """
         from chatlearn.opt.lora import fuse_lora_layer # pylint: disable=import-outside-toplevel
         fuse_lora_layer(self.model)
 
-
     def unfuse_lora_layer(self):
+        """
+        :meta private:
+        """
         from chatlearn.opt.lora import unfuse_lora_layer # pylint: disable=import-outside-toplevel
         unfuse_lora_layer(self.model)
-
 
     @property
     def rank(self):
@@ -378,6 +433,9 @@ class RLHFModule:
         return self._rank
 
     def get_rank(self):
+        """
+        :meta private:
+        """
         return self.rank
 
     @property
@@ -429,6 +487,9 @@ class RLHFModule:
         return self._param_to_name
 
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0):
+        """
+        :meta private:
+        """
         if pipe_stage not in self._parameters_to_sync or len(self._parameters_to_sync[pipe_stage]) == 0:
             for name in trainable_param_names:
                 self._parameters_to_sync[pipe_stage].append(self.named_parameters[name])
@@ -464,6 +525,9 @@ class RLHFModule:
         return self.get_parameter(name).shape
 
     def send_recv_parameter(self, name, rank, group_name, func, pipe_stage=0):
+        """
+        :meta private:
+        """
         if self.rlhf_args.coalesce_param:
             assert name is None
             tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
@@ -573,12 +637,16 @@ class RLHFModule:
 
     def add_padding_config(self, key, padding_value=0.0, padding_type="right"):
         """
-        Add spectial padding config for certain value
+        Add spectial padding config for certain value.
 
-        Args:
-            key: the key for data to be padded
-            padding_value: padding value, default is 0
-            padding_type: default right, can be right/left
+        Args
+        ----
+        key: str
+            The key for data to be padded.
+        padding_value: float
+            Padding value, default is 0.
+        padding_type: str
+            Default right, can be right/left.
         """
         self._padding_config[key] = {"padding_value": padding_value, "padding_type": padding_type}
 
@@ -596,23 +664,39 @@ class RLHFModule:
     def register_func(self, name):
         """
         register func to be called by engine
+
+        :meta private:
         """
         self.call_funcs.append(name)
 
     def register_eval_func(self, name='eval_step'):
         """
-        register func to be called by eval engine
+        Register func to be called by eval engine
+
+        Args
+        ----
+            name: str
+                function name
         """
         self.register_func(name)
         self._eval_func_name = name
 
     @property
     def eval_func_name(self):
+        """
+        :meta private:
+        """
         return self._eval_func_name
 
     def add_step(self, step):
+        """
+        :meta private:
+        """
         if self.data_ckpt_manager is not None:
             self.data_ckpt_manager.add_step(step)
 
     def set_start_iteration(self, start_iteration):
+        """
+        :meta private:
+        """
         self._iteration = start_iteration

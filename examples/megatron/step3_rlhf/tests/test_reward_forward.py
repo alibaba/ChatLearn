@@ -1,8 +1,24 @@
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""test reward forward"""
+
 import json
 import time
 from collections import defaultdict
 
-from models.reward_inference import RewardModelMegatronInference
+from models.reward_inference import RewardInference
 from tqdm import tqdm
 
 import chatlearn
@@ -10,7 +26,7 @@ from chatlearn import Engine
 
 chatlearn.init()
 
-policy = RewardModelMegatronInference("reward")
+policy = RewardInference("reward")
 engine = Engine(policy)
 engine.setup()
 model = engine.models[0].replicas[0]
@@ -18,31 +34,30 @@ model = engine.models[0].replicas[0]
 
 def read_jsonl(file_path):
     with open(file_path, encoding="utf-8") as f1:
-        res = [json.loads(line) for line in f1]
-        return res
+        return [json.loads(line) for line in f1]
 
 
 def get_labled_list_strs(fp):
     jsons = read_jsonl(fp)
-    res = []
+    result = []
     for item in jsons:
-        batch = defaultdict(list)
+        samples = defaultdict(list)
         for i, response in enumerate(item['response']):
-            batch['input'].append([item['query'], response])
-            batch['score'].append(item['score'][i])
-        res.append(batch)
-    return res
+            samples['input'].append([item['query'], response])
+            samples['score'].append(item['score'][i])
+        result.append(samples)
+    return result
+
 
 args = chatlearn.get_args()
 batches = get_labled_list_strs(args.rlhf_args.get("eval_data_path"))
-
 
 start_time = time.time()
 
 right = 0
 acc = 0
 for batch in tqdm(batches):
-    res = model.forward_step_pipeline(batch['input'])  # [b,]
+    res = model.forward_step_pipeline(list_strs=batch['input'])  # [b,]
     res = chatlearn.get(res)
     res = res[0]
     if res[0].item() > res[1].item():

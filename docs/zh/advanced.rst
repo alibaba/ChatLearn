@@ -1,0 +1,199 @@
+进阶配置
+========
+
+StreamDataset
+-------------
+
+`StreamDataset` 接收 `PPOEnv` rollout 产生的数据，并重组 batch 提供给 PPO 训练模块 `PPOTrainer`。目前我们支持三种形式的 `StreamDataset`:
+
+1. `fixed` ：这种形式生成的总训练样本数是由配置 `sample_per_episode` 指定的。`PPOEnv` 接收 `sample_per_episode` 个 prompts，生成 `sample_per_episode` 个训练样本。`PPOTrainer` 接受 `sample_per_episode` 个训练样本进行训练。
+2. `dynamic` : 这种形式生成的总训练样本数是动态判断的。`PPOEnv` 接收 `sample_per_episode` 个 prompts，生成 `N*sample_per_episode` 个训练样本，这里 `N>0`。`PPOTrainer` 接受 `N*sample_per_episode` 个训练样本进行训练。
+3. `relay` : 这种形式生成的总训练样本数也是动态的，但是不同于 `dynamic`，`relay` 可以从历史 episode 中读取 prompt 数据。
+
+
+YAML 配置
+>>>>>>>>>
+
+.. code-block:: yaml
+
+    rlhf:
+        # one of ["fixed", "dynamic", "relay"]
+        stream_data_loader_type: fixed
+        # max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
+        max_relay_episode = 1
+
+
+.. csv-table::
+   :header: "参数名", "类型", "注释"
+
+   "stream_data_loader_type",               "str",      "指定类型，默认是 fixed，必须是以下三种类型之一，['fixed', 'dynamic', 'relay']"
+   "max_relay_episode",               "int",      "如果是 relay 类型，指定 relay 的最近的 max_relay_episode 个 episode，超过 max_relay_episode，会淘汰最老的 episode 数据。如果 max_relay_episode 设为 -1，则不会淘汰，记录每个 episode 的历史数据。"
+
+
+
+relay_sample_fn
+>>>>>>>>>>>>>>>
+
+`relay_sample_fn` 是用户自定义的 relay buffer sample 函数。
+
+.. code-block:: python
+
+    def relay_sample_fn(episode_relay_buffers) -> List[dict]:
+        """
+        Args:
+            episode_relay_buffers : List[EpisodeRelayBuffer]
+        Return: list of dict
+        """
+
+
+`relay_sample_fn` 接收 `episode_relay_buffers`，`episode_relay_buffers` 是一个 list 的 `EpisodeRelayBuffer`。每个 `EpisodeRelayBuffer` 记录了一个 episode 的 samples。`EpisodeRelayBuffer` 有两个关键属性：
+
+1. `episode_id` 记录了当前是第几个 episode
+2. `buffer` 记录了所有的 samples，类型是 `List[dict]`，每个 dict 是一个 sample。
+
+通过 `engine.set_relay_sample_fn(relay_sample_fn)` 用户可以设定自定义的 `relay_sample_fn` 。
+
+示例
+>>>>
+
+下面这个示例将所有的 `episode_relay_buffers` 中的 sample 合并起来，返回一个多个 episode 完整的 sample 数据。
+
+.. code-block:: python
+
+    def relay_sample_fn(episode_relay_buffers):
+        buffers = []
+        for relay_buffer in episode_relay_buffers:
+            buffers += relay_buffer.buffer
+        # episode_id = episode_relay_buffers[-1].episode_id
+        return buffers
+
+    engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
+    engine.set_relay_sample_fn(relay_sample_fn)
+
+LoRA
+----
+
+LoRA 是 Parameter Efficient 的方法之一。已有研究表明了过度参数化的模型其实是位于一个低的内在维度上，所以 LoRA 作者假设在模型适应过程中的权重变化也具有较低的“内在等级”。LoRA 的主要方法为冻结一个预训练模型的矩阵参数 `W` ，并选择用重新初始化的小矩阵 `A` 和 `B` （类 SVM）来替代，在下游任务时只更新 `A` 和 `B`，其中 `W` 的 shape 为 `[d, k]` , `A/B` 的shape分别为 `[d, r]、[r, k]` 。⚠️收敛需要调整 `learning rate` 、LoRA 等相关参数，LoRA 使用及其参数介绍如下。
+
+YAML 配置
+>>>>>>>>>>>>>>>>
+
+以下为配置打开 LoRA 的示例，用户可以在某个模型配置中加入 `lora` 配置段，通过 `enable_lora: True` 打开LoRA，同时设置 `lora_dim`, `lora_layer` 等参数。关于 LoRA 配置项的 API 详见 :ref:`lora-config`.
+
+.. code-block:: yaml
+
+    models:
+        ppo_policy:
+            model_config_file: ppo_policy.yaml
+            trainable: True
+            lora:
+              enable_lora: True
+              lora_dim: 64
+              lora_layer: ColumnParallelLinear,LinearLayer,RowParallelLinear
+              lora_dropout: 0.05
+
+代码示例
+>>>>>>>>>
+
+下面的示例展示了如何设置模型的 LoRA 优化。如果用户在 yaml 中配置了 `enable_lora: True`，则需在模型定义完成后, 接入完成LoRA 转化函数 `convert_layer_to_lora`，如下：
+
+.. code-block:: python
+
+    from chatlearn.opt.lora import convert_layer_to_lora
+    model = PolicyModel()
+    if self.module_args.lora.enable_lora:
+        model = convert_layer_to_lora(model)
+
+Batch generation 优化
+---------------------
+
+默认配置中，推理阶段的每 episode 中数据一般进行了随机 shuffle，导致 Batch 内样本的 prompt_len 分布不一，在 batch generation 过程中会将所有 prompt padding 到 batch 内最长，增加了大量无效计算。一个优化方式是可按 prompt length 预先排序，降低无效 padding 的 tokens 占比。Prompt generation 阶段可分为以下两步：
+1. initiation：选择 batch 内 `min_prompt_len`，一次性输入 `[batch_size, min_prompt_len, hidden_size]` 的特征向量进行推理，生成下一个 token；
+2. increment：基于 initiation 输出的 token，循环输入上一个迭代输出的 token，直到生成 `<EOS>` 为结束。
+
+如果对 prompt 进行排序，随着 batch 内 `min_prompt_len` 增加，我们观察到显存开销的提高，容易出现 OOM。通过设置 `min_prompt_length` 参数可以缓和显存问题，具体介绍如下。
+
+YAML 配置
+>>>>>>>>>
+
+以下为配置打开 batch generation 优化的示例，用户可以在某个模型配置中加入 `batch_generation` 配置段，通过 `ranking: True` 打开。关于 `batch_generation` 配置项的 API 详见 :ref:`batch-generation-config`.
+
+.. code-block:: yaml
+
+    models:
+        policy:
+            model_config_file: policy_inference.yaml
+            trainable: False
+            batch_generation:
+              ranking: True
+              min_prompt_length: ${batch_generation_min_prompt_length:0}
+
+
+
+Indivisible batch size
+----------------------
+
+基础配置中，推理阶段的每 episode 消费的样例数量必须能被推理的 batch size 整除。进阶配置中，indivisible batch size 提供了推理阶段推理任意大小的 batch size 的能力。更具体地，设推理阶段每 episode 消费的样例数量为 `s` ，推理的 batch size 大小为 `b` ，满足 `1 <= b <= s` 。
+
+
+YAML 配置
+>>>>>>>>>>
+
+.. code-block:: yaml
+
+    rlhf:
+    	# generation batch size for inference models, default: 16
+    	generation_batch_size: ${generation_batch_size:16}
+    	# number of samples to consume in each episode, default: 1024
+        sample_per_episode: ${sample_per_episode:1024}
+    	# Whether to enable indivisible batch size, default: False
+     	enable_indivisible_batch_size: ${enable_indivisible_batch_size:False}
+
+
+.. csv-table::
+   :header: "参数名", "类型", "注释"
+
+   "generation_batch_size",               "int",      "推理模型的 generation batch size。默认值：16。注：如果关闭 enable_indivisible_batch_size，generation_batch_size 必须被 sample_per_episode 整除，反之则无须被整除。"
+   "sample_per_episode",               "int",      "每个 episode 消费的样例数量。注：如果关闭 enable_indivisible_batch_size，generation_batch_size 必须被 sample_per_episode 整除，反之则无须被整除。"
+   "enable_indivisible_batch_size",               "bool",      "是否开启 indivisible batch size 功能。True 代表开启，False 代表关闭。默认值：False。"
+
+注意 ⚠️
+
+1. 开启该功能将不会使用 PyTorch 提供的 DataLoader。
+2. 开启该功能，`set_dataset` 的 drop_last 将被指定为 False，即不会丢弃最后一个大小小于 `b` 的 batch。
+3. 如果同时开启该功能和 `StreamDataset`，`StreamDataset` 仅支持 `fixed` 类型。
+
+
+Adaptive checkpoint
+--------------------
+
+基础配置中，如果需要对 RLHF 的各个模型应用不同的并行策略，就要事先调用 Megatron-LM 的 `checkpoint_utils.py` 进行离线转换，然后读取转换并行策略后保存的 checkpoint 才能正常执行 RLHF 流程。进阶配置中，adaptive checkpoint 支持在模型 checkpoint 的加载过程中自适应读取 checkpoint 并自动转换成用户指定的并行策略。该进阶配置相比基础配置可以减少磁盘开销，多进程并行执行 checkpoint 转换。
+
+
+YAML 配置
+>>>>>>>>>
+
+.. code-block:: yaml
+
+    # Whether to enable adaptive checkpoint, default: True
+    adaptive_parallel_strategy_on_checkpoint: True
+
+
+.. csv-table::
+   :header: "参数名", "类型", "注释"
+
+   "adaptive_parallel_strategy_on_checkpoint",               "bool",      "是否开启 adaptive checkpoint 功能。True 代表开启，False 代表关闭。"
+
+
+示例
+>>>>
+
+下面这个示例将在 load checkpoint 的时候传入 `adaptive_parallel_strategy_on_checkpoint` 参数。如果在 yaml 中配置 `adaptive_parallel_strategy_on_checkpoint: True`，`load_checkpoint` 函数将从 checkpoint 自适应地初始化权重到 model 中。
+
+.. code-block:: python
+
+    # model = get_model(model_provider)
+    load_checkpoint(
+        model, None, None,
+        adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint
+    )

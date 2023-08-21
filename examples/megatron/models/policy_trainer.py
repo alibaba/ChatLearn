@@ -1,30 +1,37 @@
-"""GPT"""
-import time
+# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""policy trainer"""
+
 from functools import partial
-
-from megatron.core.enums import ModelType
-from megatron.training import print_datetime
-from megatron.training import train_step as megatron_train_step
-
-from .constants_ppo import select_actions_from_right_padded, get_ltor_masks_and_position_ids, pad_to_max_len
-
-_TRAIN_START_TIME = time.time()
 
 import numpy as np
 import torch
-
 from megatron import get_args, get_num_microbatches
 from megatron import get_tokenizer
-from megatron.core import mpu
 from megatron import print_rank_0
-from megatron.initialize import set_jit_fusion_options
-
+from megatron.core import mpu
+from megatron.core.enums import ModelType
+from megatron.training import train_step as megatron_train_step
 from megatron.utils import average_losses_across_data_parallel_group
 from megatron.utils import calc_params_l2_norm
-from chatlearn.utils import to_device
-from .base_trainer import BaseTrainer
 from models.policy_model import PolicyModel
 from models.utils import training_log
+
+from chatlearn.utils import to_device
+from .base_trainer import BaseTrainer
+from .constants_ppo import select_actions_from_right_padded, get_ltor_masks_and_position_ids, pad_to_max_len
 
 
 class AdaptiveKLController:
@@ -59,16 +66,8 @@ class FixedKLController:
         Arguments:
             current: The current KL value between the newest policy and the initial policy.
         """
-        pass
 
-
-def cyclic_iter(iter):
-    while True:
-        for x in iter:
-            yield x
-
-
-class MegatronPolicy(BaseTrainer):
+class PolicyTrainer(BaseTrainer):
     """gpt model wrapper"""
 
     def setup(self):
@@ -105,8 +104,6 @@ class MegatronPolicy(BaseTrainer):
         self.model, self.optimizer, self.opt_param_scheduler = self.setup_model_and_optimizer(self.model_provider,
                                                                                               self.model_type)
 
-        print(f"End setup PPO megatron", flush=True)
-
     def model_provider(self, pre_process=True, post_process=True):
         """Build the model."""
 
@@ -119,29 +116,21 @@ class MegatronPolicy(BaseTrainer):
             stats=self.stats
         )
         if self.module_args.lora.enable_lora:
-            from chatlearn.opt.lora import convert_layer_to_lora
+            from chatlearn.opt.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
             model = convert_layer_to_lora(model)
         return model
 
     def get_batch(self, batch_data):
-        """Generate a batch"""
+        """Generate a batch
+            "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
+            "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
+            "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
+            "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
+            "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
+            "loss_mask"
+        """
         args = self.args
-
-        # Items and their type.
-        '''
-                "all_token_ids_right_padded": torch.tensor([[p,p,5,6,7], [p,p,p,8,9]], dtype=torch.long, device=device),
-                "action_start_indices": torch.tensor([[10,100,p,p,p], [11,p,p,p,p]], dtype=torch.long, device=device),
-                "action_logprobs": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "action_values": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "action_rewards": torch.randn([bs, 5], dtype=torch.float32, device=device),
-                "loss_mask"
-        '''
-        int64_keys = ['all_token_ids_right_padded', 'action_start_indices']
-        float32_keys = ["action_logprobs", "action_values", 'action_rewards']
-
         data_b = next(batch_data)
-
-        tokenizer = get_tokenizer()
 
         # TODO: move to RLHF framework later. add pad to max length config
         all_token_ids_right_padded = pad_to_max_len(data_b["all_token_ids_right_padded"], args.seq_length,
@@ -150,7 +139,6 @@ class MegatronPolicy(BaseTrainer):
 
         all_token_attention_mask, all_token_position_ids = get_ltor_masks_and_position_ids(
             all_token_ids_right_padded)
-        response_length = data_b["action_rewards"].shape[1]
 
         inputs = {
             "all_token_position_ids": all_token_position_ids,
@@ -158,13 +146,10 @@ class MegatronPolicy(BaseTrainer):
             # this attention mask is not TRANSFOEMRER attention msak. this actually applies on attention result [b, np, s, s]
             "all_token_attention_mask": all_token_attention_mask.bool(),
             "all_token_loss_mask": all_token_loss_mask.bool(),
-
             "action_starts": data_b['action_start_indices'],
-
             "action_logprobs": data_b["action_logprobs"].float(),  # response size
             "action_values": data_b["action_values"].float(),
             "action_rewards": data_b["action_rewards"].float(),
-
         }
 
         assert all_token_ids_right_padded.size(0) != 1, f"cannot be 1 will be squeezed. {all_token_ids_right_padded}"
@@ -210,23 +195,14 @@ class MegatronPolicy(BaseTrainer):
         return losses, partial(self.aggregate_loss_func,
                                inputs)  # will call loss_func(loss_mask, output_tensor) to get loss
 
-    def train_step(self, data_list, train_info):
-        '''
-        :param data_list: what exactly? global batch? micro_batch?
-        :param train_info:{"iteration": self.iteration} global outer iteration
-        :return:
-            None
-        '''
-        """Single training step."""
+    def train_step(self, data, train_info):
         iteration = train_info["iteration"]
-
-        data_iterator = iter(data_list)
+        data_iterator = iter(data)
         _, skipped_iter, grad_norm, num_zeros_in_grad = megatron_train_step(self._forward_step, data_iterator,
                                                                             self.model, self.optimizer,
                                                                             self.opt_param_scheduler)
         self.post_update_stuffs({}, skipped_iter,
                                 grad_norm, num_zeros_in_grad, iteration)
-
 
     def post_update_stuffs(self, loss_dict, skipped_iter,
                            grad_norm, num_zeros_in_grad, iteration):
@@ -250,9 +226,9 @@ class MegatronPolicy(BaseTrainer):
             params_norm = calc_params_l2_norm(self.model)
         if self.args.log_interval > 0 and iteration % self.args.log_interval == 0:
             training_log(loss_dict, {},
-                          self.optimizer.param_groups[0]['lr'],
-                          iteration, loss_scale, skipped_iter,
-                          grad_norm, params_norm, num_zeros_in_grad, self.stats,
-                          name="policy_trainer")
+                         self.optimizer.param_groups[0]['lr'],
+                         iteration, loss_scale, skipped_iter,
+                         grad_norm, params_norm, num_zeros_in_grad, self.stats,
+                         name="policy_trainer")
 
 # pylint: enable=unused-variable,invalid-name

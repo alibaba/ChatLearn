@@ -16,6 +16,7 @@
 
 _GLOBAL_ARGS = None
 _EXIT_ACTOR = None
+_DECORATED_MODELS = None
 
 
 def _ensure_var_is_initialized(var, name):
@@ -44,3 +45,14 @@ def set_global_variables(args):
     assert args is not None
     global _GLOBAL_ARGS
     _GLOBAL_ARGS = args
+    global _DECORATED_MODELS
+    _DECORATED_MODELS = set()
+
+
+def set_decorated(model_name):
+    _DECORATED_MODELS.add(model_name)
+
+
+def is_decorated(model_name):
+    _ensure_var_is_initialized(_DECORATED_MODELS, 'decorated_models')
+    return bool(model_name in _DECORATED_MODELS)

@@ -18,12 +18,8 @@ lint:
 		--rcfile=.pylintrc --output-format=parseable --jobs=8 \
 		$(shell git ls-tree --full-tree --name-only -r HEAD chatlearn | grep \.py$) \
 		$(shell git diff --cached --name-only chatlearn | grep \.py$) \
-		$(shell git ls-tree --full-tree --name-only -r HEAD examples/megatron/step1_sft | grep \.py$) \
-		$(shell git diff --cached --name-only examples/megatron/step1_sft | grep \.py$) \
-		$(shell git ls-tree --full-tree --name-only -r HEAD examples/megatron/step2_reward | grep \.py$) \
-		$(shell git diff --cached --name-only examples/megatron/step2_reward | grep \.py$) \
-		$(shell git ls-tree --full-tree --name-only -r HEAD examples/megatron/dataset | grep \.py$) \
-		$(shell git diff --cached --name-only examples/megatron/dataset | grep \.py$)
+		$(shell git ls-tree --full-tree --name-only -r HEAD examples/megatron/ | grep \.py$) \
+		$(shell git diff --cached --name-only examples/megatron/ | grep \.py$) \
 
 .PHONY: doc
 doc:

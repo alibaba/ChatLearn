@@ -1,6 +1,4 @@
 #!/bin/bash
-pip install sentencepiece
-
 
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
@@ -65,9 +63,8 @@ NNODES=$WORLD_SIZE
 dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp))
 gbs=$(($gbs * $dp))
 
-CHECKPOINT_PATH=experiments/vicuna_hh_sft_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
-
+[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/step1_sft/llama_hh_sft_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
 mkdir -p $CHECKPOINT_PATH
 

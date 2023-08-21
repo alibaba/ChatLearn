@@ -29,15 +29,17 @@ from chatlearn.utils.global_vars import get_args
 
 class Evaluator(PPOEnv):
     """
-    evaluator
+    Evaluator.
+
+    Args
+    ----
+    models : [RLHFModule]
+        models to evaluate
+    args : RLHFConfig
+        default to None
     """
 
     def __init__(self, models, args=None): # pylint: disable=super-init-not-called
-        """
-        Args:
-            models: models to evaluate, type: list[RLHFModule]
-            args: rlhf_args, default to None
-        """
         self._lazy_init = False
         self.args = args
         if not isinstance(models, list):
@@ -104,8 +106,10 @@ class Evaluator(PPOEnv):
         """
         set dataset.
 
-        Args:
-            dataset: a list of data
+        Args
+        ----
+        dataset : [str]
+            a list of str
         """
         if isinstance(self.models[0], RLHFModule):
             self._original_dataset = dataset
@@ -182,14 +186,32 @@ class Evaluator(PPOEnv):
 
     def set_post_process_func(self, post_process_func):
         """
-        set post process function for model evaluation results, this function accept two arguments
-        1. results: a list of evaluation results
-        2. eval_info: a dict meta that contains "train_iteration" and "episode_iteration"
+        Set post process function for model evaluation results.
+
+        Args
+        ----
+        post_process_func
+
+            This function accept two arguments.
+            1. results: a list of evaluation results
+            2. eval_info: a dict meta that contains "train_iteration" and "episode_iteration"
         """
         self._post_process_func = post_process_func
         return self
 
     def eval(self, ppo_iter=None, train_iteration=None, return_last=True):
+        """
+        Evaluating.
+
+        Args
+        ----
+        ppo_iter : int
+            current ppo iteration.
+        train_iteration: int
+            current training iteration.
+        return_last : bool
+            return results of last model only.
+        """
         result_refs = []
         data_queue = Queue()
         num_batch = self.num_eval_iteration

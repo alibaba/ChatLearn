@@ -10,7 +10,7 @@ fix_kl_coef: ${fix_kl_coef:True}
 log_dir: ${log_dir}
 
 exp_name: ${exp_name:test}
-
+tensorboard_dir: ${tensorboard_dir}
 loss_on_prompts: ${loss_on_prompts:False}
 policy_numerical_stable: ${policy_numerical_stable:False}
 
