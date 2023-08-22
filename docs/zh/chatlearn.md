@@ -17,7 +17,7 @@ ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, L
 2. ChatLearn 支持灵活的资源调度机制，支持各模型的资源独占或复用，通过系统调度策略支持高效的串行/并行执行；
 3. 用户可以使用不同的计算 backend 进行模型建模，如 Megatron-LM、DeepSpeed 等。
 4. 用户只需要专注于单模型的编程，系统负责资源调度、数据流传输、控制流传输、分布式执行等。
-5. 相较于当前的 SOTA 系统，ChatLearn 在 7B 到 30 B 规模提升 26%-68%。同时，ChatLearn 支持更大规模的 RLHF 训练 (175B Policy + 175B Reward)。
+5. 相较于当前的 SOTA 系统，ChatLearn 在 7B 到 30 B 规模提升 29%-68%。同时，ChatLearn 支持更大规模的 RLHF 训练 (175B Policy + 175B Reward)。
 
 # 技术架构
 
@@ -78,7 +78,7 @@ bash run_scripts/llama/run_13b_13b.sh
 
 # 性能评估
 
-我们比较了不同参数量规模模型的 RLHF 训练吞吐量，我们采取 N+N 的模型配置，即 Policy 模型和 Reward 模型采用相同大小的参数量。测试基于 A800-80GB GPU 进行，单节点配置 8 卡 GPU，节点间采用 800Gb RDMA 互联。我们和 DeepSpeed-Chat 对比了从 7B 到 66B 的模型配置，关闭/开启 LoRA 后的性能对比，ChatLearn 在不同规模有 26% 到 68% 的加速，在更大的规模下，在 30B+30B，32GPUs 的配置下，不开启 LoRA 的情况下，DeepSpeed-chat 出现 OOM，在 66B+66B，32GPUs 的配置下，DeepSpeed-Chat 无论是否开启 LoRA 均会出现 OOM，ChatLearn 在相同机器规模下，可以支持更大的模型配置训练。在 seq_len=2048 时，DeepSpeed-Chat 出现了 kernel error。
+我们比较了不同参数量规模模型的 RLHF 训练吞吐量，我们采取 N+N 的模型配置，即 Policy 模型和 Reward 模型采用相同大小的参数量。测试基于 A800-80GB GPU 进行，单节点配置 8 卡 GPU，节点间采用 800Gb RDMA 互联。我们和 DeepSpeed-Chat 对比了从 7B 到 66B 的模型配置，关闭/开启 LoRA 后的性能对比，ChatLearn 在不同规模有 29% 到 68% 的加速，在更大的规模下，在 30B+30B，32GPUs 的配置下，不开启 LoRA 的情况下，DeepSpeed-chat 出现 OOM，在 66B+66B，32GPUs 的配置下，DeepSpeed-Chat 无论是否开启 LoRA 均会出现 OOM，ChatLearn 在相同机器规模下，可以支持更大的模型配置训练。在 seq_len=2048 时，DeepSpeed-Chat 出现了 kernel error。
 
 ![Compare PAI-ChatLearn with DeepSpeed-Chat](../images/gpt-perf-cmp.png)
 
