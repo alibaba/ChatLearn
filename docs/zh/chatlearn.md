@@ -1,4 +1,6 @@
-ChatLearn是一个灵活易用、超大规模RLHF高效训练框架。
+# ChatLearn
+
+ChatLearn 是一个灵活易用，支持大规模 RLHF 的高效训练框架。
 
 # 概述
 
@@ -34,45 +36,20 @@ ChatLearn Executor 将 RLHF 训练流程划分为两个主要的模块，`Enviro
 
 # 快速开始
 
-## 环境 setup
-```python
-git clone https://github.com/alibaba/ChatLearn.git
-cd docker/ngc
-docker build -f Dockerfile.ngc22.10 .
-```
+请参考 [文档](https://chatlearn.readthedocs.io/zh/latest/) 快速开始.
 
-## ChatLearn 训练示例
-以下为如何使用基于 LLaMA-13B 模型构建 End-to-End 的 LLaMA 模型训练流程。这里 `CHATLEARN` 为 ChatLearn 项目代码存放位置。数据准备工作和详细流程请参考[ChatLearn Tutorial](https://aliyuque.antfin.com/pai/torchx/ntxclugo8l45vycf)。
-
-[Step1: SFT](https://aliyuque.antfin.com/pai/torchx/ntxclugo8l45vycf#Vj879)
-
-```python
-cd ${CHATLEARN}/examples/megatron/step1_sft/
-bash llama_sft.sh
-```
-
-[Step2: Reward](https://aliyuque.antfin.com/pai/torchx/ntxclugo8l45vycf#wIY63)
-
-```python
-cd ${CHATLEARN}/examples/megatron/step2_reward/
-bash llama_reward.sh
-```
-
-[Step3: RLHF](https://aliyuque.antfin.com/pai/torchx/ntxclugo8l45vycf#obkKT)
-
-```python
-cd ${CHATLEARN}/examples/megatron/step3_rlhf/
-bash run_scripts/llama/run_13b_13b.sh
-```
+1. [环境和代码准备](installation.md)
+2. [基于 LLaMA 模型的端到端训练教程](tutorial.md)
 
 # 支持的模型
 
 当前 ChatLearn 框架支持任意规模的 GPT/LLaMA 模型 RLHF 训练。
 
-| 模型类型 |
-| :----: |
-| GPT |
-| LLaMA |
+| 模型类型                                                                                                                                                                         |
+|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GPT (GPT 系列各种规模的模型)                                                                                                                                                          |
+| LLaMA (`lmsys/vicuna-13b-v1.3`, `decapoda-research/llama-7b-hf`, `decapoda-research/llama-13b-hf`, `decapoda-research/llama-30b-hf`, `decapoda-research/llama-65b-hf`, etc.) |
+| LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`)                                                                                                             |
 
 注：当前的性能 benchmark 均基于 GPT 系列模型。
 
@@ -94,7 +71,7 @@ ChatLearn 接下来会支持以下特性：
 - [ ] 支持 vLLM 等高效推理引擎；
 - [ ] 支持更多的 RL 算法；
 
-<br></br>
+<br><br>
 我们欢迎社区小伙伴参与进来合作开发。
 
 # Reference

@@ -1,3 +1,5 @@
+# 基于 LLaMA 模型的端到端训练教程
+
 本文档介绍基于 ChatLearn, Megatron-LM 框架和 LLaMA 模型的训练流程。包含三阶段的训练：SFT, Reward 和 RLHF 训练。
 
 # Setup: 镜像和代码准备
