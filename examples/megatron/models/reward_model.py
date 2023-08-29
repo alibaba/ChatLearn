@@ -95,9 +95,12 @@ class RewardModel(GPTModel):
                          pre_process=pre_process,
                          post_process=post_process)
 
-        self.pooler_head = pooler_head(self.language_model.hidden_size, self.language_model.init_method,
-                                       score_dimensions=score_dimension)
-        self._pooler_head_key = 'pooler_head'
+        if self.post_process:
+            self.pooler_head = pooler_head(self.language_model.hidden_size, self.language_model.init_method,
+                                           score_dimensions=score_dimension)
+            self._pooler_head_key = 'pooler_head'
+        else:
+            self._pooler_head_key = None
         self.tokenizer = get_tokenizer()
 
     def forward(self, input_ids=None, position_ids=None, attention_mask=None,
@@ -123,9 +126,10 @@ class RewardModel(GPTModel):
     def state_dict_for_save_checkpoint(self, prefix='', keep_vars=False):
         state_dict_ = super().state_dict_for_save_checkpoint(prefix, keep_vars)
 
-        state_dict_[self._pooler_head_key] \
-            = self.pooler_head.state_dict_for_save_checkpoint(
-            prefix=prefix, keep_vars=keep_vars)
+        if self.post_process:
+            state_dict_[self._pooler_head_key] \
+                = self.pooler_head.state_dict_for_save_checkpoint(
+                prefix=prefix, keep_vars=keep_vars)
 
         return state_dict_
 
@@ -136,6 +140,6 @@ class RewardModel(GPTModel):
             # for rlhf training
             print_rank_0("load reward model pooler_head success")
             self.pooler_head.load_state_dict(state_dict[self._pooler_head_key], strict=strict)
-        else:
+        elif self.post_process:
             # for reward model training
             print_rank_0("cannot load reward model pooler_head, init from random")
