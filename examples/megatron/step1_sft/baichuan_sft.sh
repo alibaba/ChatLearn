@@ -81,7 +81,7 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --hidden-size ${HIDDEN_SIZE} \
   --num-attention-heads ${NUM_ATTN_HEADS} \
   --seq-length $seq_len \
-  --max-position-embeddings 2048 \
+  --max-position-embeddings 4096 \
   --micro-batch-size $mb \
   --global-batch-size $gbs \
   --train-iters 1000 --exit-interval 100000 \
@@ -117,13 +117,12 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --log-batch-size-to-tensorboard \
   --log-validation-ppl-to-tensorboard \
   --dataloader-type cyclic \
-  --use-flash-attn \
   --bf16 \
   --use-distributed-optimizer \
   --no-position-embedding \
   --disable-bias-linear \
   --swiglu \
   --untie-embeddings-and-output-weights \
+  --recompute-activations \
   --use-alibi-position-embeddings \
-  --adaptive-parallel-strategy-on-checkpoint \
-  --sequence-parallel  2>&1 | tee -a ${log_file}
+  --sequence-parallel 2>&1 | tee -a ${log_file}
