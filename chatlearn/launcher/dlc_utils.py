@@ -127,13 +127,15 @@ def execute(cmd, check=False, retry=1):
 
 
 def start_ray_cluster():
-    port = get_free_ports()[0]
+    free_ports = get_free_ports()
+    port = free_ports[0]
+    node_manager_port = free_ports[1]
     master_addr = get_master_addr()
     rank = get_rank()
     if rank == 0:
-        cmd = f"ray start --head --port={port} --node-ip-address={master_addr}"
+        cmd = f"ray start --head --port={port} --node-ip-address={master_addr} --node-manager-port {node_manager_port}"
     else:
-        cmd = f"ray start --address={master_addr}:{port}"
+        cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port}"
     logger.info(f"execute {cmd}")
     execute(cmd, check=True)
 

@@ -43,8 +43,8 @@ class ModelManager:
         self.converted = False
         self.free_ports = []
         if dlc_utils.in_dlc_env():
-            # port for DLC jobs, the first port is reserved for ray start
-            self.free_ports = dlc_utils.get_free_ports()[1:]
+            # port for DLC jobs, the first two ports are reserved for ray start
+            self.free_ports = dlc_utils.get_free_ports()[2:]
         self.port_index = 0
         self.error_signal = ErrorSignalActor.remote()
         self._storage = Storage.remote()

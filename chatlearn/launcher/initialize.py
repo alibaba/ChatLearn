@@ -52,7 +52,7 @@ def init_ray(runtime_env_args):
         _set_runtime_env(runtime_env_args, key, runtime_env)
 
     # namespace is needed to get NamedActor
-    ray.init(runtime_env=runtime_env, namespace="RLHF")
+    ray.init(runtime_env=runtime_env, namespace="RLHF", _node_ip_address=dlc_utils.get_addr())
 
 
 def init(args=None):
