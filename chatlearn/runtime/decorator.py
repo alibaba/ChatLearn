@@ -138,12 +138,13 @@ def preprocess_compute(func, is_forward_step):
                     self._iteration += 1
                     ret = utils.to_device('cpu', ret)
                     results.append(ret)
-                new_batch = concat_along_batch(results)
+                if self.rank is None or self.rank == 0:
+                    new_batch = concat_along_batch(results)
+                else:
+                    new_batch = None
                 if to_empty_cache:
                     self.empty_cache()
-                if self.rank is None or self.rank == 0:
-                    return new_batch
-                return
+                return new_batch
             else:
                 if is_forward_step:
                     kwargs["iteration"] = self._iteration
