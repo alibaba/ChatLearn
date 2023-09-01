@@ -20,7 +20,7 @@ A flexible and efficient training framework for large-scale RLHF
 ---
 
 *Latest News* 🔥
-- [2023/08] We officially released ChatLearn! Check out our [documentation](docs/zh/chatlearn.md)。
+- [2023/08] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md)。
 
 ---
 
