@@ -37,7 +37,7 @@ SFT 指的是使用有标注的对话数据来微调预训练语言模型的过�
 将 SFT 数据的问题 - 回复配对的样本，整理到一个 jsonl 文件中，其中 jsonl 文件中每一行为一条 SFT 数据，形式为如下的 Python 字典格式：
 
 ```json
-{'query': 问题，'response': 回复}。
+{'query': 问题，'response': 回复}
 ```
 
 以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个 `$DATASET_ROOT/sft/train.json`.
