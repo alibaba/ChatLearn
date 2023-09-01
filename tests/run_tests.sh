@@ -32,6 +32,7 @@ shift $(($OPTIND - 1))
 
 function run_test {
   "$@"
+  ray stop
 }
 
 
