@@ -40,7 +40,7 @@ SFT 指的是使用有标注的对话数据来微调预训练语言模型的过�
 {'query': 问题，'response': 回复}
 ```
 
-以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个 `$DATASET_ROOT/sft/train.json`.
+以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个 `$DATASET_ROOT/sft/train.jsonl`.
 
 ```bash
 cd ${CHATLEARN}/examples/megatron/step1_sft/
@@ -61,12 +61,12 @@ TRANSFORMERS_CKPT_PATH=path-to-transformer-model \
 MEGATRON_LLAMA_CKPT_PATH=path-to-megatron-model \
 TP=8 \
 PP=1 \
-bash examples/pai/llama/convert_transformers_to_megatron.sh
+bash examples/pai/tools/convert_transformers_to_megatron.sh
 ```
 
 ## 1.3 开启 SFT 训练
 
-[阿里云 PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2]可以非常便捷高效地支持各种任务的训练。下面的脚本是一个 SFT 的训练样例。其中 `DATASET_PATH` 为 SFT 训练集路径，比如`$DATASET_ROOT/sft/train.json`，在这个例子中，我们假设 tokenizer 存放的路径和模型 checkpoint 存放的路径相同。
+[阿里云 PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2]可以非常便捷高效地支持各种任务的训练。下面的脚本是一个 SFT 的训练样例。其中 `DATASET_PATH` 为 SFT 训练集路径，比如`$DATASET_ROOT/sft/train.jsonl`，在这个例子中，我们假设 tokenizer 存放的路径和模型 checkpoint 存放的路径相同。
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -103,7 +103,7 @@ Reward 模型指的是在 RLHF 中作为人类评价的代理，对模型产生�
 
 ## 2.1 准备训练数据
 
-1. 首先准备问题 - 不同回复配对的样本，整理到一个 json 文件中，其中 json 文件中每一行为一条 Reward 模型训练数据，形式为如下的 Python 字典格式：
+1. 首先准备问题 - 不同回复配对的样本，整理到一个 jsonl 文件中，其中 jsonl 文件中每一行为一条 Reward 模型训练数据，形式为如下的 Python 字典格式：
 
 ```json
 {'query': 问题，'response': [回复 1, 回复 2, .....], 'score': [score1, score2, .....]}
@@ -111,7 +111,7 @@ Reward 模型指的是在 RLHF 中作为人类评价的代理，对模型产生�
 
 其中 score 的值越高意味着对应回复的质量越高，越贴近人类偏好。
 
-2. 以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个`$DATASET_ROOT/rm/train.json和$DATASET_ROOT/rm/dev.json`.
+2. 以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个 `$DATASET_ROOT/rm/train.jsonl` 和 `$DATASET_ROOT/rm/dev.jsonl`.
 
 ```bash
 cd ${CHATLEARN}/examples/megatron/step2_reward/
@@ -141,13 +141,13 @@ bash llama_reward.sh
 RLHF 指的是在一个只有指令的数据集上尝试不同的回复然后吸取 Reward 模型给不同回复的 reward 的监督信号的过程。
 ## 3.1 准备训练数据
 
-1. 首先准备一个需要被探索的指令数据集，整理到一个 json 文件中，其中 json 文件中每一行为一条指令，格式为
+1. 首先准备一个需要被探索的指令数据集，整理到一个 jsonl 文件中，其中 jsonl 文件中每一行为一条指令，格式为
 
 ```json
 {"prompt": 问题}
 ```
 
-2. 以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个`$DATASET_ROOT/rlhf/train.json` 和`$DATASET_ROOT/rlhf/dev.json`：
+2. 以 Anthropic 的 helpful&harmless 的数据为例，使用如下代码，会存一个`$DATASET_ROOT/rlhf/train.jsonl` 和`$DATASET_ROOT/rlhf/dev.jsonl`：
 ```bash
 cd ${CHATLEARN}/examples/megatron/step3_rlhf/
 DATASET_ROOT=path-to-dataset-root
@@ -160,7 +160,7 @@ python prepare_data.py $DATASET_ROOT
 ```bash
 export CHATLEARN=path-to-chatlearn
 export MEGATRON=path-to-megatron-lm-extension
-export DATASET_PATH=$DATASET_ROOT/rlhf/train.json
+export DATASET_PATH=$DATASET_ROOT/rlhf/train.jsonl
 
 cd ${CHATLEARN}/examples/megatron/step3_rlhf
 
@@ -188,7 +188,7 @@ cd $MEGATRON
 MEGATRON_CKPT_PATH=ckpt-to-rlhf-policy-ckpt \
 VOCAB_FILE=path-to-vocab-file \
 TRANSFORMERS_CKPT_PATH=path-to-transformers-ckpt-path \
-bash examples/pai/llama/convert_megatron_to_tranformers.sh
+bash examples/pai/tools/convert_megatron_to_tranformers.sh
 ```
 
 我们在 MT-Bench 上使用 GPT-4 API 测评了 LLaMA 在 HH 数据集上 SFT 后和 RLHF 后的效果，可以看到相比于 SFT 后的模型，RLHF 提升了模型的平均表现。且在 Humanities、Math、Roleplay、STEM、Writing 项上有显著的提升。我们这里的性能提升来自于开源 HH 数据集训练的 Reward 模型，使用用户自己定制的 Reward 模型有助于取得更好的效果。

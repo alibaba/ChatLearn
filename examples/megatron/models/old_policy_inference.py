@@ -88,7 +88,7 @@ class PolicyInference(RLHFMegatronModule):
         '''
         args = get_args()
         max_prompt_length = (
-            args.max_position_embeddings - args.max_new_tokens
+            args.seq_length - args.max_new_tokens
         )
         # TODO: read from files
         prompts_dataset = PromptPipeline(

@@ -16,7 +16,7 @@ pip install sentencepiece
 [[ -z "${DATASET_PATH}" ]] && { echo "DATASET_PATH is not set"; exit 1; }
 
 
-export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}/examples/megatron
+export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}:${CHATLEARN}/examples/megatron
 
 DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --nnodes $WORLD_SIZE \
@@ -63,6 +63,9 @@ gbs=$(($gbs * $dp))
 
 CHECKPOINT_PATH=${CHATLEARN}/output/step2_reward/llamasft_hh_rm_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
+
+MODEL_ARGS="--no-position-embedding --disable-bias-linear --swiglu --untie-embeddings-and-output-weights --use-rotary-position-embeddings --tokenizer-type AutoTokenizer"
+
 mkdir -p $CHECKPOINT_PATH
 
 echo $PARALLEL_ARGS
@@ -107,8 +110,6 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --init-method-std 0.006 \
   --tensorboard-dir $CHECKPOINT_PATH \
   --num-workers 8 \
-  --llama \
-  --tokenizer-type LLAMATokenizer \
   --vocab-file $TOKENIZER_PATH \
   --make-vocab-size-divisible-by 32 \
   --ffn-hidden-size $INTERMEDIATE_SIZE \
@@ -122,4 +123,5 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --use-flash-attn \
   --bf16 \
   --use-distributed-optimizer \
-  --sequence-parallel  2>&1 | tee -a ${log_file}
+  --sequence-parallel  \
+  $MODEL_ARGS 2>&1 | tee -a ${log_file}

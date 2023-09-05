@@ -69,6 +69,8 @@ gbs=$(($gbs * $dp))
 mkdir -p $CHECKPOINT_PATH
 
 
+MODEL_ARGS="--no-position-embedding --disable-bias-linear --swiglu --untie-embeddings-and-output-weights --use-rotary-position-embeddings --tokenizer-type AutoTokenizer"
+
 log_file=$CHECKPOINT_PATH/stderr_$NODE_RANK.log
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
@@ -106,8 +108,6 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --init-method-std 0.006 \
   --tensorboard-dir $CHECKPOINT_PATH \
   --num-workers 8 \
-  --llama \
-  --tokenizer-type LLAMATokenizer \
   --vocab-file $TOKENIZER_PATH \
   --make-vocab-size-divisible-by 32 \
   --ffn-hidden-size $INTERMEDIATE_SIZE \
@@ -122,4 +122,5 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --bf16 \
   --use-distributed-optimizer \
   --adaptive-parallel-strategy-on-checkpoint \
-  --sequence-parallel  2>&1 | tee -a ${log_file}
+  --sequence-parallel  \
+  $MODEL_ARGS 2>&1 | tee -a ${log_file}
