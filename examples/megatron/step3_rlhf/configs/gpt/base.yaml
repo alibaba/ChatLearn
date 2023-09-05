@@ -4,7 +4,6 @@ vocab_file: ${vocab_file}
 merge_file: ${merge_file}
 bf16: True
 seq_length: ${max_seq_len}
-out_seq_length: ${max_seq_len}
 fix_kl_coef: ${fix_kl_coef:True}
 
 log_dir: ${log_dir}

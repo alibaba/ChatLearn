@@ -6,7 +6,6 @@ num_attention_heads: ${reward_num_attention_heads}
 use_distributed_optimizer: True
 tensor_model_parallel_size: ${reward_tp}
 pipeline_model_parallel_size: 1
-out_seq_length: ${max_seq_len}
 seq_length: ${max_seq_len}
 max_position_embeddings: ${max_seq_len}
 

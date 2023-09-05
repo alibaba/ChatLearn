@@ -1,6 +1,11 @@
-llama: True
-tokenizer_type: LLAMATokenizer
+# llama config
+add_position_embedding: False
+add_bias_linear: False
+swiglu: True
+use_rotary_position_embeddings: True
 untie_embeddings_and_output_weights: True
+tokenizer_type: AutoTokenizer
+
 vocab_file: ${vocab_file}
 num_layers: 40
 hidden_size: 5120
@@ -8,7 +13,6 @@ num_attention_heads: 40
 max_position_embeddings: 1024
 bf16: True
 seq_length: 1024
-out_seq_length: 1024
 fix_kl_coef: ${fix_kl_coef:True}
 log_dir: ${log_dir}
 exp_name: ${exp_name:test}

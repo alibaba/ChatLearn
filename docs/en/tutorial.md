@@ -40,7 +40,7 @@ Organize the question-response pairs of SFT data into a jsonl file, where each l
 {'query': question, 'response': reply}
 ```
 
-Taking the example of Anthropic's helpful&harmless data, use the following code to store it in `$DATASET_ROOT/sft/train.json`.
+Taking the example of Anthropic's helpful&harmless data, use the following code to store it in `$DATASET_ROOT/sft/train.jsonl`.
 
 ```bash
 cd ${CHATLEARN}/examples/megatron/step1_sft/
@@ -62,12 +62,12 @@ TRANSFORMERS_CKPT_PATH=path-to-transformer-model \
 MEGATRON_LLAMA_CKPT_PATH=path-to-megatron-model \
 TP=8 \
 PP=1 \
-bash examples/pai/llama/convert_transformers_to_megatron.sh
+bash examples/pai/tools/convert_transformers_to_megatron.sh
 ```
 
 ## 1.3 Start SFT Training
 
-[Aliyun PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2] can conveniently and efficiently support training for various tasks. The script below is an example of SFT training. The `DATASET_PATH` is the path to the SFT training set, such as `$DATASET_ROOT/sft/train.json`. In this example, we assume that the tokenizer's path is the same as the model checkpoint's path.
+[Aliyun PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2] can conveniently and efficiently support training for various tasks. The script below is an example of SFT training. The `DATASET_PATH` is the path to the SFT training set, such as `$DATASET_ROOT/sft/train.jsonl`. In this example, we assume that the tokenizer's path is the same as the model checkpoint's path.
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -105,7 +105,7 @@ The Reward model refers to the model that serves as a proxy for human evaluation
 
 ## 2.1 Prepare Training Data
 
-1. First, prepare question-different response pairs and organize them into a json file. Each line in the json file represents a Reward model training data sample in the following Python dictionary format:
+1. First, prepare question-different response pairs and organize them into a jsonl file. Each line in the jsonl file represents a Reward model training data sample in the following Python dictionary format:
 
 ```json
 {'query': question, 'response': [reply 1, reply 2, ...], 'score': [score1, score2, ...]}
@@ -113,7 +113,7 @@ The Reward model refers to the model that serves as a proxy for human evaluation
 
 The score value indicates the quality of the corresponding response, with higher scores indicating higher quality and closer to human preference.
 
-2. Taking the example of Anthropic's helpful&harmless data, use the following code to store it in `$DATASET_ROOT/rm/train.json` and `$DATASET_ROOT/rm/dev.json`.
+2. Taking the example of Anthropic's helpful&harmless data, use the following code to store it in `$DATASET_ROOT/rm/train.jsonl` and `$DATASET_ROOT/rm/dev.jsonl`.
 
 ```bash
 cd ${CHATLEARN}/examples/megatron/step2_reward/
@@ -150,7 +150,7 @@ RLHF refers to the process of trying different responses on a dataset consisting
 {"prompt": prompt}
 ```
 
-2. Taking Anthropic's helpful & harmless data as an example, use the following code to store the dataset in `$DATASET_ROOT/rlhf/train.json` and `$DATASET_ROOT/rlhf/dev.json`:
+2. Taking Anthropic's helpful & harmless data as an example, use the following code to store the dataset in `$DATASET_ROOT/rlhf/train.jsonl` and `$DATASET_ROOT/rlhf/dev.jsonl`:
 ```bash
 cd ${CHATLEARN}/examples/megatron/step3_rlhf/
 DATASET_ROOT=path-to-dataset-root
@@ -163,7 +163,7 @@ python prepare_data.py $DATASET_ROOT
 ```bash
 export CHATLEARN=path-to-chatlearn
 export MEGATRON=path-to-megatron-lm-extension
-export DATASET_PATH=$DATASET_ROOT/rlhf/train.json
+export DATASET_PATH=$DATASET_ROOT/rlhf/train.jsonl
 
 cd ${CHATLEARN}/examples/megatron/step3_rlhf
 
@@ -193,7 +193,7 @@ cd $MEGATRON
 MEGATRON_CKPT_PATH=ckpt-to-rlhf-policy-ckpt \
 VOCAB_FILE=path-to-vocab-file \
 TRANSFORMERS_CKPT_PATH=path-to-transformers-ckpt-path \
-bash examples/pai/llama/convert_megatron_to_tranformers.sh
+bash examples/pai/tools/convert_megatron_to_tranformers.sh
 ```
 
 We evaluated the performance of LLaMA on the HH dataset, both after SFT and RLHF, using the GPT-4 API provided by MT-Bench. The results show that RLHF improves the average performance of the model compared to SFT. There is a significant improvement in the domains of Humanities, Math, Roleplay, STEM, and Writing. The performance gains observed here are due to the use of a Reward model trained on the open-source HH dataset. Customizing the Reward model contributes to achieving better results.
