@@ -75,7 +75,7 @@ class LinearPooler(MegatronModule):
             pooled = self.dense2(torch.nn.functional.relu(self.dense1(selected_hidden)))
         else:
             selected_hidden = hidden_states  # [s, b, h]
-            pooled = self.dense2(torch.nn.functional.relu(self.dense1(selected_hidden))).squeeze()  # [s, b, scoredim]
+            pooled = self.dense2(torch.nn.functional.relu(self.dense1(selected_hidden))).squeeze(2)  # [s, b, scoredim]
 
         return pooled
 

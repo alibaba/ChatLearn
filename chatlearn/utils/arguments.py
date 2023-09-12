@@ -188,15 +188,21 @@ class ModelConfig(BaseConfig):
     #: [optional] model type, e.g., Torch/Tensorflow, etc
     model_type: str = ""
     #: [optional] placeholder for other args
-    args_dict: dict = {}
+    args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RLHFConfig
     generation_batch_size: int = -1
     #: [optional] return rlhf data
     return_rlhf_data: bool = False
     #: lora config
-    lora: LoraConfig = LoraConfig()
+    lora: LoraConfig = None
     #: batch generation config
-    batch_generation: BatchGenerationConfig = BatchGenerationConfig()
+    batch_generation: BatchGenerationConfig = None
+
+    def __init__(self):
+        super().__init__()
+        self.args_dict = {}
+        self.lora = LoraConfig()
+        self.batch_generation = BatchGenerationConfig()
 
 
 class RLHFConfig(BaseConfig):
@@ -240,6 +246,8 @@ class RLHFConfig(BaseConfig):
     coalesce_param: bool = True
     #: coalesce_buffer size in mb
     coalesced_buffer_mb: int = 100
+    #: concurrent parameter sync
+    concurrent_comm: bool = True
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
     max_relay_episode: int = 1
     #: enable indivisible batch size for generation

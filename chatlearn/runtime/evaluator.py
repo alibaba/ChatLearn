@@ -71,6 +71,7 @@ class Evaluator(PPOEnv):
     def setup(self, model_packs=None):
         if self._lazy_init:
             self.set_dataset(self._original_dataset)
+        assert len(self._dataset) > 0, "dataset is not set"
 
         refs = []
         for i, model_replica in enumerate(self.models[0].replicas):

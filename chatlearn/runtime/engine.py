@@ -111,7 +111,7 @@ class Engine:
 
         logger.info(f"{LOG_START} PPO iteration {iteration} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
-            logger.info(f"{LOG_START} [{model.name}] {summary[0]}")
+            logger.info(f"{LOG_START} [{model.name}] {summary[-1]}")
         self.logging_memory()
 
     def stop(self):

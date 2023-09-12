@@ -12,8 +12,8 @@ It is recommended to refer to `https://github.com/alibaba/ChatLearn/tree/master/
 In this example, we need to download the following related code.
 
 ```bash
-# Download the modified Megatron-LM-extension to support ChatLearn training
-git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-extension.git
+# Download the modified Megatron-LM-ChatLearn to support ChatLearn training
+git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-ChatLearn.git
 # Download the ChatLearn code
 git clone https://github.com/alibaba/ChatLearn.git
 ```
@@ -23,7 +23,7 @@ git clone https://github.com/alibaba/ChatLearn.git
 | ENV | Explanation |
 | --- | --- |
 | `CHATLEARN` | The location where the ChatLearn code is cloned [https://github.com/alibaba/ChatLearn.git](https://github.com/alibaba/ChatLearn.git) |
-| `MEGATRON` | The location where the Megatron-LM-extension code is cloned [https://github.com/alibaba/Megatron-LM-extension.git](https://github.com/alibaba/Megatron-LM-extension.git) |
+| `MEGATRON` | The location where the Megatron-LM-ChatLearn code is cloned [https://github.com/alibaba/Megatron-LM-ChatLearn.git](https://github.com/alibaba/Megatron-LM-ChatLearn.git) |
 | `DATASET_ROOT` | The root directory for storing the SFT/Reward/RLHF training dataset collection. |
 | `TOKENIZER_PATH` | The folder where the vocab_file used by the Tokenizer is located. |
 

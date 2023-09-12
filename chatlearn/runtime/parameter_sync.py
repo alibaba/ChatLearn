@@ -54,6 +54,7 @@ class ParameterSyncGroup:
         self.setup_collective_group()
         self.build_rank_mapping()
         self.enable_coalesce_param = get_args().rlhf_args.coalesce_param
+        self.concurrent_comm = get_args().rlhf_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
 
     def setup_collective_group(self):
@@ -97,6 +98,12 @@ class ParameterSyncGroup:
             self._num_src_pipeline_stage = future.get(src_actor.pipeline_model_parallel_size.remote())
         if self._num_dst_pipeline_stage is None:
             self._num_dst_pipeline_stage = future.get(dst_actor.pipeline_model_parallel_size.remote())
+        src_tensor_model_parallel_size = future.get(src_actor.tensor_model_parallel_size.remote())
+        dst_tensor_model_parallel_size = future.get(dst_actor.tensor_model_parallel_size.remote())
+        assert src_tensor_model_parallel_size == dst_tensor_model_parallel_size, \
+            "currently we require the tensor_model_parallel_size to be the same between " + \
+            f"src model {self.src_model.name}(TP={src_tensor_model_parallel_size}) and " + \
+            f"dst model {self.dst_model.name}(TP={dst_tensor_model_parallel_size})"
 
     def build_rank_mapping(self):
         # setup rank mapping for src parameter and dst parameter
@@ -254,7 +261,7 @@ class ParameterSyncGroup:
 
     def sync(self, requires_grad=None):
         threads = []
-        use_threads = True
+        use_threads = self.concurrent_comm
         for send_actor in self.send_recv_actor_mappings:
             if self._enable_lora:
                 ref = send_actor.fuse_lora_layer.remote()

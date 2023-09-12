@@ -179,10 +179,8 @@ class PPOEnv(BaseEnv):
 
         mb0, data0 = self.decode_data(queue0.get())
         if isinstance(data0, list):
-            # if model has multiple actors, just use the first one
-            # TODO: this can be optimized, since only the first return is needed
-            # TODO: optimize in forward_step/train_step
-            data0 = data0[0]
+            # if model has multiple actors, just use the last one
+            data0 = data0[-1]
         data_list = [data0]
         for index, queue in enumerate(queues[1:]):
             if index not in self.merged_buffer:
@@ -194,7 +192,7 @@ class PPOEnv(BaseEnv):
                 encoded_data = queue.get()
                 mb, data = self.decode_data(encoded_data)
                 if isinstance(data, list):
-                    data = data[0]
+                    data = data[-1]
                 if mb == mb0:
                     data_list.append(data)
                     break
@@ -246,13 +244,13 @@ class PPOEnv(BaseEnv):
 
         # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
         #   length is the number of Actors. In this case, all members in the list
-        #   are the same, and we choose output[0] to put into out_queue.
-        output_replica = output[0] if isinstance(output, list) else output
+        #   are the same, and we choose output[-1] to put into out_queue.
+        last_output = output[-1] if isinstance(output, list) else output
         if isinstance(out_queue, list):
             for oq in out_queue:
-                oq.put(self.encode_data(mb, output_replica))
+                oq.put(self.encode_data(mb, last_output))
         else:
-            out_queue.put(self.encode_data(mb, output_replica))
+            out_queue.put(self.encode_data(mb, last_output))
         # To ensure all Actors are finished synchronously, `output` itself should be returned
         return out_queue, output
 

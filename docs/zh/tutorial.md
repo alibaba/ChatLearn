@@ -12,8 +12,8 @@
 在这个示例中，我们需要下载以下相关代码。
 
 ```bash
-# 下载为支持ChatLearn训练修改后的 Megatron-LM-extension
-git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-extension.git
+# 下载为支持ChatLearn训练修改后的 Megatron-LM-ChatLearn
+git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-ChatLearn.git
 # 下载ChatLearn代码
 git clone https://github.com/alibaba/ChatLearn.git
 ```
@@ -23,7 +23,7 @@ git clone https://github.com/alibaba/ChatLearn.git
 | ENV | 含义 |
 | --- | --- |
 | `CHATLEARN` | ChatLearn 代码仓库 clone 存放的位置 [https://github.com/alibaba/ChatLearn.git](https://github.com/alibaba/ChatLearn.git) |
-| `MEGATRON` | Megatron-LM-extension 代码仓库 clone 存放的位置 [https://github.com/alibaba/Megatron-LM-extension.git](https://github.com/alibaba/Megatron-LM-extension.git) |
+| `MEGATRON` | Megatron-LM-ChatLearn 代码仓库 clone 存放的位置 [https://github.com/alibaba/Megatron-LM-ChatLearn.git](https://github.com/alibaba/Megatron-LM-ChatLearn.git) |
 | `DATASET_ROOT` | 存放SFT/Reward/RLHF训练数据集合的根目录 |
 | `TOKENIZER_PATH` | Tokenizer 使用的 vocab_file 所在的文件夹 |
 

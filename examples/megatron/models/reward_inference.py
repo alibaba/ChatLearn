@@ -28,7 +28,6 @@ from megatron import print_rank_0
 from megatron.checkpointing import load_checkpoint
 from megatron.core import mpu
 from megatron.global_vars import get_tensorboard_writer
-from megatron.text_generation.communication import broadcast_from_last_to_first_pipeline_stage
 from megatron.training import get_model
 from megatron.utils import get_ltor_masks_and_position_ids
 from models.reward_model import batch_padded_tokenize_data, RewardModel
@@ -238,10 +237,10 @@ class RewardInference(RLHFMegatronModule):
         n = loss_mask.size(0)
         if self.args.raw_reward_coeff > 0:
             scores = self.get_raw_reward(all_tokens_right_padded, action_ends)
-            if mpu.is_pipeline_first_stage():
+            if mpu.is_pipeline_last_stage():
                 scores = self.args.raw_reward_coeff * scores.view(-1, 1)
             else:
-                # we only need first rank results, so return None for other rank
+                # we only need last rank results, so return None for other rank
                 return
         else:
             scores = torch.zeros(n, 1, device=loss_mask.device)
@@ -351,11 +350,9 @@ class RewardInference(RLHFMegatronModule):
         list_strs = [[str_prompt, str_output] for str_prompt, str_output in zip(str_prompts, str_outputs)]
 
         if self.args.save_inference and iteration % self.args.save_inference_interval == 0:
-            if torch.distributed.is_initialized():
-                if torch.distributed.get_rank() == (
-                    torch.distributed.get_world_size() - 1):
-                    # last rank save inference output
-                    save_list_str(list_strs, iteration)
+            if self.is_last_rank():
+                # last rank save inference output
+                save_list_str(list_strs, iteration)
 
         old_value = data["old_values"]
         ref_logprobs = data["ref_logprobs"]
@@ -440,15 +437,8 @@ class RewardInference(RLHFMegatronModule):
         stats_episode["exp_scores/running_std"] = self.running.std
 
         # RL related stats: global
-        if torch.distributed.is_initialized():
-            if torch.distributed.get_rank() == (
-                torch.distributed.get_world_size() - 1):
-                tensorboard_scalar_dict(writer, prefix=f"rewards_each/replica_id{self.replica_id}",
-                                        global_step=iteration,
-                                        scalar_dict=stats_episode)
-
-        else:
-            tensorboard_scalar_dict(writer, prefix=f"reward_each/replica_id{self.replica_id}",
+        if self.is_last_rank():
+            tensorboard_scalar_dict(writer, prefix=f"rewards_each/replica_id{self.replica_id}",
                                     global_step=iteration,
                                     scalar_dict=stats_episode)
         # reset runnings
@@ -537,51 +527,33 @@ class RewardInference(RLHFMegatronModule):
 
         batch_size = input_ids.size(0)
 
-        # Log probability of the sequence (prompt + generated tokens).
-        output_rewards = None
-        output_rewards_size = (batch_size,)
-
-        if mpu.is_pipeline_last_stage():
-            output_rewards = torch.empty(output_rewards_size,
-                                         dtype=torch.float32,
-                                         device=torch.cuda.current_device())
-
         # =============
         # Run infernece
         # =============
         with torch.no_grad():
             # logits will be meanigful only in the last pipeline stage.
-            lm_output = forward_step_helper(self.model, input_ids, position_ids, attention_mask, pooling_sequence_index,
+            output_rewards = forward_step_helper(self.model, input_ids, position_ids, attention_mask, pooling_sequence_index,
                                             pooling=True)
             if mpu.is_pipeline_last_stage():
                 # Always the last stage should have an output.
-                assert lm_output is not None
-                output_rewards = lm_output
+                assert output_rewards is not None
                 assert batch_size == 1 or output_rewards.size(0) == batch_size
-
-        # ======================================
-        # Broadcast to the first pipeline stage.
-        # ======================================
-        output_rewards = broadcast_from_last_to_first_pipeline_stage(
-            output_rewards_size, torch.float32, output_rewards)
-
-        return output_rewards
+                return output_rewards
 
     def get_raw_reward(self, all_tokens_right_padded, ends):
         exp_score_time = time()
         scores = self.forward_step_pipeline(all_tokens_right_padded=all_tokens_right_padded, ends=ends)
         # minus the sft baseline
-        if mpu.is_pipeline_first_stage():
+        if mpu.is_pipeline_last_stage():
             scores -= self.reward_bias
-        if self.args.log_interval > 0:
-            self.stats["time/exp_score"] = time() - exp_score_time
-            self.stats["rewards/reward_model_scores_max"] = scores.max()
-            self.stats["rewards/reward_model_scores_min"] = scores.min()
-            self.per_episode_metrics["rewards/reward_model_scores"].update(scores)
-        if mpu.is_pipeline_first_stage():
+            if self.args.log_interval > 0:
+                self.stats["time/exp_score"] = time() - exp_score_time
+                self.stats["rewards/reward_model_scores_max"] = scores.max()
+                self.stats["rewards/reward_model_scores_min"] = scores.min()
+                self.per_episode_metrics["rewards/reward_model_scores"].update(scores)
             scores = self.normalized_and_clip(scores)
-        if self.args.log_interval > 0:
-            self.stats["rewards/normalized_clip_scores_max"] = scores.max()
-            self.stats["rewards/normalized_clip_scores_min"] = scores.min()
-            self.per_episode_metrics["rewards/normalized_clip_scores"].update(scores)
-        return scores
+            if self.args.log_interval > 0:
+                self.stats["rewards/normalized_clip_scores_max"] = scores.max()
+                self.stats["rewards/normalized_clip_scores_min"] = scores.min()
+                self.per_episode_metrics["rewards/normalized_clip_scores"].update(scores)
+            return scores

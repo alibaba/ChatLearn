@@ -69,7 +69,7 @@ class PPOTrainer(BaseTrainer):
         if wait:
             future.wait(ref0 + ref1)
         else:
-            return [ref0[0], ref1[0]]
+            return [ref0[-1], ref1[-1]]
 
     def set_data_loader(self, data_loader):
         self._data_loader = data_loader
@@ -132,7 +132,7 @@ class PPOTrainer(BaseTrainer):
                     train_info = {"iteration": cur_iteration}
                     to_empty_cache = (index == batch_len - 1)
                     value_loss = self.ppo_value_model.train_step(batch, train_info, to_empty_cache=to_empty_cache)
-                    results.append(value_loss[0])
+                    results.append(value_loss[-1])
                     cur_iteration += 1
                 future.wait(results, desc=" ".join(model.name for model in [self.ppo_value_model]))
                 cur_iteration = self.iteration
@@ -141,7 +141,7 @@ class PPOTrainer(BaseTrainer):
                     train_info = {"iteration": cur_iteration}
                     to_empty_cache = (index == batch_len - 1)
                     policy_loss = self.ppo_policy_model.train_step(batch, train_info, to_empty_cache=to_empty_cache)
-                    results.append(policy_loss[0])
+                    results.append(policy_loss[-1])
                     cur_iteration += 1
                 future.wait(results, desc=" ".join(model.name for model in [self.ppo_policy_model]))
                 self.iteration = cur_iteration

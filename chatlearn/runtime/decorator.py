@@ -29,7 +29,10 @@ def monitor_error(func, func_name):
         try:
             return func(self, *args, **kwargs)
         except Exception as e:
-            logger.exception(f"catch exception ========= in {self.name} {func_name} {e}, {traceback.format_exc()}")
+            if self.is_last_rank():
+                # report error message on only the first rank and first replica
+                if (not hasattr(self, "replica")) or self.replica is None or self.replica == 0:
+                    logger.exception(f"catch exception ========= in {self.name} {func_name} {e}, {traceback.format_exc()}")
             future.wait(self.error_signal.set.remote(traceback.format_exc()))
             raise
 
@@ -40,7 +43,7 @@ def timeit(func, func_name):
     def inner(self, *args, **kwargs):
         if self.rlhf_args.nsys:
             nvtx.range_push(func_name)
-        if self.rank == 0:
+        if self.is_last_rank():
             # for the class inherited from base, it may call multiple times, so use the first start time
             if not self.timers(func_name).started_:
                 self.timers(func_name).start()
@@ -116,7 +119,7 @@ def preprocess_compute(func, is_forward_step):
             args = list(args)
             sub_data_list = data_list[start_idx: end_idx]
             args[0] = sub_data_list
-        to_empty_cache = kwargs.pop('to_empty_cache')
+        to_empty_cache = kwargs.pop('to_empty_cache') if 'to_empty_cache' in kwargs else False
         generation_batch_size = self.module_args.generation_batch_size
         if not self.trainable and generation_batch_size:
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
@@ -138,7 +141,7 @@ def preprocess_compute(func, is_forward_step):
                     self._iteration += 1
                     ret = utils.to_device('cpu', ret)
                     results.append(ret)
-                if self.rank is None or self.rank == 0:
+                if self.is_last_rank():
                     new_batch = concat_along_batch(results)
                 else:
                     new_batch = None
@@ -153,7 +156,7 @@ def preprocess_compute(func, is_forward_step):
                 self._iteration += 1
                 if to_empty_cache:
                     self.empty_cache()
-                if self.rank is None or self.rank == 0:
+                if self.is_last_rank():
                     return ret
                 return
 
@@ -161,7 +164,7 @@ def preprocess_compute(func, is_forward_step):
         ret = utils.to_device('cpu', ret)
         if to_empty_cache:
             self.empty_cache()
-        if self.rank is None or self.rank == 0:
+        if self.is_last_rank():
             return ret
         return
 

@@ -11,9 +11,9 @@
 git clone https://github.com/alibaba/ChatLearn.git
 ```
 
-3. 如果您需要运行基于 Megatron-LM 框架的 RLHF 训练程序，您也需要下载为支持ChatLearn训练修改后的 `Megatron-LM-extension` 代码。
+3. 如果您需要运行基于 Megatron-LM 框架的 RLHF 训练程序，您也需要下载为支持ChatLearn训练修改后的 `Megatron-LM-ChatLearn` 代码。
 
 ```
-# 下载 Megatron-LM-extension
-git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-extension.git
+# 下载 Megatron-LM-ChatLearn
+git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-ChatLearn.git
 ```
