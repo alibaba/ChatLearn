@@ -125,3 +125,11 @@ class RLHFTorchModule(RLHFModule):
             log_rank_0(f"parameters not exists: {not_exists} in model {self.name}")
             return False
         return True
+
+    def is_last_rank(self):
+        """
+        Is last rank.
+        """
+        if torch.distributed.is_initialized():
+            return torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1)
+        return True

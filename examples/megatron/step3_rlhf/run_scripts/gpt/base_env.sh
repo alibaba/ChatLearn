@@ -6,7 +6,7 @@ source run_scripts/base_env.sh
 [ -z "$num_device_value" ] && export num_device_value=$num_device
 
 [ -z "$sample_per_episode" ] && export sample_per_episode=2048
-[ -z "$use_bladnn" ] && export use_bladnn=True
+[ -z "$use_attn_acc" ] && export use_attn_acc=True
 [ -z "$batch_generation_ranking" ] && export batch_generation_ranking=True
 
 if [[ "$model_size" == "small" ]]; then

@@ -53,12 +53,13 @@ def bucket_tensors(tensors, bucket_size_mb):
     return dense_buckets, sparse_bucket
 
 
-def coalesced_comm_dense(bucket, comm_call, extra_args):
+def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
     """
     coalesced communication for dense parameters
     """
     flat_tensors = _flatten_dense_tensors(bucket)
     comm_call(flat_tensors, *extra_args)
-    for tensor, synced in zip(
-        bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
-        tensor.copy_(synced)
+    if tensor_changed:
+        for tensor, synced in zip(
+            bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
+            tensor.copy_(synced)

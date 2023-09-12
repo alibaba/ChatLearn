@@ -20,7 +20,6 @@ from megatron import get_args
 from megatron import print_rank_0
 from megatron.core import mpu
 from megatron.core.tensor_parallel.utils import VocabUtility
-from megatron.text_generation.communication import broadcast_from_last_to_first_pipeline_stage
 from models.policy_model import PolicyModel
 
 from chatlearn.utils import to_device
@@ -48,7 +47,7 @@ class PolicyReference(PolicyInference):
 
         return model
 
-    def score_and_return_on_first_stage(self, tokens):
+    def score_and_return_on_last_stage(self, tokens):
         """Function for just scoring.
         Arguments:
             tokens: prompt tokens extended to be of size [b, max_prompt_length]
@@ -58,20 +57,8 @@ class PolicyReference(PolicyInference):
             output_log_probs: log probability of the selected tokens. size: [b, s]
         """
 
-        args = get_args()
-
-        batch_size = tokens.size(0)
-        all_tokens_len = tokens.size(1)
-        max_sequence_length = min(all_tokens_len, args.max_position_embeddings)
-
         # Log probability of the sequence (prompt + generated tokens).
         output_log_probs = None
-        output_log_probs_size = (batch_size, max_sequence_length - 1)
-
-        if mpu.is_pipeline_last_stage():
-            output_log_probs = torch.empty(output_log_probs_size,
-                                           dtype=torch.float32,
-                                           device=torch.cuda.current_device())
 
         # =============
         # Run infernece
@@ -154,14 +141,6 @@ class PolicyReference(PolicyInference):
 
                     assert not torch.isnan(output_log_probs).any(), f"just out ref_logprobs {output_log_probs}"
                     assert output_log_probs.size(1) == tokens.size(1) - 1, "all token logprob except first one [1:]"
-
-        # ======================================
-        # Broadcast to the first pipeline stage.
-        # ======================================
-
-        output_log_probs = broadcast_from_last_to_first_pipeline_stage(
-            output_log_probs_size, torch.float32, output_log_probs)
-
         return output_log_probs
 
     def forward_step(self, data, iteration=None):
@@ -174,5 +153,5 @@ class PolicyReference(PolicyInference):
         :return:
         '''
         all_tokens = to_device("cuda", data["all_tokens"])
-        ref_logprobs = self.score_and_return_on_first_stage(all_tokens)
+        ref_logprobs = self.score_and_return_on_last_stage(all_tokens)
         return {"ref_logprobs": ref_logprobs}

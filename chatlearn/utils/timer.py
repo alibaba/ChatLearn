@@ -17,6 +17,7 @@
 import time
 
 import torch
+from .logger import logger
 
 
 class _Timer:
@@ -98,6 +99,9 @@ class Timers:
         assert normalizer > 0.0
         string = 'time (ms)'
         for name in names:
+            if name not in self.timers:
+                logger.warning(f"{name} not in timers, ignore it.")
+                continue
             elapsed_time, num = self.timers[name].elapsed(reset=reset, return_num=True)
             elapsed_time = elapsed_time * 1000.0 / normalizer
 

@@ -12,3 +12,4 @@ eval_top_p: 0
 
 
 pipeline_model_parallel_size: ${policy_pp:1}
+use_attn_acc: ${use_attn_acc:False}

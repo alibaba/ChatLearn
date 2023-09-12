@@ -144,6 +144,7 @@ class ModelManager:
             model: RLHFModule
         """
         self.set_func_decorator(model)
+        model.finalize()
 
         def actor_type():
             if isinstance(model, RLHFTorchModule):

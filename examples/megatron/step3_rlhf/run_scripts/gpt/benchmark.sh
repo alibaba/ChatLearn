@@ -2,7 +2,7 @@
 DATA_DIR=${CHATLEARN}/output/gpt/
 mkdir -p $DATA_DIR/logs
 
-label=$(date +%F)_rlhf_${model_size}_${max_new_tokens}_${num_device}g_lora-${lora}-policy-tp${policy_tp}_pp${ppo_policy_pp}_reward-tp${reward_tp}-pp${ppo_reward_pp}_bs${policy_generation_batch_size}_${ref_generation_bs}_${reward_generatiob_bs}_${value_generation_bs}_${train_micro_batch_size}_${train_global_batch_size}_device_${num_device_ref}_${num_device_reward}_${num_device_value}_ranking_${batch_generation_ranking}_bladnn-${use_bladnn}_min-${min_prompt_length}_${sample_per_episode}_thred${inference_batch_times_seqlen_threshold}_refpp${ref_pp}_rewardpp${reward_pp}_gc_${policy_recompute_granularity}
+label=$(date +%F)_rlhf_${model_size}_${max_new_tokens}_${num_device}g_lora-${lora}-policy-tp${policy_tp}_pp${ppo_policy_pp}_reward-tp${reward_tp}-pp${ppo_reward_pp}_bs${policy_generation_batch_size}_${ref_generation_bs}_${reward_generatiob_bs}_${value_generation_bs}_${train_micro_batch_size}_${train_global_batch_size}_device_${num_device_ref}_${num_device_reward}_${num_device_value}_ranking_${batch_generation_ranking}_min-${min_prompt_length}_${sample_per_episode}_thred${inference_batch_times_seqlen_threshold}_refpp${ref_pp}_rewardpp${reward_pp}_gc_${policy_recompute_granularity}
 if [[ ! -f "${DATA_DIR}/rm_static_train.jsonl" ]]; then
     wget -P $DATA_DIR http://odps-release.cn-hangzhou.oss.aliyun-inc.com/torchacc/accbench/datasets/opensource/rlhf/rm_static_train.jsonl
 fi

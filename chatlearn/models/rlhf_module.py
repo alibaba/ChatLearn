@@ -94,6 +94,21 @@ class RLHFModule:
         self._iteration = 0
         self.enable_lora = self._module_args.lora.enable_lora
         self._eval_func_name = None
+        self._finalized = False
+
+    def finalize(self):
+        """
+        finalize the class, any change from user after finalize will not work.
+
+        :meta private:
+        """
+        self._finalized = True
+
+    def _assert_not_finalized(self):
+        """
+        :meta private:
+        """
+        assert not self._finalized, f"{self} is finalized, any change to the class should happen before finalize."
 
     @property
     def rlhf_args(self):
@@ -438,6 +453,11 @@ class RLHFModule:
         """
         return self.rank
 
+    def is_last_rank(self):
+        """
+        Is last rank.
+        """
+
     @property
     def parameters(self):
         """
@@ -534,7 +554,8 @@ class RLHFModule:
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
             debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
             for bucket in dense_buckets:
-                coalesced_comm_dense(bucket, func, extra_args=(rank, group_name))
+                tensor_changed = func is col.recv
+                coalesced_comm_dense(bucket, func, extra_args=(rank, group_name), tensor_changed=tensor_changed)
             for param in sparse_bucket:
                 func(param, rank, group_name)
         else:
@@ -667,6 +688,7 @@ class RLHFModule:
 
         :meta private:
         """
+        self._assert_not_finalized()
         self.call_funcs.append(name)
 
     def register_eval_func(self, name='eval_step'):
@@ -678,6 +700,7 @@ class RLHFModule:
             name: str
                 function name
         """
+        self._assert_not_finalized()
         self.register_func(name)
         self._eval_func_name = name
 

@@ -9,6 +9,20 @@ MAX_GRAPH_SIZE=500
 GRAPH_CHECK_FREQUENCY=100
 VERBOSITY=2
 
+[ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
+[ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
+[ -z "$GPUS_PER_NODE" ] && export GPUS_PER_NODE=8
+[ -z "$RANK" ] && export RANK=0
+if [ -z "${CUSTOM_PORTS}" ]; then
+  ports="30000"
+  for i in $(seq 30001 30100); do
+    ports="${ports};${i}"
+  done
+  export CUSTOM_PORTS=$ports
+  [ -z "$LOCAL_MASTER_ADDR" ] && export LOCAL_MASTER_ADDR=$MASTER_ADDR
+  echo LOCAL_MASTER_ADDR=$MASTER_ADDR
+fi
+
 while getopts 'LM:C:V:' OPTION
 do
   case $OPTION in
