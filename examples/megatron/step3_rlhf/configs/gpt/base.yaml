@@ -36,7 +36,6 @@ ngram_coef: 0
 lm_coef: 1
 clipped_value_only: True
 use_flash_attn: True
-continue_train: ${continue_train:0}
 num_inference_per_prompt: ${num_inference_per_prompt:1}
 max_tokens_to_oom: 9999999999
 log_entropy: False

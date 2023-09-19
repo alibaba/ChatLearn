@@ -137,41 +137,6 @@ Here is an example of configuring the batch generation optimization. Users can a
 
 
 
-Indivisible batch size
-----------------------
-
-In the basic configuration, the number of samples consumed per episode during the inference phase must be divisible by the batch size used for inference. In the advanced configuration, the concept of an indivisible batch size is introduced, which allows for inference with batch sizes of any size during the inference phase.
-
-More specifically, let `s` be the number of samples consumed per episode during the inference phase, and `b` be the batch size used for inference. The condition `1 <= b <= s` holds, indicating that the batch size can be any value between 1 and the number of samples consumed per episode.
-
-YAML Configuration
->>>>>>>>>>>>>>>>>>>
-
-.. code-block:: yaml
-
-    rlhf:
-    	# generation batch size for inference models, default: 16
-    	generation_batch_size: ${generation_batch_size:16}
-    	# number of samples to consume in each episode, default: 1024
-        sample_per_episode: ${sample_per_episode:1024}
-    	# Whether to enable indivisible batch size, default: False
-     	enable_indivisible_batch_size: ${enable_indivisible_batch_size:False}
-
-
-.. csv-table::
-   :header: "Parameter Name", "Type", "Description"
-
-   "generation_batch_size",               "int",      "The batch size used for generating in the inference model. Default value is 16. Note that if enable_indivisible_batch_size is disabled, generation_batch_size must be divisible by sample_per_episode, otherwise, it does not need to be divisible."
-   "sample_per_episode",               "int",      "The number of samples consumed per episode. Note that if enable_indivisible_batch_size is disabled, generation_batch_size must be divisible by sample_per_episode, otherwise, it does not need to be divisible."
-   "enable_indivisible_batch_size",               "bool",      "Specifies whether to enable the functionality of indivisible batch size. True for enabling, False for disabling. Default value is False."
-
-Note ⚠️
-
-1. Enabling this feature will not use the DataLoader provided by PyTorch.
-2. When enabling this feature, the drop_last parameter in `set_dataset` will be set to False, meaning that the last batch with a size smaller than `b` will not be dropped.
-3. If both this feature and `StreamDataset` are enabled, `StreamDataset` only supports the `fixed` type.
-
-
 Adaptive checkpoint
 --------------------
 

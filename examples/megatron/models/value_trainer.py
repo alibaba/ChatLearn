@@ -49,16 +49,16 @@ class ValueTrainer(BaseTrainer):
         self.model_type = ModelType.encoder_or_decoder
         self.tokenizer = get_tokenizer()
 
-        self.args.save = f"{self.args.save}/value/{self.args.exp_name}"
+        self.args.save = f"{self.args.save}/value/"
 
-        if self.args.continue_train:
+        if self.resume_training:
             self.args.load = get_args().save
             self.args.load_iteration = -1  # latest
-
             self.args.no_load_optim = False  # latest
             self.args.no_load_rng = False  # latest
             self.args.no_load_args = False  # latest
             self.args.no_load_scheduler = False  # latest
+            self.args.adaptive_parallel_strategy_on_checkpoint = False
             print(
                 f"value trainer continue train args load: {self.args.load} self.args.load_iteration {self.args.load_iteration}")
 

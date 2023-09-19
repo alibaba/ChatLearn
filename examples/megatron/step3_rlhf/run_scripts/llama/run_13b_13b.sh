@@ -16,9 +16,9 @@ if [ -z "${exp_name}" ]; then
 fi
 
 [ -z "$OUTPUT_DIR" ] && OUTPUT_DIR=${CHATLEARN}/output/step3_rlhf/
-LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
-TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
-SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}
+[ -z "$LOG_DIR" ] && LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
+[ -z "$TENSORBOARD_DIR" ] && TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
+[ -z "$SAVE_DIR" ] && SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}
 
 mkdir -p ${LOG_DIR}
 

@@ -20,7 +20,6 @@ import torch.nn.functional as F
 from dataset.prompt_dataset import PromptPipeline
 from megatron import get_args, get_tokenizer
 from megatron import print_rank_0
-from megatron.checkpointing import load_checkpoint
 from megatron.global_vars import get_tensorboard_writer
 from megatron.text_generation.communication import broadcast_float_list, \
     broadcast_int_list, broadcast_tensor
@@ -55,11 +54,6 @@ class PolicyInference(RLHFMegatronModule):
         # Set up model and load checkpoint
         model = get_model(self.model_provider, wrap_with_ddp=False)
         self.tokenizer = get_tokenizer()
-        if self.args.load is not None:
-            torch.distributed.barrier()
-            load_checkpoint(model, None, None,
-                            adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
-            torch.distributed.barrier()
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
         self.model.eval()

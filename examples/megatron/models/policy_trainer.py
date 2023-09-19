@@ -88,8 +88,8 @@ class PolicyTrainer(BaseTrainer):
         # This will be closer to what scheduler will see (outside of
         # image ... launches.
 
-        get_args().save = f"{get_args().save}/policy/{get_args().exp_name}"
-        if self.args.continue_train:
+        get_args().save = f"{get_args().save}/policy/"
+        if self.resume_training:
             self.args.load = get_args().save
             self.args.load_iteration = -1  # latest
 
@@ -97,6 +97,7 @@ class PolicyTrainer(BaseTrainer):
             self.args.no_load_rng = False  # latest
             self.args.no_load_args = False  # latest
             self.args.no_load_scheduler = False  # latest
+            self.args.adaptive_parallel_strategy_on_checkpoint = False
 
             print(
                 f"policy trainer continue train args load: {self.args.load} self.args.load_iteration {self.args.load_iteration}")

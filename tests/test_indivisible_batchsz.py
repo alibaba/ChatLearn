@@ -14,7 +14,6 @@ from chatlearn.data.data import StreamDataset
 
 chatlearn.init()
 args = chatlearn.get_args()
-assert args.rlhf_args.enable_indivisible_batch_size
 sample_per_episode = chatlearn.get_args().rlhf_args.sample_per_episode
 
 def get_ppo_batches(modify_generation_batch_size=False):
@@ -77,7 +76,12 @@ class CustomDataset(Dataset):
 
     def collate_fn(self, samples):
         batched_data = {}
-        for sample_key, sample_value in samples.items():
+        for sample in samples:
+            for sample_key, sample_value in sample.items():
+                if sample_key not in batched_data:
+                    batched_data[sample_key] = []
+                batched_data[sample_key].append(sample_value)
+        for sample_key, sample_value in batched_data.items():
             batched_data[sample_key] = torch.stack(sample_value)
         return batched_data
 

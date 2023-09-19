@@ -11,7 +11,6 @@ models:
     policy:
         num_device: 1
         gpu_per_process: 1
-        num_replica: 1
         trainable: False
     
     reference:
@@ -41,11 +40,10 @@ models:
 
 rlhf:
     debug: True
-    generation_batch_size: 4
+    generation_batch_size: ${batch_size:4}
     train_micro_batch_size: 5
     train_global_batch_size: 10
     num_ppo_episode: 2
     sample_per_episode: 16
     num_training_epoch: 1
     save_episode_interval: 200
-    enable_indivisible_batch_size: ${enable_indivisible_batch_size:False}

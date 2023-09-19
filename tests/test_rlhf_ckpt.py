@@ -29,18 +29,16 @@ class PolicyModel(RLHFTorchModule):
 
     def setup(self):
         time.sleep(0.05)
-        self._iter = 0
 
     def forward_step(self, data, iteration):
         save_dir = self.rlhf_args.data_checkpoint_path
-        fn = f"{save_dir}/data_{self._iter}"
+        fn = f"{save_dir}/data_{iteration}"
         if self.rlhf_args.load_data_checkpoint_iteration:
             fn = f"{fn}_{self.rlhf_args.load_data_checkpoint_iteration}"
         fn = f"{fn}.pkl"
         with open(fn, 'wb') as f:
             pickle.dump(data, f)
-            print(f"save to checkpoint/data_{self._iter}.pkl", flush=True)
-            self._iter += 1
+            print(f"save to {fn}", flush=True)
 
         query = data["query"]
         time.sleep(0.1)
@@ -122,7 +120,7 @@ data = [torch.Tensor([i]) for i in range(100)]
 engine.set_dataset(data)
 engine.learn()
 if run == "resume":
-    assert engine._start_episode == 1
+    assert engine._start_episode == 1, engine._start_episode
     data = {}
     for fn in os.listdir(chatlearn.get_args().rlhf_args.data_checkpoint_path):
         if not fn.endswith('.pkl'):
@@ -130,9 +128,9 @@ if run == "resume":
 
         with open(os.path.join(chatlearn.get_args().rlhf_args.data_checkpoint_path, fn), 'rb') as f:
             data[fn] = pickle.load(f)
-    for i in range(12):
+    for i in range(4, 16):
         fn_resume = f"data_{i}_2.pkl"
-        fn = f"data_{i+4}.pkl"
+        fn = f"data_{i}.pkl"
         assert (data[fn_resume]['query'] == data[fn]['query']).all()
 assert engine.trainer.iteration == 8, engine.trainer.iteration
 

@@ -250,8 +250,8 @@ class RLHFConfig(BaseConfig):
     concurrent_comm: bool = True
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
     max_relay_episode: int = 1
-    #: enable indivisible batch size for generation
-    enable_indivisible_batch_size: bool = False
+    #: consumed samples
+    consumed_samples: int = 0
 
     def __init__(self):
         super().__init__()
@@ -410,10 +410,6 @@ class Config(BaseConfig):
             f"train_global_batch_size should be times of train_micro_batch_size," \
             f"but got {self.rlhf_args.train_global_batch_size}/{self.rlhf_args.train_micro_batch_size}" 
         assert self.rlhf_args.stream_data_loader_type.lower() in ["fixed", "dynamic", "relay"]
-        if self.rlhf_args.stream_data_loader_type.lower() != "fixed":
-            assert not self.rlhf_args.enable_indivisible_batch_size, \
-                "enable_indivisible_batch_size should be False when stream_data_loader_type isn't `fixed`, " \
-                f"but got {self.rlhf_args.enable_indivisible_batch_size}"
 
         for model_name, model_args in self.models.items():
             assert model_args.gpu_per_process <= model_args.num_device
@@ -434,6 +430,9 @@ class Config(BaseConfig):
                 f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}."
             model_args.num_replica = model_args.num_device // (
                 model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)
+            assert model_args.num_replica * model_args.generation_batch_size <= self.rlhf_args.sample_per_episode, \
+                f"num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
+                f"should be less than sample_per_episode {self.rlhf_args.sample_per_episode}"
             if model_args.batch_generation.min_prompt_length or model_args.batch_generation.num_max_tokens:
                 logger.info(f"Enable batch generation: \
                     num_max_tokens = {model_args.batch_generation.num_max_tokens}, \

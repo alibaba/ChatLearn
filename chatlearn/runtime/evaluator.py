@@ -14,7 +14,6 @@
 # ==============================================================================
 """Evaluator"""
 
-import math
 from itertools import cycle
 
 from ray.util.queue import Queue
@@ -22,9 +21,9 @@ from ray.util.queue import Queue
 from chatlearn.models.rlhf_module import RLHFModule
 from chatlearn.runtime.environment import PPOEnv
 from chatlearn.utils import future
-from chatlearn.utils import utils
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import get_args
+from chatlearn.data.ranking import batch_generation_ranking
 
 
 class Evaluator(PPOEnv):
@@ -45,7 +44,7 @@ class Evaluator(PPOEnv):
         if not isinstance(models, list):
             models = [models]
         self.models = models
-        self._dataset = []
+        self._dataset = None
         self.data_iter = None
         self._padding_config = {}
         self._name2models = {}
@@ -54,6 +53,11 @@ class Evaluator(PPOEnv):
         self._original_dataset = None
         self._post_process_func = None
         self._evaluate_models_colocate = True
+        self._batch_per_episode = None
+
+    @property
+    def sample_per_episode(self):
+        return len(self._dataset)
 
     @property
     def batch_size(self):
@@ -74,8 +78,8 @@ class Evaluator(PPOEnv):
         assert len(self._dataset) > 0, "dataset is not set"
 
         refs = []
-        for i, model_replica in enumerate(self.models[0].replicas):
-            ref = model_replica.master._build_dataloader.remote(self._dataset[i], is_eval=True)
+        for model_replica in self.models[0].replicas:
+            ref = model_replica.master._build_dataloader.remote(self._dataset, is_eval=True)
             refs.append(ref)
         future.get(refs)
 
@@ -90,18 +94,6 @@ class Evaluator(PPOEnv):
             if len(model_name_pack) > 1 and model_names.issubset(model_name_pack):
                 self._evaluate_models_colocate = False
 
-    def batch_generation_ranking(self, in_data):
-        def sort_fun(ele):
-            chinese = ""
-            others = ""
-            for s in ele:
-                if '\u4e00' <= s <= '\u9fa5':
-                    chinese += s
-                else:
-                    others += s
-            return len(others.split(" ")) + len(chinese)
-        in_data.sort(key=sort_fun, reverse=True)
-        return in_data
 
     def set_dataset(self, dataset): # pylint: disable=arguments-differ
         """
@@ -116,28 +108,12 @@ class Evaluator(PPOEnv):
             self._original_dataset = dataset
             self._lazy_init = True
             return self
-        data_len = len(dataset)
-        data_part_num = self.models[0].num_replica
         if self.models[0].module_args.batch_generation.ranking:
             logger.info("calling batch_generation_ranking")
-            dataset = self.batch_generation_ranking(dataset)
-            self._dataset = [[] for _ in range(data_part_num)]
-            num_batch_per_episode = math.ceil(data_len / self.batch_size)
-            for batch in range(num_batch_per_episode):
-                start = batch * self.batch_size
-                end = min(start + self.batch_size, data_len)
-                self._dataset[int(batch % data_part_num)] += dataset[start:end]
+            self._dataset = batch_generation_ranking(dataset, 1, len(dataset))
         else:
-            indices = utils.split_index(data_len, data_part_num)
-
-            for start, end in indices:
-                data_part = dataset[start:end]
-                self._dataset.append(data_part)
+            self._dataset = dataset
         return self
-
-    @property
-    def num_eval_iteration(self):
-        return sum(math.ceil(len(data) / self.batch_size) for data in self._dataset)
 
     def eval_step(self, data_queue, model_out_queues, return_last=True):
         in_queue = data_queue
@@ -145,7 +121,7 @@ class Evaluator(PPOEnv):
             func_name = model.replicas[0].eval_func_name
             assert func_name is not None, \
                 f"call model.register_eval_func for {model.name} before initializing Evaluator."
-            self.generate_step_one_model(model, in_queue, model_out_queues[model], func_name, False)
+            self.generate_step_one_model(model, in_queue, model_out_queues[model], func_name, False, is_eval=True)
             in_queue = model_out_queues[model][0]
 
         if return_last:
@@ -181,9 +157,9 @@ class Evaluator(PPOEnv):
         last_step_start = max(num_batch - replica_num, 0)
         for step in range(num_batch):
             if step >= last_step_start:
-                self.generate_step_one_model(model, in_queue, out_queue, func_name, True)
+                self.generate_step_one_model(model, in_queue, out_queue, step, func_name, True)
             else:
-                self.generate_step_one_model(model, in_queue, out_queue, func_name, False)
+                self.generate_step_one_model(model, in_queue, out_queue, step, func_name, False)
 
     def set_post_process_func(self, post_process_func):
         """
@@ -215,7 +191,7 @@ class Evaluator(PPOEnv):
         """
         result_refs = []
         data_queue = Queue()
-        num_batch = self.num_eval_iteration
+        num_batch = self.batch_per_episode
         refs = []
         for model in self.models[0].replicas:
             refs.append(model.master.reset_eval_data_iter.remote())

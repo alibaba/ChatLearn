@@ -28,7 +28,6 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from megatron import print_rank_last, is_last_rank, get_num_microbatches, get_args, get_timers
-from megatron.checkpointing import get_checkpoint_tracker_filename, read_metadata
 from megatron.core import mpu
 from megatron.global_vars import get_tensorboard_writer
 from megatron.training import print_datetime
@@ -412,25 +411,3 @@ def write_jsonl(dict_list, fp):
         writer = jsonlines.Writer(f)
         for item in dict_list:
             writer.write(item)
-
-
-def read_latest_ppo_iter(network_name):
-    # return the global iter at save for
-    load_policy_dir = f"{get_args().save}/{network_name}/{get_args().exp_name}"
-    tracker_filename = get_checkpoint_tracker_filename(load_policy_dir)
-
-    # If no tracker file, return iretation zero.
-    if not os.path.isfile(tracker_filename):
-        print_rank_0('WARNING: could not find the metadata file {} '.format(
-            tracker_filename))
-        raise Exception('    will not load any checkpoints and will start from '
-                        'random')
-
-    # Otherwise, read the tracker file and either set the iteration or
-    # mark it as a release checkpoint.
-    iteration, _ = read_metadata(tracker_filename)
-    return iteration
-
-
-def human_assistent_format(query):
-    return f"\n\nHuman: {query}\n\nAssistant: "
