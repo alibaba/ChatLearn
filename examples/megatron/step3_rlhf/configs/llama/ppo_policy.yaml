@@ -22,7 +22,7 @@ no_load_scheduler: True
 
 lr_decay_iters: 12000
 lr_warmup_iters: 100
-lr: ${policy_lr:8e-8}
+lr: ${policy_lr:2.4e-7}
 min_lr: ${policy_min_lr:1e-9}
 lr_decay_style: ${policy_lr_decay_style:linear}
 weight_decay: 0.01

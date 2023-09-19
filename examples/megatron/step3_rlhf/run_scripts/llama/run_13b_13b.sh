@@ -35,11 +35,7 @@ sample_per_episode=1024 \
 train_global_batch_size=128 \
 generation_batch_size=64 \
 ref_generation_batch_size=16 \
-math_coef=0 \
-lm_coef=0 \
-do_math_eval=False \
-policy_lr=0.00000024 \
-python train_rlhf.py -c configs/llama/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log.txt
+python train_rlhf.py -c configs/llama/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt
 
 
 set +x
