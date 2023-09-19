@@ -118,7 +118,7 @@ class Evaluator(PPOEnv):
             return self
         data_len = len(dataset)
         data_part_num = self.models[0].num_replica
-        if get_args().active_module_args.batch_generation.ranking:
+        if self.models[0].module_args.batch_generation.ranking:
             logger.info("calling batch_generation_ranking")
             dataset = self.batch_generation_ranking(dataset)
             self._dataset = [[] for _ in range(data_part_num)]

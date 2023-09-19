@@ -7,7 +7,7 @@ bf16: True
 use_checkpoint_opt_param_scheduler: False
 adam_beta1: 0.9
 adam_beta2: 0.95
-num_workers: 4
+num_workers: 8
 init_method_std: 0.006
 
 recompute_granularity: selective

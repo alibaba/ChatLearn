@@ -55,7 +55,6 @@ class RLHFModule:
         self.trainable = args.trainable
         self._rlhf_args = self.global_args.rlhf_args
         self._module_args = args
-        self.global_args.active_module_args = self._module_args
         self.replica_id = replica_id
         self.config_dir = args.config_dir
         self._num_device_per_replica = args.tensor_model_parallel_size * args.pipeline_model_parallel_size
@@ -168,6 +167,7 @@ class RLHFModule:
         """
         :meta private:
         """
+        self.global_args.active_module_args = self._module_args
         self.setup()
 
     def forward_step(self, data, iteration=None):

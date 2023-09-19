@@ -77,7 +77,7 @@ class RLHFMegatronModule(RLHFTorchModule):
         """
         :meta private:
         """
-        self.setup()
+        super().model_setup()
         # TODO: we may need to let setup return model, optimizer and opt_param_scheduler
         if self.trainable:
             assert hasattr(self, "model")
