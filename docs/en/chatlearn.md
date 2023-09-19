@@ -23,7 +23,7 @@ To address these challenges, we propose a novel RLHF model training framework ca
 2. **Multiple distributed acceleration backends**: Users can use different computation backends for model development, such as Megatron-LM and DeepSpeed.
 3. **Hybrid parallel strategies**: Various parallel strategies can be employed, including Data Parallel, Tensor Parallel, Sequence Parallel, Pipeline Parallel, ZeRO, and the combination thereof.
 4. **Flexible resource allocation**: ChatLearn supports a flexible resource scheduling mechanism, allowing for exclusive or shared resource allocation among different models. It utilizes system scheduling strategies to enable efficient sequential or parallel execution.
-5. **High performance**: Compared to the current state-of-the-art systems, ChatLearn achieves a 29%-68% improvement in performance from 7B to 30B scales. Additionally, ChatLearn supports even larger-scale RLHF training, such as 175B Policy + 175B Reward.
+5. **High performance**: Compared to the current state-of-the-art systems, ChatLearn achieves a 51%-77% improvement in performance from 7B to 30B scales. Additionally, ChatLearn supports even larger-scale RLHF training, such as 175B Policy + 175B Reward.
 
 By providing a comprehensive and efficient framework, ChatLearn empowers researchers and practitioners to train large-scale RLHF models with ease, scalability, and improved performance.
 
@@ -67,7 +67,7 @@ Note: The current performance benchmarks are based on GPT series models.
 
 # Performance
 
-We compared the RLHF training throughput of models with different parameter sizes. We used an N+N model configuration, where the Policy and Reward models have the same parameter size. The tests were conducted on A800-80GB GPUs, with a single node configuration of 8 GPUs and 800Gb RDMA interconnects between nodes. We compared the performance of ChatLearn with and without LoRA against DeepSpeed-Chat for models ranging from 7B to 66B. ChatLearn achieved a 29% to 68% speedup at different scales. At larger scales, with a 30B+30B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors when LoRA was disabled. With a 66B+66B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors regardless of whether LoRA was enabled or not. ChatLearn, on the other hand, was able to support training with larger model configurations on the same machine scale. Additionally, DeepSpeed-Chat encountered a kernel error when seq_len was set to 2048.
+We compared the RLHF training throughput of models with different parameter sizes. We used an N+N model configuration, where the Policy and Reward models have the same parameter size. The tests were conducted on A800-80GB GPUs, with a single node configuration of 8 GPUs and 800Gb RDMA interconnects between nodes. We compared the performance of ChatLearn with and without LoRA against DeepSpeed-Chat for models ranging from 7B to 66B. ChatLearn achieved a 51% to 77% speedup at different scales. At larger scales, with a 30B+30B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors when LoRA was disabled. With a 66B+66B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors regardless of whether LoRA was enabled or not. ChatLearn, on the other hand, was able to support training with larger model configurations on the same machine scale. Additionally, DeepSpeed-Chat encountered a kernel error when seq_len was set to 2048.
 
 ![Compare PAI-ChatLearn with DeepSpeed-Chat](../images/gpt-perf-cmp.png)
 
