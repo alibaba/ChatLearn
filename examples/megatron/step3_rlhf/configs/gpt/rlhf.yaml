@@ -82,4 +82,3 @@ rlhf:
     eval_output_dir: ${eval_output_dir}
     eval_data_num_limit: 20
     nsys: False
-    enable_indivisible_batch_size: ${enable_indivisible_batch_size:True}

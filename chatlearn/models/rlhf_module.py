@@ -16,13 +16,14 @@
 
 from collections import defaultdict
 from itertools import cycle
+import math
 
 import ray
 import ray.util.collective as col
 from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from chatlearn.data.data import EpisodeDataLoader
+from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
@@ -85,7 +86,7 @@ class RLHFModule:
         self._data_iter = None
         self._eval_data_iter = None
         self.call_funcs = []
-        self.data_ckpt_manager = None
+        self._data_ckpt_manager = None
         self._peak_memory = 0
         self._return_rlhf_data = self._module_args.return_rlhf_data
         self._parameters_to_sync = defaultdict(list)
@@ -94,6 +95,7 @@ class RLHFModule:
         self.enable_lora = self._module_args.lora.enable_lora
         self._eval_func_name = None
         self._finalized = False
+        self._resume_training = False
 
     def finalize(self):
         """
@@ -163,11 +165,31 @@ class RLHFModule:
         Create model / optimizer / opt_param_scheduler / etc.
         """
 
+    @property
+    def data_ckpt_manager(self):
+        """
+        :meta private:
+        """
+        if self.rlhf_args.data_checkpoint_path is not None:
+            assert self._data_ckpt_manager is not None
+        return self._data_ckpt_manager
+
     def model_setup(self):
         """
         :meta private:
         """
         self.global_args.active_module_args = self._module_args
+        if self.rlhf_args.data_checkpoint_path is not None:
+            self._data_ckpt_manager = CheckpointManager(self, self.rlhf_args.data_checkpoint_path,
+                                                       self.rlhf_args.max_data_ckpt_nums,
+                                                       self.rlhf_args.load_data_checkpoint_iteration)
+            meta = self._data_ckpt_manager.resume()
+            if meta:
+                self._resume_training = self.rlhf_args.consumed_samples > 0
+                start_episode = meta["episode"] + 1
+                self._iteration = start_episode * math.ceil(self.rlhf_args.sample_per_episode / \
+                    self._num_replica / self.module_args.generation_batch_size)
+                log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}")
         self.setup()
 
     def forward_step(self, data, iteration=None):
@@ -233,7 +255,8 @@ class RLHFModule:
         :meta private:
         """
         if self.data_ckpt_manager is not None:
-            self.data_ckpt_manager.save_checkpoint(replica_id, iteration, ppo_iter)
+            consumed_samples = self.rlhf_args.consumed_samples
+            self.data_ckpt_manager.save_checkpoint(replica_id, iteration, ppo_iter, consumed_samples)
 
     def put(self, key, data):
         """
@@ -311,65 +334,58 @@ class RLHFModule:
             f"{dataset.__class__.__name__} has no attribute `collate_fn`. If you would like "\
             "to use the default collate_fn to batch samples, try adding `self.collate_fn = None` "\
             "to your Dataset object"
+        consumed_samples = 0
+        if not is_eval:
+            if self.data_ckpt_manager is not None:
+                consumed_samples = self.rlhf_args.consumed_samples
         dataloader = self.build_dataloader(dataset,
                                            batch_size=self.module_args.generation_batch_size,
-                                           shuffle=False,
                                            collate_fn=dataset.collate_fn,
-                                           sample_per_episode_per_replica=sample_per_episode_per_replica,
-                                           is_eval=is_eval)
+                                           is_eval=is_eval,
+                                           consumed_samples=consumed_samples)
 
         if is_eval:
             self._eval_dataloader = dataloader
             self._eval_data_iter = iter(self._eval_dataloader)
         else:
-            if self.data_ckpt_manager is None and self.rlhf_args.data_checkpoint_path is not None:
-                self.data_ckpt_manager = CheckpointManager(self, self.rlhf_args.data_checkpoint_path,
-                                                           self.rlhf_args.max_data_ckpt_nums,
-                                                           self.rlhf_args.load_data_checkpoint_iteration)
-                self.data_ckpt_manager.resume()
-            if self.data_ckpt_manager is not None:
-                dataloader = self.data_ckpt_manager.data_loader(dataloader, is_cycle=True)
-                self._data_iter = iter(dataloader)
-            else:
-                self._data_iter = iter(dataloader)
-                self._data_iter = cycle(self._data_iter)
+            self._data_iter = iter(dataloader)
+            self._data_iter = cycle(self._data_iter)
             self._dataloader = dataloader
 
     def build_dataloader(self,
                          dataset,
                          batch_size,
-                         shuffle=False,
                          collate_fn=None,
-                         sample_per_episode_per_replica=-1,
-                         is_eval=False):
+                         is_eval=False,
+                         consumed_samples=0):
         """
         build the dataloader for the model
-
         Args:
             dataset: a torch.utils.data.Dataset object
             batch_size: how many samples per batch to load
-            shuffle: set to `True` to shuffle dataset
-                at every epoch (default: `False`)
             collate_fn: set when loading from an map-style dataset (defulat: `None`)
-            sample_per_episode_per_replica: an integer indicate how many samples 
-                per episode and per replica will consume (default: `-1`)
             is_eval: set to `True` to build a dataloader for evaluation (default: `False`)
+            consumed_samples: consumed samples
 
         :meta private:
         """
-        if self.rlhf_args.enable_indivisible_batch_size and not is_eval:
-            log_rank_0("Creating EpisodeDataLoader...")
-            assert sample_per_episode_per_replica > 0, \
-                "sampler_per_episode_per_replica must be an integer greater than 0 "\
-                f"when using `EpisodeDataLoader`, but got {sample_per_episode_per_replica}."
-            return EpisodeDataLoader(
-                dataset, sample_per_episode_per_replica, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn
-            )
+        log_rank_0(f"Creating DataLoader... consumed_samples: {consumed_samples}")
+        if is_eval:
+            batch_sampler = SingleDataSampler(total_samples=len(dataset),
+                consumed_samples=0,
+                micro_batch_size=batch_size,
+                data_parallel_rank=self.replica_id,
+                data_parallel_size=self._num_replica)
         else:
-            log_rank_0("Creating DataLoader...")
-            return DataLoader(
-                dataset, batch_size=batch_size, shuffle=shuffle, collate_fn=collate_fn
-            )
+            batch_sampler = EpisodeDataSampler(total_samples=len(dataset),
+                consumed_samples=consumed_samples,
+                micro_batch_size=batch_size,
+                data_parallel_rank=self.replica_id,
+                data_parallel_size=self._num_replica,
+                sample_per_episode=self.rlhf_args.sample_per_episode)
+        return DataLoader(
+            dataset, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
+        )
 
     def reset_eval_data_iter(self):
         """
@@ -711,15 +727,9 @@ class RLHFModule:
         """
         return self._eval_func_name
 
-    def add_step(self, step):
+    @property
+    def resume_training(self):
         """
-        :meta private:
+        resume training from last checkpoint.
         """
-        if self.data_ckpt_manager is not None:
-            self.data_ckpt_manager.add_step(step)
-
-    def set_start_iteration(self, start_iteration):
-        """
-        :meta private:
-        """
-        self._iteration = start_iteration
+        return self._resume_training

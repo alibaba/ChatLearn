@@ -36,7 +36,7 @@ from chatlearn import RLHFMegatronModule
 from chatlearn.utils import to_device
 from .constants_ppo import RunningMoments, get_running_stats, reset_running_stats
 from .forward_step import forward_step_helper
-from .utils import tensorboard_scalar_dict, read_latest_ppo_iter
+from .utils import tensorboard_scalar_dict
 
 ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 INVALID_ANS = "[invalid]"
@@ -88,15 +88,6 @@ class RewardInference(RLHFMegatronModule):
         self.running = RunningMoments()
         self.per_episode_metrics = defaultdict(RunningMoments)
         self.args = args
-
-        if self.args.continue_train:
-            policy_train_global_batch_iter = read_latest_ppo_iter("policy")
-            self.args.iteration_for_log = policy_train_global_batch_iter * self.args.continue_train_global_batch_size // (
-                self.args.continue_inference_instances * self.args.continue_inference_batch_size)
-            print(f"continue train load iter: {self.args.iteration_for_log}")
-
-        else:
-            self.args.iteration_for_log = 0
 
         self.tokenizer = get_tokenizer()
 

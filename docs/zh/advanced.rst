@@ -129,41 +129,6 @@ YAML 配置
               min_prompt_length: ${batch_generation_min_prompt_length:0}
 
 
-
-Indivisible batch size
-----------------------
-
-基础配置中，推理阶段的每 episode 消费的样例数量必须能被推理的 batch size 整除。进阶配置中，indivisible batch size 提供了推理阶段推理任意大小的 batch size 的能力。更具体地，设推理阶段每 episode 消费的样例数量为 `s` ，推理的 batch size 大小为 `b` ，满足 `1 <= b <= s` 。
-
-
-YAML 配置
->>>>>>>>>>
-
-.. code-block:: yaml
-
-    rlhf:
-    	# generation batch size for inference models, default: 16
-    	generation_batch_size: ${generation_batch_size:16}
-    	# number of samples to consume in each episode, default: 1024
-        sample_per_episode: ${sample_per_episode:1024}
-    	# Whether to enable indivisible batch size, default: False
-     	enable_indivisible_batch_size: ${enable_indivisible_batch_size:False}
-
-
-.. csv-table::
-   :header: "参数名", "类型", "注释"
-
-   "generation_batch_size",               "int",      "推理模型的 generation batch size。默认值：16。注：如果关闭 enable_indivisible_batch_size，generation_batch_size 必须被 sample_per_episode 整除，反之则无须被整除。"
-   "sample_per_episode",               "int",      "每个 episode 消费的样例数量。注：如果关闭 enable_indivisible_batch_size，generation_batch_size 必须被 sample_per_episode 整除，反之则无须被整除。"
-   "enable_indivisible_batch_size",               "bool",      "是否开启 indivisible batch size 功能。True 代表开启，False 代表关闭。默认值：False。"
-
-注意 ⚠️
-
-1. 开启该功能将不会使用 PyTorch 提供的 DataLoader。
-2. 开启该功能，`set_dataset` 的 drop_last 将被指定为 False，即不会丢弃最后一个大小小于 `b` 的 batch。
-3. 如果同时开启该功能和 `StreamDataset`，`StreamDataset` 仅支持 `fixed` 类型。
-
-
 Adaptive checkpoint
 --------------------
 

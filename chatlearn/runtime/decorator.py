@@ -120,7 +120,10 @@ def preprocess_compute(func, is_forward_step):
             sub_data_list = data_list[start_idx: end_idx]
             args[0] = sub_data_list
         to_empty_cache = kwargs.pop('to_empty_cache') if 'to_empty_cache' in kwargs else False
+        is_last_batch = kwargs.pop('is_last_batch') if 'is_last_batch' in kwargs else False
+        is_eval = kwargs.pop('is_eval') if 'is_eval' in kwargs else False
         generation_batch_size = self.module_args.generation_batch_size
+        final_results = None
         if not self.trainable and generation_batch_size:
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
@@ -142,31 +145,25 @@ def preprocess_compute(func, is_forward_step):
                     ret = utils.to_device('cpu', ret)
                     results.append(ret)
                 if self.is_last_rank():
-                    new_batch = concat_along_batch(results)
-                else:
-                    new_batch = None
-                if to_empty_cache:
-                    self.empty_cache()
-                return new_batch
+                    final_results = concat_along_batch(results)
             else:
                 if is_forward_step:
                     kwargs["iteration"] = self._iteration
                 ret = func(self, *args, **kwargs)
                 ret = utils.to_device('cpu', ret)
                 self._iteration += 1
-                if to_empty_cache:
-                    self.empty_cache()
                 if self.is_last_rank():
-                    return ret
-                return
-
-        ret = func(self, *args, **kwargs)
-        ret = utils.to_device('cpu', ret)
+                    final_results = ret
+        else:
+            ret = func(self, *args, **kwargs)
+            ret = utils.to_device('cpu', ret)
+            if self.is_last_rank():
+                final_results = ret
         if to_empty_cache:
             self.empty_cache()
-        if self.is_last_rank():
-            return ret
-        return
+        if is_last_batch and not is_eval:
+            self.rlhf_args.consumed_samples += self.rlhf_args.sample_per_episode
+        return final_results
 
     return inner
 

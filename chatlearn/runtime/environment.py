@@ -13,15 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 """Environment"""
-
 import math
 from itertools import cycle
 
 from ray.util.queue import Queue
 
 from chatlearn.utils import future
-from chatlearn.utils import utils
 from chatlearn.utils.logger import logger
+from chatlearn.data.ranking import batch_generation_ranking
 
 
 class BaseEnv:
@@ -37,7 +36,6 @@ class PPOEnv(BaseEnv):
 
     def __init__(self, args, policy, reference, reward, value):
         super().__init__(args)
-        self.sample_per_episode = args.sample_per_episode
         self.models = [policy, reference, reward, value]
         self.policy = policy
         self.reference = reference
@@ -48,8 +46,7 @@ class PPOEnv(BaseEnv):
             "replica number of policy model must be divisible by sample_per_episode"
         self.sample_per_episode_per_replica = self.sample_per_episode // len(self.policy.replicas)
         self.batch_size = self.policy.module_args.generation_batch_size
-        self.batch_per_episode = len(self.policy.replicas) \
-            * math.ceil(self.sample_per_episode_per_replica / self.batch_size)
+        self._batch_per_episode = None
         self._dataset = None
         self.data_iter = None
         self._padding_config = {}
@@ -60,12 +57,30 @@ class PPOEnv(BaseEnv):
         self.num_reference_value_to_process = 1
         self.reference_value_results = []
 
+
+    @property
+    def sample_per_episode(self):
+        return self.args.sample_per_episode
+
+    @property
+    def batch_per_episode(self):
+        if self._batch_per_episode is not None:
+            return self._batch_per_episode
+        num_replica = len(self.models[0].replicas)
+        num_batch = self.sample_per_episode // (num_replica*self.batch_size) * num_replica
+        remainder = self.sample_per_episode % (num_replica*self.batch_size)
+        if remainder >= num_replica:
+            self._batch_per_episode = num_batch + num_replica
+        else:
+            self._batch_per_episode = num_batch + remainder
+        return self._batch_per_episode
+
     def setup(self, model_packs=None):
         assert isinstance(model_packs, list), \
             f"model_packs for PPOEnv must be a list, but got {type(model_packs)}"
         refs = []
-        for i, policy_replica in enumerate(self.policy.replicas):
-            ref = policy_replica.master._build_dataloader.remote(self._dataset[i],
+        for policy_replica in self.policy.replicas:
+            ref = policy_replica.master._build_dataloader.remote(self._dataset,
                                                                  self.sample_per_episode_per_replica)
             refs.append(ref)
         future.get(refs)
@@ -90,81 +105,13 @@ class PPOEnv(BaseEnv):
                 self.num_reference_value_to_process = 2
                 break
 
-    def batch_generation_ranking(self, in_data):
-        def sort_fun(ele):
-            chinese = ""
-            others = ""
-            for s in ele:
-                if '\u4e00' <= s <= '\u9fa5':
-                    chinese += s
-                else:
-                    others += s
-            return len(others.split(" ")) + len(chinese)
-        for episode in range(self.episode_per_epoch):
-            start = episode * self.sample_per_episode
-            if episode < self.episode_per_epoch - 1:
-                end = start + self.sample_per_episode
-            else:
-                end = len(in_data)
-            cur_episode_sample = in_data[start:end]
-            cur_episode_sample.sort(key=sort_fun, reverse=True)
-            in_data = in_data[:start] + cur_episode_sample + in_data[end:]
-        return in_data
 
-    def set_dataset(self, dataset, drop_last=False, wrap_data=True):
-        assert not drop_last or not wrap_data, "drop_last and wrap_data cannot be True at the same time"
-        self._dataset = []
-        # TODO: compare with use only master dataloader
-        data_len = len(dataset)
-        data_part_num = self.policy.num_replica
+    def set_dataset(self, dataset):
         if self.models[0].module_args.batch_generation.ranking:
-            self._dataset = [[] for _ in range(data_part_num)]
-            drop_len = data_len % self.batch_size
-            if drop_len:
-                if drop_last:
-                    dataset = dataset[:-drop_len]
-                    data_len -= drop_len
-                elif wrap_data:
-                    wrap_len = self.batch_size - drop_len
-                    dataset = dataset + dataset[:wrap_len]
-                    data_len += wrap_len
-                if drop_last or wrap_data:
-                    assert len(dataset) % self.batch_size == 0
-            self.episode_per_epoch = math.ceil(data_len / self.sample_per_episode)
-            logger.info("calling batch_generation_ranking")
-            dataset = self.batch_generation_ranking(dataset)
-            num_batch_per_episode = math.ceil(self.sample_per_episode / self.batch_size)
-            for episode in range(self.episode_per_epoch):
-                for batch in range(num_batch_per_episode):
-                    start = episode * self.sample_per_episode + batch * self.batch_size
-                    end = min(start + self.batch_size, self.sample_per_episode * (episode + 1))
-                    end = min(end, data_len)
-                    if start >= end:
-                        break
-                    self._dataset[int(batch % data_part_num)] += dataset[start:end]
-            data_splits = [len(self._dataset[p_idx]) for p_idx in range(data_part_num)]
-            assert data_len == sum(data_splits), \
-                "Expect length of the whole dataset equals to sum length of all data splits."
+            episode_per_epoch = math.ceil(len(dataset) / self.sample_per_episode)
+            self._dataset = batch_generation_ranking(dataset, episode_per_epoch, self.sample_per_episode)
         else:
-            indices = utils.split_index(data_len, data_part_num)
-            for start, end in indices:
-                data_part = dataset[start:end]
-                drop_len = len(data_part) % self.batch_size
-                if drop_len:
-                    if drop_last:
-                        data_part = data_part[:-drop_len]
-                    elif wrap_data:
-                        wrap_len = self.batch_size - drop_len
-                        data_part = data_part + data_part[:wrap_len]
-                    if drop_last or wrap_data:
-                        assert len(data_part) % self.batch_size == 0
-                self._dataset.append(data_part)
-
-
-    def build_data_loader(self):
-        """generate prompts data loader"""
-        # TODO: temply comment out, use dataloader from policy, consider later
-        # return RLHFDataLoader(self._dataset, self.batch_size)
+            self._dataset = dataset
 
     def encode_data(self, mb, data):
         return {"env_iter": mb, "data": data}
@@ -214,12 +161,13 @@ class PPOEnv(BaseEnv):
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
 
-    def generate_step_one_model(self, model, in_queue, out_queue, func_name="forward_step", to_empty_cache=None):
+    def generate_step_one_model(self, model, in_queue, out_queue, step_num, func_name="forward_step", to_empty_cache=None, is_eval=False):
         """
         Args:
             model: DistModel
             in_queue: Queue
             out_queue: Queue
+            step_num: int
             func_name: str
             to_empty_cache: None or boolean
         """
@@ -231,16 +179,19 @@ class PPOEnv(BaseEnv):
             data = in_queue.get()
         mb, query = self.decode_data(data)
         func = getattr(replica, func_name)
-        if isinstance(query, list):
-            if to_empty_cache is None:
-                output = func(*query)
-            else:
-                output = func(*query, to_empty_cache=to_empty_cache)
-        else:
-            if to_empty_cache is None:
-                output = func(query)
-            else:
-                output = func(query, to_empty_cache=to_empty_cache)
+        kwargs = {}
+        if not isinstance(query, list):
+            query = [query]
+        #if isinstance(query, list):
+        replica_num = len(model.replicas)
+        last_step_start = max(self.batch_per_episode - replica_num, 0)
+        is_last_batch = step_num >= last_step_start
+        kwargs["is_last_batch"] = is_last_batch
+        if to_empty_cache is not None:
+            kwargs["to_empty_cache"] = to_empty_cache
+        if is_eval is not None:
+            kwargs["is_eval"] = is_eval
+        output = func(*query, **kwargs)
 
         # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
         #   length is the number of Actors. In this case, all members in the list
@@ -259,10 +210,8 @@ class PPOEnv(BaseEnv):
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
         for step in range(num_batch):
-            if step >= last_step_start:
-                _, data = self.generate_step_one_model(model, in_queue, out_queue, func_name, True)
-            else:
-                _, data = self.generate_step_one_model(model, in_queue, out_queue, func_name, False)
+            to_empty_cache = step >= last_step_start
+            _, data = self.generate_step_one_model(model, in_queue, out_queue, step, func_name, to_empty_cache)
             results.append(data)
 
         # serialize model generation here if colocation detected
@@ -283,13 +232,13 @@ class PPOEnv(BaseEnv):
                 self.num_reference_value_to_process = 1
 
 
-    def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue):
+    def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, step):
         # TODO: generate data_flow by ast parser
-        self.generate_step_one_model(self.policy, data_queue, policy_out_queue, to_empty_cache=False)
-        self.generate_step_one_model(self.reference, policy_out_queue[0], ref_out_queue, to_empty_cache=False)
-        self.generate_step_one_model(self.value, policy_out_queue[1], old_value_out_queue, to_empty_cache=False)
+        self.generate_step_one_model(self.policy, data_queue, policy_out_queue, to_empty_cache=False, step_num=step)
+        self.generate_step_one_model(self.reference, policy_out_queue[0], ref_out_queue, to_empty_cache=False, step_num=step)
+        self.generate_step_one_model(self.value, policy_out_queue[1], old_value_out_queue, to_empty_cache=False, step_num=step)
         self.generate_step_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue],
-                                     reward_out_queue, to_empty_cache=False)
+                                     reward_out_queue, to_empty_cache=False, step_num=step)
         data = []
         if self.policy.module_args.return_rlhf_data:
             data.append(policy_out_queue[3])
@@ -346,10 +295,6 @@ class PPOEnv(BaseEnv):
                 query = policy.master.next_batch.remote()
                 data_queue.put(self.encode_data(mb, query))
                 data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue,
-                                          reward_out_queue)
+                                          reward_out_queue, mb)
                 out_queue.put(data)
-
-        for policy in self.policy.replicas:
-            ref = policy.master.add_step.remote(self.batch_per_episode)
-            future.get(ref)
         return out_queue

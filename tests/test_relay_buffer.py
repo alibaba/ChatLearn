@@ -24,6 +24,8 @@ class CustomDataset(Dataset):
 chatlearn.init()
 
 chatlearn.get_args().rlhf_args.max_relay_episode = 5
+chatlearn.get_args().rlhf_args.num_ppo_episode = 3
+chatlearn.get_args().rlhf_args.sample_per_episode = 16
 chatlearn.get_args().rlhf_args.stream_data_loader_type = "relay"
 
 sample_per_episode = chatlearn.get_args().rlhf_args.sample_per_episode
@@ -48,9 +50,7 @@ class PolicyModel(RLHFTorchModule):
 
 class ReferenceModel(RLHFTorchModule):
 
-
     def forward_step(self, data, iteration):
-        print("reference forward =========", flush=True)
         query = data["policy_out"].cuda()
         data["ref_out"] = query * 2
         return data
@@ -60,7 +60,6 @@ class RewardModel(RLHFTorchModule):
 
 
     def forward_step(self, data, iteration):
-        print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
         return data
 
@@ -68,7 +67,6 @@ class RewardModel(RLHFTorchModule):
 class ValueModel(RLHFTorchModule):
 
     def forward_step(self, data, iteration):
-        print("value forward =========", flush=True)
         data["value_out"] = data["policy_out"].cuda() * 3
         return data
 
@@ -76,14 +74,12 @@ class ValueModel(RLHFTorchModule):
 class PPOPolicy(RLHFTorchModule):
 
     def train_step(self, data, train_info):
-        print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
 class PPOValue(RLHFTorchModule):
 
     def train_step(self, data, train_info):
-        print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
@@ -101,20 +97,30 @@ def relay_sample_fn(episode_relay_buffers):
         buffers += relay_buffer.buffer
     episode_id = episode_relay_buffers[-1].episode_id
     assert len(buffers) == (episode_id+1) * sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
+    queries = [buffer['query'] for buffer in buffers]
+    queries = [int(q[0].item()) for q in queries]
+    if episode_id == 0:
+        assert queries == list(range(16))
+    if episode_id == 1:
+        assert queries == list(range(32))
+    if episode_id == 2:
+        assert queries == list(range(35)) + list(range(13))
     return buffers
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 engine.set_relay_sample_fn(relay_sample_fn)
 assert policy.num_replica == 1
 assert reference.num_replica == 1
-data = torch.ones([1024])
-engine.set_dataset([data] * 35)
+data = []
+for i in range(35):
+    data.append(torch.ones([10])*i)
+engine.set_dataset(data)
 
 engine.learn()
-assert len(engine.env._dataset[0]) == 36, len(engine.env._dataset[0])
+assert len(engine.env._dataset) == 35, len(engine.env._dataset)
 ref = engine._ppo_data_loader.episode_relay_buffers.remote()
 episode_relay_buffers = ray.get(ref)
-print(episode_relay_buffers)
 micro_batch_per_episode = ray.get(engine._ppo_data_loader.batch_per_episode.remote())
-assert micro_batch_per_episode == 7
-assert engine.trainer.num_training_iteration() == 4
+assert micro_batch_per_episode == 10, micro_batch_per_episode
+assert engine.env.batch_per_episode == 4
+assert engine.trainer.num_training_iteration() == 5

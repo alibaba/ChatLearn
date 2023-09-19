@@ -45,10 +45,6 @@ raw_reward_coeff: ${raw_reward_coeff:1}
 clipped_value_only: ${clipped_value_only:1}
 num_inference_per_prompt: ${num_inference_per_prompt:1}
 
-continue_train: ${continue_train:0}
-continue_train_global_batch_size: ${continue_train_global_batch_size:-1}
-continue_inference_instances: ${continue_inference_instances:-1}
-continue_inference_batch_size: ${continue_inference_batch_size:-1}
 
 save: ${save_dir}
 save_interval: 1000

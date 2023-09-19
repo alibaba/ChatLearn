@@ -22,6 +22,12 @@ if [ -z "${CUSTOM_PORTS}" ]; then
   [ -z "$LOCAL_MASTER_ADDR" ] && export LOCAL_MASTER_ADDR=$MASTER_ADDR
   echo LOCAL_MASTER_ADDR=$MASTER_ADDR
 fi
+if [ -d checkpoint ]; then
+    rm -r checkpoint
+fi
+if [ -d checkpoint2 ]; then
+    rm -r checkpoint2
+fi
 
 while getopts 'LM:C:V:' OPTION
 do
@@ -43,21 +49,25 @@ done
 shift $(($OPTIND - 1))
 
 
-
 function run_test {
+  ray stop
   "$@"
   ray stop
 }
 
 
 function run_all_tests {
+  run_test python test_evaluator.py -c "configs/rlhf.yaml"
   run_test python test_fixed_data.py -c "configs/rlhf.yaml"
   run_test python test_dynamic_data.py -c "configs/rlhf.yaml"
   run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
+  batch_size=5 run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate3.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate2.py -c "configs/rlhf.yaml"
   RUN_FLAG=0 run_test python test_rlhf_ckpt.py -c "configs/rlhf.yaml"
   RUN_FLAG="resume" run_test python test_rlhf_ckpt.py -c "configs/rlhf.yaml"
+  RUN_FLAG=0 run_test python test_rlhf_ckpt_replica.py -c "configs/rlhf.yaml"
+  RUN_FLAG="resume" run_test python test_rlhf_ckpt_replica.py -c "configs/rlhf.yaml"
   run_test python test_timers.py
   run_test python test_rlhf_no_replica.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_replica2.py -c "configs/rlhf.yaml"

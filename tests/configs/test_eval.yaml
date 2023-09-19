@@ -1,0 +1,17 @@
+runtime_env:
+    platform: DLC
+    excludes:
+        - "*pt"
+        - "logs"
+        - "tensorboards"
+        - ".nfs*"
+
+
+models:
+    policy:
+        num_device: 2
+        trainable: False
+
+rlhf:
+    debug: True
+    generation_batch_size: 4

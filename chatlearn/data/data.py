@@ -21,8 +21,6 @@ from itertools import cycle
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import DataLoader
-from torch.utils.data.dataloader import _SingleProcessDataLoaderIter
 
 from chatlearn.utils import future
 
@@ -312,72 +310,3 @@ class RLHFDataLoader:
         if len(batch_data) > 0:
             batched = batching(batch_data)
             yield batched
-
-class EpisodeDataLoader(DataLoader):
-    """
-    Episode data loader for indivisible generation batch size
-    """
-    def __init__(self, dataset, sample_per_episode_per_replica, batch_size=1, shuffle=False, **kwargs):
-        super().__init__(dataset, batch_size, shuffle, **kwargs)
-        self.sample_per_episode_per_replica = sample_per_episode_per_replica
-
-    def _get_iterator(self):
-        if self.num_workers == 0:
-            return _SingleProcessEpisodeDataLoaderIter(self,
-                                                       self.sample_per_episode_per_replica,
-                                                       self.collate_fn)
-        else:
-            raise RuntimeError("Multi-process EpisodeDataloader is not supported currently, "
-                               "please set num_workers=0.")
-
-# pylint: disable=abstract-method
-class _SingleProcessEpisodeDataLoaderIter(_SingleProcessDataLoaderIter):
-    def __init__(self, loader, sample_per_episode_per_replica, collate_fn=None):
-        super().__init__(loader)
-        self.batch_size = loader.batch_size
-        self.sample_per_episode_per_replica = sample_per_episode_per_replica
-        self.loaded_samples = 0
-        self.collate_fn = collate_fn
-        self.start_index = self.loaded_samples
-        self.end_index = self.start_index
-        self.loop_back_flag = False
-        self.dataset_len = len(self._dataset)
-
-    def _reset(self, loader, first_iter=False):
-        super()._reset(loader, first_iter)
-        self.loaded_samples = 0
-        self.start_index = 0
-        self.end_index = 0
-        self.loop_back_flag = False
-
-    def _next_data(self):
-        episode_end = self.loaded_samples + self.sample_per_episode_per_replica
-        if episode_end == self.end_index:
-            self.loaded_samples += self.sample_per_episode_per_replica
-            episode_end += self.sample_per_episode_per_replica
-        self.end_index = min(self.start_index + self.batch_size,
-                             episode_end)
-        if self.end_index >= self.dataset_len:
-            self.end_index -= self.dataset_len
-            self.loop_back_flag = True
-        batched_data = self._get_batch()
-        self.start_index = self.end_index
-        if self.end_index == episode_end:
-            self.loaded_samples = episode_end
-        if self.loop_back_flag:
-            self.loaded_samples = episode_end - (self.dataset_len + self.sample_per_episode_per_replica)
-            self.loop_back_flag = False
-        return batched_data
-
-    def _get_batch(self):
-        if self.end_index < self.start_index:
-            samples = self._dataset[self.start_index:]
-            samples_head = self._dataset[:self.end_index]
-            for sample_key, _ in samples.items():
-                samples[sample_key].extend(samples_head[sample_key])
-        else:
-            samples = self._dataset[self.start_index:self.end_index]
-
-        batched_data = self.collate_fn(samples)
-
-        return batched_data

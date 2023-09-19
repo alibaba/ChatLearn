@@ -105,10 +105,10 @@ class RLHFTorchModule(RLHFModule):
         """
         if not self.timers("empty_cache").started_:
             self.timers("empty_cache").start()
-        log_rank_0(f"{self.name} before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
+        log_rank_0(f"{self.name} replica: {self.replica_id}, before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
-        log_rank_0(f"{self.name} after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
+        log_rank_0(f"{self.name} replica: {self.replica_id}, after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
         self.timers("empty_cache").stop()
 
     def check_param_exists(self, names):

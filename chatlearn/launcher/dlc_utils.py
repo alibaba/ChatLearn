@@ -139,6 +139,10 @@ def start_ray_cluster():
     logger.info(f"execute {cmd}")
     execute(cmd, check=True)
 
+def filter_known_msg(msg):
+    if "StatusCode.DEADLINE_EXCEEDED" in msg:
+        return True
+    return False
 
 def start_exit_listener():
     if get_rank() != 0:
@@ -163,5 +167,6 @@ def start_exit_listener():
                 else:
                     logger.info("wait for head to be created.")
             else:
-                logger.warning(f"ray status got error {msg}")
+                if not filter_known_msg(msg):
+                    logger.warning(f"ray status got error {msg}")
             time.sleep(5)

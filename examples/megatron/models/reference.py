@@ -16,10 +16,12 @@
 
 import torch
 import torch.nn.functional as F
-from megatron import get_args
+from megatron import get_args, get_tokenizer
 from megatron import print_rank_0
+from megatron.checkpointing import load_checkpoint
 from megatron.core import mpu
 from megatron.core.tensor_parallel.utils import VocabUtility
+from megatron.training import get_model
 from models.policy_model import PolicyModel
 
 from chatlearn.utils import to_device
@@ -46,6 +48,28 @@ class PolicyReference(PolicyInference):
                             post_process=post_process)
 
         return model
+
+    def setup(self):
+        self.args = get_args()
+        # Set up model and load checkpoint
+        model = get_model(self.model_provider, wrap_with_ddp=False)
+        self.tokenizer = get_tokenizer()
+        if self.args.load is not None:
+            torch.distributed.barrier()
+            load_checkpoint(model, None, None,
+                            adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
+            torch.distributed.barrier()
+        assert len(model) == 1, "Above condition should have caught this"
+        self.model = model[0]
+        self.model.eval()
+
+        # this is sum
+        get_args().entropy_sum = 0
+
+        # init num
+        get_args().entropy_num = 0
+        get_args().latest_entropies = []
+        return 'ok'
 
     def score_and_return_on_last_stage(self, tokens):
         """Function for just scoring.

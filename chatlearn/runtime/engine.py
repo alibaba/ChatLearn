@@ -14,7 +14,6 @@
 # ==============================================================================
 """Engine"""
 
-import math
 import torch
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
@@ -182,7 +181,7 @@ class RLHFEngine(Engine):
         """
         super().setup()
         self.env = self.create_env(self.policy, self.reference, self.reward, self.value)
-        self.env.set_dataset(self._dataset, self._drop_last, self._wrap_data)
+        self.env.set_dataset(self._dataset)
         self.trainer = self.create_trainer(self.ppo_policy, self.ppo_value)
         if self.evaluator is not None:
             self.evaluator.update_models(self.remote_models)
@@ -206,7 +205,7 @@ class RLHFEngine(Engine):
         """
         return PPOTrainer(self.rlhf_args, ppo_policy.replicas[0], ppo_value.replicas[0])
 
-    def set_dataset(self, dataset, drop_last=False):
+    def set_dataset(self, dataset):
         """
         Set prompt dataset.
 
@@ -214,20 +213,9 @@ class RLHFEngine(Engine):
         ----
         dataset : list
             a list of prompt string
-        drop_last : bool
-            drop last samples if dataset is indivisible by `sample_per_episode`
         """
         self._dataset = dataset
-        if not self.rlhf_args.enable_indivisible_batch_size:
-            # When enable_indivisible_batch_size is set to False, the dataloader either discards
-            # the last incomplete batch or complements the last batch.
-            self._drop_last = drop_last
-            self._wrap_data = not drop_last
-        else:
-            if drop_last:
-                logger.warning("when enable_indivisible_batch_size is set to True, drop_last will be specified as False")
-            self._drop_last = False
-            self._wrap_data = False
+
 
     def set_evaluator(self, evaluator):
         """
@@ -320,11 +308,8 @@ class RLHFEngine(Engine):
             if meta:
                 self._start_episode = meta["episode"] + 1
                 self.trainer.iteration = meta["train_iteration"]
-                for model in self.remote_models:
-                    start_iteration = self._start_episode * \
-                        math.ceil(self.rlhf_args.sample_per_episode / model.num_replica / model.module_args.generation_batch_size)
-                    logger.info(f"Set start iteration {start_iteration} for model {model.name}")
-                    model.set_start_iteration(start_iteration)
+                if self.trainer.iteration > 0:
+                    logger.info(f"ChatLearn continue train with meta {meta}")
 
     def save_checkpoint(self, episode_id):
         """
