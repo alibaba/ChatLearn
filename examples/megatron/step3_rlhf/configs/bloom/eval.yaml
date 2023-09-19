@@ -10,13 +10,13 @@ runtime_env:
 models:
   policy:
     model_config_file: old_policy_inference.yaml
-    num_device: ${num_device:4}
+    num_device: ${num_device:8}
     gpu_per_process: 1
     trainable: False
     
   reward:
     model_config_file: reward_inference.yaml
-    num_device: ${num_device:4}
+    num_device: ${num_device:8}
     gpu_per_process: 1
     trainable: False
 

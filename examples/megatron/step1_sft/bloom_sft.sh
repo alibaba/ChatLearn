@@ -25,7 +25,7 @@ echo $DISTRIBUTED_ARGS
 export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}/examples/megatron
 
 
-[ -z "$MODEL_SIZE" ] && export MODEL_SIZE=1B1
+[ -z "$MODEL_SIZE" ] && export MODEL_SIZE=7B1
 
 if [ $MODEL_SIZE = 1B1 ]; then
 

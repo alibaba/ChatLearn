@@ -4,6 +4,8 @@ source run_scripts/base_env.sh
 [ -z "$num_device_ref" ] && export num_device_ref=$num_device
 [ -z "$num_device_reward" ] && export num_device_reward=$num_device
 [ -z "$num_device_value" ] && export num_device_value=$num_device
+[ -z "$num_device_ppo_policy" ] && export num_device_ppo_policy=$num_device
+[ -z "$num_device_ppo_value" ] && export num_device_ppo_value=$num_device
 
 [ -z "$sample_per_episode" ] && export sample_per_episode=2048
 [ -z "$use_attn_acc" ] && export use_attn_acc=True

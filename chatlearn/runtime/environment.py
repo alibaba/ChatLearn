@@ -19,7 +19,6 @@ from itertools import cycle
 
 from ray.util.queue import Queue
 
-import chatlearn
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.logger import logger
@@ -39,6 +38,7 @@ class PPOEnv(BaseEnv):
     def __init__(self, args, policy, reference, reward, value):
         super().__init__(args)
         self.sample_per_episode = args.sample_per_episode
+        self.models = [policy, reference, reward, value]
         self.policy = policy
         self.reference = reference
         self.reward = reward
@@ -117,7 +117,7 @@ class PPOEnv(BaseEnv):
         # TODO: compare with use only master dataloader
         data_len = len(dataset)
         data_part_num = self.policy.num_replica
-        if chatlearn.get_args().active_module_args.batch_generation.ranking:
+        if self.models[0].module_args.batch_generation.ranking:
             self._dataset = [[] for _ in range(data_part_num)]
             drop_len = data_len % self.batch_size
             if drop_len:

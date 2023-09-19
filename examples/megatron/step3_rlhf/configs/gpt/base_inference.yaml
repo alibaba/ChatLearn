@@ -8,3 +8,7 @@ no_load_rng: True
 no_load_args: True
 no_load_scheduler: True
 log_num_zeros_in_grad: True
+attention_dropout: 0.0
+hidden_dropout: 0.0
+retro_encoder_attention_dropout: 0.0
+retro_encoder_hidden_dropout: 0.0

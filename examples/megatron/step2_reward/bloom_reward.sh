@@ -25,7 +25,7 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --master_port ${MASTER_PORT}"
 
 echo $DISTRIBUTED_ARGS
-[ -z "$MODEL_SIZE" ] && export MODEL_SIZE=1B1
+[ -z "$MODEL_SIZE" ] && export MODEL_SIZE=7B1
 
 if [ $MODEL_SIZE = 1B1 ]; then
 

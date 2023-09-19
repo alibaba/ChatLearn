@@ -602,9 +602,8 @@ class LinearLayer_LoRA(LoraBase):
             rows, columns = weight.shape
         self.fan_in = columns
         self.lora_right_weight = nn.Parameter(torch.zeros(
-            columns,
-            lora_dim))  # apply transpose so in forward we do not need to
-        self.lora_left_weight = nn.Parameter(torch.zeros(lora_dim, rows))
+            lora_dim, columns))  # apply transpose so in forward we do not need to
+        self.lora_left_weight = nn.Parameter(torch.zeros(rows, lora_dim))
         self.lora_scaling = lora_scaling / lora_dim
 
         if lora_dropout > 0:
@@ -649,8 +648,8 @@ class LinearLayer_LoRA(LoraBase):
         else:
             return F.linear(
                 inputs, self.weight,
-                self.bias) + (self.lora_dropout(inputs) @ self.lora_right_weight
-                              @ self.lora_left_weight) * self.lora_scaling
+                self.bias) + (self.lora_dropout(inputs) @ self.lora_right_weight.t()
+                              @ self.lora_left_weight.t()) * self.lora_scaling
 
 
 class VocabParallelEmbedding_LoRA(LoraBase):
@@ -942,7 +941,7 @@ def convert_layer_to_lora(model,
     for name, module in model.named_modules():
         if part_module_name is not None and part_module_name not in name:
             continue
-        if isinstance(module, nn.Linear) and "Linear" in layers_to_convert:
+        if isinstance(module, nn.Linear) and "LinearLayer" in layers_to_convert:
             repalce_name[name] = LinearLayer_LoRA
         elif isinstance(module, RowParallelLinear) and "RowParallelLinear" in layers_to_convert:
             repalce_name[name] = RowParallelLinear_LoRA

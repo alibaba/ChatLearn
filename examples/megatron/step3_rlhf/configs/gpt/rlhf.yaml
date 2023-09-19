@@ -41,7 +41,7 @@ models:
     
     ppo_policy:
         model_config_file: ppo_policy.yaml
-        num_device: ${num_device}
+        num_device: ${num_device_ppo_policy}
         trainable: True
         lora:
             enable_lora: ${enable_lora_policy:False}
@@ -52,7 +52,7 @@ models:
     
     ppo_value:
         model_config_file: ppo_value.yaml
-        num_device: ${num_device}
+        num_device: ${num_device_ppo_value}
         gpu_per_process: 1
         trainable: True
 
