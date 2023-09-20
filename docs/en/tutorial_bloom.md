@@ -13,7 +13,7 @@ In this example, we need to download the following related code.
 
 ```bash
 # Download the modified Megatron-LM-ChatLearn to support ChatLearn training
-git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-ChatLearn.git
+git clone https://github.com/alibaba/Megatron-LM-ChatLearn.git
 # Download the ChatLearn code
 git clone https://github.com/alibaba/ChatLearn.git
 ```
