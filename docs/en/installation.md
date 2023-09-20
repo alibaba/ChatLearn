@@ -15,5 +15,5 @@ git clone https://github.com/alibaba/ChatLearn.git
 
 ```
 # Clone Megatron-LM-ChatLearn
-git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-ChatLearn.git
+git clone https://github.com/alibaba/Megatron-LM-ChatLearn.git
 ```

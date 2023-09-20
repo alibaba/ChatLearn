@@ -13,7 +13,7 @@
 
 ```bash
 # 下载为支持ChatLearn训练修改后的 Megatron-LM-ChatLearn
-git clone -b chatlearn-2308 https://github.com/alibaba/Megatron-LM-ChatLearn.git
+git clone https://github.com/alibaba/Megatron-LM-ChatLearn.git
 # 下载ChatLearn代码
 git clone https://github.com/alibaba/ChatLearn.git
 ```
