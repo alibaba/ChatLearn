@@ -431,13 +431,7 @@ class RLHFModule:
         """
         col.destroy_collective_group(self._group_name)
 
-    def set_param_ranks(self, param_ranks):
-        """
-        Set the ranks for parameters of first replica.
-        """
-        self._param_ranks = param_ranks
-
-    def get_param_ranks(self):
+    def get_local_param_ranks(self):
         """
         :meta private:
         """

@@ -17,13 +17,13 @@
 try:
     import megatron
     from megatron.core import mpu
-    from megatron.initialize import initialize_megatron
     from megatron.initialize import set_jit_fusion_options
     from megatron.training import save_checkpoint_and_time
+    from chatlearn.utils.megatron_utils import initialize_megatron
+    from chatlearn.utils.megatron_utils import build_pipeline_layer_name_mapping
 except ImportError:
     print("Cannot import megatron, please set megatron python path first.")
 from chatlearn.utils.logger import logger
-from chatlearn.utils.megatron_utils import build_pipeline_layer_name_mapping
 from .torch_module import RLHFTorchModule
 
 # pylint: disable=import-outside-toplevel
@@ -164,18 +164,12 @@ class RLHFMegatronModule(RLHFTorchModule):
                                                          is_tgt_last_stage, model, requires_grad)
         return name_mapping
 
-    def get_param_ranks(self):
+    def get_local_param_ranks(self):
         """
         :meta private:
         """
-        # TODO: remove param_ranks in user's code
-        # TODO: replace data_parallel ranks with existing methods
-
-        param_ranks = []
-        for i in range(self.data_parallel_size):
-            param_ranks.append([ranks[i] for ranks in mpu.get_all_data_parallel_group_ranks()])
-        self.set_param_ranks(param_ranks)
-        return param_ranks
+        data_parallel_global_ranks = list(mpu._DATA_PARALLEL_GLOBAL_RANKS)
+        return data_parallel_global_ranks, mpu.get_data_parallel_rank()
 
     def save_checkpoint(self, iteration):
         """
