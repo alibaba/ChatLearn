@@ -108,15 +108,19 @@ class ParameterSyncGroup:
     def build_rank_mapping(self):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
-        src_ranks = future.get(self.src_model.replicas[0].master.get_param_ranks.remote())
         dst_ranks = self.dst_model.all_ranks
-        if src_ranks is None or dst_ranks is None:
+        local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
+        if local_src_ranks[0] is None or dst_ranks is None:
             if self._debug:
                 logger.warning(
-                    f"DEBUG MODE! src_ranks {src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
+                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
                 return
             else:
-                raise Exception(f"src_ranks {src_ranks} or dst_ranks {dst_ranks} should not be None")
+                raise Exception(f"src_ranks {local_src_ranks} or dst_ranks {dst_ranks} should not be None")
+        dp_rank_to_ranks = defaultdict(list)
+        for local_ranks, dp_rank in local_src_ranks:
+            dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
+        src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
         assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
             f"src training model ranks should be times of dst ranks, but got {len(src_ranks)} and {len(dst_ranks[0])}"
