@@ -7,7 +7,6 @@ if ! python -c "from finetune_reward import model_provider"; then
 #    exit 1
 fi
 
-
 if [[ "$model_size" == "7B" ]]; then
   export policy_num_layers=32
   export policy_hidden_size=4096

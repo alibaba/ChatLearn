@@ -134,7 +134,21 @@ class BaseConfig:
     def validate(self):
         pass
 
-class LoraConfig(BaseConfig):
+
+class SubConfig(BaseConfig):
+    """Sub Config"""
+    _is_changed = False
+
+    def __setattr__(self, name, value):
+        if not name.startswith("_") and getattr(self, name) != value:
+            self._is_changed = True
+        super().__setattr__(name, value)
+
+    def is_changed(self):
+        return self._is_changed
+
+
+class LoraConfig(SubConfig):
     """Config for lora"""
     #: enable lora, default False.
     enable_lora: bool = False
@@ -158,7 +172,7 @@ class LoraConfig(BaseConfig):
     column_only_qkv: bool = False
 
 
-class BatchGenerationConfig(BaseConfig):
+class BatchGenerationConfig(SubConfig):
     """Config for batch generation ranking and memory-efficiency."""
 
     #: [optional] sort prompts by length each episode.
@@ -203,6 +217,23 @@ class ModelConfig(BaseConfig):
         self.args_dict = {}
         self.lora = LoraConfig()
         self.batch_generation = BatchGenerationConfig()
+
+    def __str__(self):
+        members = [attr for attr in dir(self) \
+                   if not callable(getattr(self, attr)) and not attr.startswith("__")]
+        ser_str = self.__class__.__name__ + " {\n"
+        for key in members:
+            if key.startswith('_'):
+                continue
+            attr = getattr(self, key)
+            if key in ["lora", "batch_generation"]:
+                if not attr.is_changed():
+                    continue
+            attr = '"{}"'.format(attr) if isinstance(attr, str) else attr
+            ser_str += "    %s = %s,\n" % (key, attr)
+        ser_str += "}"
+
+        return ser_str
 
 
 class RLHFConfig(BaseConfig):

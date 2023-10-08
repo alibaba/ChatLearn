@@ -67,7 +67,6 @@ class PolicyModel(GPTModel):
         # is last pipeline stage, if inference return the last logits. if training, return the loss
 
         inference_only = training_inputs is None
-        # print(f"hiddens size: {hiddens.size()}")
 
         # Output. Format [s b v]
         all_token_logits = parallel_lm_logits(
@@ -75,8 +74,6 @@ class PolicyModel(GPTModel):
             logit_weights,
             parallel_output)
         all_token_logits = all_token_logits.transpose(0, 1).contiguous()
-
-        # print(f"all_token_logits size: {all_token_logits.size()}")
 
         if inference_only:
             # [s b h] => [b s h]
@@ -123,13 +120,6 @@ class PolicyModel(GPTModel):
                                                           response_size=response_length,
                                                           pad_value=self.tokenizer.eod_id, dim=-1).contiguous()
 
-            # print(f"policy model beofre pg: training_inputs.size(): {training_inputs.size()}")
-            # print(f"policy model beofre pg: action_ids.size(): {action_ids.size()}")
-            # print(f"policy model beofre pg: advantages.size(): {advantages.size()}")
-            # print(f"policy model beofre pg: old_logprobs.size(): {old_logprobs.size()}")
-            # print(f"policy model beofre pg: action_loss_mask.size(): {action_loss_mask.size()}")
-            # print(f"policy model beofre pg: action_token_logits.size(): {action_token_logits.size()}")
-
             loss = tensor_decomp_pg_loss(self.args,
                                          action_token_logits=action_token_logits,  # [b,response size]
                                          action_ids=action_ids,  # [b, response size]
@@ -137,14 +127,6 @@ class PolicyModel(GPTModel):
                                          old_logprobs=old_logprobs,  # [b, response size]
                                          advantages=advantages,  # [b, response size]
                                          stats=self.stats)  # [b, response_size] remove last logit because it's EOS
-            # remove first token_ids because it's starting EOS
-            #
-            # if loss.sum() > 10:
-            #     print(f"loss out of roofff")
-            #     print(f"---------old_values: {old_values}")
-            #     print(f"---------old_rewards: {old_rewards}")
-            #     print(f"---------advantages: {advantages}")
-            #
 
             self.approx_kl = self.stats["policy/approx_kl"]  # Update kl controller stats
             return loss.contiguous()  # [b,response_size]
