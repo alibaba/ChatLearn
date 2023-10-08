@@ -32,6 +32,12 @@ models:
         num_device: 1
         gpu_per_process: 1
         trainable: True
+        lora:
+            enable_lora: ${enable_lora_policy:False}
+            lora_dim: 64
+            lora_layer: ColumnParallelLinear,LinearLayer,RowParallelLinear
+            column_only_qkv: False
+            lora_dropout: 0.05
     
     ppo_value:
         num_device: 1

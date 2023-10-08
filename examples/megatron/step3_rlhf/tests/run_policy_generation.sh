@@ -1,27 +1,35 @@
+export MEGATRON=path-to-megatron
+export CHATLEARN=path-to-chatlearn
 
+TP=4
+model_type=llama # gpt/llama
+VOCAB_FILE=path-to-tokenizer-dir
+LOAD=path-to-ckpt
+DATASET_PATH=path-to-dataset-json
+OUTPUT=$CHATLEARN/output/tests/
 
-TP=8
-scripts=gpt
+export model_size=13B # model size
 
-if [[ "$scripts" == "gpt" ]]; then
-    configs=configs/gpt/rlhf_inference.yaml
-elif [[ "$scripts" == "llama" ]]; then
+if [[ "$model_type" == "gpt" ]]; then
+    configs=configs/gpt/test_policy.yaml
+    export vocab_file=$VOCAB_FILE
+    export merge_file=$MERGE_FILE
+elif [[ "$model_type" == "llama" ]]; then
     configs=configs/llama/test_policy.yaml
+    export vocab_file=$VOCAB_FILE
 else
-    echo "unexpected scripts $scripts."
+    echo "unexpected model_type $model_type."
     exit 1
 fi
 
-source run_scripts/$scripts/base_env.sh
-export exp_name=run_test_13b_tp${TP}_meg_$scripts
-mkdir -p logs
+source run_scripts/$model_type/base_env.sh
 
-vocab_file=$VOCAB_FILE \
-merge_file=$MERGE_FILE \
+export exp_name=run_test_${model_size}_tp${TP}_meg_$model_type
+
 generation_batch_size=64 \
 num_device=$TP \
-tp=$TP \
+policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \
-eval_output_dir=${Megatron}/logs/$(date +%F) \
-python tests/test_policy_generation.py -c $configs 2>&1 | tee logs/${exp_name}.log
+eval_output_dir=$OUTPUT \
+python tests/test_policy_generation.py -c $configs 2>&1 | tee ${OUTPUT}/${exp_name}.log
