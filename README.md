@@ -20,11 +20,15 @@ A flexible and efficient training framework for large-scale RLHF
 ---
 
 *Latest News* 🔥
-- [2023/08] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md)。
+- [2023/10] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md).
 
 ---
 
-ChatLearn is a flexible and efficient training framework for large-scale RLHF. Chatlearn has the following advantages:
+ChatLearn is a flexible and efficient training framework for large-scale RLHF.
+
+![RLHF Flow](docs/images/rlhf.png)
+
+Chatlearn has the following advantages:
 1. **User-friendly programming interface**: Users can focus on programming individual models by wrapping a few functions, while the system takes care of resource scheduling, data and control flow transmission, and distributed execution.
 2. **Multiple distributed acceleration backends**: Users can use different computation backends for model development, such as Megatron-LM and DeepSpeed.
 3. **Hybrid parallel strategies**: Various parallel strategies can be employed, including Data Parallel, Tensor Parallel, Sequence Parallel, Pipeline Parallel, ZeRO, and the combination thereof.
@@ -39,6 +43,7 @@ Please refer to the [documentation](https://chatlearn.readthedocs.io/en/latest/)
 
 1. [Environment and Code Setup](docs/en/installation.md) 
 2. [End-to-End Training Tutorial with LLaMA Model](docs/en/tutorial.md)
+3. [End-to-End Training Tutorial with BLOOM Model](docs/en/tutorial_bloom.md)
 
 # Supported Models
 
@@ -49,6 +54,8 @@ The current ChatLearn framework supports RLHF training for GPT/LLaMA models of a
 | GPT (various scales of GPT models)                                                                                                                                                          |
 | LLaMA (`lmsys/vicuna-13b-v1.3`, `decapoda-research/llama-7b-hf`, `decapoda-research/llama-13b-hf`, `decapoda-research/llama-30b-hf`, `decapoda-research/llama-65b-hf`, etc.) |
 | LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`)                                                                                                             |
+| Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                             |
+| BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                             |
 
 Note: The current performance benchmark is based on the GPT series models.
 
