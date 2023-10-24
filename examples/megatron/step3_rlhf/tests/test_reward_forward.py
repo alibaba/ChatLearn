@@ -59,7 +59,8 @@ acc = 0
 for batch in tqdm(batches):
     res = model.forward_step_pipeline(list_strs=batch['input'])  # [b,]
     res = chatlearn.get(res)
-    res = res[0]
+    # use last pipeline stage results
+    res = res[-1]
     if res[0].item() > res[1].item():
         new_scores = [1, 0]
     else:

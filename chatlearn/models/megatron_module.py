@@ -14,12 +14,14 @@
 # ==============================================================================
 """RLHF Megatron module"""
 
+import inspect
 try:
     import megatron
     from megatron.core import mpu
     from megatron.initialize import set_jit_fusion_options
     from megatron.training import save_checkpoint_and_time
-    from chatlearn.utils.megatron_utils import initialize_megatron
+    from megatron.initialize import initialize_megatron
+    from chatlearn.utils.megatron_utils import initialize_megatron as chatlearn_initialize_megatron
     from chatlearn.utils.megatron_utils import build_pipeline_layer_name_mapping
 except ImportError:
     print("Cannot import megatron, please set megatron python path first.")
@@ -66,9 +68,13 @@ class RLHFMegatronModule(RLHFTorchModule):
         """
         :meta private:
         """
-        initialize_megatron(extra_args_provider=self.add_extra_args,
-                            ignore_unknown_args=True,
-                            args_dict=self.model_args)
+        if "args_dict" in inspect.getfullargspec(initialize_megatron).args:
+            initialize_func = initialize_megatron
+        else:
+            initialize_func = chatlearn_initialize_megatron
+        initialize_func(extra_args_provider=self.add_extra_args,
+                        ignore_unknown_args=True,
+                        args_dict=self.model_args)
         if self.trainable:
             # slow down if set jit fusion for inference model
             set_jit_fusion_options()

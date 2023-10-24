@@ -10,32 +10,31 @@ runtime_env:
 models:
   policy:
     model_config_file: old_policy_inference.yaml
-    num_device: ${num_device:16}
+    num_device: ${num_device_policy:16}
     trainable: False
     batch_generation:
       ranking: ${batch_generation_ranking:False}
-      num_max_tokens: ${batch_generation_num_max_tokens:0}
       min_prompt_length: ${batch_generation_min_prompt_length:0}
 
   reference:
     model_config_file: reference.yaml
-    num_device: ${num_device:16}
+    num_device: ${num_device_ref:16}
     trainable: False
     generation_batch_size: ${ref_generation_batch_size:4}
 
   reward:
     model_config_file: reward_inference.yaml
-    num_device: ${num_device:16}
+    num_device: ${num_device_reward:16}
     trainable: False
 
   value:
     model_config_file: old_value_inference.yaml
-    num_device: ${num_device:16}
+    num_device: ${num_device_value:16}
     trainable: False
 
   ppo_policy:
     model_config_file: ppo_policy.yaml
-    num_device: ${num_device:16}
+    num_device: ${num_device_ppo_policy:16}
     trainable: True
     lora:
       enable_lora: ${enable_lora_policy:False}
@@ -46,7 +45,7 @@ models:
 
   ppo_value:
     model_config_file: ppo_value.yaml
-    num_device: ${num_device:16}
+    num_device: ${num_device_ppo_value:16}
     trainable: True
     lora:
       enable_lora: ${enable_lora_value:False}
@@ -59,7 +58,7 @@ rlhf:
   colocation:
     - policy,ppo_policy,reward,reference,value,ppo_value
   generation_batch_size: ${generation_batch_size:4}
-  train_micro_batch_size: 2
+  train_micro_batch_size: ${train_micro_batch_size:2}
   train_global_batch_size: ${train_global_batch_size:512}
   num_ppo_episode: 5000
   sample_per_episode: ${sample_per_episode:1024}

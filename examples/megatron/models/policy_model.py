@@ -19,9 +19,11 @@ from megatron.global_vars import get_tokenizer
 from megatron.model.gpt_model import GPTModel
 from megatron.model.language_model import parallel_lm_logits
 
-from chatlearn.models.ops.policy_gradient import tensor_decomp_pg_loss
+from chatlearn.models.megatron.ops.policy_gradient import tensor_decomp_pg_loss
 from .constants_ppo import select_actions_from_right_padded
 from .utils import get_advantages_and_returns
+from .utils import has_config_in_args
+from .utils import get_eos_id
 
 
 class PolicyModel(GPTModel):
@@ -33,9 +35,14 @@ class PolicyModel(GPTModel):
                  pre_process=True,
                  post_process=True,
                  stats=None):
-
-        super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
         self.args = get_args()
+        if has_config_in_args(GPTModel):
+            # new API
+            from megatron.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
+            config = core_transformer_config_from_args(self.args)
+            super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
+        else:
+            super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
         self.tokenizer = get_tokenizer()
         self.stats = stats
 
@@ -56,7 +63,7 @@ class PolicyModel(GPTModel):
             # is last pipeline stage, if inference return the last logits. if training, return the loss
             return self.post_language_model_processing(
                 hiddens, training_inputs,
-                self.language_model.output_layer.weight if self.untie_embeddings_and_output_weights else self.word_embeddings_weight(),
+                self.language_model.output_layer.weight if self.untie_embeddings_and_output_weights else self.shared_embedding_or_output_weight(),
                 self.parallel_output)
         else:
             return hiddens
@@ -118,7 +125,7 @@ class PolicyModel(GPTModel):
             action_ids = select_actions_from_right_padded(ts=all_token_ids,
                                                           action_starts=training_inputs["action_starts"],
                                                           response_size=response_length,
-                                                          pad_value=self.tokenizer.eod_id, dim=-1).contiguous()
+                                                          pad_value=get_eos_id(self.tokenizer), dim=-1).contiguous()
 
             loss = tensor_decomp_pg_loss(self.args,
                                          action_token_logits=action_token_logits,  # [b,response size]

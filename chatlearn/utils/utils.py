@@ -158,3 +158,38 @@ def flatten(nested_list):
         else:
             flat.append(elem)
     return flat
+
+
+def get_indent_count(string):
+    count = 0
+    for s in string:
+        if s == ' ':
+            count += 1
+        else:
+            return count
+
+
+def detect_and_insert_code(lines, pattern, new_code, additional_indent=0, line_offset=0):
+    """
+    Insert new_code above the pattern detected
+    """
+    detected_lines = [(line_number, line) for line_number, line in enumerate(lines) if pattern in line]
+    if not detected_lines:
+        return
+    type_line_number, type_line = detected_lines[0]
+    indent = get_indent_count(type_line) + additional_indent
+    new_lines = [line for line in new_code.split('\n') if line.strip()]
+    added_lines = []
+    for line in new_lines:
+        added_lines.append(" "*indent + line)
+    lines = lines[:type_line_number+line_offset] + added_lines + lines[type_line_number+line_offset:]
+    return lines
+
+def detect_and_insert_code_to_func(source_code, pattern, new_code, additional_indent=0, line_offset=0):
+    lines = source_code.split('\n')
+    lines = detect_and_insert_code(lines, pattern, new_code, additional_indent, line_offset)
+    if lines is None:
+        return
+    indent = get_indent_count(lines[0])
+    lines = [line[indent:] for line in lines]
+    return '\n'.join(lines)

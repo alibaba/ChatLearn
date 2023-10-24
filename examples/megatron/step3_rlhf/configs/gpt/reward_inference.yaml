@@ -10,4 +10,3 @@ reward_bias: 0
 save_inference: False
 save_inference_interval: 100
 pipeline_model_parallel_size: ${reward_pp:1}
-inference_batch_times_seqlen_threshold: ${inference_batch_times_seqlen_threshold:16384}

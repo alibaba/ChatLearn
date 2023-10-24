@@ -1,17 +1,22 @@
-# llama config
+# llama2 config
 add_position_embedding: False
-add_bias_linear: False
-swiglu: True
 use_rotary_position_embeddings: True
 untie_embeddings_and_output_weights: True
-tokenizer_type: AutoTokenizer
+tokenizer_type: Llama2Tokenizer
+exit_on_missing_checkpoint: True
+normalization: RMSNorm
+masked_softmax_fusion: False
+apply_query_key_layer_scaling: False
+use_checkpoint_args: False
+group_query_attention: ${group_query_attention:False}
+add_bias_linear: False
+swiglu: True
 
-vocab_file: ${vocab_file}
-num_layers: 40
-hidden_size: 5120
-num_attention_heads: 40
-max_position_embeddings: 1024
 bf16: True
+
+
+tokenizer_model: ${tokenizer_model}
+max_position_embeddings: ${max_position_embedding:4096}
 seq_length: 1024
 fix_kl_coef: ${fix_kl_coef:True}
 log_dir: ${log_dir}
@@ -44,6 +49,7 @@ raw_reward_coeff: ${raw_reward_coeff:1}
 
 clipped_value_only: ${clipped_value_only:1}
 num_inference_per_prompt: ${num_inference_per_prompt:1}
+finetune: True
 
 
 save: ${save_dir}
@@ -54,11 +60,9 @@ max_tokens_to_oom: 99999999
 
 hysteresis: 2
 use_flash_attn: 1
-make_ffn_dim_multiple_of: 256
-pos_emb: rotary
-make_vocab_size_divisible_by: 32
 do_math_eval: 0
 log_entropy: False
 adaptive_parallel_strategy_on_checkpoint: True
 log_interval: 1
 distributed_timeout_minutes: 30
+make_vocab_size_divisible_by: 32

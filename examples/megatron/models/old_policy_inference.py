@@ -14,13 +14,14 @@
 # ==============================================================================
 """old policy inference"""
 
+import inspect
 import numpy as np
 import torch
 import torch.nn.functional as F
 from dataset.prompt_dataset import PromptPipeline
+from megatron import arguments
 from megatron import get_args, get_tokenizer
 from megatron import print_rank_0
-from megatron.checkpointing import load_checkpoint
 from megatron.global_vars import get_tensorboard_writer
 from megatron.text_generation.communication import broadcast_float_list, \
     broadcast_int_list, broadcast_tensor
@@ -28,12 +29,11 @@ from megatron.text_generation.generation import generate_tokens_probs_and_return
 from megatron.training import get_model
 from models.policy_model import PolicyModel
 
-import chatlearn
 from chatlearn import RLHFMegatronModule
-from chatlearn.opt.batch_generation.generation import generate_tokens_probs_and_return_on_first_stage as \
-    generate_tokens_probs_and_return_on_first_stage_batch_generation
 from chatlearn.utils import to_device
+from chatlearn.utils.megatron_utils import load_checkpoint
 from .utils import tensorboard_scalar_dict, get_loss_mask
+from .utils import get_eos_id
 
 
 class PolicyInference(RLHFMegatronModule):
@@ -48,6 +48,9 @@ class PolicyInference(RLHFMegatronModule):
                            help='Top p sampling.')
         group.add_argument("--top_k", type=int, default=0,
                            help='Top k sampling.')
+        if '--use-attn-acc' not in inspect.getsource(arguments._add_training_args):
+            group.add_argument('--use-attn-acc', action='store_true',
+                            help='use attention-acc kernel')
         return parser
 
     def setup(self):
@@ -57,8 +60,7 @@ class PolicyInference(RLHFMegatronModule):
         self.tokenizer = get_tokenizer()
         if self.args.load is not None:
             torch.distributed.barrier()
-            load_checkpoint(model, None, None,
-                            adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
+            load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
@@ -117,13 +119,17 @@ class PolicyInference(RLHFMegatronModule):
         prompt_sizes = [len(q) for q in no_padded_query_ids]
 
         str_samples, str_prompts, str_outputs, response_ids = [], [], [], []
+
+        kwargs = {}
+        if 'skip_special_tokens' in inspect.getfullargspec(tokenizer.decode).args:
+            kwargs = {"skip_special_tokens": True}
         for prompt, sample, prompt_size in zip(no_padded_query_ids, all_tokens, prompt_sizes):
             output_start_ix = prompt_size
             str_prompt = tokenizer.decode(
-                prompt.tolist(), skip_special_tokens=True
+                prompt.tolist(), **kwargs
             )
             str_output = tokenizer.decode(
-                sample[output_start_ix:].tolist(), skip_special_tokens=True
+                sample[output_start_ix:].tolist(), **kwargs
             )
             response_id = sample[output_start_ix:]
             response_ids.append(response_id)
@@ -269,13 +275,7 @@ class PolicyInference(RLHFMegatronModule):
 
         # Main inference function.
         # Note that the outputs are available on the first stage.
-        batch_generation_num_max_tokens = chatlearn.get_args().active_module_args.batch_generation.num_max_tokens
-        batch_generation_min_prompt_length = chatlearn.get_args().active_module_args.batch_generation.min_prompt_length
-        if batch_generation_num_max_tokens or batch_generation_min_prompt_length:
-            generate_func_internal = generate_tokens_probs_and_return_on_first_stage_batch_generation
-        else:
-            generate_func_internal = generate_tokens_probs_and_return_on_first_stage
-        return generate_func_internal(
+        res = generate_tokens_probs_and_return_on_first_stage(
             model, prompts_ids, context_length_tensor,
             return_output_log_probs=return_output_log_probs,
             top_k=top_k_sampling,
@@ -284,6 +284,8 @@ class PolicyInference(RLHFMegatronModule):
             use_eod_token_for_early_termination=use_eod_token_for_early_termination,
             stop_on_double_eol=stop_on_double_eol,
             stop_on_eol=stop_on_eol)
+        # tokens, generated_sequence_lengths, output_log_probs, None
+        return res[0], res[2]
 
     def replace_all_after_first_stop_sequences_by_pad(self, tokens, all_log_probs, stop_token, prompt_sizes):
         '''
@@ -310,12 +312,13 @@ class PolicyInference(RLHFMegatronModule):
         not_found_mask = torch.sum(occurrences, dim=1) == 0
         # for the not found one. take stop_sequence = tokens.size(1)-1 before everything else replace tokens afterwards
         first_stop_sequence_indices[not_found_mask] = tokens.size(1) - 1
-        # print(f"first_stop_sequence_indices {first_stop_sequence_indices}")
+
+        eos_id = get_eos_id(self.tokenizer)
 
         for i in range(tokens.size(0)):
             if first_stop_sequence_indices[i] < tokens.size(1) - 1:
                 # if not the last tokne to stop
-                tokens[i, first_stop_sequence_indices[i] + 1:] = self.tokenizer.eod_id
+                tokens[i, first_stop_sequence_indices[i] + 1:] = eos_id
 
         # because all_log_probs is the logprobs of the tokens[:, 1:], thus index 4 at tokens = index 3 at all_log_prob
         all_log_probs_indices = first_stop_sequence_indices - 1
@@ -344,7 +347,7 @@ class PolicyInference(RLHFMegatronModule):
 
         no_padded_query_ids = to_device('cuda', data["input_ids"])
         # tokens: [b, qs + rs],
-        tokens, _, all_log_probs = self.generate(
+        tokens, all_log_probs = self.generate(
             self.model,
             prompts_ids=no_padded_query_ids,
             tokens_to_generate=self.args.max_new_tokens,
@@ -366,7 +369,7 @@ class PolicyInference(RLHFMegatronModule):
         # everything after stop_token_indx -1 in all_log_probs will be 0.0 (its pad since it's used to minus other logprob)
         prompt_sizes = torch.tensor([len(q) for q in no_padded_query_ids], device=tokens.device)
         tokens, all_log_probs = self.replace_all_after_first_stop_sequences_by_pad(tokens, all_log_probs,
-                                                                                   stop_token=self.tokenizer.eod_id,
+                                                                                   stop_token=get_eos_id(self.tokenizer),
                                                                                    prompt_sizes=prompt_sizes)
         assert all_log_probs.size(1) == tokens.size(1) - 1, "because first token hsa no log prob logprob[:, 1:]"
 
@@ -380,7 +383,7 @@ class PolicyInference(RLHFMegatronModule):
         assert tokens.size(1) == _all_tokens_max_len, f"tokens size: {tokens.size(1)} " \
                                                       f"_all_tokens_max_len: {_all_tokens_max_len}"
 
-        loss_mask = get_loss_mask(tokens, get_tokenizer().eod_id, prompt_sizes)
+        loss_mask = get_loss_mask(tokens, get_eos_id(get_tokenizer()), prompt_sizes)
 
         return {"all_tokens": tokens, "str_samples": str_samples,
                 "str_prompts": str_prompts, "str_outputs": str_outputs, "logprobs": all_log_probs,

@@ -32,10 +32,26 @@ class RLHFTorchModule(RLHFModule):
     """
 
     def __init__(self, *args, **kwargs):
-        """
-        nihao
-        """
         super().__init__(*args, **kwargs)
+        if self.rlhf_args.profiler_dir is not None and self.replica_id == 0:
+            self.profiler = torch.profiler.profile(
+                activities=[
+                    torch.profiler.ProfilerActivity.CPU,
+                    torch.profiler.ProfilerActivity.CUDA],
+                schedule=torch.profiler.schedule(
+                    wait=1,
+                    warmup=1,
+                    active=1,
+                    repeat=1),
+                    profile_memory=False,
+                    record_shapes=False,
+                    with_stack=False,
+                    with_flops=False,
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.rlhf_args.profiler_dir)
+            )
+            self.profiler.start()
+        else:
+            self.profiler = None
 
     def get_addr_port(self):
         """

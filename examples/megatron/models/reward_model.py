@@ -17,12 +17,12 @@
 import torch
 from dataset.reward_dataset import preprocess
 from megatron import get_args
-from megatron import get_tokenizer
 from megatron import print_rank_0
 from megatron.core import tensor_parallel
 from megatron.model import GPTModel
 from megatron.model.module import MegatronModule
 from megatron.model.utils import get_linear_layer
+from .utils import has_config_in_args
 
 
 def batch_padded_tokenize_data(list_strs, tokenizer, max_length):
@@ -90,10 +90,14 @@ class RewardModel(GPTModel):
                  post_process=True,
                  pooler_head=LinearPooler,
                  score_dimension=1):
-        super().__init__(num_tokentypes=num_tokentypes,
-                         parallel_output=parallel_output,
-                         pre_process=pre_process,
-                         post_process=post_process)
+        args = get_args()
+        if has_config_in_args(GPTModel):
+            # new API
+            from megatron.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
+            config = core_transformer_config_from_args(args)
+            super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
+        else:
+            super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
 
         if self.post_process:
             self.pooler_head = pooler_head(self.language_model.hidden_size, self.language_model.init_method,
@@ -101,7 +105,6 @@ class RewardModel(GPTModel):
             self._pooler_head_key = 'pooler_head'
         else:
             self._pooler_head_key = None
-        self.tokenizer = get_tokenizer()
 
     def forward(self, input_ids=None, position_ids=None, attention_mask=None,
                 ret_input_ids=None, ret_position_ids=None, ret_attn_mask=None,
@@ -113,9 +116,9 @@ class RewardModel(GPTModel):
             input_ids,
             position_ids,
             attention_mask,
-            ret_input_ids=ret_input_ids,
-            ret_position_ids=ret_position_ids,
-            ret_attn_mask=ret_attn_mask,
+            ret_input_ids,
+            ret_position_ids,
+            ret_attn_mask,
             inference_params=inference_params)
         if self.post_process:
             assert labels is None, "assume labels is None in reawrd model"
@@ -143,3 +146,16 @@ class RewardModel(GPTModel):
         elif self.post_process:
             # for reward model training
             print_rank_0("cannot load reward model pooler_head, init from random")
+
+def model_provider(pre_process=True, post_process=True):
+    """Build the model."""
+
+    print_rank_0('building GPT model ...')
+    model = RewardModel(
+        num_tokentypes=0,
+        parallel_output=True,
+        pre_process=pre_process,
+        post_process=post_process,
+        score_dimension=1,
+    )
+    return model

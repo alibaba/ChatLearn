@@ -18,12 +18,10 @@ from functools import partial
 
 import numpy as np
 import torch
-from megatron import get_args, get_num_microbatches
+from megatron import get_num_microbatches
 from megatron import get_tokenizer
 from megatron import print_rank_0
 from megatron.core import mpu
-from megatron.core.enums import ModelType
-from megatron.training import train_step as megatron_train_step
 from megatron.utils import average_losses_across_data_parallel_group
 from megatron.utils import calc_params_l2_norm
 from models.policy_model import PolicyModel
@@ -32,6 +30,7 @@ from models.utils import training_log
 from chatlearn.utils import to_device
 from .base_trainer import BaseTrainer
 from .constants_ppo import select_actions_from_right_padded, get_ltor_masks_and_position_ids, pad_to_max_len
+from .utils import get_eos_id
 
 
 class AdaptiveKLController:
@@ -71,39 +70,10 @@ class PolicyTrainer(BaseTrainer):
     """gpt model wrapper"""
 
     def setup(self):
-        self.buffer = {}
-        self.stats = {}
-
-        self.args = get_args()
-
-        self.model_type = ModelType.encoder_or_decoder
-        self.tokenizer = get_tokenizer()
-
-        # always a adaptive one but may not use this value but kept at init_kl_coeff
+        super().setup()
         self.kl_ctl = AdaptiveKLController(
             self.args.init_kl_coef, self.args.target, self.args.horizon
         )
-
-        # Adjust the startup time so it reflects the largest value.
-        # This will be closer to what scheduler will see (outside of
-        # image ... launches.
-
-        get_args().save = f"{get_args().save}/policy/"
-        if self.resume_training:
-            self.args.load = get_args().save
-            self.args.load_iteration = -1  # latest
-
-            self.args.no_load_optim = False  # latest
-            self.args.no_load_rng = False  # latest
-            self.args.no_load_args = False  # latest
-            self.args.no_load_scheduler = False  # latest
-            self.args.adaptive_parallel_strategy_on_checkpoint = False
-
-            print(
-                f"policy trainer continue train args load: {self.args.load} self.args.load_iteration {self.args.load_iteration}")
-
-        self.model, self.optimizer, self.opt_param_scheduler = self.setup_model_and_optimizer(self.model_provider,
-                                                                                              self.model_type)
 
     def model_provider(self, pre_process=True, post_process=True):
         """Build the model."""
@@ -117,7 +87,7 @@ class PolicyTrainer(BaseTrainer):
             stats=self.stats
         )
         if self.module_args.lora.enable_lora:
-            from chatlearn.opt.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
+            from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
             model = convert_layer_to_lora(model)
         return model
 
@@ -135,7 +105,7 @@ class PolicyTrainer(BaseTrainer):
 
         # TODO: move to RLHF framework later. add pad to max length config
         all_token_ids_right_padded = pad_to_max_len(data_b["all_token_ids_right_padded"], args.seq_length,
-                                                    pad_value=get_tokenizer().eod_id)
+                                                    pad_value=get_eos_id(get_tokenizer()))
         all_token_loss_mask = pad_to_max_len(data_b["loss_mask"], args.seq_length, pad_value=0)
 
         all_token_attention_mask, all_token_position_ids = get_ltor_masks_and_position_ids(
@@ -196,14 +166,6 @@ class PolicyTrainer(BaseTrainer):
         return losses, partial(self.aggregate_loss_func,
                                inputs)  # will call loss_func(loss_mask, output_tensor) to get loss
 
-    def train_step(self, data, train_info):
-        iteration = train_info["iteration"]
-        data_iterator = iter(data)
-        _, skipped_iter, grad_norm, num_zeros_in_grad = megatron_train_step(self._forward_step, data_iterator,
-                                                                            self.model, self.optimizer,
-                                                                            self.opt_param_scheduler)
-        self.post_update_stuffs({}, skipped_iter,
-                                grad_norm, num_zeros_in_grad, iteration)
 
     def post_update_stuffs(self, loss_dict, skipped_iter,
                            grad_norm, num_zeros_in_grad, iteration):

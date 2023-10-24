@@ -99,7 +99,7 @@ YAML 配置
 
 .. code-block:: python
 
-    from chatlearn.opt.lora import convert_layer_to_lora
+    from chatlearn.models.megatron.lora import convert_layer_to_lora
     model = PolicyModel()
     if self.module_args.lora.enable_lora:
         model = convert_layer_to_lora(model)

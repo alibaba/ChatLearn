@@ -4,5 +4,6 @@ hidden_size: ${policy_hidden_size}
 num_attention_heads: ${policy_num_attention_heads}
 ffn_hidden_size: ${policy_ffn_hidden_size}
 tensor_model_parallel_size: ${policy_tp:8}
+num_query_groups: ${policy_num_query_groups}
 use_distributed_optimizer: True
 

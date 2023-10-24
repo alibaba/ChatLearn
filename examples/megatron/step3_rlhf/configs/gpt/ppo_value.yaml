@@ -2,7 +2,7 @@ includes:
         - base_train.yaml
         - reward_shared.yaml
 
-pipeline_model_parallel_size: ${ppo_reward_pp}
+pipeline_model_parallel_size: ${ppo_value_pp}
 
 lr_decay_iters: 4000
 lr_warmup_iters: 80

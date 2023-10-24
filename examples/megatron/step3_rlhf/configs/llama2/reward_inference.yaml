@@ -2,5 +2,5 @@ includes:
   - base_inference.yaml
   - reward_shared.yaml
 
-tokenizer_type: AutoTokenizer
 reward_bias: 0
+pipeline_model_parallel_size: ${reward_pp:1}

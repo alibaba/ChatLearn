@@ -12,7 +12,6 @@ models:
         trainable: False
         batch_generation:
             ranking: ${batch_generation_ranking:False}
-            num_max_tokens: ${batch_generation_num_max_tokens:0}
             min_prompt_length: ${batch_generation_min_prompt_length:0}
 rlhf:
     generation_batch_size: ${generation_batch_size:4}
@@ -20,3 +19,4 @@ rlhf:
     data_path: ${data_path:/path/to/data}
     eval_data_path: ${eval_data_path:/path/to/eval_data}
     eval_output_dir: ${eval_output_dir:/path/to/eval_dir}
+    profiler_dir: ${profiler_dir}

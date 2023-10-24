@@ -4,4 +4,3 @@ includes:
 
 parallel_output: True
 pipeline_model_parallel_size: ${ref_pp:1}
-inference_batch_times_seqlen_threshold: ${inference_batch_times_seqlen_threshold:16384}

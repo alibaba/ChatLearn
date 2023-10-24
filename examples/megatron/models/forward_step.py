@@ -122,13 +122,17 @@ def _with_pipelining_forward_step(model, tokens, position_ids, attention_mask,
         this_micro_batch_size = end - start
         tokens2use = tokens[start:end, ...]
         position_ids2use = position_ids[start:end, ...]
+        if pooling_sequence_index is not None:
+            pooling_sequence_index2use = pooling_sequence_index[start:end]
+        else:
+            pooling_sequence_index2use = None
 
         # Run a simple forward pass.
         if this_micro_batch_size != micro_batch_size:
             recv_buffer = None
         output = _forward_step_helper(model, tokens2use, position_ids2use,
                                       attention_mask, recv_buffer=recv_buffer,
-                                      pooling_sequence_index=pooling_sequence_index)
+                                      pooling_sequence_index=pooling_sequence_index2use)
 
         # Copy logits.
         if mpu.is_pipeline_last_stage():

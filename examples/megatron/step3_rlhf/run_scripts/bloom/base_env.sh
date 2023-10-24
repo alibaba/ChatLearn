@@ -2,10 +2,6 @@ source run_scripts/base_env.sh
 export PYTHONPATH=${PYTHONPATH}:${CHATLEARN}/examples/megatron/step2_reward
 
 echo $PYTHONPATH
-if ! python -c "from finetune_reward import model_provider"; then
-   echo import failed
-#    exit 1
-fi
 
 
 if [[ "$model_size" == "1B1" ]]; then

@@ -11,7 +11,7 @@ log_dir: ${log_dir}
 exp_name: ${exp_name:test}
 tensorboard_dir: ${tensorboard_dir}
 loss_on_prompts: ${loss_on_prompts:False}
-policy_numerical_stable: ${policy_numerical_stable:False}
+numerical_stable: ${policy_numerical_stable:False}
 
 build_path: ${build_path:build}
 
@@ -31,7 +31,6 @@ cliprange_reward: 100
 max_new_tokens: ${max_new_tokens}
 
 
-
 ngram_coef: 0
 lm_coef: 1
 clipped_value_only: True
@@ -49,3 +48,4 @@ use_eod_token_for_early_termination: ${use_eod_token_for_early_termination:True}
 attention_dropout: 0
 hidden_dropout: 0
 distributed_timeout_minutes: 30
+adaptive_parallel_strategy_on_checkpoint: True

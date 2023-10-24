@@ -51,6 +51,11 @@ def timeit(func, func_name):
             self.timers(func_name).stop()
         else:
             ret = func(self, *args, **kwargs)
+        if self.profiler is not None and self._iteration > 0 and self._iteration <=2 and self.replica_id == 0 \
+            and func_name in ["forward_step", "train_step"]:
+            self.profiler.step()
+        if self.profiler is not None and self._iteration ==3 and self.replica_id == 0 and func_name in ["forward_step", "train_step"]:
+            self.profiler.stop()
         if self.rlhf_args.nsys:
             nvtx.range_pop()
         return ret

@@ -54,8 +54,8 @@ class SFTDataset(torch.utils.data.Dataset):
             self.dataset = f.readlines()
             self.dataset = [json.loads(item) for item in self.dataset]
         self.tokenizer = get_tokenizer()
-        self.pad_id = self.tokenizer.pad_token_id
-        self.bos_id = self.tokenizer.bos_token_id
+        self.pad_id = self.tokenizer.pad_token_id if hasattr(self.tokenizer, 'pad_token_id') else self.tokenizer.pad_id
+        self.bos_id = self.tokenizer.bos_token_id if hasattr(self.tokenizer, 'bos_token_id') else self.tokenizer.bos_id
         self.eos_id = self.tokenizer.eod
 
     def __len__(self):
@@ -86,7 +86,7 @@ class SFTDataset(torch.utils.data.Dataset):
         query_toks_len, all_toks_len = len(query_toks), len(all_toks)
 
         if all_toks_len < self.max_seq_length:
-            all_toks = all_toks + [self.tokenizer.pad_token_id] * (self.max_seq_length - all_toks_len)
+            all_toks = all_toks + [self.pad_id] * (self.max_seq_length - all_toks_len)
 
         label_mask = [1] * len(all_toks)
         label_mask = np.array(label_mask, dtype=np.int64)

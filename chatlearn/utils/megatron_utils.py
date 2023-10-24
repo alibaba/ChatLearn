@@ -16,16 +16,23 @@
 
 import functools
 import re
+import os
+import subprocess
 
 import torch
 
 from megatron import get_args
 from megatron.core import mpu
 from megatron.arguments import parse_args, validate_args
+from megatron.checkpointing import _load_base_checkpoint
 from megatron.checkpointing import load_args_from_checkpoint
+from megatron.checkpointing import load_checkpoint as megatron_load_checkpoint
 from megatron.global_vars import set_global_variables
+from megatron.utils import unwrap_model
 
 from megatron.initialize import _initialize_distributed, _set_random_seed, _init_autoresume, _compile_dependencies
+
+from chatlearn.utils.logger import logger
 
 
 # regex to parse out layer number from param name
@@ -148,3 +155,38 @@ def initialize_megatron( # pylint: disable=dangerous-default-value
 
         # No continuation function
         return None
+
+def load_checkpoint(*_args, **kwargs):
+    adaptive_parallel_strategy = False
+    if "adaptive_parallel_strategy" in kwargs:
+        adaptive_parallel_strategy = kwargs.pop("adaptive_parallel_strategy")
+    if not adaptive_parallel_strategy:
+        return megatron_load_checkpoint(*_args, **kwargs)
+    args = get_args()
+    target_tp = args.tensor_model_parallel_size
+    target_pp = args.pipeline_model_parallel_size
+    state_dict, _, _ = _load_base_checkpoint(args.load, rank0=True)
+    args.iteration = state_dict['iteration']
+    checkpoint_args = state_dict['args']
+    checkpoint_tp = checkpoint_args.tensor_model_parallel_size
+    checkpoint_pp = checkpoint_args.pipeline_model_parallel_size
+    if target_tp != checkpoint_tp or target_pp != checkpoint_pp:
+        script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tools/megatron_checkpoint_utils.py")
+        save_dir = args.load[:-1] if args.load.endswith("/") else args.load
+        save_dir = save_dir + f"-transform-tp{target_tp}-pp{target_pp}"
+        if not os.path.exists(save_dir):
+            # use last rank so we can determin model_type by whether last pipeline stage contains pooler_head
+            if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):
+                model_type = "GPT"
+                for key in unwrap_model(_args[0])[0].state_dict().keys():
+                    if 'pooler_head' in key:
+                        model_type = "REWARD"
+                        break
+                cmd = f"python {script_path} --model-type {model_type} --load-dir {args.load} " + \
+                      f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} --target-pipeline-parallel-size {target_pp}"
+                logger.info(f"Transforming checkpoint for new parallel strategies {cmd}")
+                subprocess.run(cmd, shell=True, check=True)
+        torch.distributed.barrier()
+        args.load = save_dir
+        logger.info(f"Using transformed checkpoint {save_dir}")
+    return megatron_load_checkpoint(*_args, **kwargs)
