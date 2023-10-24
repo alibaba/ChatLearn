@@ -12,3 +12,4 @@ attention_dropout: 0.0
 hidden_dropout: 0.0
 retro_encoder_attention_dropout: 0.0
 retro_encoder_hidden_dropout: 0.0
+inference_batch_times_seqlen_threshold: ${inference_batch_times_seqlen_threshold:4096}

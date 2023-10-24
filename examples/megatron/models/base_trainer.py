@@ -17,21 +17,58 @@
 import torch
 from megatron import get_args
 from megatron import get_timers
+from megatron import get_tokenizer
 from megatron import print_rank_0
-from megatron.checkpointing import load_checkpoint
-from megatron.core import mpu
-from megatron.model import DistributedDataParallel as LocalDDP
-from megatron.model import Float16Module
+from megatron.core.enums import ModelType
+try:
+    from megatron.core.utils import get_model_config
+except ImportError:
+    get_model_config = None
 from megatron.optimizer import get_megatron_optimizer
 from megatron.training import get_optimizer_param_scheduler, get_model
 from megatron.utils import unwrap_model
-from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
+from megatron.training import train_step as megatron_train_step
 
 from chatlearn import RLHFMegatronModule
+from chatlearn.utils.megatron_utils import load_checkpoint
 
 
 class BaseTrainer(RLHFMegatronModule):
     """Base Trainer"""
+
+    def setup(self):
+        self.buffer = {}
+        self.stats = {}
+
+        self.args = get_args()
+
+        print(f"value trainer loading : {self.args.load}")
+
+        self.model_type = ModelType.encoder_or_decoder
+        self.tokenizer = get_tokenizer()
+
+        self.args.save = f"{self.args.save}/{self.name}/"
+
+        if self.resume_training:
+            self.args.load = get_args().save
+            self.args.load_iteration = -1  # latest
+            self.args.no_load_optim = False  # latest
+            self.args.no_load_rng = False  # latest
+            self.args.no_load_args = False  # latest
+            self.args.no_load_scheduler = False  # latest
+            self.args.adaptive_parallel_strategy_on_checkpoint = False
+            self.args.finetune = False
+            print(
+                f"{self.name} continue train args load: {self.args.load} self.args.load_iteration {self.args.load_iteration}")
+
+        self.model, self.optimizer, self.opt_param_scheduler = self.setup_model_and_optimizer(self.model_provider,
+                                                                                              self.model_type)
+        if get_model_config is not None:
+            self.config = get_model_config(self.model[0])
+            self.config.grad_scale_func = self.optimizer.scale_loss
+        else:
+            self.config = None
+
 
     def setup_model_and_optimizer(self, model_provider_func,
                                   model_type,
@@ -48,15 +85,13 @@ class BaseTrainer(RLHFMegatronModule):
             strict = False
         else:
             strict = True
-
         if args.load is not None and (args.finetune or args.no_load_optim):
             torch.distributed.barrier()
-            args.iteration = load_checkpoint(model, None, None, \
-                                             adaptive_parallel_strategy=args.adaptive_parallel_strategy_on_checkpoint,
-                                             strict=strict)
+            args.iteration = load_checkpoint(model, None, None, strict=strict,
+                adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()
 
-        unwrapped_model = unwrap_model(model, (torchDDP, LocalDDP, Float16Module))
+        unwrapped_model = unwrap_model(model)
 
         if args.load and args.no_load_optim:
             optimizer = None
@@ -69,9 +104,7 @@ class BaseTrainer(RLHFMegatronModule):
         if args.load is not None and not args.finetune and not args.no_load_optim:
             timers = get_timers()
             timers('load-checkpoint', log_level=0).start(barrier=True)
-            args.iteration = load_checkpoint(model, optimizer, opt_param_scheduler, \
-                                             adaptive_parallel_strategy=args.adaptive_parallel_strategy_on_checkpoint,
-                                             strict=strict)
+            args.iteration = load_checkpoint(model, optimizer, opt_param_scheduler, strict=strict)
             timers('load-checkpoint').stop(barrier=True)
             if args.no_load_optim:
                 optimizer = get_megatron_optimizer(model, no_wd_decay_cond,
@@ -81,10 +114,6 @@ class BaseTrainer(RLHFMegatronModule):
             timers.log(['load-checkpoint'])
         else:
             args.iteration = 0
-
-        # We only support local DDP with multiple micro-batches.
-        if len(model) > 1 or mpu.get_pipeline_model_parallel_world_size() > 1:
-            assert args.DDP_impl == 'local'
 
         # get model without FP16 and/or TorchDDP wrappers
         if args.iteration == 0 and len(unwrapped_model) == 1 \
@@ -99,3 +128,16 @@ class BaseTrainer(RLHFMegatronModule):
             opt_param_scheduler = get_optimizer_param_scheduler(optimizer)
 
         return model, optimizer, opt_param_scheduler
+
+    def train_step(self, data, train_info):
+        iteration = train_info["iteration"]
+        data_iterator = iter(data)
+        if self.config is not None:
+            kwargs = {"config": self.config}
+        else:
+            kwargs = {}
+        _, skipped_iter, grad_norm, num_zeros_in_grad = megatron_train_step(self._forward_step, data_iterator,
+                                                                            self.model, self.optimizer,
+                                                                            self.opt_param_scheduler, **kwargs)
+        self.post_update_stuffs({}, skipped_iter,
+                                grad_norm, num_zeros_in_grad, iteration)

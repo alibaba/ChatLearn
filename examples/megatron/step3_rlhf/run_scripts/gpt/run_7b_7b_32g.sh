@@ -2,7 +2,7 @@
 
 set -x
 
-export model_size=7b
+export model_size=7B
 export sample_per_episode=8192
 source run_scripts/gpt/base_env.sh
 
@@ -14,13 +14,14 @@ if [[ "$lora" == "True" ]]; then
     [ -z "$policy_tp" ] && export policy_tp=4
     [ -z "$ppo_policy_pp" ] && export ppo_policy_pp=1
     [ -z "$reward_tp" ] && export reward_tp=4
-    [ -z "$ppo_reward_pp" ] && export ppo_reward_pp=1
+    [ -z "$ppo_value_pp" ] && export ppo_value_pp=1
     if [[ "$max_new_tokens" == "512" ]]; then
         export batch_generation_min_prompt_length=64
         export num_device_ref=16
         export num_device_value=16
         export num_device_ppo_policy=16
         export num_device_ppo_value=16
+        export reward_use_distributed_optimizer=False
         [ -z "$policy_generation_batch_size" ] && export policy_generation_batch_size=256
         [ -z "$ref_generation_bs" ] && export ref_generation_bs=64
         [ -z "$value_generation_bs" ] && export value_generation_bs=64
@@ -32,7 +33,7 @@ else
     [ -z "$policy_tp" ] && export policy_tp=4
     [ -z "$ppo_policy_pp" ] && export ppo_policy_pp=1
     [ -z "$reward_tp" ] && export reward_tp=4
-    [ -z "$ppo_reward_pp" ] && export ppo_reward_pp=1
+    [ -z "$ppo_value_pp" ] && export ppo_value_pp=1
     if [[ "$max_new_tokens" == "512" ]]; then
         export batch_generation_min_prompt_length=32
         export num_device_ref=16

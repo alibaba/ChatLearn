@@ -2,7 +2,7 @@ includes:
   - base_train.yaml
   - reward_shared.yaml
 
-pipeline_model_parallel_size: ${ppo_reward_pp:1}
+pipeline_model_parallel_size: ${ppo_value_pp:1}
 lr_decay_iters: 12000
 lr_warmup_iters: 100
 lr: ${value_lr:5e-6}
@@ -18,10 +18,12 @@ num_workers: 8
 init_method_std: 0.006
 
 recompute_granularity: selective
-sequence_parallel: True
 
 no_load_optim: True
 no_load_rng: True
 no_load_args: True
 no_load_scheduler: True
-dummy: 0
+sequence_parallel: True
+
+recompute_activations: ${value_recompute_activations:False}
+recompute_granularity: ${value_recompute_granularity:None}

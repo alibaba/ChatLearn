@@ -6,7 +6,7 @@ export model_size=7B1
 export policy_tp=8
 export ppo_policy_pp=1
 export reward_tp=8
-export ppo_reward_pp=1
+export ppo_value_pp=1
 
 source run_scripts/bloom/base_env.sh
 

@@ -29,18 +29,31 @@ from megatron.utils import average_losses_across_data_parallel_group
 from megatron.utils import get_ltor_masks_and_position_ids
 
 from dataset.sft_dataset import build_train_valid_test_datasets
+from models.utils import has_config_in_args
 
 
 def model_provider(pre_process=True, post_process=True):
     """Build the model."""
 
     print_rank_0('building GPT model ...')
-    model = GPTModel(
-        num_tokentypes=0,
-        parallel_output=True,
-        pre_process=pre_process,
-        post_process=post_process
-    )
+    if has_config_in_args(GPTModel):
+        from megatron.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
+        args = get_args()
+        config = core_transformer_config_from_args(args)
+        model = GPTModel(
+            config,
+            num_tokentypes=0,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process
+        )
+    else:
+        model = GPTModel(
+            num_tokentypes=0,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process
+        )
     return model
 
 
@@ -122,6 +135,4 @@ def train_valid_test_datasets_provider(train_val_test_num_samples): # pylint: di
 if __name__ == "__main__":
     pretrain(train_valid_test_datasets_provider, model_provider,
              ModelType.encoder_or_decoder,
-             forward_step,
-             args_defaults={'tokenizer_type': 'GPT2BPETokenizer'}
-             )
+             forward_step)

@@ -28,8 +28,8 @@ from torch.nn import Embedding
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
 from chatlearn import get_args as get_rlhf_args
-from chatlearn.opt.lora.initializer import distributed_kaiming_uniform_
-from chatlearn.opt.lora.utils import recursive_getattr, recursive_setattr
+from chatlearn.models.megatron.lora.initializer import distributed_kaiming_uniform_
+from chatlearn.models.megatron.lora.utils import recursive_getattr, recursive_setattr
 from chatlearn.utils.arguments import LoraConfig
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import QKV_LAYER_NAME
@@ -39,7 +39,6 @@ megatron_exist = importlib.util.find_spec("megatron")
 if megatron_exist:
     from megatron import get_args
     from megatron.core import mpu
-    from megatron.model import DistributedDataParallel as LocalDDP
     from megatron.model import Float16Module
     from megatron.optimizer.optimizer import MegatronOptimizer
     from megatron.utils import unwrap_model
@@ -879,16 +878,26 @@ class MegatronOptimizer_LoRA(MegatronOptimizer):
                 unwrapped_model = self.models[-1]
             else:  # We do not support the interleaved schedule for T5 yet.
                 unwrapped_model = self.models[0]
-            unwrapped_model = unwrap_model(
-                unwrapped_model, (torchDDP, LocalDDP, Float16Module))
-            if unwrapped_model.share_word_embeddings:
-                word_embeddings_weight = unwrapped_model.word_embeddings_weight()
-                if word_embeddings_weight.requires_grad:
-                    if args.DDP_impl == 'local':
-                        grad = word_embeddings_weight.main_grad
-                    else:
-                        grad = word_embeddings_weight.grad
-                    torch.distributed.all_reduce(grad, group=mpu.get_embedding_group())
+
+            if hasattr(unwrapped_model, "share_word_embeddings"):
+                from megatron.model import DistributedDataParallel as LocalDDP # pylint: disable=import-outside-toplevel
+                unwrapped_model = unwrap_model(
+                    unwrapped_model, (torchDDP, LocalDDP, Float16Module))
+                if unwrapped_model.share_word_embeddings:
+                    word_embeddings_weight = unwrapped_model.word_embeddings_weight()
+                    if word_embeddings_weight.requires_grad:
+                        if args.DDP_impl == 'local':
+                            grad = word_embeddings_weight.main_grad
+                        else:
+                            grad = word_embeddings_weight.grad
+                        torch.distributed.all_reduce(grad, group=mpu.get_embedding_group())
+            elif hasattr(unwrapped_model, "share_embeddings_and_output_weights"):
+                unwrapped_model = unwrap_model(unwrapped_model)
+                if unwrapped_model.share_embeddings_and_output_weights:
+                    weight = unwrapped_model.shared_embedding_or_output_weight()
+                    if weight.requires_grad:
+                        grad = weight.main_grad
+                        torch.distributed.all_reduce(grad, group=mpu.get_embedding_group())
 
 
 ALL_LORA_LAYER = (

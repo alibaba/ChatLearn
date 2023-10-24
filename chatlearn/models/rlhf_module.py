@@ -440,14 +440,14 @@ class RLHFModule:
         """
         :meta private:
         """
-        from chatlearn.opt.lora import fuse_lora_layer # pylint: disable=import-outside-toplevel
+        from chatlearn.models.megatron.lora import fuse_lora_layer # pylint: disable=import-outside-toplevel
         fuse_lora_layer(self.model)
 
     def unfuse_lora_layer(self):
         """
         :meta private:
         """
-        from chatlearn.opt.lora import unfuse_lora_layer # pylint: disable=import-outside-toplevel
+        from chatlearn.models.megatron.lora import unfuse_lora_layer # pylint: disable=import-outside-toplevel
         unfuse_lora_layer(self.model)
 
     @property

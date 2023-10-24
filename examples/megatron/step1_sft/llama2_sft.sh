@@ -6,18 +6,6 @@
 [ -z "$RANK" ] && export RANK=0
 [ -z "$MASTER_PORT" ] && export MASTER_PORT=12456
 
-pip install sentencepiece
-
-# check the path
-[[ -z "${MEGATRON}" ]] && { echo "MEGATRON path is not set"; exit 1; }
-[[ -z "${CHATLEARN}" ]] && { echo "CHATLEARN path is not set"; exit 1; }
-[[ -z "${LOAD_PATH}" ]] && { echo "LOAD_PATH is not set"; exit 1; }
-[[ -z "${TOKENIZER_PATH}" ]] && { echo "TOKENIZER_PATH is not set"; exit 1; }
-[[ -z "${DATASET_PATH}" ]] && { echo "DATASET_PATH is not set"; exit 1; }
-
-
-export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}:${CHATLEARN}/examples/megatron
-
 DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --nnodes $WORLD_SIZE \
                   --node_rank ${RANK} \
@@ -25,6 +13,18 @@ DISTRIBUTED_ARGS="--nproc_per_node $GPUS_PER_NODE \
                   --master_port ${MASTER_PORT}"
 
 echo $DISTRIBUTED_ARGS
+
+# check the path
+[[ -z "${MEGATRON}" ]] && { echo "MEGATRON path is not set"; exit 1; }
+[[ -z "${CHATLEARN}" ]] && { echo "CHATLEARN path is not set"; exit 1; }
+[[ -z "${LOAD_PATH}" ]] && { echo "LOAD_PATH is not set"; exit 1; }
+[[ -z "${TOKENIZER_MODEL}" ]] && { echo "TOKENIZER_MODEL is not set"; exit 1; }
+[[ -z "${DATASET_PATH}" ]] && { echo "DATASET_PATH is not set"; exit 1; }
+
+
+export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}/examples/megatron:${CHATLEARN}
+echo $PYTHONPATH
+
 [ -z "$MODEL_SIZE" ] && export MODEL_SIZE=13B
 
 if [ $MODEL_SIZE = 7B ]; then
@@ -44,10 +44,21 @@ elif [ $MODEL_SIZE = 13B ]; then
   INTERMEDIATE_SIZE=13824
   tp=8
   pp=1
+
+elif [ $MODEL_SIZE = 70B ]; then
+  NUM_LAYERS=80
+  HIDDEN_SIZE=8192
+  NUM_ATTN_HEADS=64
+  INTERMEDIATE_SIZE=28672
+  tp=8
+  pp=4
+  mb=2
+  gbs=64
 fi
 
-mb=4
-gbs=$((mb * 16))
+[ -z "$mb" ] && mb=8
+[ -z "$gbs" ] && gbs=$((mb * 8))
+
 seq_len=2048
 
 DIR=$(pwd)
@@ -58,62 +69,65 @@ NODE_RANK=$RANK
 NNODES=$WORLD_SIZE
 
 
+
 dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp))
 gbs=$(($gbs * $dp))
 
-CHECKPOINT_PATH=${CHATLEARN}/output/step2_reward/llamasft_hh_rm_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
-
-MODEL_ARGS="--no-position-embedding --disable-bias-linear --swiglu --untie-embeddings-and-output-weights --use-rotary-position-embeddings --tokenizer-type AutoTokenizer"
+[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/step1_sft/llama2_hh_sft_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
 mkdir -p $CHECKPOINT_PATH
 
-echo $PARALLEL_ARGS
-
+MODEL_ARGS="
+--max-position-embeddings 4096 \
+--tokenizer-type Llama2Tokenizer \
+--tokenizer-model ${TOKENIZER_MODEL} \
+--exit-on-missing-checkpoint \
+--use-checkpoint-args \
+--bf16 \
+--untie-embeddings-and-output-weights \
+--use-rotary-position-embeddings \
+--normalization RMSNorm \
+--no-position-embedding \
+--no-masked-softmax-fusion \
+--no-query-key-layer-scaling "
 
 log_file=$CHECKPOINT_PATH/stderr_$NODE_RANK.log
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-python -m torch.distributed.launch $DISTRIBUTED_ARGS \
-  finetune_reward.py \
+torchrun $DISTRIBUTED_ARGS \
+  finetune_sft.py \
   --tensor-model-parallel-size $tp \
   --pipeline-model-parallel-size $pp \
   --num-layers ${NUM_LAYERS} \
   --hidden-size ${HIDDEN_SIZE} \
   --num-attention-heads ${NUM_ATTN_HEADS} \
   --seq-length $seq_len \
-  --max-position-embeddings 2048 \
   --micro-batch-size $mb \
   --global-batch-size $gbs \
-  --train-iters 3600 --exit-interval 100000 \
-  --lr-decay-iters 3600 \
-  --lr-warmup-iters 300 \
-  --lr 1.0e-5 \
+  --train-iters 1000 \
+  --lr-decay-iters 1000 \
+  --lr-warmup-iters 40 \
+  --lr 2.0e-5 \
   --min-lr 6.0e-12 \
-  --max-response 2 \
-  --select-max-response 'firstk' \
   --lr-decay-style cosine \
   --log-interval 1 \
-  --eval-iters 20 \
+  --eval-iters 10 \
   --eval-interval 1000 \
-  --data-path $DATASET_PATH/train.jsonl $DATASET_PATH/dev.jsonl $DATASET_PATH/dev.jsonl \
+  --data-path $DATASET_PATH/train.jsonl $DATASET_PATH/train.jsonl $DATASET_PATH/train.jsonl \
   --save-interval 1000 \
   --save $CHECKPOINT_PATH \
   --load $LOAD_PATH \
   --tensorboard-log-interval 100 \
   --split 98,2,0 \
   --clip-grad 1.0 \
-  --weight-decay 0.1 \
+  --weight-decay 0. \
   --adam-beta1 0.9 \
-  --adam-beta2 0.95 \
+  --adam-beta2 0.999 \
   --init-method-std 0.006 \
   --tensorboard-dir $CHECKPOINT_PATH \
   --num-workers 8 \
-  --vocab-file $TOKENIZER_PATH \
-  --make-vocab-size-divisible-by 32 \
-  --ffn-hidden-size $INTERMEDIATE_SIZE \
-  --no-load-args \
   --no-load-rng \
   --no-load-optim \
   --log-timers-to-tensorboard \
@@ -121,7 +135,8 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --log-validation-ppl-to-tensorboard \
   --dataloader-type cyclic \
   --use-flash-attn \
-  --bf16 \
   --use-distributed-optimizer \
-  --sequence-parallel  \
+  --sequence-parallel \
+  --finetune \
+  --distributed-timeout-minutes 60 \
   $MODEL_ARGS 2>&1 | tee -a ${log_file}

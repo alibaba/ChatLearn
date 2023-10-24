@@ -49,9 +49,9 @@ class ValueModel(RewardModel):
             all_token_ids,
             all_position_ids,
             all_token_attention_mask,
-            ret_input_ids=ret_input_ids,
-            ret_position_ids=ret_position_ids,
-            ret_attn_mask=ret_attn_mask,
+            ret_input_ids,
+            ret_position_ids,
+            ret_attn_mask,
             inference_params=inference_params)
 
         # note in middle pipeline, this all_token_logits is just a hidden

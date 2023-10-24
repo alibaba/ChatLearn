@@ -15,7 +15,6 @@
 """finetune reward"""
 
 from functools import partial
-from math import factorial
 
 import torch
 from dataset.reward_dataset import build_train_valid_test_datasets_for_rm
@@ -23,38 +22,36 @@ from megatron import get_args
 from megatron import get_timers
 from megatron import get_tokenizer
 from megatron import print_rank_0
+from megatron.core import parallel_state
 from megatron.core import tensor_parallel
 from megatron.core.enums import ModelType
+from megatron.core.pipeline_parallel import schedules
 from megatron.training import pretrain
 from megatron.utils import average_losses_across_data_parallel_group
 from megatron.utils import get_ltor_masks_and_position_ids
-from models.reward_model import RewardModel
+from models.reward_model import model_provider
 
 
-def Comb(n, m):
-    return factorial(n) / factorial(n - m) / factorial(m)
+def get_tensor_shapes_reward( # pylint: disable=unused-argument
+    *,
+    rank: int,
+    model_type: ModelType,
+    seq_length: int,
+    micro_batch_size: int,
+    decoder_seq_length: int,
+    config,
+):
+    tensor_shapes = []
 
-
-def print_m(*args):
-    opt = ""
-    for v in args:
-        opt = opt + "|" + str(v)
-    print_rank_0(opt)
-
-
-def model_provider(pre_process=True, post_process=True):
-    """Build the model."""
-
-    print_rank_0('building GPT model ...')
-    model = RewardModel(
-        num_tokentypes=0,
-        parallel_output=True,
-        pre_process=pre_process,
-        post_process=post_process,
-        score_dimension=1,
-    )
-    return model
-
+    if config.sequence_parallel:
+        seq_length = seq_length // parallel_state.get_tensor_model_parallel_world_size()
+    args = get_args()
+    if args.max_response > 1:
+        tensor_shapes.append((seq_length, args.max_response*micro_batch_size, config.hidden_size))
+    else:
+        tensor_shapes.append((seq_length, micro_batch_size, config.hidden_size))
+    return tensor_shapes
+schedules.get_tensor_shapes = get_tensor_shapes_reward
 
 def get_batch(data_iterator):
     """Generate a batch"""

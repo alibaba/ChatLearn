@@ -12,18 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""init"""
+"""Megatron Hooks."""
 
-from chatlearn import hooks
-from chatlearn.launcher.initialize import init
-from chatlearn.utils.global_vars import get_args
-from chatlearn.utils.future import get
+import inspect
+import importlib
 
-from chatlearn.models.rlhf_module import RLHFModule
-from chatlearn.models.torch_module import RLHFTorchModule
-from chatlearn.models.megatron_module import RLHFMegatronModule
+megatron_exist = importlib.util.find_spec("megatron")
 
-from chatlearn.runtime.evaluator import Evaluator
-from chatlearn.runtime.engine import Engine
-from chatlearn.runtime.engine import EvalEngine
-from chatlearn.runtime.engine import RLHFEngine
+if megatron_exist:
+    from megatron.initialize import initialize_megatron
+    if "args_dict" not in inspect.getfullargspec(initialize_megatron).args:
+        from chatlearn.models.megatron.hooks import transformer
+        from chatlearn.models.megatron.hooks import generation

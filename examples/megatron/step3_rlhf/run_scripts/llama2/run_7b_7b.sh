@@ -1,15 +1,13 @@
 #!/bin/bash
-
 set -x
-
 
 export model_size=7B
 export policy_tp=8
 export ppo_policy_pp=1
 export reward_tp=8
-export ppo_reward_pp=1
+export ppo_value_pp=1
 
-source run_scripts/llama/base_env.sh
+source run_scripts/llama2/base_env.sh
 
 cd ${CHATLEARN}/examples/megatron/step3_rlhf
 
@@ -27,7 +25,7 @@ mkdir -p ${LOG_DIR}
 policy_inference_load=${POLICY_LOAD} \
 reward_load_iteration=${REWARD_LOAD_ITERATION} \
 reward_load=${REWARD_LOAD} \
-vocab_file=${VOCAB_FILE} \
+tokenizer_model=${TOKENIZER_MODEL} \
 num_device=${num_device} \
 log_dir=${LOG_DIR} \
 tensorboard_dir=${TENSORBOARD_DIR} \
@@ -37,6 +35,6 @@ sample_per_episode=1024 \
 train_global_batch_size=128 \
 generation_batch_size=64 \
 ref_generation_batch_size=16 \
-python train_rlhf.py -c configs/llama/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt
+python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt
 
 set +x

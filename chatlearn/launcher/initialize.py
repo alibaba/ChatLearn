@@ -30,7 +30,6 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.version import VERSION
 
 
-# TODO: check whether need to set here?
 def patch_ray():
     TORCH_NCCL_DTYPE_MAP[torch.bfloat16] = nccl.NCCL_BFLOAT16
 

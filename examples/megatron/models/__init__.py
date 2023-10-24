@@ -14,6 +14,7 @@
 # ==============================================================================
 """models."""
 
+import chatlearn # for hook purpose
 from .old_policy_inference import PolicyInference
 from .old_value_inference import ValueInference
 from .policy_trainer import PolicyTrainer

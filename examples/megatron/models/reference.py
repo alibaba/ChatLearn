@@ -18,13 +18,13 @@ import torch
 import torch.nn.functional as F
 from megatron import get_args, get_tokenizer
 from megatron import print_rank_0
-from megatron.checkpointing import load_checkpoint
 from megatron.core import mpu
 from megatron.core.tensor_parallel.utils import VocabUtility
 from megatron.training import get_model
 from models.policy_model import PolicyModel
 
 from chatlearn.utils import to_device
+from chatlearn.utils.megatron_utils import load_checkpoint
 from .constants_ppo import get_ltor_masks_and_position_ids
 from .forward_step import forward_step_helper
 from .old_policy_inference import PolicyInference
@@ -56,8 +56,7 @@ class PolicyReference(PolicyInference):
         self.tokenizer = get_tokenizer()
         if self.args.load is not None:
             torch.distributed.barrier()
-            load_checkpoint(model, None, None,
-                            adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
+            load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]

@@ -11,7 +11,6 @@ num_workers: 8
 init_method_std: 0.006
 
 recompute_granularity: selective
-sequence_parallel: True
 
 log_num_zeros_in_grad: True
 no_load_optim: True
@@ -27,3 +26,7 @@ min_lr: ${policy_min_lr:1e-9}
 lr_decay_style: ${policy_lr_decay_style:linear}
 weight_decay: 0.01
 pipeline_model_parallel_size: ${ppo_policy_pp:1}
+sequence_parallel: True
+
+recompute_activations: ${policy_recompute_activations:False}
+recompute_granularity: ${policy_recompute_granularity:None}

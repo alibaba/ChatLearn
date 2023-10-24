@@ -18,7 +18,6 @@ models:
         generation_batch_size: ${policy_generation_batch_size:180}
         batch_generation:
             ranking: ${batch_generation_ranking:False}
-            num_max_tokens: ${batch_generation_num_max_tokens:0}
             min_prompt_length: ${batch_generation_min_prompt_length:0}
     
     reference:

@@ -15,6 +15,7 @@
 """utils"""
 
 import json
+import inspect
 import math
 import os
 import random
@@ -411,3 +412,14 @@ def write_jsonl(dict_list, fp):
         writer = jsonlines.Writer(f)
         for item in dict_list:
             writer.write(item)
+
+def contain_arg_name(func, arg_name):
+    return arg_name in inspect.getfullargspec(func).args
+
+
+def has_config_in_args(func):
+    return contain_arg_name(func, 'config')
+
+
+def get_eos_id(tokenizer):
+    return tokenizer.eos_id if hasattr(tokenizer, 'eos_id') else tokenizer.eod_id

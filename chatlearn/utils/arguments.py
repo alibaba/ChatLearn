@@ -177,8 +177,6 @@ class BatchGenerationConfig(SubConfig):
 
     #: [optional] sort prompts by length each episode.
     ranking: bool = False
-    #: [optional] max tokens in the first stage of batch generation.
-    num_max_tokens: int = 0
     #: [optional] min prompt length in the first stage of batch generation.
     min_prompt_length: int = 0
 
@@ -273,6 +271,8 @@ class RLHFConfig(BaseConfig):
     debug: bool = False
     #: enable nsys nvtx
     nsys: bool = False
+    #: profiler dir
+    profiler_dir: str = None
     #: coalesce parameters in model sync
     coalesce_param: bool = True
     #: coalesce_buffer size in mb
@@ -464,9 +464,8 @@ class Config(BaseConfig):
             assert model_args.num_replica * model_args.generation_batch_size <= self.rlhf_args.sample_per_episode, \
                 f"num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
                 f"should be less than sample_per_episode {self.rlhf_args.sample_per_episode}"
-            if model_args.batch_generation.min_prompt_length or model_args.batch_generation.num_max_tokens:
+            if model_args.batch_generation.min_prompt_length:
                 logger.info(f"Enable batch generation: \
-                    num_max_tokens = {model_args.batch_generation.num_max_tokens}, \
                     min_prompt_length = {model_args.batch_generation.min_prompt_length}")
         logger.info(f"Env Config: \n{self.env_args}")
         logger.info(f"RLHF Config: \n{self.rlhf_args}")

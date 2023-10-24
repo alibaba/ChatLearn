@@ -24,19 +24,19 @@ from time import time
 import torch
 from megatron import get_args
 from megatron import get_tokenizer
-from megatron import print_rank_0
-from megatron.checkpointing import load_checkpoint
 from megatron.core import mpu
 from megatron.global_vars import get_tensorboard_writer
 from megatron.training import get_model
 from megatron.utils import get_ltor_masks_and_position_ids
-from models.reward_model import batch_padded_tokenize_data, RewardModel
+from models.reward_model import batch_padded_tokenize_data, model_provider
 
 from chatlearn import RLHFMegatronModule
 from chatlearn.utils import to_device
+from chatlearn.utils.megatron_utils import load_checkpoint
 from .constants_ppo import RunningMoments, get_running_stats, reset_running_stats
 from .forward_step import forward_step_helper
 from .utils import tensorboard_scalar_dict
+from .utils import get_eos_id
 
 ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 INVALID_ANS = "[invalid]"
@@ -76,11 +76,10 @@ class RewardInference(RLHFMegatronModule):
 
         args = get_args()
         # Set up model and load checkpoint
-        model = get_model(self.model_provider, wrap_with_ddp=False)
+        model = get_model(model_provider, wrap_with_ddp=False)
 
         if args.load is not None:
-            load_checkpoint(model, None, None,
-                            adaptive_parallel_strategy=args.adaptive_parallel_strategy_on_checkpoint)
+            load_checkpoint(model, None, None, adaptive_parallel_strategy=args.adaptive_parallel_strategy_on_checkpoint)
 
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
@@ -91,27 +90,13 @@ class RewardInference(RLHFMegatronModule):
 
         self.tokenizer = get_tokenizer()
 
-        self.add_padding_config("all_token_ids_right_padded", self.tokenizer.eod_id)
-        self.add_padding_config("action_start_indices", self.tokenizer.eod_id)
+        self.add_padding_config("all_token_ids_right_padded", get_eos_id(self.tokenizer))
+        self.add_padding_config("action_start_indices", get_eos_id(self.tokenizer))
         self.add_padding_config("action_logprobs", 0.0)
         self.add_padding_config("action_values", 0.0)
         self.add_padding_config("action_rewards", 0.0)
         return 'ok'
 
-    def model_provider(self, pre_process=True, post_process=True):
-        """Build the model."""
-
-        print_rank_0('building GPT model ...')
-
-        model = RewardModel(
-            num_tokentypes=0,
-            parallel_output=True,
-            ## deprecated args for now, originally set for whether the pooler header use tenoser parallel
-            pre_process=pre_process,
-            post_process=post_process,
-            score_dimension=1,
-        )
-        return model
 
     def normalized_and_clip(self, scores):
         if self.model_args['scale_reward'] == "running":
@@ -404,15 +389,14 @@ class RewardInference(RLHFMegatronModule):
         # start = 4 - 1 = 3 ends[i] = 4  logprobs[3: 3 + 4=7] = logprob[a1, a2, a3]]
         all_logprobs = [logprobs[ix, starts[ix] - 1: ends[ix] - 1] for ix in range(n)]
 
-        if self.args.log_interval > 0:
+        if self.args.log_interval > 0 and mpu.is_pipeline_last_stage():
             for i in range(n):
                 # for each traj, num states == num actions
-
                 assert all_logprobs[i].size(0) == all_values[i].size(0) == all_rewards[i].size(0), \
                     f"all_rewards[i].size() {all_rewards[i].size(0)} all_values[i].size(0) {all_values[i].size(0)}" \
                     f"all_logprobs[i].size(0) {all_logprobs[i].size(0)}"
 
-        if self.args.log_interval > 0 and iteration % self.args.log_interval == 0:
+        if self.args.log_interval > 0 and iteration % self.args.log_interval == 0 and mpu.is_pipeline_last_stage():
             self.log_each_step(iteration)
 
         return {"all_token_ids_right_padded": all_tokens_right_padded, "action_start_indices": starts,

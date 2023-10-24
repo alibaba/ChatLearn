@@ -48,7 +48,7 @@ class CheckpointManager:
     def _make_checkpoint_path(self, replica_id, step):
         ckpt_path = self._get_checkpoint_path_name(replica_id, step)
         if not path_exists(ckpt_path):
-            os.mkdir(ckpt_path)
+            os.makedirs(ckpt_path, exist_ok=True)
         return ckpt_path
 
     def _delete_ckpt_files(self):

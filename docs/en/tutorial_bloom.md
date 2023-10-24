@@ -13,9 +13,9 @@ In this example, we need to download the following related code.
 
 ```bash
 # Download the modified Megatron-LM-ChatLearn to support ChatLearn training
-git clone https://github.com/alibaba/Megatron-LM-ChatLearn.git
+git clone -b v0.1.0 https://github.com/alibaba/Megatron-LM-ChatLearn.git
 # Download the ChatLearn code
-git clone https://github.com/alibaba/ChatLearn.git
+git clone -b v0.1.0 https://github.com/alibaba/ChatLearn.git
 ```
 
 **The following is a collection of general environment variables used in this tutorial script:**
