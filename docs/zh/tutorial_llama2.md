@@ -5,7 +5,7 @@
 # Setup: 镜像和代码准备
 
 ## 镜像
-推荐参考 `https://github.com/alibaba/ChatLearn/tree/master/docker/ngc/Dockerfile.ngc22.10` 准备镜像。
+推荐参考 `https://github.com/alibaba/ChatLearn/tree/master/docker/ngc/Dockerfile.ngc23.09` 准备镜像。
 
 ## 代码
 
@@ -51,8 +51,8 @@ python prepare_data.py $DATASET_ROOT
 
 ## 1.2 下载和转化预训练模型
 
-若使用来自于 HuggingFace transformers 的模型，首先需要下载预训练 checkpoint，比如 HuggingFace Hub 中的 LLaMA2 模型：`decapoda-research/llama-13b-hf`，或是本地保存好的 SFT 模型；
-然后使用如下代码，将 HuggingFace transformers 模型转化为 Megatron-LM 模型格式；在这个例子中，我们会将模型转换成 `TP (tensor_model_parallel_size)=8，PP (pipeline_model_parallel_size)=1` 的 checkpoint, 模型会存放在`MEGATRON_LLAMA_CKPT_PATH`中。
+若使用来自于 HuggingFace transformers 的模型，首先需要下载预训练 checkpoint，比如 HuggingFace Hub 中的 LLaMA2 模型：`meta-llama/Llama-2-7b-hf`，或是本地保存好的 SFT 模型；
+然后使用如下代码，将 HuggingFace transformers 模型转化为 Megatron-LM 模型格式；在这个例子中，我们会将模型转换成 `TP (tensor_model_parallel_size)=4，PP (pipeline_model_parallel_size)=1` 的 checkpoint, 模型会存放在`MEGATRON_LLAMA_CKPT_PATH`中。
 
 ```bash
 MEGATRON=path-to-megatron
@@ -66,7 +66,7 @@ python tools/checkpoint/util.py \
     --model-type GPT \
     --loader llama2_hf \
     --saver megatron \
-    --target-tensor-parallel-size 8 \
+    --target-tensor-parallel-size 4 \
     --load-dir ${HF_FORMAT_DIR} \
     --save-dir ${MEGATRON_FORMAT_DIR} \
     --tokenizer-model ${TOKENIZER_MODEL}
@@ -75,7 +75,7 @@ python tools/checkpoint/util.py \
 
 ## 1.3 开启 SFT 训练
 
-[阿里云 PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2]可以非常便捷高效地支持各种任务的训练。下面的脚本是一个 SFT 的训练样例。其中 `DATASET_PATH` 为 SFT 训练集路径，比如`$DATASET_ROOT/sft/train.jsonl`，在这个例子中，我们假设 tokenizer 存放的路径和模型 checkpoint 存放的路径相同。
+[阿里云 PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2]可以非常便捷高效地支持各种任务的训练。下面的脚本是一个 SFT 的训练样例。其中 `DATASET_PATH` 为 SFT 训练集路径，比如`$DATASET_ROOT/sft/train.jsonl`。
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -166,7 +166,11 @@ python prepare_data.py $DATASET_ROOT
 ```
 ## 3.2 开启 RLHF 训练
 
-[阿里云 PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2]可以非常便捷高效地支持 RLHF 任务的训练。以下是一个 LLaMA2-13B 的 Policy 和 13B 的 Reward 模型的训练脚本。在这个例子中，用户需要设置 `POLICY_LOAD` 为 SFT 产出的 checkpoint 路径，Policy 模型和 Reference 模型将以 SFT 的 checkpoint 初始化。`REWARD_LOAD` 为 Reward 训练产出的 checkpoint 路径，同时，用户可以指定 load checkpoint 对应的 iteration 数。Reward 模型和 Value 模型将以 Reward 模型的权重作初始化。`VOCAB_FILE` 为 `LlamaTokenizer` 所需文件所在的文件夹路径。
+[阿里云 PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2] 可以非常便捷高效地支持 RLHF 任务的训练。
+以下是一个 LLaMA2-7B 的 Policy 和 7B 的 Reward 模型的训练脚本。
+在这个例子中，用户需要设置 `POLICY_LOAD` 为 SFT 产出的 checkpoint 路径，Policy 模型和 Reference 模型将以 SFT 的 checkpoint 初始化。
+`REWARD_LOAD` 为 Reward 训练产出的 checkpoint 路径，同时，用户可以指定 load checkpoint 对应的 iteration 数。
+Reward 模型和 Value 模型将以 Reward 模型的权重作初始化。`TOKENIZER_MODEL` 为 `tokenizer.model` 所需文件所在的文件夹路径。
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -184,10 +188,11 @@ TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
 bash run_scripts/llama2/run_7b_7b.sh
 ```
 
-以下为 PAI-DLC 创建任务的页面截图，选择作业类型为 PyTorch, 同时将上述命令修改后粘贴到`执行命令`窗口中。同时需要填写高级配置`customPortList=30000-30050,createSvcForAllWorkers=true`。
-7B Policy + 7B Reward 的 RLHF 训练需要 8 A100-80GB/A800-80GB/H800-80GB GPU 卡的资源。在这里假设集群中都是同构的 GPU 卡，同时每个节点上配置了 8 卡的资源。在申请资源的时候，需要申请节点数量为 1，GPU（每节点）卡数为 8，同时设置节点镜像为 ChatLearn 编译后的镜像地址。
-![image.png](../images/rlhf_dlc_1.jpg)
-![image.png](../images/rlhf_dlc_2.jpg)
+如果在 DLC 上提交作业，选择作业类型为 PyTorch, 同时将上述命令修改后粘贴到`执行命令`窗口中。
+**同时需要填写高级配置`customPortList=30000-30050,createSvcForAllWorkers=true`。**
+7B Policy + 7B Reward 的 RLHF 训练需要 8 A100-80GB/A800-80GB/H800-80GB GPU 卡的资源。
+在这里假设集群中都是同构的 GPU 卡，同时每个节点上配置了 8 卡的资源。在申请资源的时候，需要申请节点数量为 1，GPU（每节点）卡数为 8，同时设置节点镜像为 ChatLearn 编译后的镜像地址。
+
 
 
 # Reference
