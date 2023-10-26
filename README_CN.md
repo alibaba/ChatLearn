@@ -39,8 +39,8 @@ ChatLearn的特点如下:
 请参考 [文档](https://chatlearn.readthedocs.io/zh/latest/) 快速开始.
 
 1. [环境和代码准备](docs/zh/installation.md)
-2. [基于 LLaMA 模型的端到端训练教程](docs/zh/tutorial.md)
-3. [基于 BLOOM 模型的端到端训练教程](docs/zh/tutorial_bloom.md)
+2. [基于 LLaMA/LLaMA2 模型的端到端训练教程](docs/zh/tutorial/tutorial_llama2.md)
+3. [基于 BLOOM 模型的端到端训练教程](docs/zh/tutorial/tutorial_bloom.md)
 
 # 支持的模型
 
@@ -50,9 +50,9 @@ ChatLearn的特点如下:
 |:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | GPT (GPT 系列各种规模的模型)                                                                                                                                                          |
 | LLaMA (`lmsys/vicuna-13b-v1.3`, `decapoda-research/llama-7b-hf`, `decapoda-research/llama-13b-hf`, `decapoda-research/llama-30b-hf`, `decapoda-research/llama-65b-hf`, etc.) |
-| LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`)                                                                                                             |
-| Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                             |
-| BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                             |
+| LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`, `meta-llama/Llama-2-70b-hf`)                                                                                |
+| Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                      |
+| BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                   |
 
 注：当前的性能 benchmark 均基于 GPT 系列模型。
 

@@ -24,7 +24,8 @@ ChatLearn Documentation
    :maxdepth: 1
    :caption: Tutorial
 
-   tutorial
+   tutorial_llama2
+   tutorial_bloom
 
 |
 |

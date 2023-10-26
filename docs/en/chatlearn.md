@@ -49,19 +49,22 @@ ChatLearn also supports flexible resource allocation, allowing for resource shar
 
 Please refer to the [Documentation](https://chatlearn.readthedocs.io/zh/latest/) for a quick start guide.
 
-1. [Environment and Code Setup](installation.md)
-2. [End-to-End Training Tutorial with LLaMA Model](tutorial.md)
+1. [Environment and Code Setup](installation.md) 
+2. [End-to-End Training Tutorial with LLaMA/LLaMA2 Model](tutorial/tutorial_llama2.md)
+3. [End-to-End Training Tutorial with BLOOM Model](tutorial/tutorial_bloom.md)
 
 # Supported Models
 
 The ChatLearn framework currently supports RLHF training for GPT/LLaMA models of any scale.
 
 
-| Model Type                                                                                                                                                                  |
-|:-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| GPT (Various scales of GPT models)                                                                                                                                                        |
-| LLaMA (`lmsys/vicuna-13b-v1.3`, `decapoda-research/llama-7b-hf`, `decapoda-research/llama-13b-hf`, `decapoda-research/llama-30b-hf`, `decapoda-research/llama-65b-hf`, etc.) |
-| LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`)                                                                                                             |
+| Model Type                                                                                                                                                                                              |
+|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GPT (various scales of GPT models)                                                                                                                                                                      |
+| LLaMA (`lmsys/vicuna-13b-v1.3`, `decapoda-research/llama-7b-hf`, `decapoda-research/llama-13b-hf`, `decapoda-research/llama-30b-hf`, `decapoda-research/llama-65b-hf`, etc.)                            |
+| LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`, `meta-llama/Llama-2-70b-hf`)                                                                                                           |
+| Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                                                 |
+| BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                                              |
 
 Note: The current performance benchmarks are based on GPT series models.
 
