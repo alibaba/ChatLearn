@@ -11,9 +11,9 @@ It is recommended to refer to `https://github.com/alibaba/ChatLearn/tree/master/
 git clone https://github.com/alibaba/ChatLearn.git
 ```
 
-3. If you need to run the RLHF training program based on the Megatron-LM framework, you also need to download the modified `Megatron-LM-ChatLearn` code that supports ChatLearn training.
+3. If you need to run the RLHF training program based on the Megatron-LM framework, you also need to download the `Megatron-LM` code.
 
 ```
-# Clone Megatron-LM-ChatLearn
-git clone https://github.com/alibaba/Megatron-LM-ChatLearn.git
+# Clone Megatron-LM
+git clone https://github.com/NVIDIA/Megatron-LM.git
 ```
