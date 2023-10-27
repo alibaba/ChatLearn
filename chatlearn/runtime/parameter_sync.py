@@ -46,16 +46,43 @@ class ParameterSyncGroup:
         self._debug = get_args().rlhf_args.debug
         self._num_src_pipeline_stage = None
         self._num_dst_pipeline_stage = None
+        self._num_src_tensor_parallel = None
+        self._num_dst_tensor_parallel = None
         self._dst_prefix = None
         self._src_prefix = None
         self._send_recv_param_names = {}
         self._actor2pipe = {}
+        self._actor2tp = {}
         self._validate_params = {}
         self.setup_collective_group()
         self.build_rank_mapping()
         self.enable_coalesce_param = get_args().rlhf_args.coalesce_param
         self.concurrent_comm = get_args().rlhf_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
+
+    @property
+    def num_src_pipeline_stage(self):
+        if self._num_src_pipeline_stage is None:
+            self._num_src_pipeline_stage = future.get(self.src_model.replicas[0].all_actors[0].pipeline_model_parallel_size.remote())
+        return self._num_src_pipeline_stage
+
+    @property
+    def num_dst_pipeline_stage(self):
+        if self._num_dst_pipeline_stage is None:
+            self._num_dst_pipeline_stage = future.get(self.dst_model.replicas[0].all_actors[0].pipeline_model_parallel_size.remote())
+        return self._num_dst_pipeline_stage
+
+    @property
+    def num_src_tensor_parallel(self):
+        if self._num_src_tensor_parallel is None:
+            self._num_src_tensor_parallel = future.get(self.src_model.replicas[0].all_actors[0].tensor_model_parallel_size.remote())
+        return self._num_src_tensor_parallel
+
+    @property
+    def num_dst_tensor_parallel(self):
+        if self._num_dst_tensor_parallel is None:
+            self._num_dst_tensor_parallel = future.get(self.dst_model.replicas[0].all_actors[0].tensor_model_parallel_size.remote())
+        return self._num_dst_tensor_parallel
 
     def setup_collective_group(self):
         refs = []
@@ -88,22 +115,18 @@ class ParameterSyncGroup:
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.actor2rank[dst_actor] = dst_rank
 
-        if self._debug:
-            src_gpu = future.get(src_actor.get_visible_gpus.remote())
-            dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
-            logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}")
+        src_gpu = future.get(src_actor.get_visible_gpus.remote())
+        dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
+        src_tp_rank = self.get_actor_tp_rank(src_actor)
+        dst_tp_rank = self.get_actor_tp_rank(dst_actor)
+        src_pp_rank = self.get_actor_pipe_rank(src_actor)
+        dst_pp_rank = self.get_actor_pipe_rank(dst_actor)
+        logger.info(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
+                    f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
+                    f"from tp rank {src_tp_rank} to {dst_tp_rank}")
+        assert src_tp_rank == dst_tp_rank, f"src_tp_rank {src_tp_rank} should be same as dst_tp_rank {dst_tp_rank}"
         self.send_recv_actor_mappings[src_actor].append(dst_actor)
         self.recv_send_actor_mappings[dst_actor].append(src_actor)
-        if self._num_src_pipeline_stage is None:
-            self._num_src_pipeline_stage = future.get(src_actor.pipeline_model_parallel_size.remote())
-        if self._num_dst_pipeline_stage is None:
-            self._num_dst_pipeline_stage = future.get(dst_actor.pipeline_model_parallel_size.remote())
-        src_tensor_model_parallel_size = future.get(src_actor.tensor_model_parallel_size.remote())
-        dst_tensor_model_parallel_size = future.get(dst_actor.tensor_model_parallel_size.remote())
-        assert src_tensor_model_parallel_size == dst_tensor_model_parallel_size, \
-            "currently we require the tensor_model_parallel_size to be the same between " + \
-            f"src model {self.src_model.name}(TP={src_tensor_model_parallel_size}) and " + \
-            f"dst model {self.dst_model.name}(TP={dst_tensor_model_parallel_size})"
 
     def build_rank_mapping(self):
         # setup rank mapping for src parameter and dst parameter
@@ -123,17 +146,29 @@ class ParameterSyncGroup:
         src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
         assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
-            f"src training model ranks should be times of dst ranks, but got {len(src_ranks)} and {len(dst_ranks[0])}"
+            f"src training model ranks should be times of dst ranks, but got {len(src_ranks[0])} and {len(dst_ranks[0])}"
 
         replica_rank_iter = cycle(iter(src_ranks))
         logger.debug(f"src_ranks: {src_ranks}")
         logger.debug(f"dst_ranks: {dst_ranks}")
+        assert self.num_src_tensor_parallel == self.num_dst_tensor_parallel, \
+            "currently we require the tensor_model_parallel_size to be the same between " + \
+            f"src model {self.src_model.name}(TP={self.num_src_tensor_parallel}) and " + \
+            f"dst model {self.dst_model.name}(TP={self.num_dst_tensor_parallel})"
+        assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
+
+        def split_ranks_by_tp_size(ranks, tp_size):
+            return [ranks[i:i + tp_size] for i in range(0, len(ranks), tp_size)]
 
         for dst_replica_ranks in dst_ranks:
             src_replica_ranks = next(replica_rank_iter)
-            for j, src_rank in enumerate(src_replica_ranks):
-                i = j % len(dst_replica_ranks)
-                self.add_recv_actor(src_rank, dst_replica_ranks[i])
+            src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
+            dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_src_tensor_parallel)
+            pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
+            for i, src_tp_group in enumerate(src_replica_ranks_group):
+                j = i // pipe_map_interval
+                for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[j]):
+                    self.add_recv_actor(src_rank, dst_rank)
 
     def _get_dst_name(self, src_name):
         if self._src_prefix:
@@ -227,16 +262,21 @@ class ParameterSyncGroup:
             return future.get(actor.pipeline_parallel_rank.remote())
         return utils.get_or_cache(self._actor2pipe, actor, inner_func)
 
+    def get_actor_tp_rank(self, actor):
+        def inner_func():
+            return future.get(actor.tensor_parallel_rank.remote())
+        return utils.get_or_cache(self._actor2tp, actor, inner_func)
+
     def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None):
         if requires_grad is None:
             requires_grad = True
         if self._enable_lora:
             # TODO(jiangle.jl): support freeze layer.
             requires_grad = False
-        if self._num_src_pipeline_stage > 1:
+        if self.num_src_pipeline_stage > 1:
             dst_pipe_rank = self.get_actor_pipe_rank(recv_actor)
             dst_src_mappings = future.get(send_actor.build_pipeline_layer_name_mapping.remote(
-                                          self._num_dst_pipeline_stage, dst_pipe_rank, requires_grad=requires_grad))
+                                          self.num_dst_pipeline_stage, dst_pipe_rank, requires_grad=requires_grad))
             dst_names = dst_src_mappings.keys()
             src_names = dst_src_mappings.values()
         else:
