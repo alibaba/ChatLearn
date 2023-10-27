@@ -137,6 +137,12 @@ class RLHFMegatronModule(RLHFTorchModule):
         """
         return mpu.get_pipeline_model_parallel_rank()
 
+    def tensor_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return mpu.get_tensor_model_parallel_rank()
+
     def num_layers(self):
         """
         :meta private:
