@@ -29,6 +29,7 @@ from chatlearn.runtime.parameter_sync import ParameterSyncGroup
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
+from .port_manager import PortManager
 
 
 class ModelManager:
@@ -41,11 +42,9 @@ class ModelManager:
         self.env_args = global_args.env_args
         self.rlhf_args = global_args.rlhf_args
         self.converted = False
-        self.free_ports = []
-        if dlc_utils.in_dlc_env():
-            # port for DLC jobs, the first two ports are reserved for ray start
-            self.free_ports = dlc_utils.get_free_ports()[2:]
-        self.port_index = 0
+        # port for DLC jobs, the first two ports are reserved for ray start
+        self.free_ports = dlc_utils.get_free_ports()[2:]
+        self._port_manager = PortManager.remote(self.free_ports)
         self.error_signal = ErrorSignalActor.remote()
         self._storage = Storage.remote()
         self.parameter_sync_groups = {}
@@ -111,11 +110,6 @@ class ModelManager:
         for _, sync_group in self.parameter_sync_groups.items():
             sync_group.sync(requires_grad)
 
-    def get_free_port(self):
-        port = self.free_ports[self.port_index]
-        self.port_index += 1
-        return port
-
     def set_func_decorator(self, model):
         if is_decorated(model.name):
             return
@@ -154,11 +148,7 @@ class ModelManager:
 
         dist_model = DistModel()
         for replica_id in range(model.num_replica):
-            free_port = None
-            if isinstance(model, RLHFTorchModule):
-                if dlc_utils.in_dlc_env():
-                    free_port = self.get_free_port()
-            dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, free_port,
+            dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, self._port_manager,
                                       replica_id, self._storage)
             dist_model.add_replica(dist_actor)
         return dist_model

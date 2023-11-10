@@ -19,7 +19,7 @@ import ray
 import torch
 from chatlearn.launcher import dlc_utils
 from chatlearn.utils.logger import log_rank_0
-from chatlearn.utils.utils import get_free_port, get_host_addr
+from chatlearn.utils.utils import get_host_addr
 from .rlhf_module import RLHFModule
 
 class RLHFTorchModule(RLHFModule):
@@ -53,7 +53,7 @@ class RLHFTorchModule(RLHFModule):
         else:
             self.profiler = None
 
-    def get_addr_port(self):
+    def get_address(self):
         """
         Get node address and port
 
@@ -61,11 +61,9 @@ class RLHFTorchModule(RLHFModule):
         """
         if dlc_utils.in_dlc_env():
             addr = dlc_utils.get_addr()
-            port = None
         else:
             addr = get_host_addr()
-            port = get_free_port()
-        return addr, port
+        return addr
 
     def get_visible_gpus(self):
         """
