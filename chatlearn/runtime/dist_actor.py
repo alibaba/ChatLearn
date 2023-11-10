@@ -20,7 +20,6 @@ from functools import partial
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
-from chatlearn.launcher import dlc_utils
 from chatlearn.models.rlhf_module import RLHFModule
 from chatlearn.utils import future
 from chatlearn.utils.utils import parse_function_args
@@ -34,7 +33,7 @@ class DistActor:
     def __init__(self, model: RLHFModule,
                  gpu_per_node,
                  error_signal,
-                 port=None,
+                 port_manager,
                  replica_id=0,
                  storage=None):
         self.total_device = model.total_device
@@ -44,7 +43,7 @@ class DistActor:
         self.model = model
         self.all_actors = []
         self.replica_id = replica_id
-        self.port = port
+        self._port_manager = port_manager
         self.name = self.model.name
         self.error_signal = error_signal
         self.storage = storage
@@ -171,9 +170,8 @@ class DistTorchActor(DistActor):
 
     def set_dist_env(self, revert_placement=False):
         self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
-        master_addr, master_port = future.get(self.master.get_addr_port.remote())
-        if dlc_utils.in_dlc_env():
-            master_port = self.port
+        master_addr = future.get(self.master.get_address.remote())
+        master_port = future.get(self._port_manager.get_free_port.remote(master_addr))
 
         world_size = self.actor_num
         env_config = {"MASTER_ADDR": master_addr, "MASTER_PORT": master_port, "WORLD_SIZE": world_size}

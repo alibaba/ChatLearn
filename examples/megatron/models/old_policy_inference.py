@@ -58,7 +58,7 @@ class PolicyInference(RLHFMegatronModule):
         # Set up model and load checkpoint
         model = get_model(self.model_provider, wrap_with_ddp=False)
         self.tokenizer = get_tokenizer()
-        if self.args.load is not None:
+        if self.args.load:
             torch.distributed.barrier()
             load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()
@@ -145,7 +145,7 @@ class PolicyInference(RLHFMegatronModule):
 
     def _tokenize_prompts_and_batch(self, prompts_tokens, tokens_to_generate):
         """Given a set of prompts and number of tokens to generate:
-        prompts_tokens: THIS must be left padded to the same length!!!!!
+        prompts_tokens:
             - tokenize prompts
             - set the sequence length to be the max of length of prompts
               plus the number of tokens we would like to generate
