@@ -8,7 +8,6 @@ source run_scripts/base_env.sh
 
 export PYTHONPATH=${PYTHONPATH}:${CHATLEARN}/examples/megatron/step2_reward
 
-
 if [[ "$model_size" == "7B" ]]; then
   export policy_num_layers=32
   export policy_hidden_size=4096

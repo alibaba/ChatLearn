@@ -54,7 +54,7 @@ class PolicyReference(PolicyInference):
         # Set up model and load checkpoint
         model = get_model(self.model_provider, wrap_with_ddp=False)
         self.tokenizer = get_tokenizer()
-        if self.args.load is not None:
+        if self.args.load:
             torch.distributed.barrier()
             load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()

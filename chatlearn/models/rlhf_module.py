@@ -313,7 +313,7 @@ class RLHFModule:
                 Dataset with user-defined collate_fn
         """
 
-    def _build_dataloader(self, data, sample_per_episode_per_replica=-1, is_eval=False):
+    def _build_dataloader(self, data, batch_size, sample_per_episode_per_replica=-1, is_eval=False):
         """
         build and set the dataloader for the model
 
@@ -338,8 +338,9 @@ class RLHFModule:
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.rlhf_args.consumed_samples
+
         dataloader = self.build_dataloader(dataset,
-                                           batch_size=self.module_args.generation_batch_size,
+                                           batch_size=batch_size,
                                            collate_fn=dataset.collate_fn,
                                            is_eval=is_eval,
                                            consumed_samples=consumed_samples)

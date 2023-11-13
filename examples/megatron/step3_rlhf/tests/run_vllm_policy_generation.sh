@@ -16,7 +16,7 @@ if [[ "$model_type" == "gpt" ]]; then
     export max_new_tokens=512
     export max_seq_len=1024
 elif [[ "$model_type" == "llama2" ]]; then
-    configs=configs/llama2/test_policy.yaml
+    configs=configs/llama2/test_vllm_policy.yaml
     export tokenizer_model=$VOCAB_FILE
 else
     echo "unexpected model_type $model_type."
@@ -25,13 +25,14 @@ fi
 
 source run_scripts/$model_type/base_env.sh
 
-export exp_name=run_test_${model_size}_tp${TP}_meg_$model_type
+export exp_name=run_test_${model_size}_tp${TP}_vllm_$model_type
 export batch_generation_min_prompt_length=32
 
-generation_batch_size=64 \
+vllm_micro_batch_size=256 \
+generation_batch_size=128 \
 num_device=$TP \
 policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \
 eval_output_dir=$OUTPUT \
-python tests/test_policy_generation.py -c $configs 2>&1 | tee ${OUTPUT}/${exp_name}.log
+python tests/test_vllm_policy_generation.py -c $configs 2>&1 | tee ${OUTPUT}/${exp_name}.log
