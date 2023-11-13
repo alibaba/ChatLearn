@@ -259,6 +259,8 @@ class RLHFConfig(BaseConfig):
     colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval
     eval_episode_interval: int = 0
+    #: [optional]: enable resume training when data checkpoint is set
+    enable_resume_training: bool = True
     #: [optional]: checkpoint for dataloader
     data_checkpoint_path: str = None
     #: [optional]: max data checkpoint nums
