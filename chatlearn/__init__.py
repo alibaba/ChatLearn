@@ -14,6 +14,8 @@
 # ==============================================================================
 """init"""
 
+import importlib
+
 from chatlearn import hooks
 from chatlearn.launcher.initialize import init
 from chatlearn.utils.global_vars import get_args
@@ -27,3 +29,7 @@ from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.engine import Engine
 from chatlearn.runtime.engine import EvalEngine
 from chatlearn.runtime.engine import RLHFEngine
+
+vllm_exist = importlib.util.find_spec("vllm")
+if vllm_exist:
+    from chatlearn.models.vllm_module import RLHFVLLMModule

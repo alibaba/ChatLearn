@@ -85,7 +85,7 @@ class BaseTrainer(RLHFMegatronModule):
             strict = False
         else:
             strict = True
-        if args.load is not None and (args.finetune or args.no_load_optim):
+        if args.load and (args.finetune or args.no_load_optim):
             torch.distributed.barrier()
             args.iteration = load_checkpoint(model, None, None, strict=strict,
                 adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
@@ -101,7 +101,7 @@ class BaseTrainer(RLHFMegatronModule):
                                                scale_lr_cond, lr_mult)
             opt_param_scheduler = get_optimizer_param_scheduler(optimizer)
 
-        if args.load is not None and not args.finetune and not args.no_load_optim:
+        if args.load and not args.finetune and not args.no_load_optim:
             timers = get_timers()
             timers('load-checkpoint', log_level=0).start(barrier=True)
             args.iteration = load_checkpoint(model, optimizer, opt_param_scheduler, strict=strict)

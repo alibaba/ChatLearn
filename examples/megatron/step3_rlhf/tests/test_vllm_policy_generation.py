@@ -12,9 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""test policy generation"""
+"""test vllm policy generation"""
 
-from models.old_policy_inference import PolicyInference
+from models.vllm_policy_inference import VLLMPolicyInference
 from models.utils import write_jsonl
 from tqdm import tqdm
 from train_rlhf import get_prompts
@@ -24,13 +24,13 @@ from chatlearn import EvalEngine
 
 chatlearn.init()
 
-policy = PolicyInference("policy")
+policy = VLLMPolicyInference("policy")
 policy.register_eval_func("forward_step")
 engine = EvalEngine(policy)
 
 args = chatlearn.get_args()
 k = {"math_coef": 0}
-train_prompts = get_prompts(args.rlhf_args.get("eval_data_path"), num_limit=1024, )
+train_prompts = get_prompts(args.rlhf_args.get("eval_data_path"), num_limit=512, )
 
 policy_checkpoint = policy.model_args["load"]
 load_iteration = policy.model_args.get("load_iteration", 0)
@@ -42,7 +42,7 @@ results = engine.eval()
 output = []
 
 for res in tqdm(results, total=len(results)):
-    print(res["str_outputs"])
+    print(res['str_outputs'])
     str_prompts = res["str_prompts"]
     str_outputs = res["str_outputs"]
     for str_prompt, str_output in zip(str_prompts, str_outputs):

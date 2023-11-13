@@ -14,6 +14,7 @@
 # ==============================================================================
 """Sync parameters"""
 
+import importlib
 import random
 import threading
 import traceback
@@ -28,6 +29,11 @@ from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.logger import logger
+
+vllm_exist = importlib.util.find_spec("vllm")
+if vllm_exist:
+    from chatlearn.models.vllm_module import RLHFVLLMModule
+
 
 patch_ray()
 
@@ -286,11 +292,14 @@ class ParameterSyncGroup:
             src_names = [ele for ele in src_names if LORA_WEIGHT_PREFIX not in ele]
             dst_names = [ele for ele in dst_names if LORA_WEIGHT_PREFIX not in ele]
 
-        if self._dst_prefix is None and self._src_prefix is None:
-            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
-            self.set_model_prefix(src_names, dst_names_ref)
+        if vllm_exist and isinstance(self.dst_model.replicas[0].model, RLHFVLLMModule):
+            dst_names = future.get(recv_actor.map_src_to_dst.remote(src_names))
+        else:
+            if self._dst_prefix is None and self._src_prefix is None:
+                dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
+                self.set_model_prefix(src_names, dst_names_ref)
 
-        dst_names = [self._get_dst_name(name) for name in dst_names]
+            dst_names = [self._get_dst_name(name) for name in dst_names]
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         refs = []

@@ -65,3 +65,24 @@ class PromptPipeline(Dataset):
 
         # Return the collate_dict
         return collate_dict
+
+
+class VLLMPromptPipeline(PromptPipeline):
+    """
+    a dataset of list of no padded prompt tensors
+    truncted to max_prompt_length from right
+    """
+
+    def __init__(self, prompts: List[str], max_prompt_length: int, tokenizer=None):# pylint: disable=super-init-not-called
+
+        for p in prompts:
+            assert len(p) > 0, "Got empty prompt"
+        assert max_prompt_length > 0, \
+            "Prompt length for PPO trainer must be an integer greater than 0"
+
+        self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt in prompts]
+        self.prompts_ids = []
+        for prompt, prompt_ids in self.prompts:
+            p = {"input_ids": prompt_ids, "prompt": prompt}
+            self.prompts_ids.extend([copy.deepcopy(p)])
+        self.tokenizer = tokenizer

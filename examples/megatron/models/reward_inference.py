@@ -78,7 +78,7 @@ class RewardInference(RLHFMegatronModule):
         # Set up model and load checkpoint
         model = get_model(model_provider, wrap_with_ddp=False)
 
-        if args.load is not None:
+        if args.load:
             load_checkpoint(model, None, None, adaptive_parallel_strategy=args.adaptive_parallel_strategy_on_checkpoint)
 
         assert len(model) == 1, "Above condition should have caught this"

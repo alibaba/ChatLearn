@@ -14,6 +14,7 @@
 # ==============================================================================
 """Environment"""
 import math
+import importlib
 from itertools import cycle
 
 from ray.util.queue import Queue
@@ -21,6 +22,10 @@ from ray.util.queue import Queue
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from chatlearn.data.ranking import batch_generation_ranking
+
+vllm_exist = importlib.util.find_spec("vllm")
+if vllm_exist:
+    from chatlearn.models.vllm_module import RLHFVLLMModule
 
 
 class BaseEnv:
@@ -45,7 +50,7 @@ class PPOEnv(BaseEnv):
         assert self.sample_per_episode % len(self.policy.replicas) == 0, \
             "replica number of policy model must be divisible by sample_per_episode"
         self.sample_per_episode_per_replica = self.sample_per_episode // len(self.policy.replicas)
-        self.batch_size = self.policy.module_args.generation_batch_size
+        self._batch_size = None
         self._batch_per_episode = None
         self._dataset = None
         self.data_iter = None
@@ -56,23 +61,41 @@ class PPOEnv(BaseEnv):
         self.reference_value_colocate = []
         self.num_reference_value_to_process = 1
         self.reference_value_results = []
-
+        self.use_vllm_backend = vllm_exist and isinstance(self.policy.replicas[0].model, RLHFVLLMModule)
 
     @property
     def sample_per_episode(self):
         return self.args.sample_per_episode
 
     @property
+    def batch_size(self):
+        if self._batch_size is not None:
+            return self._batch_size
+        if self.use_vllm_backend:
+            num_replica = len(self.models[0].replicas)
+            self._batch_size = self.sample_per_episode // num_replica
+            if self.models[0].module_args.args_dict.get("vllm_micro_batch_size") is not None and \
+                    self.models[0].module_args.args_dict["vllm_micro_batch_size"] != -1:
+                self._batch_size = self.models[0].module_args.args_dict["vllm_micro_batch_size"]
+        else:
+            self._batch_size = self.models[0].module_args.generation_batch_size
+
+        return self._batch_size
+
+    @property
     def batch_per_episode(self):
         if self._batch_per_episode is not None:
             return self._batch_per_episode
         num_replica = len(self.models[0].replicas)
-        num_batch = self.sample_per_episode // (num_replica*self.batch_size) * num_replica
-        remainder = self.sample_per_episode % (num_replica*self.batch_size)
-        if remainder >= num_replica:
-            self._batch_per_episode = num_batch + num_replica
+        if self.use_vllm_backend:
+            self._batch_per_episode = math.ceil(self.sample_per_episode_per_replica / self.batch_size)
         else:
-            self._batch_per_episode = num_batch + remainder
+            num_batch = self.sample_per_episode // (num_replica*self.batch_size) * num_replica
+            remainder = self.sample_per_episode % (num_replica*self.batch_size)
+            if remainder >= num_replica:
+                self._batch_per_episode = num_batch + num_replica
+            else:
+                self._batch_per_episode = num_batch + remainder
         return self._batch_per_episode
 
     def setup(self, model_packs=None):
@@ -81,10 +104,19 @@ class PPOEnv(BaseEnv):
         refs = []
         for policy_replica in self.policy.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._dataset,
+                                                                 self.batch_size,
                                                                  self.sample_per_episode_per_replica)
             refs.append(ref)
         future.get(refs)
         logger.info("set dataset for policy")
+
+        if self.use_vllm_backend:
+            # set up scheduler and add request
+            refs = []
+            for policy_replica in self.policy.replicas:
+                ref = policy_replica.master.build_scheduler.remote()
+                refs.append(ref)
+            future.get(refs)
 
         for dist_model in [self.policy, self.reference, self.reward, self.value]:
             model = dist_model.replicas[0]
@@ -104,7 +136,6 @@ class PPOEnv(BaseEnv):
                 self.reference_value_colocate = [self.reference.name, self.value.name]
                 self.num_reference_value_to_process = 2
                 break
-
 
     def set_dataset(self, dataset):
         if self.models[0].module_args.batch_generation.ranking:
@@ -161,12 +192,36 @@ class PPOEnv(BaseEnv):
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
 
-    def generate_step_one_model(self, model, in_queue, out_queue, step_num, func_name="forward_step", to_empty_cache=None, is_eval=False):
+    def vllm_post_process_outputs(self, replica):
+        """post precess of results in current episode"""
+        return replica.master.decode.remote()
+
+    def vllm_post_process_generate_step_one_model(self, model, out_queue, mb):
+        """
+        Args:
+            model: DistModel
+            out_queue: Queue
+        """
+        replica = self._get_model(model)
+        output = self.vllm_post_process_outputs(replica)
+
+        # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
+        #   length is the number of Actors. In this case, all members in the list
+        #   are the same, and we choose output[-1] to put into out_queue.
+        last_output = output[-1] if isinstance(output, list) else output
+        if isinstance(out_queue, list):
+            for oq in out_queue:
+                oq.put(self.encode_data(mb, last_output))
+        else:
+            out_queue.put(self.encode_data(mb, last_output))
+        # To ensure all Actors are finished synchronously, `output` itself should be returned
+        return out_queue, output
+
+    def generate_step_one_model_internal(self, model, in_queue, step_num, func_name="forward_step", to_empty_cache=None, is_eval=False):
         """
         Args:
             model: DistModel
             in_queue: Queue
-            out_queue: Queue
             step_num: int
             func_name: str
             to_empty_cache: None or boolean
@@ -192,6 +247,25 @@ class PPOEnv(BaseEnv):
         if is_eval is not None:
             kwargs["is_eval"] = is_eval
         output = func(*query, **kwargs)
+        return output, mb
+
+    def has_unfinished_requests(self):
+        rets = []
+        for model_replica in self.models[0].replicas:
+            rets.append(model_replica.master.has_unfinished_requests.remote())
+        return all(future.get(rets))
+
+    def generate_step_one_model(self, model, in_queue, out_queue, step_num, func_name="forward_step", to_empty_cache=None, is_eval=False):
+        """
+        Args:
+            model: DistModel
+            in_queue: Queue
+            out_queue: Queue
+            step_num: int
+            func_name: str
+            to_empty_cache: None or boolean
+        """
+        output, mb = self.generate_step_one_model_internal(model, in_queue, step_num, func_name, to_empty_cache, is_eval)
 
         # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
         #   length is the number of Actors. In this case, all members in the list
@@ -232,9 +306,12 @@ class PPOEnv(BaseEnv):
                 self.num_reference_value_to_process = 1
 
 
-    def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, step):
+    def generate_step(self, data_queue, policy_out_queue, ref_out_queue, old_value_out_queue, reward_out_queue, step, mb=0):
         # TODO: generate data_flow by ast parser
-        self.generate_step_one_model(self.policy, data_queue, policy_out_queue, to_empty_cache=False, step_num=step)
+        if self.use_vllm_backend:
+            self.vllm_post_process_generate_step_one_model(self.policy, policy_out_queue, mb)
+        else:
+            self.generate_step_one_model(self.policy, data_queue, policy_out_queue, to_empty_cache=False, step_num=step)
         self.generate_step_one_model(self.reference, policy_out_queue[0], ref_out_queue, to_empty_cache=False, step_num=step)
         self.generate_step_one_model(self.value, policy_out_queue[1], old_value_out_queue, to_empty_cache=False, step_num=step)
         self.generate_step_one_model(self.reward, [policy_out_queue[2], ref_out_queue[0], old_value_out_queue],
@@ -267,6 +344,14 @@ class PPOEnv(BaseEnv):
             data.append(reward_out_queue)
         return self.get_all_merged_data(data, out_queue, encode=False)
 
+    def add_request(self, is_eval=False):
+        request_rets = []
+        for model_replica in self.models[0].replicas:
+            query = model_replica.master.next_batch.remote(is_eval=is_eval)
+            ret = model_replica.master._add_request.remote(query)
+            request_rets.append(ret)
+        future.get(request_rets)
+
     def make_experiences(self):
         """
         Generate a collection of experiences for one episode
@@ -279,22 +364,40 @@ class PPOEnv(BaseEnv):
         old_value_out_queue = Queue()
         reward_out_queue = Queue()
 
-        policy_iter = cycle(iter(self.policy.replicas))
-        if self.args.colocation:
+        if self.use_vllm_backend:
             for mb in range(self.batch_per_episode):
-                # TODO: independent data loader
-                policy = next(policy_iter)
-                query = policy.master.next_batch.remote()
-                data_queue.put(self.encode_data(mb, query))
-            self.generate_loop_sync(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue,
-                                    out_queue, self.batch_per_episode)
-        else:
-            for mb in range(self.batch_per_episode):
-                # TODO: independent data loader
-                policy = next(policy_iter)
-                query = policy.master.next_batch.remote()
-                data_queue.put(self.encode_data(mb, query))
-                data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue,
+                # add requests of current episode to vllm scheduler
+                self.add_request()
+
+                # eval loop of current episode
+                while self.has_unfinished_requests():
+                    step_output_rets = []
+                    for model_replica in self.policy.replicas:
+                        query = model_replica.master.schedule.remote()
+                        data_queue.put(self.encode_data(mb, query))
+                        data, _ = self.generate_step_one_model_internal(self.policy, data_queue, mb)
+                        step_output_rets.append(data)
+                    future.get(step_output_rets)
+                data = self.generate_step(None, policy_out_queues, ref_out_queue, old_value_out_queue,
                                           reward_out_queue, mb)
                 out_queue.put(data)
+        else:
+            policy_iter = cycle(iter(self.policy.replicas))
+            if self.args.colocation:
+                for mb in range(self.batch_per_episode):
+                    # TODO: independent data loader
+                    policy = next(policy_iter)
+                    query = policy.master.next_batch.remote()
+                    data_queue.put(self.encode_data(mb, query))
+                self.generate_loop_sync(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue, reward_out_queue,
+                                        out_queue, self.batch_per_episode)
+            else:
+                for mb in range(self.batch_per_episode):
+                    # TODO: independent data loader
+                    policy = next(policy_iter)
+                    query = policy.master.next_batch.remote()
+                    data_queue.put(self.encode_data(mb, query))
+                    data = self.generate_step(data_queue, policy_out_queues, ref_out_queue, old_value_out_queue,
+                                            reward_out_queue, mb)
+                    out_queue.put(data)
         return out_queue
