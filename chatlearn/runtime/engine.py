@@ -304,12 +304,13 @@ class RLHFEngine(Engine):
             data_ckpt_manager = CheckpointManager(self.policy.replicas[0], self.rlhf_args.data_checkpoint_path,
                                                   self.rlhf_args.max_data_ckpt_nums,
                                                   self.rlhf_args.load_data_checkpoint_iteration)
-            meta = data_ckpt_manager.resume_meta()
-            if meta:
-                self._start_episode = meta["episode"] + 1
-                self.trainer.iteration = meta["train_iteration"]
-                if self.trainer.iteration > 0:
-                    logger.info(f"ChatLearn continue train with meta {meta}")
+            if self.rlhf_args.enable_resume_training:
+                meta = data_ckpt_manager.resume_meta()
+                if meta:
+                    self._start_episode = meta["episode"] + 1
+                    self.trainer.iteration = meta["train_iteration"]
+                    if self.trainer.iteration > 0:
+                        logger.info(f"ChatLearn continue train with meta {meta}")
 
     def save_checkpoint(self, episode_id):
         """

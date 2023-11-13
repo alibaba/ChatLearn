@@ -8,7 +8,6 @@ vocab_file: ${vocab_file}
 max_position_embeddings: 2048
 bf16: True
 seq_length: 1536
-out_seq_length: 1024
 fix_kl_coef: ${fix_kl_coef:True}
 log_dir: ${log_dir}
 exp_name: ${exp_name:test}

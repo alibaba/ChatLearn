@@ -37,7 +37,7 @@ class CheckpointManager:
         self._meta = None
         self._model = model
         self._resumed = False
-        self._config_to_check = {"sample_per_episode": model.rlhf_args.sample_per_episode}
+        self._config_to_check = {}
 
 
     def _get_checkpoint_path_name(self, replica_id, step):
@@ -81,8 +81,8 @@ class CheckpointManager:
 
         meta_data = {"episode": episode,
                      "train_iteration": train_iter,
-                     "consumed_samples": consumed_samples}
-        meta_data.update(self._config_to_check)
+                     "consumed_samples": consumed_samples,
+                     "sample_per_episode": self._model.rlhf_args.sample_per_episode}
 
         with open(_get_path("meta.pkl"), 'wb') as f:
             pickle.dump(meta_data, f)

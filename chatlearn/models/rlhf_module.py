@@ -183,13 +183,14 @@ class RLHFModule:
             self._data_ckpt_manager = CheckpointManager(self, self.rlhf_args.data_checkpoint_path,
                                                        self.rlhf_args.max_data_ckpt_nums,
                                                        self.rlhf_args.load_data_checkpoint_iteration)
-            meta = self._data_ckpt_manager.resume()
-            if meta:
-                self._resume_training = self.rlhf_args.consumed_samples > 0
-                start_episode = meta["episode"] + 1
-                self._iteration = start_episode * math.ceil(self.rlhf_args.sample_per_episode / \
-                    self._num_replica / self.module_args.generation_batch_size)
-                log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}")
+            if self.rlhf_args.enable_resume_training:
+                meta = self._data_ckpt_manager.resume()
+                if meta:
+                    self._resume_training = self.rlhf_args.consumed_samples > 0
+                    start_episode = meta["episode"] + 1
+                    self._iteration = start_episode * math.ceil(self.rlhf_args.sample_per_episode / \
+                        self._num_replica / self.module_args.generation_batch_size)
+                    log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}")
         self.setup()
 
     def forward_step(self, data, iteration=None):
