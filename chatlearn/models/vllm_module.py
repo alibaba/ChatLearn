@@ -28,7 +28,6 @@ from vllm.utils import get_gpu_memory, Counter
 from vllm.worker.cache_engine import CacheEngine
 from vllm.worker.worker import Worker
 
-from chatlearn.utils.logger import logger
 from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2TransformerSyncMap, VllmModelConfig
 from .torch_module import RLHFTorchModule
 
@@ -49,7 +48,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
 
         # inference only
         if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
-            logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
+            self._logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
         self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
 
         self._init_args()
@@ -133,7 +132,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
         num_gpu_blocks, num_cpu_blocks = self.profile_num_available_blocks(sampling_params)
 
         # FIXME(woosuk): Change to debug log.
-        logger.info(f"# GPU blocks: {num_gpu_blocks}, "
+        self._logger.info(f"# GPU blocks: {num_gpu_blocks}, "
                     f"# CPU blocks: {num_cpu_blocks}")
 
         if num_gpu_blocks <= 0:
@@ -146,7 +145,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
 
         # Initialize the cache.
         self.init_cache_engine(cache_config=self.cache_config)
-        logger.info("success to call init_cache_engine")
+        self._logger.info("success to call init_cache_engine")
 
     def _add_request_internal(self, prompt_list, prompt_token_id_list):
         for prompt, prompt_token_ids in zip(prompt_list, prompt_token_id_list):
@@ -176,7 +175,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
             assert hasattr(self, "model")
             self.model.eval()
 
-        logger.info("start to init cache")
+        self._logger.info("start to init cache")
         self._init_cache()
 
     def map_src_to_dst(self, src_names):

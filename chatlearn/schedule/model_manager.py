@@ -68,6 +68,9 @@ class ModelManager:
         for group in self.rlhf_args.colocation:
             colocate_models = [self._name2distmodel[name] for name in group]
             self.place_models_to_remote_devices(colocate_models)
+            if len(colocate_models) > 1:
+                for model in colocate_models:
+                    model.need_empty_cache = True
             for name in group:
                 remote_states.add(name)
         for model in self.dist_models:

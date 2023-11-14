@@ -139,4 +139,4 @@ torchrun $DISTRIBUTED_ARGS \
   --sequence-parallel \
   --finetune \
   --distributed-timeout-minutes 60 \
-  $MODEL_ARGS 2>&1 | tee -a ${log_file}
+  $MODEL_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}

@@ -20,7 +20,6 @@ import ray
 import ray.util.collective as col
 
 from chatlearn.utils import future
-from chatlearn.utils.logger import logger
 
 
 @ray.remote
@@ -36,10 +35,8 @@ class ErrorMonitor:
         while True:
             catch_err = future.get(self.error_signal.is_set.remote())
             if catch_err:
-                error_msg = future.get(self.error_signal.error_msg.remote())
                 break
             time.sleep(2)
-        logger.exception(f"Error found {error_msg}")
         for group_name in self.collective_groups:
             col.destroy_collective_group(group_name)
         for model in self.remote_models:

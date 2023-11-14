@@ -84,7 +84,7 @@ function run_all_tests {
 
 if [ "$1" == "" ]; then
   if [ "$LOGFILE" != "" ]; then
-    run_all_tests 2>&1 | tee $LOGFILE
+    run_all_tests 2>&1 | tee $LOGFILE ; exit ${PIPESTATUS[0]}
   else
     run_all_tests
   fi

@@ -29,10 +29,10 @@ def monitor_error(func, func_name):
         try:
             return func(self, *args, **kwargs)
         except Exception as e:
-            if self.is_last_rank():
-                # report error message on only the first rank and first replica
-                if (not hasattr(self, "replica")) or self.replica is None or self.replica == 0:
-                    logger.exception(f"catch exception ========= in {self.name} {func_name} {e}, {traceback.format_exc()}")
+            self._logger.exception(f"Catch exception ========= in {self.name} {func_name} {e}")
+            traceback_msg =  f"{traceback.format_exc()}"
+            for line in traceback_msg.split("\n"):
+                self._logger.exception(line)
             future.wait(self.error_signal.set.remote(traceback.format_exc()))
             raise
 

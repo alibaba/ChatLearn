@@ -46,4 +46,3 @@ fi
 
 bash run_scripts/gpt/benchmark.sh
 
-set +x

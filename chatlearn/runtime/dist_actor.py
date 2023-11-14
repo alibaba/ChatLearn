@@ -202,6 +202,7 @@ class DistModel:
         self.rank_to_actors = {}
         self.register_serial_func()
         self.register_func()
+        self._need_empty_cache = False
 
     def add_replica(self, replica):
         self.replicas.append(replica)
@@ -230,6 +231,14 @@ class DistModel:
     @property
     def gpu_per_process(self):
         return self.replicas[0].gpu_per_process
+
+    @property
+    def need_empty_cache(self):
+        return self._need_empty_cache
+
+    @need_empty_cache.setter
+    def need_empty_cache(self, empty_cache):
+        self._need_empty_cache = empty_cache
 
     def get_actor(self, rank):
         # given rank, return the actor

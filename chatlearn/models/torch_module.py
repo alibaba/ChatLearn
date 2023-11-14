@@ -17,9 +17,7 @@
 import os
 import ray
 import torch
-from chatlearn.launcher import dlc_utils
 from chatlearn.utils.logger import log_rank_0
-from chatlearn.utils.utils import get_host_addr
 from .rlhf_module import RLHFModule
 
 class RLHFTorchModule(RLHFModule):
@@ -52,18 +50,6 @@ class RLHFTorchModule(RLHFModule):
             self.profiler.start()
         else:
             self.profiler = None
-
-    def get_address(self):
-        """
-        Get node address and port
-
-        :meta private:
-        """
-        if dlc_utils.in_dlc_env():
-            addr = dlc_utils.get_addr()
-        else:
-            addr = get_host_addr()
-        return addr
 
     def get_visible_gpus(self):
         """
@@ -119,10 +105,12 @@ class RLHFTorchModule(RLHFModule):
         """
         if not self.timers("empty_cache").started_:
             self.timers("empty_cache").start()
-        log_rank_0(f"{self.name} replica: {self.replica_id}, before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
+        log_rank_0(f"{self.name} replica: {self.replica_id}, before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB",
+                   self._logger)
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
-        log_rank_0(f"{self.name} replica: {self.replica_id}, after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB")
+        log_rank_0(f"{self.name} replica: {self.replica_id}, after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB",
+                   self._logger)
         self.timers("empty_cache").stop()
 
     def check_param_exists(self, names):
@@ -136,7 +124,7 @@ class RLHFTorchModule(RLHFModule):
             if not self.exist_parameter(name):
                 not_exists.append(name)
         if not_exists:
-            log_rank_0(f"parameters not exists: {not_exists} in model {self.name}")
+            log_rank_0(f"parameters not exists: {not_exists} in model {self.name}", self._logger)
             return False
         return True
 

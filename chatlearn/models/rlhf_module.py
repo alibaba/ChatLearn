@@ -29,8 +29,10 @@ from chatlearn.utils import future
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
-from chatlearn.utils.logger import log_rank_0, debug_rank_0
+from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
+from chatlearn.utils.utils import get_host_addr
+from chatlearn.launcher import dlc_utils
 
 
 class RLHFModule:
@@ -96,6 +98,7 @@ class RLHFModule:
         self._eval_func_name = None
         self._finalized = False
         self._resume_training = False
+        self._logger = setup_logger(model_name=self.name, ip_addr=self.get_address())
 
     def finalize(self):
         """
@@ -190,7 +193,7 @@ class RLHFModule:
                     start_episode = meta["episode"] + 1
                     self._iteration = start_episode * math.ceil(self.rlhf_args.sample_per_episode / \
                         self._num_replica / self.module_args.generation_batch_size)
-                    log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}")
+                    log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}", self._logger)
         self.setup()
 
     def forward_step(self, data, iteration=None):
@@ -371,7 +374,7 @@ class RLHFModule:
 
         :meta private:
         """
-        log_rank_0(f"Creating DataLoader... consumed_samples: {consumed_samples}")
+        log_rank_0(f"Creating DataLoader... consumed_samples: {consumed_samples}", self._logger)
         if is_eval:
             batch_sampler = SingleDataSampler(total_samples=len(dataset),
                 consumed_samples=0,
@@ -564,7 +567,7 @@ class RLHFModule:
             assert name is None
             tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
-            debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
+            debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
             for bucket in dense_buckets:
                 tensor_changed = func is col.recv
                 coalesced_comm_dense(bucket, func, extra_args=(rank, group_name), tensor_changed=tensor_changed)
@@ -595,7 +598,7 @@ class RLHFModule:
             assert name is None
             tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
-            debug_rank_0(f"{self.name} Put dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
+            debug_rank_0(f"{self.name} Put dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
             for bucket_id, bucket in enumerate(dense_buckets):
                 flat_tensors = _flatten_dense_tensors(bucket)
                 flat_tensors_ref = ray.put(flat_tensors)
@@ -617,7 +620,7 @@ class RLHFModule:
             assert name is None
             tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.rlhf_args.coalesced_buffer_mb)
-            debug_rank_0(f"{self.name} Get dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}")
+            debug_rank_0(f"{self.name} Get dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
             for bucket_id, bucket in enumerate(dense_buckets):
                 put_ref = name2ref[group_name + ":dense_bucket_" + str(bucket_id)]
                 flat_tensors = ray.get(put_ref)
@@ -729,3 +732,15 @@ class RLHFModule:
         resume training from last checkpoint.
         """
         return self._resume_training
+
+    def get_address(self):
+        """
+        Get node address
+
+        :meta private:
+        """
+        if dlc_utils.in_dlc_env():
+            addr = dlc_utils.get_addr()
+        else:
+            addr = get_host_addr()
+        return addr

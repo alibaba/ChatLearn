@@ -35,6 +35,5 @@ sample_per_episode=1024 \
 train_global_batch_size=128 \
 generation_batch_size=64 \
 ref_generation_batch_size=16 \
-python train_vllm_rlhf.py -c configs/llama2/vllm_rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_vllm_${RANK}.txt
+python train_vllm_rlhf.py -c configs/llama2/vllm_rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_vllm_${RANK}.txt ; exit ${PIPESTATUS[0]}
 
-set +x
