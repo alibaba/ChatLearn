@@ -36,6 +36,5 @@ sample_per_episode=1024 \
 train_global_batch_size=128 \
 generation_batch_size=64 \
 ref_generation_batch_size=16 \
-python train_rlhf.py -c configs/bloom/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt
+python train_rlhf.py -c configs/bloom/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt ; exit ${PIPESTATUS[0]}
 
-set +x

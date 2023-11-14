@@ -284,7 +284,7 @@ class PPOEnv(BaseEnv):
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
         for step in range(num_batch):
-            to_empty_cache = step >= last_step_start
+            to_empty_cache = step >= last_step_start and model.need_empty_cache
             _, data = self.generate_step_one_model(model, in_queue, out_queue, step, func_name, to_empty_cache)
             results.append(data)
 

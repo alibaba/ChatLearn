@@ -16,4 +16,4 @@ enable_lora_policy=${lora} \
 data_path=${DATA_DIR}/rm_static_train.jsonl \
 vocab_file=${DATA_DIR}/gpt2-vocab.json \
 merge_file=${DATA_DIR}/gpt2-merges.txt \
-python train_rlhf.py -c configs/gpt/rlhf.yaml 2>&1 | tee ${DATA_DIR}/logs/${label}_${RANK}.log
+python train_rlhf.py -c configs/gpt/rlhf.yaml 2>&1 | tee ${DATA_DIR}/logs/${label}_${RANK}.log ; exit ${PIPESTATUS[0]}

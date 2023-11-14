@@ -35,4 +35,4 @@ policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \
 eval_output_dir=$OUTPUT \
-python tests/test_vllm_policy_generation.py -c $configs 2>&1 | tee ${OUTPUT}/${exp_name}.log
+python tests/test_vllm_policy_generation.py -c $configs 2>&1 | tee ${OUTPUT}/${exp_name}.log ; exit ${PIPESTATUS[0]}

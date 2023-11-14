@@ -131,4 +131,4 @@ python -m torch.distributed.launch $DISTRIBUTED_ARGS \
   --use-distributed-optimizer \
   --adaptive-parallel-strategy-on-checkpoint \
   --sequence-parallel  \
-  $MODEL_ARGS 2>&1 | tee -a ${log_file}
+  $MODEL_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}

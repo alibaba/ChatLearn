@@ -25,7 +25,6 @@ try:
     from chatlearn.utils.megatron_utils import build_pipeline_layer_name_mapping
 except ImportError:
     print("Cannot import megatron, please set megatron python path first.")
-from chatlearn.utils.logger import logger
 from .torch_module import RLHFTorchModule
 
 # pylint: disable=import-outside-toplevel
@@ -43,15 +42,15 @@ class RLHFMegatronModule(RLHFTorchModule):
         if not self.trainable:
             # inference only
             if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
-                logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
+                self._logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
             self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
         else:
             self.model_args["micro_batch_size"] = self.rlhf_args.train_micro_batch_size
             self.model_args["global_batch_size"] = self.rlhf_args.train_global_batch_size
             if self.model_args.get("micro_batch_size") != self.rlhf_args.train_micro_batch_size:
-                logger.info(f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}")
+                self._logger.info(f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}")
             if self.model_args.get("global_batch_size") != self.rlhf_args.train_global_batch_size:
-                logger.info(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
+                self._logger.info(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
 
     def add_extra_args(self, parser):
         """
@@ -165,7 +164,7 @@ class RLHFMegatronModule(RLHFTorchModule):
             "We assume pipeline stage of target model is smaller than src model, and is divisible by src model"
         mapping_interval = dst_layers_per_stage // src_layers_per_stage
         src_rank = mpu.get_pipeline_model_parallel_rank()
-        logger.debug(f"build mapping for rank {src_rank} =========")
+        self._logger.debug(f"build mapping for rank {src_rank} =========")
         if isinstance(self.model, list):
             assert len(self.model) == 1
             model = self.model[0]

@@ -23,10 +23,10 @@ if [[ "$lora" == "True" ]]; then
         export ref_pp=2
         export reward_pp=2
         export inference_batch_times_seqlen_threshold=4096
-        [ -z "$policy_generation_batch_size" ] && export policy_generation_batch_size=176
-        [ -z "$ref_generation_bs" ] && export ref_generation_bs=176
+        [ -z "$policy_generation_batch_size" ] && export policy_generation_batch_size=128
+        [ -z "$ref_generation_bs" ] && export ref_generation_bs=128
         [ -z "$value_generation_bs" ] && export value_generation_bs=64
-        [ -z "$reward_generation_bs" ] && export reward_generation_bs=176
+        [ -z "$reward_generation_bs" ] && export reward_generation_bs=128
         [ -z "$train_micro_batch_size" ] && export train_micro_batch_size=8
         [ -z "$train_global_batch_size" ] && export train_global_batch_size=512
     fi
@@ -50,4 +50,3 @@ fi
 
 bash run_scripts/gpt/benchmark.sh
 
-set +x

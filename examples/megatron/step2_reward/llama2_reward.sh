@@ -140,4 +140,4 @@ torchrun $DISTRIBUTED_ARGS \
   --use-flash-attn \
   --sequence-parallel \
   --finetune \
-  $MODEL_ARGS 2>&1 | tee -a ${log_file}
+  $MODEL_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
