@@ -22,6 +22,7 @@ from dataset.prompt_dataset import PromptPipeline
 from megatron import arguments
 from megatron import get_args, get_tokenizer
 from megatron import print_rank_0
+from megatron.core import mpu
 from megatron.global_vars import get_tensorboard_writer
 from megatron.text_generation.communication import broadcast_float_list, \
     broadcast_int_list, broadcast_tensor
@@ -359,6 +360,9 @@ class PolicyInference(RLHFMegatronModule):
             use_eod_token_for_early_termination=True,
             stop_on_double_eol=False,
             stop_on_eol=False)
+        if not mpu.is_pipeline_last_stage():
+            # only last pipeline stage has valid data
+            return
 
         _all_tokens_max_len = tokens.size(1)
         assert not torch.isnan(all_log_probs).any(), f"just out old_logprobs {all_log_probs}"
