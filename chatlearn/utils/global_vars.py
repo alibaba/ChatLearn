@@ -16,6 +16,7 @@
 
 _GLOBAL_ARGS = None
 _EXIT_ACTOR = None
+_EXIT_ACTOR_NAME = "ChatLearnExitActor"
 _DECORATED_MODELS = None
 
 

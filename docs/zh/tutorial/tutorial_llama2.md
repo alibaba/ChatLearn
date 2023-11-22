@@ -13,12 +13,17 @@
 | `TOKENIZER_MODEL` | Tokenizer 使用的 tokenizer_model 所在的路径                                                                                           |
 
 
-# Setup: 镜像、代码、数据准备
+## Setup: 镜像、代码、数据准备
 
-## 镜像
+### 镜像
 推荐参考 `https://github.com/alibaba/ChatLearn/tree/master/docker/ngc/Dockerfile.ngc23.09` 准备镜像。
+如果在 PAI DLC 环境上训练，推荐使用我们准备好的镜像：
 
-## 代码
+```bash
+registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:2.1.0-gpu-py3.10-cu12.2-ngc23.09-ubuntu22.04
+```
+
+### 代码
 
 在这个示例中，我们需要下载以下相关代码。
 
@@ -30,17 +35,17 @@ git checkout 954a65b04
 git clone https://github.com/alibaba/ChatLearn.git
 ```
 
-## 数据
+### 数据
 
 请参考 [三阶段数据](data.md) 准备好您的训练数据。
 
 
-# Step1: SFT
+## Step1: SFT
 
 SFT 指的是使用有标注的对话数据来微调预训练语言模型的过程。在这个示例中，我们需要下载预训练的模型，然后开始一个简单的 SFT 训练示例。
 
 
-## 1.1 下载和转化预训练模型
+### 下载和转化预训练模型
 
 若使用来自于 HuggingFace transformers 的模型，首先需要下载预训练 checkpoint，比如 HuggingFace Hub 中的 LLaMA2 模型：`meta-llama/Llama-2-7b-hf`，或是本地保存好的 SFT 模型；
 然后使用如下代码，将 HuggingFace transformers 模型转化为 Megatron-LM 模型格式；
@@ -68,7 +73,7 @@ python tools/checkpoint/util.py \
 ```
 
 
-## 1.2 开启 SFT 训练
+### 开启 SFT 训练
 
 下面的脚本是一个 SFT 的训练样例。其中 `DATASET_PATH` 为 SFT 训练集路径，比如`$DATASET_ROOT/sft/train.jsonl`。
 其中 `MODEL_SIZE` 为脚本中指定模型大小的环境变量，可以为 `7B`/`13B`/`70B`。
@@ -94,11 +99,11 @@ bash llama2_sft.sh
 
 分布式执行所需的环境变量和配置参考 [分布式执行](run.md)。
 
-# Step2: Reward 模型训练
+## Step2: Reward 模型训练
 
 Reward 模型指的是在 RLHF 中作为人类评价的代理，对模型产生的问题回复进行实时评价打分的模型，Reward 模型输入问题以及模型回复，可以产生一个标量表示模型回复的质量。
 
-## 2.1 开启 Reward 模型训练
+### 开启 Reward 模型训练
 
 依据 InstructGPT[1]，Reward 模型训练基于 SFT 训练产生的模型 checkpoint 初始化，训练代码如下：
 
@@ -119,11 +124,11 @@ bash llama2_reward.sh
 
 分布式执行所需的环境变量和配置参考 [分布式执行](run.md)。
 
-# Step3: RLHF 训练
+## Step3: RLHF 训练
 RLHF 指的是在一个只有指令的数据集上尝试不同的回复然后吸取 Reward 模型给不同回复的 reward 的监督信号的过程。
 
 
-## 3.1 开启 RLHF 训练
+### 开启 RLHF 训练
 
 以下是一个 LLaMA2-7B 的 Policy 和 7B 的 Reward 模型的训练脚本。
 在这个例子中，用户需要设置 `POLICY_LOAD` 为 SFT 产出的 checkpoint 路径，Policy 模型和 Reference 模型将以 SFT 的 checkpoint 初始化。
@@ -158,7 +163,7 @@ bash run_scripts/llama2/run_7b_7b.sh
 **注意对于 RLHF 任务，如果在 PAI DLC 上运行，您需要填写高级配置`customPortList=30000-30050,createSvcForAllWorkers=true`。**
 
 
-## 3.2 效果评估
+### 效果评估
 
 首先，我们可以通过 ChatLearn 的模型转换工具将 Megatron-LM 格式的模型转换为 HuggingFace transformers 模型格式。
 
@@ -186,6 +191,6 @@ python chatlearn/tools/megatron_to_hf.py \
 | llama_sft | 1.6 | 2.7 | 4.2 | 1.1 | 2.85 | 3.35 | 4.55 | 2.95 | 2.90 |
 | llama_rlhf | **1.75** | **3.45** | **4.75** | **1.55** | **3.5** | **5.85** | **5.0** | **5.0** | **3.85** |
 
-# Reference
+## Reference
 
 1. Training language models to follow instructions with human feedback，[https://arxiv.org/abs/2203.02155](https://arxiv.org/abs/2203.02155)

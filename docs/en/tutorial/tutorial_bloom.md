@@ -13,12 +13,17 @@ This document provides instructions for end-to-end training using the ChatLearn,
 | `TOKENIZER_PATH` | The folder where the vocab_file used by the Tokenizer is located. |
 
 
-# Setup: Image / Code and Data Preparation
+## Setup: Image / Code and Data Preparation
 
-## Docker Image
+### Docker Image
 It is recommended to refer to `https://github.com/alibaba/ChatLearn/tree/master/docker/ngc/Dockerfile.ngc22.10` for preparing the docker image.
+If you're training on the PAI DLC platform, we suggest using the pre-built image provided below:
 
-## Code
+```bash
+registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:1.13.0-gpu-py3.8-cu11.8-ngc22.10-ubuntu20.04
+```
+
+### Code
 
 In this example, we need to download the following related code.
 
@@ -29,16 +34,16 @@ git clone -b v0.1.0 https://github.com/alibaba/Megatron-LM-ChatLearn.git
 git clone -b v0.1.0 https://github.com/alibaba/ChatLearn.git
 ```
 
-## Data
+### Data
 
 Please refer to [3-stage data](data.md) to prepare your training data.
 
-# Step1: SFT
+## Step1: SFT
 
 SFT refers to the process of fine-tuning a pre-trained language model using annotated dialogue data. In this example, we need to download the pre-trained model, and then start a simple SFT training demonstration.
 
 
-## 1.1 Download and Convert Pretrained Models
+### Download and Convert Pretrained Models
 
 If using models from HuggingFace transformers, first download the pretraining checkpoint, such as the Bloom model from the HuggingFace Hub: `bigscience/bloom-7b1`, or pre-saved SFT models locally.
 Then, use the following code to convert the HuggingFace transformers model into the Megatron-LM model format. In this example, we will convert the model to `TP (tensor_model_parallel_size)=8，PP (pipeline_model_parallel_size)=1` checkpoint, and the model will be stored in `MEGATRON_BLOOM_CKPT_PATH`.
@@ -57,7 +62,7 @@ path-to-megatron-model \
 false
 ```
 
-## 1.2 Start SFT Training
+### Start SFT Training
 
 The script below is an example of SFT training. The `DATASET_PATH` is the path to the SFT training set, such as `$DATASET_ROOT/sft/train.jsonl`. In this example, we assume that the tokenizer's path is the same as the model checkpoint's path.
 
@@ -77,12 +82,12 @@ For specific definitions, please refer to the script `${CHATLEARN}/examples/mega
 
 For the environment variables and configurations required for distributed execution, please refer to [Distributed Execution](run.md).
 
-# Step2: Reward Model Training
+## Step2: Reward Model Training
 
 The Reward model refers to the model that serves as a proxy for human evaluation in RLHF. It provides real-time evaluation and scoring of the model's generated question responses. Given a question and model response, the Reward model produces a scalar representing the quality of the model's response.
 
 
-## 2.1 Start Reward Model Training
+### Start Reward Model Training
 
 Based on InstructGPT[1], the Reward model training is initialized with the SFT model checkpoint. The training code is as follows:
 
@@ -101,11 +106,11 @@ The training logs and trained models will be saved by default in `${CHATLEARN}/o
 
 For the environment variables and configurations required for distributed execution, please refer to [Distributed Execution](run.md).
 
-# Step 3: RLHF Training
+## Step 3: RLHF Training
 
 RLHF refers to the process of trying different responses on a dataset consisting only of instructions and learning from the reward signals provided by a reward model for each response.
 
-## 3.1 Start RLHF Training
+### Start RLHF Training
 
 [Aliyun PAI DLC](https://www.aliyun.com/activity/bigdata/pai-dlc)[2] provides convenient and efficient support for RLHF training tasks. Below is a training script for a Bloom-7B Policy and a 7B Reward model. In this example, the user needs to set `POLICY_LOAD` to the checkpoint path produced by SFT (Supervised Fine-Tuning). The Policy model and Reference model will be initialized with the SFT checkpoint. `REWARD_LOAD` should be set to the checkpoint path produced by Reward training, and the user can specify the iteration number associated with the loaded checkpoint. The Reward model and Value model will be initialized using the Reward model weights. `VOCAB_FILE` should point to the folder containing the files required by `BloomTokenizer`.
 
@@ -130,7 +135,7 @@ bash run_scripts/bloom/run_7b1_7b1.sh
 For the environment variables and configurations required for distributed execution, please refer to [Distributed Execution](run.md).
 
 
-## 3.2 Evaluation
+### Evaluation
 
 Firstly, we can use ChatLearn's model conversion tool to convert the Megatron-LM formatted model to HuggingFace's transformers model format.
 
@@ -154,7 +159,7 @@ We evaluated the performance of Bloom on the HH dataset, both after SFT and RLHF
 | bloom_sft | 1.45 | 1.1 | 3.35 | 1.45 | 2.6 | 3.1 | 2.65 | 1.4 | 2.27 |
 | bloom_rlhf | 1.4 | **1.4** | 3.05 | **1.5** | **2.65** | 3.05 | **3.05** | **1.6** | **2.35** |
 
-# Reference
+## Reference
 
 1. Training language models to follow instructions with human feedback，[https://arxiv.org/abs/2203.02155](https://arxiv.org/abs/2203.02155)
 

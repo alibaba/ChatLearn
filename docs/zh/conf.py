@@ -19,8 +19,8 @@ import sys
 # -- Project information -----------------------------------------------------
 
 project = u'ChatLearn'
-copyright = u'2023, Alibaba-inc'
-author = u'Alibaba-inc'
+copyright = u'2023, Alibaba Cloud'
+author = u'Alibaba Cloud'
 
 sys.path.insert(0, os.path.abspath("../../"))
 
@@ -120,3 +120,17 @@ html_static_path = ['images']
 # Output file base name for HTML help builder.
 htmlhelp_basename = 'ChatLearnDoc'
 autodoc_member_order = 'bysource'
+
+
+# language = 'zh_CN'
+latex_engine = "xelatex"
+latex_elements = {
+    'preamble': r'''
+        \usepackage{xeCJK}
+        \setCJKmainfont{Noto Sans CJK SC}
+        \usepackage{tabularx}
+    ''',
+    'extraclassoptions': 'openany,oneside,letterpaper,landscape',
+    'papersize': 'a4paper',
+    'geometry': r'\usepackage[margin=1in]{geometry}',  # Adjust the margin as per your requirement
+}

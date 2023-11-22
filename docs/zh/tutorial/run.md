@@ -12,22 +12,13 @@
 
 ![image.png](../../images/dlc_2.jpg)
 
-如果您想在非 PAI-DLC 的其他环境提交分布式训练，在每个节点上，执行脚本需要配置以下环境变量：
-
-```bash
-export MASTER_ADDR=xxx
-export MASTER_PORT=xxx
-export WORLD_SIZE=xxx
-export GPUS_PER_NODE=8
-export RANK=xx
-```
 
 **对于 RLHF 训练任务，您需要填写高级配置`customPortList=30000-30050,createSvcForAllWorkers=true`。**
 
 
 ## 其他环境分布式执行
 
-如果您需要在非 DLC 环境执行分布式任务，您需要配置以下环境变量。
+如果您需要在非 PAI DLC 环境执行分布式任务，您需要配置以下环境变量。
 
 ```bash
 export MASTER_ADDR=xxx

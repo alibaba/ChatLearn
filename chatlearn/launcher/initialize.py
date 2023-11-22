@@ -51,7 +51,7 @@ def init_ray(runtime_env_args):
         _set_runtime_env(runtime_env_args, key, runtime_env)
 
     # namespace is needed to get NamedActor
-    ray.init(runtime_env=runtime_env, namespace="RLHF", _node_ip_address=dlc_utils.get_addr())
+    ray.init(runtime_env=runtime_env, namespace="RLHF", _node_ip_address=dlc_utils.get_addr(), log_to_driver=False)
 
 
 def init(args=None):
@@ -68,8 +68,10 @@ def init(args=None):
     init_ray(args.env_args)
     set_initialized()
     if dlc_utils.in_dlc_env():
-        dlc_utils.start_exit_listener()
+        listener = dlc_utils.StartExitListener()
+        listener.start_exit_listener()
         if dlc_utils.get_rank() > 0:
+            logger.info(f"RANK: {dlc_utils.get_rank()}: task finish, exit ...")
             # other workers exit after head exit
             sys.exit(0)
     logger.info(f"init rlhf done, rlhf version {VERSION}")

@@ -14,13 +14,20 @@
 # ==============================================================================
 """DLC utils"""
 
+from collections import defaultdict
 import os
-import subprocess
 import time
+import concurrent.futures
+import threading
+import ray
+from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 
 from chatlearn.utils import utils
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
+from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
+from chatlearn.utils.log_monitor import LogMonitor, is_proc_alive, LogActor
+from chatlearn.utils.utils import execute
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
 JOB_NAME_KEY = "JOB_NAME"
@@ -30,6 +37,9 @@ WORKER_ROLE = "worker"
 PORT_SEP = ";"
 LOCAL_MASTER_KEY = "LOCAL_MASTER_ADDR"
 _warn_once = False
+WORKER_SLEEP_SECOND = 2
+_LOG_ACTOR_NAME = "CHATLARN_LOG_ACTOR"
+_EXIT_SIGNAL = False
 
 
 def is_local():
@@ -109,23 +119,6 @@ def get_free_ports():
     return free_ports
 
 
-def execute(cmd, check=False, retry=1):
-    """
-    Execute cmd in shell
-    
-    Args:
-        check: if returncode is non-zero, raise error
-    """
-    ret = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
-    state = ret.returncode == 0
-    msg = ret.stdout if state else ret.stderr
-    if not state and retry > 1:
-        logger.warning(f"execute {cmd} got error {msg}, retry...")
-        time.sleep(1)
-        return execute(cmd, check, retry-1)
-    return state, msg
-
-
 def start_ray_cluster():
     free_ports = get_free_ports()
     port = free_ports[0]
@@ -133,9 +126,9 @@ def start_ray_cluster():
     master_addr = get_master_addr()
     rank = get_rank()
     if rank == 0:
-        cmd = f"ray start --head --port={port} --node-ip-address={master_addr} --node-manager-port {node_manager_port}"
+        cmd = f"ray start --head --port={port} --node-ip-address={master_addr} --node-manager-port {node_manager_port} --node-name={master_addr}"
     else:
-        cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port}"
+        cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port} --node-name={get_addr()}"
     logger.info(f"execute {cmd}")
     execute(cmd, check=True)
 
@@ -144,29 +137,125 @@ def filter_known_msg(msg):
         return True
     return False
 
-def start_exit_listener():
-    if get_rank() != 0:
-        # wait for the head node to be created
-        head_created = False
-        counter = 0
-        while True:
-            cluster_state, msg = execute("ray status", retry=3)
-            if cluster_state:
-                head_created = True
-                # log per one hour
-                if counter % 720 == 0:
-                    logger.info("worker is listening to head")
-                    logger.info(msg)
-                counter += 1
-            elif "StatusCode.UNAVAILABLE" in msg and "Connection refused" in msg:
-                if head_created:
-                    logger.info(f"ray status got error {msg}")
-                    logger.info("head has exited, exit worker ...")
-                    execute("ray stop", check=True)
-                    return
-                else:
+def is_connection_refused(msg):
+    keywords = ["StatusCode.UNAVAILABLE", "Connection refused", "failed to connect to all addresses"]
+    return any(keyword in msg for keyword in keywords)
+
+
+@ray.remote
+class ExitActor:
+    """ExitActor"""
+
+    def __init__(self):
+        self._node_and_err_msg = defaultdict(list)
+
+    def notify(self):
+        return 1
+
+    def add_error_node_and_msg(self, ip, msg):
+        self._node_and_err_msg[ip].append(msg)
+
+    def get_error_node_and_msg(self):
+        return self._node_and_err_msg
+
+    def get_error_msg(self, ip):
+        return self._node_and_err_msg[ip]
+
+def execute_with_timeout(func, args, timeout):
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        future = executor.submit(func, *args)
+        try:
+            result = future.result(timeout)
+            return result
+        except concurrent.futures.TimeoutError:
+            future.cancel()
+            print("Function execution timed out.")
+        except Exception:
+            # actor has not been created yet
+            return
+
+class StartExitListener:
+    """StartExitListener"""
+
+    def __init__(self):
+        log_dir = os.path.dirname(os.path.dirname(ray.nodes()[0]['ObjectStoreSocketName']))
+        self.log_dir = os.path.join(log_dir, 'logs')
+        print(self.log_dir, flush=True)
+        log_actor = None
+        # Only run the actor on the master node.
+        if get_rank() == 0:
+            log_actor = LogActor.options(
+                name=_LOG_ACTOR_NAME,
+                scheduling_strategy=NodeAffinitySchedulingStrategy(
+                    node_id=ray.get_runtime_context().get_node_id(),
+                    soft = False,
+                ), lifetime="detached"
+            ).remote()
+        else:
+            while log_actor is None:
+                try:
+                    log_actor = ray.get_actor(_LOG_ACTOR_NAME)
+                except Exception:
+                    print(f'get actor {_LOG_ACTOR_NAME} failed, retry ....')
+                    time.sleep(2)
+
+        self.log_monitor = LogMonitor(
+            self.log_dir,
+            is_proc_alive,
+            log_actor
+        )
+        self._start_exit_actor = None
+        self.quit_event = threading.Event()
+        self.log_monitor_thread = threading.Thread(target=self.log_monitor.run, args=(self.quit_event,))
+        self.log_monitor_thread.daemon = True
+        self.log_monitor_thread.start()
+
+    def stop(self):
+        self.quit_event.set()
+        self.log_monitor_thread.join()
+
+    def start_exit_listener(self):
+        address = get_addr()
+        if get_rank() == 0:
+            self._start_exit_actor = ExitActor.options(name=_EXIT_ACTOR_NAME, lifetime="detached").remote()
+        else:
+            # wait for the head node to be created
+            head_created = False
+            counter = 0
+            while True:
+                cluster_state, msg = execute("ray status", retry=3)
+                if cluster_state:
+                    head_created = True
+                    # log per one hour
+                    if counter % 720 == 0:
+                        logger.info("worker is listening to head")
+                        logger.info(msg)
+                    counter += 1
+                elif is_connection_refused(msg):
+                    if head_created:
+                        self.stop()
+                        logger.info(f"ray status got error {msg}")
+                        logger.info("head has exited, exit worker ...")
+                        _, msg = execute("ray stop")
+                        logger.info(msg)
+                        break
                     logger.info("wait for head to be created.")
-            else:
-                if not filter_known_msg(msg):
-                    logger.warning(f"ray status got error {msg}")
-            time.sleep(5)
+                else:
+                    if not filter_known_msg(msg):
+                        logger.warning(f"ray status got error {msg}")
+                if self._start_exit_actor is None:
+                    self._start_exit_actor = execute_with_timeout(ray.get_actor, [_EXIT_ACTOR_NAME], 3)
+                if self._start_exit_actor is not None:
+                    try:
+                        error_msg_list = ray.get(self._start_exit_actor.get_error_msg.remote(address))
+                    except ray.exceptions.RayActorError:
+                        logger.info("start_exit_actor has been killed")
+                        _, msg = execute("ray stop")
+                        logger.info(msg)
+                        break
+                    if error_msg_list:
+                        msg = '\n'.join(error_msg_list)
+                        self.stop()
+                        raise Exception(msg)
+                time.sleep(WORKER_SLEEP_SECOND)
+            print("Exit worker", flush=True)

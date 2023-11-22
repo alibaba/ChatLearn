@@ -2,7 +2,7 @@
 
 ChatLearn is an efficient training framework that supports large-scale Reinforcement Learning from Human Feedback (RLHF). It aims to provide a flexible and user-friendly platform for training models based on Large Language Models (LLMs) such as ChatGPT.
 
-# Introduction
+## Introduction
 
 ChatGPT, developed by OpenAI, is a chatbot model based on a large language model (LLM) that has gained popularity and widespread adoption for its impressive conversational capabilities. The success of ChatGPT can be attributed to the new training paradigm called Reinforcement Learning from Human Feedback (RLHF). RLHF optimizes language models based on human feedback using reinforcement learning techniques.
 
@@ -27,7 +27,7 @@ To address these challenges, we propose a novel RLHF model training framework ca
 
 By providing a comprehensive and efficient framework, ChatLearn empowers researchers and practitioners to train large-scale RLHF models with ease, scalability, and improved performance.
 
-# Technical Architecture
+## Technical Architecture
 
 ![arch](../images/arch.jpg)
 
@@ -45,7 +45,7 @@ ChatLearn also supports flexible resource allocation, allowing for resource shar
 **Optimization**: ChatLearn also supports memory optimization and computational acceleration techniques. For example, by developing LoRA, ChatLearn significantly reduces the memory overhead of optimizer states, allowing for larger batch sizes and improving overall computational efficiency. ChatLearn also continuously optimizes the batch generation process for the Policy model, reducing unnecessary calculations due to padding through input sequence sorting, thereby enhancing overall performance.
 
 
-# Quick Start
+## Quick Start
 
 Please refer to the [Documentation](https://chatlearn.readthedocs.io/zh/latest/) for a quick start guide.
 
@@ -53,7 +53,7 @@ Please refer to the [Documentation](https://chatlearn.readthedocs.io/zh/latest/)
 2. [End-to-End Training Tutorial with LLaMA/LLaMA2 Model](tutorial/tutorial_llama2.md)
 3. [End-to-End Training Tutorial with BLOOM Model](tutorial/tutorial_bloom.md)
 
-# Supported Models
+## Supported Models
 
 The ChatLearn framework currently supports RLHF training for GPT/LLaMA models of any scale.
 
@@ -66,9 +66,7 @@ The ChatLearn framework currently supports RLHF training for GPT/LLaMA models of
 | Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                                                 |
 | BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                                              |
 
-Note: The current performance benchmarks are based on GPT series models.
-
-# Performance
+## Performance
 
 We compared the RLHF training throughput of models with different parameter sizes. We used an N+N model configuration, where the Policy and Reward models have the same parameter size. The tests were conducted on A800-80GB GPUs, with a single node configuration of 8 GPUs and 800Gb RDMA interconnects between nodes. We compared the performance of ChatLearn with and without LoRA against DeepSpeed-Chat for models ranging from 7B to 66B. ChatLearn achieved a 48% to 82% speedup at different scales. At larger scales, with a 30B+30B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors when LoRA was disabled. With a 66B+66B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors regardless of whether LoRA was enabled or not. ChatLearn, on the other hand, was able to support training with larger model configurations on the same machine scale. Additionally, DeepSpeed-Chat encountered a kernel error when seq_len was set to 2048.
 
@@ -78,13 +76,15 @@ Furthermore, we evaluated the performance of RLHF training for models at larger 
 
 ![PAI-ChatLearn 66B 175B](../images/gpt-perf-66-175.png)
 
-# Roadmap
+Note: The current performance benchmarks are based on GPT series models.
+
+## Roadmap
 
 The upcoming features for ChatLearn include:
 - [ ] Support for more models
+- [ ] Support for efficient inference engines such as vLLM
 - [ ] Integration with DeepSpeed as a training backend
 - [ ] Automatic parallel strategy tuning
-- [ ] Support for efficient inference engines like vLLM
 - [ ] Support for more RL algorithms
 
 <br><br>
@@ -92,7 +92,7 @@ The upcoming features for ChatLearn include:
 We welcome community members to collaborate and contribute to the development of ChatLearn.
 
 
-# Reference
+## Reference
 
 1. Megatron-LM: https://github.com/NVIDIA/Megatron-LM
 2. DeepSpeed-Chat: https://github.com/microsoft/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat

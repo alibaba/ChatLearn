@@ -41,12 +41,8 @@ class ErrorMonitor:
             col.destroy_collective_group(group_name)
         for model in self.remote_models:
             model.terminate()
-        try:
-            exit_actor = ray.get_actor("ExitActor")
-            ray.kill(exit_actor)
-        except Exception:
-            pass
-        ray.shutdown()
+        error_address = future.get(self.error_signal.error_address.remote())
+        raise Exception(f"Catch an exception in {error_address}")
 
 
 @ray.remote(num_cpus=0)
@@ -55,14 +51,22 @@ class ErrorSignalActor:
     def __init__(self):
         self.error_state = False
         self.err_msg = None
+        self._address_list = []
 
     def set(self, err_msg=None):
         self.error_state = True
         if err_msg is not None:
             self.err_msg = err_msg
 
+    def set_address(self, address):
+        if address not in self._address_list:
+            self._address_list.append(address)
+
     def is_set(self):
         return self.error_state
 
     def error_msg(self):
         return self.err_msg
+
+    def error_address(self):
+        return self._address_list

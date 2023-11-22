@@ -2,7 +2,12 @@
 
 1. 镜像准备
 
-推荐参考 `https://github.com/alibaba/ChatLearn/tree/master/docker/ngc/Dockerfile.ngc22.10` 准备镜像。
+推荐参考 `https://github.com/alibaba/ChatLearn/tree/master/docker/ngc/Dockerfile.ngc23.09` 准备镜像。
+如果在 PAI DLC 环境上训练，推荐使用我们准备好的镜像：
+
+```bash
+registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:2.1.0-gpu-py3.10-cu12.2-ngc23.09-ubuntu22.04
+```
 
 2. 代码准备: 用户需要下载 `ChatLearn` 框架代码。
 

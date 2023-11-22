@@ -93,6 +93,18 @@ class PPOTrainer(BaseTrainer):
         _sample_per_episode = ray.get(self._data_loader.total_samples.remote())
         return math.ceil(_sample_per_episode / self.args.train_global_batch_size)
 
+    def train_loop(self, batches, model):
+        cur_iteration = self.iteration
+        results = []
+        batch_len = len(batches)
+        for index, batch in enumerate(batches):
+            train_info = {"iteration": cur_iteration}
+            to_empty_cache = (index == batch_len - 1)
+            out = model.train_step(batch, train_info, to_empty_cache=to_empty_cache)
+            results.append(out[-1])
+            cur_iteration += 1
+        future.wait(results, desc=" ".join(model.name for model in [model]))
+
     def train(self, episode):
         _num_training_iteration = self.num_training_iteration()
         for epoch in range(self.args.num_training_epoch):
@@ -125,24 +137,7 @@ class PPOTrainer(BaseTrainer):
                     train_data = self.next_batch()
                     if train_data:
                         batches.append(train_data)
-                cur_iteration = self.iteration
-                results = []
-                batch_len = len(batches)
-                for index, batch in enumerate(batches):
-                    train_info = {"iteration": cur_iteration}
-                    to_empty_cache = (index == batch_len - 1)
-                    value_loss = self.ppo_value_model.train_step(batch, train_info, to_empty_cache=to_empty_cache)
-                    results.append(value_loss[-1])
-                    cur_iteration += 1
-                future.wait(results, desc=" ".join(model.name for model in [self.ppo_value_model]))
-                cur_iteration = self.iteration
-                results = []
-                for index, batch in enumerate(batches):
-                    train_info = {"iteration": cur_iteration}
-                    to_empty_cache = (index == batch_len - 1)
-                    policy_loss = self.ppo_policy_model.train_step(batch, train_info, to_empty_cache=to_empty_cache)
-                    results.append(policy_loss[-1])
-                    cur_iteration += 1
-                future.wait(results, desc=" ".join(model.name for model in [self.ppo_policy_model]))
-                self.iteration = cur_iteration
+                self.train_loop(batches, self.ppo_policy_model)
+                self.train_loop(batches, self.ppo_value_model)
+                self.iteration = self.iteration + len(batches)
                 logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
