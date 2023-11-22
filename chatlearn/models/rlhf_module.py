@@ -17,6 +17,7 @@
 from collections import defaultdict
 from itertools import cycle
 import math
+import os
 
 import ray
 import ray.util.collective as col
@@ -98,7 +99,9 @@ class RLHFModule:
         self._eval_func_name = None
         self._finalized = False
         self._resume_training = False
-        self._logger = setup_logger(model_name=self.name, ip_addr=self.get_address())
+        self._address = dlc_utils.get_addr() if dlc_utils.in_dlc_env() else get_host_addr()
+        self._is_master_node = os.environ.get("RANK", 0) == 0
+        self._logger = setup_logger(model_name=self.name, ip_addr=self._address)
 
     def finalize(self):
         """
@@ -739,8 +742,11 @@ class RLHFModule:
 
         :meta private:
         """
-        if dlc_utils.in_dlc_env():
-            addr = dlc_utils.get_addr()
-        else:
-            addr = get_host_addr()
-        return addr
+        return self._address
+
+    def is_master_node(self):
+        """
+        Whether this node is master node.
+        :meta private:
+        """
+        return self._is_master_node

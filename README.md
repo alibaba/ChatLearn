@@ -57,8 +57,6 @@ The current ChatLearn framework supports RLHF training for GPT/LLaMA models of a
 | Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                                                 |
 | BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                                              |
 
-Note: The current performance benchmark is based on the GPT series models.
-
 # Performance
 
 We have compared the RLHF training throughput of models with different parameter sizes. We adopt an N+N model configuration, where the Policy model and Reward model have the same parameter size. The tests are performed on A800-80GB GPUs, with a single node configuration of 8 GPU cards and 800Gb RDMA interconnect between nodes. We have compared ChatLearn with DeepSpeed-Chat for model configurations ranging from 7B to 66B, with LoRA disabled/enabled. ChatLearn achieves a speedup of 48% to 82% across different scales. In larger scales, under the configuration of 30B+30B with 32 GPUs, DeepSpeed-Chat encounters OOM errors without LoRA enabled. Under the configuration of 66B+66B with 32 GPUs, DeepSpeed-Chat encounters OOM errors regardless of LoRA being enabled or not. ChatLearn, on the other hand, supports training of larger model configurations on the same machine scale. DeepSpeed-Chat encounters a kernel error when seq_len=2048.
@@ -70,12 +68,14 @@ The following graphs show the RLHF training performance for 66B+66B and 175B+175
 
 ![ChatLearn 66B 175B](docs/images/gpt-perf-66-175.png)
 
+Note: The current performance benchmark is based on the GPT series models.
+
 # Roadmap
 ChatLearn will support the following features in the future:
 - [ ] Support for more models
+- [ ] Support for efficient inference engines such as vLLM
 - [ ] Integration with DeepSpeed as a training backend
 - [ ] Automatic parallel strategy optimization
-- [ ] Support for efficient inference engines like vLLM
 - [ ] Support for more RL algorithms
 
 <br><br>

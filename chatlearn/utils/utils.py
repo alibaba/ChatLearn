@@ -17,10 +17,13 @@
 import ast
 import inspect
 import socket
+import subprocess
 import textwrap
+import time
 from contextlib import closing
 
 import torch
+from chatlearn.utils.logger import logger
 
 
 def get_attributes(cls):
@@ -193,3 +196,19 @@ def detect_and_insert_code_to_func(source_code, pattern, new_code, additional_in
     indent = get_indent_count(lines[0])
     lines = [line[indent:] for line in lines]
     return '\n'.join(lines)
+
+def execute(cmd, check=False, retry=1):
+    """
+    Execute cmd in shell
+    
+    Args:
+        check: if returncode is non-zero, raise error
+    """
+    ret = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
+    state = ret.returncode == 0
+    msg = ret.stdout if state else ret.stderr
+    if not state and retry > 1:
+        logger.warning(f"execute {cmd} got error {msg}, retry...")
+        time.sleep(1)
+        return execute(cmd, check, retry-1)
+    return state, msg

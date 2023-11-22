@@ -2,7 +2,7 @@
 
 ChatLearn 是一个灵活易用，支持大规模 RLHF 的高效训练框架。
 
-# 概述
+## 概述
 
 ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, LLM) 的聊天机器人，以其令人惊叹的对话能力而迅速火爆并被广泛采用。ChatGPT 成功背后得益于大型语言模型生成领域的新训练范式：RLHF (Reinforcement Learning from Human Feedback)，即以强化学习方式依据人类反馈优化语言模型。
 
@@ -21,7 +21,7 @@ ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, L
 4. **灵活的资源分配**: ChatLearn 支持灵活的资源调度机制，支持各模型的资源独占或复用，通过系统调度策略支持高效的串行/并行执行。
 5. **高性能**: 相较于当前的 SOTA 系统，ChatLearn 在 7B 到 30 B 规模提升 48%-82%。同时，ChatLearn 支持更大规模的 RLHF 训练 (175B Policy + 175B Reward)。
 
-# 技术架构
+## 技术架构
 
 ![arch](../images/arch.jpg)
 
@@ -36,7 +36,7 @@ ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, L
 **Optimization**: ChatLearn 也支持各种显存优化和计算加速，通过开发 LoRA，大大减少了 optimizer states 的显存开销，用于提升 batch size 来提升整体的计算效率。ChatLearn 也在持续优化 Policy 模型的 batch generation 过程，通过 input sequence 排序等方式来减少部分 padding 无效计算，提升整体的性能。
 
 
-# 快速开始
+## 快速开始
 
 请参考 [文档](https://chatlearn.readthedocs.io/zh/latest/) 快速开始.
 
@@ -44,7 +44,7 @@ ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, L
 2. [基于 LLaMA/LLaMA2 模型的端到端训练教程](tutorial/tutorial_llama2.md)
 3. [基于 BLOOM 模型的端到端训练教程](tutorial/tutorial_bloom.md)
 
-# 支持的模型
+## 支持的模型
 
 当前 ChatLearn 框架支持任意规模的 GPT/LLaMA 模型 RLHF 训练。
 
@@ -56,30 +56,31 @@ ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, L
 | Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                      |
 | BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)  
 
-注：当前的性能 benchmark 均基于 GPT 系列模型。
-
-# 性能评估
+## 性能评估
 
 我们比较了不同参数量规模模型的 RLHF 训练吞吐量，我们采取 N+N 的模型配置，即 Policy 模型和 Reward 模型采用相同大小的参数量。测试基于 A800-80GB GPU 进行，单节点配置 8 卡 GPU，节点间采用 800Gb RDMA 互联。我们和 DeepSpeed-Chat 对比了从 7B 到 66B 的模型配置，关闭/开启 LoRA 后的性能对比，ChatLearn 在不同规模有 48% 到 82% 的加速，在更大的规模下，在 30B+30B，32GPUs 的配置下，不开启 LoRA 的情况下，DeepSpeed-chat 出现 OOM，在 66B+66B，32GPUs 的配置下，DeepSpeed-Chat 无论是否开启 LoRA 均会出现 OOM，ChatLearn 在相同机器规模下，可以支持更大的模型配置训练。在 seq_len=2048 时，DeepSpeed-Chat 出现了 kernel error。
 
 ![Compare PAI-ChatLearn with DeepSpeed-Chat](../images/gpt-perf-cmp.png)
 
 同时，我们评估了在更大规模以及不同 sequence length 配置下的性能。下图分别为 66B+66B，175B+175B 的 RLHF 训练性能。
+
 ![PAI-ChatLearn 66B 175B](../images/gpt-perf-66-175.png)
 
-# Roadmap
+注：当前的性能 benchmark 均基于 GPT 系列模型。
+
+## Roadmap
 
 ChatLearn 接下来会支持以下特性：
-- [ ] 支持更多的模型；
-- [ ] 接入 DeepSpeed 作为训练 backend；
-- [ ] 自动并行策略调优；
-- [ ] 支持 vLLM 等高效推理引擎；
-- [ ] 支持更多的 RL 算法；
+- 支持更多的模型；
+- 支持 vLLM 等高效推理引擎；
+- 接入 DeepSpeed 作为训练 backend；
+- 自动并行策略调优；
+- 支持更多的 RL 算法；
 
 <br><br>
 我们欢迎社区小伙伴参与进来合作开发。
 
-# Reference
+## Reference
 
 1. Megatron-LM: https://github.com/NVIDIA/Megatron-LM
 2. DeepSpeed-Chat: https://github.com/microsoft/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat

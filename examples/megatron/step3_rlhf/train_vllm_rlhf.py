@@ -58,6 +58,8 @@ def get_prompts(fp, num_limit=-1):
 if __name__ == "__main__":
     chatlearn.init()
     args = chatlearn.get_args()
+    if VLLMPolicyInference is None:
+        print("Cannot import vllm, please set vllm python path or install vllm first.")
     policy_model = VLLMPolicyInference("policy")
     value_model = ValueInference("value")
     reference_model = PolicyReference("reference")

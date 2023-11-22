@@ -108,6 +108,7 @@ Batch generation 优化
 ---------------------
 
 默认配置中，推理阶段的每 episode 中数据一般进行了随机 shuffle，导致 Batch 内样本的 prompt_len 分布不一，在 batch generation 过程中会将所有 prompt padding 到 batch 内最长，增加了大量无效计算。一个优化方式是可按 prompt length 预先排序，降低无效 padding 的 tokens 占比。Prompt generation 阶段可分为以下两步：
+
 1. initiation：选择 batch 内 `min_prompt_len`，一次性输入 `[batch_size, min_prompt_len, hidden_size]` 的特征向量进行推理，生成下一个 token；
 2. increment：基于 initiation 输出的 token，循环输入上一个迭代输出的 token，直到生成 `<EOS>` 为结束。
 

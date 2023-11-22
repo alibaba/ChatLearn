@@ -18,9 +18,11 @@ import traceback
 
 import torch
 from torch.cuda import nvtx
+import ray
 
 from chatlearn.utils import future
 from chatlearn.utils import utils
+from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
 from chatlearn.utils.logger import logger
 
 
@@ -30,11 +32,16 @@ def monitor_error(func, func_name):
             return func(self, *args, **kwargs)
         except Exception as e:
             self._logger.exception(f"Catch exception ========= in {self.name} {func_name} {e}")
+            exit_actor = ray.get_actor(_EXIT_ACTOR_NAME)
             traceback_msg =  f"{traceback.format_exc()}"
-            for line in traceback_msg.split("\n"):
-                self._logger.exception(line)
-            future.wait(self.error_signal.set.remote(traceback.format_exc()))
-            raise
+            address = self.get_address()
+            ray.get(exit_actor.add_error_node_and_msg.remote(address, traceback_msg))
+            future.wait(self.error_signal.set_address.remote(address))
+            # for other error, we raise in the corresponding workers
+            if self.is_master_node():
+                for line in traceback_msg.split("\n"):
+                    self._logger.exception(line)
+                raise
 
     return inner
 

@@ -101,6 +101,7 @@ class PPOEnv(BaseEnv):
     def setup(self, model_packs=None):
         assert isinstance(model_packs, list), \
             f"model_packs for PPOEnv must be a list, but got {type(model_packs)}"
+        logger.info("start set dataset for policy")
         refs = []
         for policy_replica in self.policy.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._dataset,

@@ -54,7 +54,6 @@ ChatLearn的特点如下:
 | Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                      |
 | BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                   |
 
-注：当前的性能 benchmark 均基于 GPT 系列模型。
 
 # 性能评估
 
@@ -66,13 +65,15 @@ ChatLearn的特点如下:
 
 ![ChatLearn 66B 175B](docs/images/gpt-perf-66-175.png)
 
+注：当前的性能 benchmark 均基于 GPT 系列模型。
+
 # Roadmap
 
 ChatLearn 接下来会支持以下特性：
 - [ ] 支持更多的模型；
+- [ ] 支持 vLLM 等高效推理引擎；
 - [ ] 接入 DeepSpeed 作为训练 backend；
 - [ ] 自动并行策略调优；
-- [ ] 支持 vLLM 等高效推理引擎；
 - [ ] 支持更多的 RL 算法；
 
 <br><br>
