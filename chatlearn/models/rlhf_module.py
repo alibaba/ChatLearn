@@ -306,7 +306,7 @@ class RLHFModule:
         Operations after one episode.
         """
 
-    def build_dataset(self, train_prompts):
+    def build_dataset(self, train_prompts, is_eval=False):
         """
         Build prompt dataset
 
@@ -336,7 +336,7 @@ class RLHFModule:
             assert sample_per_episode_per_replica > 0, \
                 "The dataloader for training expect positive sample_per_episode_per_replica, "\
                 f"but got {sample_per_episode_per_replica}"
-        dataset = self.build_dataset(data) # pylint: disable=assignment-from-no-return
+        dataset = self.build_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
         assert hasattr(dataset, 'collate_fn'), \
             f"{dataset.__class__.__name__} has no attribute `collate_fn`. If you would like "\
             "to use the default collate_fn to batch samples, try adding `self.collate_fn = None` "\

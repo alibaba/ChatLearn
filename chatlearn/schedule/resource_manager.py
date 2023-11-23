@@ -14,6 +14,7 @@
 # ==============================================================================
 """resource manager"""
 
+import os
 import time
 
 import ray
@@ -36,6 +37,8 @@ class ResourceManager:
         resource = ray.nodes()[0]['Resources']
         self.gpu_per_node = int(resource['GPU'])
         self.cpu_per_node = int(resource['CPU'])
+        self.nnode = int(os.environ['WORLD_SIZE'])
+        self.total_gpu = self.nnode * self.gpu_per_node
 
     def get_placement_group_state(self, pg):
         try:
