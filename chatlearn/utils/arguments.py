@@ -469,6 +469,12 @@ class Config(BaseConfig):
             if model_args.batch_generation.min_prompt_length:
                 logger.info(f"Enable batch generation: \
                     min_prompt_length = {model_args.batch_generation.min_prompt_length}")
+        if self.rlhf_args.colocation and len(self.rlhf_args.colocation) > 0:
+            model_set = set()
+            for colocate_models in self.rlhf_args.colocation:
+                for model_name in colocate_models:
+                    assert model_name not in model_set, f"Model {model_name} should only appear once in colocation group"
+                    model_set.add(model_name)
         logger.info(f"Env Config: \n{self.env_args}")
         logger.info(f"RLHF Config: \n{self.rlhf_args}")
         for name, model_args in self.models.items():

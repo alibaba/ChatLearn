@@ -82,7 +82,7 @@ class PolicyInference(RLHFMegatronModule):
         get_args().latest_entropies = []
         return 'ok'
 
-    def build_dataset(self, train_prompts):
+    def build_dataset(self, train_prompts, is_eval=False):
         '''
         framework source: dataset = self.build_dataset(data)
         :param train_prompts: all train prompts used in this training run??

@@ -51,6 +51,22 @@ class ModelManager:
         self._parameter_sync_model_mapping = {}
         self.model_packs = []
 
+    def _get_total_device_required(self):
+        total_device = 0
+        remote_states = set()
+        for group in self.rlhf_args.colocation:
+            colocate_models = [self._name2distmodel[name] for name in group]
+            max_device = max(m.total_device for m in colocate_models)
+            total_device += max_device
+            for name in group:
+                remote_states.add(name)
+        for model in self.dist_models:
+            # place non-colocate models
+            if model.name not in remote_states:
+                max_device = model.total_device
+                total_device += max_device
+        return total_device
+
     def remote(self) -> list:
         """
         convert model to remote
@@ -64,6 +80,15 @@ class ModelManager:
             dist_model = self._to_dist_model(model)
             self.dist_models.append(dist_model)
             self._name2distmodel[model.name] = dist_model
+
+        total_device_required = self._get_total_device_required()
+        if total_device_required > self.resouce_manager.total_gpu:
+            raise RuntimeError(f"The number of required gpus for current job is {total_device_required}, " + \
+                               f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
+        if self.resouce_manager.total_gpu > total_device_required:
+            logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " + \
+                           f"while the number of required gpus is {total_device_required}, " + \
+                           f"there is {self.resouce_manager.total_gpu - total_device_required} wasted gpus")
 
         for group in self.rlhf_args.colocation:
             colocate_models = [self._name2distmodel[name] for name in group]

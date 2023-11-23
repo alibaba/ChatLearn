@@ -19,6 +19,7 @@ fi
 LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
 TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
 SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}
+export data_checkpoint_path=${OUTPUT_DIR}/save_model/${exp_name}/data_checkpoint
 
 mkdir -p ${LOG_DIR}
 
