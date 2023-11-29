@@ -16,6 +16,7 @@
 
 from collections import defaultdict
 from itertools import cycle
+import inspect
 import math
 import os
 
@@ -100,7 +101,7 @@ class RLHFModule:
         self._finalized = False
         self._resume_training = False
         self._address = dlc_utils.get_addr() if dlc_utils.in_dlc_env() else get_host_addr()
-        self._is_master_node = os.environ.get("RANK", 0) == 0
+        self._is_master_node = os.environ.get("RANK", '0') == '0'
         self._logger = setup_logger(model_name=self.name, ip_addr=self._address)
 
     def finalize(self):
@@ -336,7 +337,10 @@ class RLHFModule:
             assert sample_per_episode_per_replica > 0, \
                 "The dataloader for training expect positive sample_per_episode_per_replica, "\
                 f"but got {sample_per_episode_per_replica}"
-        dataset = self.build_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
+        if "is_eval" in inspect.getfullargspec(self.build_dataset).args:
+            dataset = self.build_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
+        else:
+            dataset = self.build_dataset(data) # pylint: disable=assignment-from-no-return
         assert hasattr(dataset, 'collate_fn'), \
             f"{dataset.__class__.__name__} has no attribute `collate_fn`. If you would like "\
             "to use the default collate_fn to batch samples, try adding `self.collate_fn = None` "\

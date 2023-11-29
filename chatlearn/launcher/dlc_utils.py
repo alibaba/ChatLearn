@@ -14,6 +14,7 @@
 # ==============================================================================
 """DLC utils"""
 
+import atexit
 from collections import defaultdict
 import os
 import time
@@ -212,9 +213,10 @@ class StartExitListener:
 
     def stop(self):
         self.quit_event.set()
-        self.log_monitor_thread.join()
+        self.log_monitor_thread.join(2)
 
     def start_exit_listener(self):
+        atexit.register(self.stop)
         address = get_addr()
         if get_rank() == 0:
             self._start_exit_actor = ExitActor.options(name=_EXIT_ACTOR_NAME, lifetime="detached").remote()
