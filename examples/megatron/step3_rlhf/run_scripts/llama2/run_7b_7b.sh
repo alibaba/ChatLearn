@@ -16,6 +16,7 @@ if [ -z "${exp_name}" ]; then
 fi
 
 [ -z "$OUTPUT_DIR" ] && OUTPUT_DIR=${CHATLEARN}/output/step3_rlhf/
+[ -z "$sample_per_episode" ] && sample_per_episode=1024
 LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
 TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
 SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}
@@ -32,7 +33,7 @@ log_dir=${LOG_DIR} \
 tensorboard_dir=${TENSORBOARD_DIR} \
 save_dir=${SAVE_DIR} \
 data_path=${DATASET_PATH} \
-sample_per_episode=1024 \
+sample_per_episode=${sample_per_episode} \
 train_global_batch_size=128 \
 generation_batch_size=64 \
 ref_generation_batch_size=16 \

@@ -4,7 +4,7 @@ import torch
 
 import chatlearn
 from chatlearn.utils import future
-from chatlearn import Engine
+from chatlearn.runtime.engine import BaseEngine
 from chatlearn import RLHFTorchModule
 
 chatlearn.init()
@@ -21,7 +21,7 @@ class PolicyModel(RLHFTorchModule):
 
 model = PolicyModel('policy')
 
-engine = Engine(model)
+engine = BaseEngine(model)
 engine.setup()
 a = torch.ones([1])
 b = torch.ones([1])

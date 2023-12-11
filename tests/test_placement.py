@@ -4,7 +4,7 @@ import torch
 
 import chatlearn
 from chatlearn.utils import future
-from chatlearn import Engine
+from chatlearn.runtime.engine import BaseEngine
 from chatlearn import RLHFTorchModule
 
 chatlearn.init()
@@ -38,7 +38,7 @@ class ReferenceModel(RLHFTorchModule):
 
 model = PolicyModel('policy')
 model2 = ReferenceModel("reference")
-engine = Engine(model, model2)
+engine = BaseEngine(model, model2)
 engine.setup()
 a = torch.ones([1])
 b = torch.ones([1])

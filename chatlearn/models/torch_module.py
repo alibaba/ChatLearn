@@ -31,6 +31,13 @@ class RLHFTorchModule(RLHFModule):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.profiler = None
+
+    def model_setup(self):
+        """
+        :meta private:
+        """
+        super().model_setup()
         if self.rlhf_args.profiler_dir is not None and self.replica_id == 0:
             self.profiler = torch.profiler.profile(
                 activities=[
@@ -48,8 +55,6 @@ class RLHFTorchModule(RLHFModule):
                 on_trace_ready=torch.profiler.tensorboard_trace_handler(self.rlhf_args.profiler_dir)
             )
             self.profiler.start()
-        else:
-            self.profiler = None
 
     def get_visible_gpus(self):
         """

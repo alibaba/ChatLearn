@@ -1,11 +1,11 @@
-import time
+import torch
 
 import torch
 
 import chatlearn
+from chatlearn import RLHFEngine
 from chatlearn.utils import future
-from chatlearn.runtime.engine import BaseEngine
-from chatlearn import RLHFTorchModule
+from utils import PolicyModel, ReferenceModel, RewardModel, ValueModel, PPOPolicy, PPOValue
 
 chatlearn.init()
 chatlearn.get_args().models["policy"].num_device = 4
@@ -16,31 +16,20 @@ chatlearn.get_args().models["policy"].gpu_per_process = 1
 chatlearn.get_args().models["reference"].gpu_per_process = 1
 chatlearn.get_args().rlhf_args.colocation = [["policy", "reference"]]
 
-class PolicyModel(RLHFTorchModule):
+chatlearn.get_args().models["policy"].num_replica = 1
+policy = PolicyModel("policy")
+reference = ReferenceModel("reference")
+reward = RewardModel("reward")
+value = ValueModel("value")
+ppo_policy = PPOPolicy("ppo_policy")
+ppo_value = PPOValue("ppo_value")
 
-    def setup(self):
-        time.sleep(0.05)
+engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
+data = []
+for i in range(35):
+    data.append(torch.ones([10]) * i)
+engine.set_dataset(data)
 
-    def forward_step(self, data, iteration):
-        #assert data['a'].device.type == 'cpu', data['a'].device.type
-        time.sleep(0.1)
-        return data
-
-
-class ReferenceModel(RLHFTorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
-
-    def forward_step(self, data, iteration):
-        #assert data['a'].device.type == 'cpu', data['a'].device.type
-        time.sleep(0.1)
-        return data
-
-
-model = PolicyModel('policy')
-model2 = ReferenceModel("reference")
-engine = BaseEngine(model, model2)
 engine.setup()
 a = torch.ones([1])
 b = torch.ones([1])
@@ -60,4 +49,22 @@ for replica_id in range(len(model.replicas)):
     else:
         assert visible_devices == [[2], [3]], visible_devices
     print(visible_devices)
+engine.env.setup()
 
+
+def check_output_models(model_name, expected_models):
+    assert [node.model.name for node in engine.env.model_flow.get(model_name).output_models] == expected_models
+
+
+check_output_models("policy", ['reference', 'value', 'reward'])
+check_output_models("reference", ['reward'])
+check_output_models("value", ['reward'])
+check_output_models("reward", [])
+
+
+def check_colocate_models(model_name, expected_models):
+    assert [model.name for model in engine.env.model_flow.get(model_name).model.colocate_models] == expected_models
+
+
+check_colocate_models("policy", ['reference'])
+check_colocate_models("reference", ['policy'])

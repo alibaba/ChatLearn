@@ -22,10 +22,8 @@ from vllm.core.scheduler import Scheduler
 from vllm.engine.llm_engine import LLMEngine
 from vllm.model_executor.parallel_utils import parallel_state
 from vllm.sampling_params import SamplingParams
-from vllm.sequence import SequenceData, SequenceGroupMetadata
 from vllm.transformers_utils.config import get_config
-from vllm.utils import get_gpu_memory, Counter
-from vllm.worker.cache_engine import CacheEngine
+from vllm.utils import Counter
 from vllm.worker.worker import Worker
 
 from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2TransformerSyncMap, VllmModelConfig
@@ -56,15 +54,6 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
     def _init_args(self):
         self.seq_counter = Counter()
         self.request_counter = Counter()
-        self.sampling_params = SamplingParams(
-            n=self.model_args.get("n"),
-            temperature=0.0 if self.model_args.get("use_beam_search") else 1.0,
-            top_p=self.model_args.get("top_p"),
-            use_beam_search=self.model_args.get("use_beam_search"),
-            ignore_eos=self.model_args.get("ignore_eos"),
-            max_tokens=self.model_args.get("max_new_tokens"),
-            logprobs=1
-        )
 
         self.scheduler_config = SchedulerConfig(
             self.model_args.get("max_num_batched_tokens"),
@@ -72,6 +61,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
             self.model_args.get("seq_length"),
             self.model_args.get("max_paddings"),
         )
+
         self.cache_config = CacheConfig(
             self.model_args.get("block_size"),
             self.model_args.get("gpu_memory_utilization"),
@@ -126,10 +116,12 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
 
     def _init_cache(self) -> None:
         """Profiles the memory usage and initializes the KV cache."""
-        sampling_params = SamplingParams(top_p=0.99, top_k=self.tokenizer.vocab_size - 1)
-
         # Get the maximum number of blocks that can be allocated on GPU and CPU.
-        num_gpu_blocks, num_cpu_blocks = self.profile_num_available_blocks(sampling_params)
+        num_gpu_blocks, num_cpu_blocks = self.profile_num_available_blocks(
+            self.cache_config.block_size,
+            self.cache_config.gpu_memory_utilization,
+            self.cache_config.swap_space_bytes
+        )
 
         # FIXME(woosuk): Change to debug log.
         self._logger.info(f"# GPU blocks: {num_gpu_blocks}, "
@@ -148,12 +140,28 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
         self._logger.info("success to call init_cache_engine")
 
     def _add_request_internal(self, prompt_list, prompt_token_id_list):
+        stop = self.model_args.get("stop_token_list", None)
+        if isinstance(stop, str):
+            stop = stop.split(";")
         for prompt, prompt_token_ids in zip(prompt_list, prompt_token_id_list):
             request_id = next(self.request_counter)
+            max_tokens = self.model_args.get("max_new_tokens") \
+                if self.model_args.get("new_token_limit", None) \
+                else self.model_args.get("seq_length") - len(prompt_token_ids)
+            sampling_params = SamplingParams(
+                n=self.model_args.get("n"),
+                temperature=0.0 if self.model_args.get("use_beam_search") else 1.0,
+                top_p=self.model_args.get("top_p"),
+                use_beam_search=self.model_args.get("use_beam_search"),
+                ignore_eos=self.model_args.get("ignore_eos"),
+                stop=stop,
+                max_tokens=max_tokens,
+                logprobs=1
+            )
             self.add_request(
                 request_id,
                 prompt,
-                self.sampling_params,
+                sampling_params,
                 prompt_token_ids=prompt_token_ids
             )
         self.outputs = []
@@ -186,72 +194,13 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
         sync_map = Megatron2TransformerSyncMap(src_names)
         return sync_map.dst_names
 
-    def profile_num_available_blocks(self, sampler_config):
-        # Profile the memory usage of the model and get the maximum number of
-        # cache blocks that can be allocated with the remaining free memory.
-        torch.cuda.empty_cache()
-        torch.cuda.reset_peak_memory_stats()
-
-        # Profile memory usage with max_num_sequences sequences and the total
-        # number of tokens equal to max_num_batched_tokens.
-
-        # Enable top-k sampling to reflect the accurate memory usage.
-        max_prompt_length = (
-            self.model_args.get("seq_length") - self.model_args.get("max_new_tokens")
-        )
-        max_num_batched_tokens = self.scheduler_config.max_num_batched_tokens
-        max_num_seqs = min(self.scheduler_config.max_num_seqs, max_num_batched_tokens // max_prompt_length)
-        seqs = []
-
-        for group_id in range(max_num_seqs):
-            seq_data = SequenceData([0] * max_prompt_length)
-            seq = SequenceGroupMetadata(
-                request_id=str(group_id),
-                is_prompt=True,
-                seq_data={group_id: seq_data},
-                sampling_params=sampler_config,
-                block_tables=None,
-            )
-            seqs.append(seq)
-
-        input_tokens, input_positions, input_metadata = self._prepare_inputs(seqs)
-
-        # Execute the model.
-        num_layers = self.num_layers() // self.pipeline_model_parallel_size()
-
-        data = {
-            "input_ids": input_tokens,
-            "positions": input_positions,
-            "kv_caches" : [(None, None)] * num_layers,
-            "input_metadata": input_metadata,
-            "cache_events":None,
-        }
-        self.eval_forward(data)
-
-        # Calculate the number of blocks that can be allocated with the
-        # profiled peak memory.
-        torch.cuda.synchronize()
-        peak_memory = torch.cuda.max_memory_allocated()
-        total_gpu_memory = get_gpu_memory()
-        cache_block_size = CacheEngine.get_cache_block_size(
-            self.cache_config.block_size, self.model_config, self.parallel_config)
-        num_gpu_blocks = int(
-            (total_gpu_memory * self.cache_config.gpu_memory_utilization - peak_memory) //
-            cache_block_size)
-        num_cpu_blocks = int(self.cache_config.swap_space_bytes // cache_block_size)
-        num_gpu_blocks = max(num_gpu_blocks, 0)
-        num_cpu_blocks = max(num_cpu_blocks, 0)
-        torch.cuda.empty_cache()
-
-        return num_gpu_blocks, num_cpu_blocks
-
     @property
     def model_config(self):
         """
         :meta private:
         """
         if self._model_config is None:
-            hf_config = get_config(self.model_args.get("tokenizer"), False, None)
+            hf_config = get_config(self.model_args.get("tokenizer"), True, None)
             hf_config.torch_dtype = self.model_args.get("params_dtype")
             self._model_config = VllmModelConfig(hf_config)
         return self._model_config
@@ -330,7 +279,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
         if self.num_requests <= 0:
             self.pbar.close()
 
-        return "ok"
+        return self.num_requests
 
     def execute_step(self, seq_group_metadata_list, blocks_to_swap_in, blocks_to_swap_out, blocks_to_copy):
 
