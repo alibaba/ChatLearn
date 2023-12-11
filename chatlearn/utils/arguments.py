@@ -203,8 +203,6 @@ class ModelConfig(BaseConfig):
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RLHFConfig
     generation_batch_size: int = -1
-    #: [optional] return rlhf data
-    return_rlhf_data: bool = False
     #: lora config
     lora: LoraConfig = None
     #: batch generation config
@@ -285,6 +283,8 @@ class RLHFConfig(BaseConfig):
     max_relay_episode: int = 1
     #: consumed samples
     consumed_samples: int = 0
+    #: concurrent model setup
+    concurrent_setup: bool = False
 
     def __init__(self):
         super().__init__()

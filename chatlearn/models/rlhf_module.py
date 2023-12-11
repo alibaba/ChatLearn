@@ -89,20 +89,23 @@ class RLHFModule:
         self._timers = None
         self._data_iter = None
         self._eval_data_iter = None
-        self.call_funcs = []
+        self.call_func = None
+        self.eval_call_func = None
         self._data_ckpt_manager = None
         self._peak_memory = 0
-        self._return_rlhf_data = self._module_args.return_rlhf_data
         self._parameters_to_sync = defaultdict(list)
         # current compute iteration
         self._iteration = 0
         self.enable_lora = self._module_args.lora.enable_lora
-        self._eval_func_name = None
         self._finalized = False
         self._resume_training = False
         self._address = dlc_utils.get_addr() if dlc_utils.in_dlc_env() else get_host_addr()
         self._is_master_node = os.environ.get("RANK", '0') == '0'
         self._logger = setup_logger(model_name=self.name, ip_addr=self._address)
+        self._dummy_output = None
+        self._dummy_inputs = []
+        # parameter sync from src_model
+        self._src_parameter_model = None
 
     def finalize(self):
         """
@@ -711,7 +714,9 @@ class RLHFModule:
         :meta private:
         """
         self._assert_not_finalized()
-        self.call_funcs.append(name)
+        if self.call_func is not None and self.call_func != name:
+            raise Exception(f"Only one call func is supported now, got {self.call_func} and {name}")
+        self.call_func = name
 
     def register_eval_func(self, name='eval_step'):
         """
@@ -723,15 +728,14 @@ class RLHFModule:
                 function name
         """
         self._assert_not_finalized()
-        self.register_func(name)
-        self._eval_func_name = name
+        if self.eval_call_func is not None and self.eval_call_func != name:
+            raise Exception(f"Only one call eval_func is supported now, got {self.eval_call_func} and {name}")
+        self.eval_call_func = name
 
-    @property
-    def eval_func_name(self):
-        """
-        :meta private:
-        """
-        return self._eval_func_name
+    def get_call_func(self, is_eval=False):
+        if is_eval:
+            return self.eval_call_func
+        return self.call_func
 
     @property
     def resume_training(self):
@@ -754,3 +758,17 @@ class RLHFModule:
         :meta private:
         """
         return self._is_master_node
+
+    def set_src_parameter_model(self, src_model):
+        """
+        src_model that sync parameter to current model
+        :meta private:
+        """
+        self._src_parameter_model = src_model
+
+    @property
+    def src_parameter_model(self):
+        """
+        src_model that sync parameter to current model
+        """
+        return self._src_parameter_model

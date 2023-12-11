@@ -1,7 +1,6 @@
 #!/bin/bash
 set -exo pipefail
-export PYTHONPATH=$(cd ../ && pwd):${PYTHONPATH}
-export LD_PRELOAD=/opt/conda/lib/python3.8/site-packages/torch/lib/libtorch_cpu.so
+export PYTHONPATH=$(cd ../ && pwd):${pwd}:${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
 rm -rf core*
@@ -15,7 +14,7 @@ VERBOSITY=2
 [ -z "$RANK" ] && export RANK=0
 if [ -z "${CUSTOM_PORTS}" ]; then
   ports="30000"
-  for i in $(seq 30001 30100); do
+  for i in $(seq 30001 30050); do
     ports="${ports};${i}"
   done
   export CUSTOM_PORTS=$ports
@@ -52,16 +51,23 @@ shift $(($OPTIND - 1))
 function run_test {
   ray stop
   "$@"
+  exit_code=$? ; echo "Exit code: $exit_code"
   ray stop
+  echo $@
 }
 
 
 function run_all_tests {
+  run_test python test_placement_colocate4.py -c "configs/rlhf.yaml"
+  run_test python test_evaluator2.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_custom.py -c "configs/rlhf.yaml"
   run_test python test_evaluator.py -c "configs/rlhf.yaml"
   run_test python test_fixed_data.py -c "configs/rlhf.yaml"
   run_test python test_dynamic_data.py -c "configs/rlhf.yaml"
   run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
   batch_size=5 run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_placement_colocate.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_placement_colocate2.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate3.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate2.py -c "configs/rlhf.yaml"
   RUN_FLAG=0 run_test python test_rlhf_ckpt.py -c "configs/rlhf.yaml"
@@ -96,6 +102,8 @@ elif [ "$1" == "test_relay_buffer" ]; then
   run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_placement_colocate" ]; then
   run_test python test_placement_colocate3.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_placement_colocate2.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_placement_colocate.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate2.py -c "configs/rlhf.yaml"
   run_test python test_placement_colocate.py -c "configs/exp.yaml"
 elif [ "$1" == "test_rlhf_ckpt" ]; then
@@ -112,6 +120,8 @@ elif [ "$1" == "test_send_recv" ]; then
   run_test python test_send_recv.py
 elif [ "$1" == "test_rlhf" ]; then
   run_test python test_rlhf.py -c "configs/rlhf.yaml"
+elif [ "$1" == "test_rlhf_custom" ]; then
+  run_test python test_rlhf_custom.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_args" ]; then
   run_test python test_args.py -c "configs/exp.yaml"
 elif [ "$1" == "test_utils" ]; then
@@ -120,6 +130,8 @@ elif [ "$1" == "test_distactor" ]; then
   run_test python test_distactor.py -c "configs/exp.yaml"
 elif [ "$1" == "test_placement" ]; then
   run_test python test_placement.py -c "configs/exp.yaml"
+elif [ "$1" == "test_evaluator" ]; then
+  run_test python test_evaluator.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_indivisible_batchsz" ]; then
   enable_indivisible_batch_size=True run_test python test_indivisible_batchsz.py -c "configs/rlhf.yaml"
 else

@@ -125,6 +125,7 @@ def preprocess_compute(func, is_forward_step):
         if self.data_parallel_size is not None and \
             self.data_parallel_rank is not None and \
             self.data_parallel_size > 1:
+            assert self.trainable
             data_list = args[0]
             assert isinstance(data_list, list)
             start_idx, end_idx = utils.split_index(len(data_list), self.data_parallel_size)[self.data_parallel_rank]

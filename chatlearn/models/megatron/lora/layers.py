@@ -27,12 +27,12 @@ from torch.cuda.amp import custom_fwd, custom_bwd
 from torch.nn import Embedding
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
-from chatlearn import get_args as get_rlhf_args
 from chatlearn.models.megatron.lora.initializer import distributed_kaiming_uniform_
 from chatlearn.models.megatron.lora.utils import recursive_getattr, recursive_setattr
 from chatlearn.utils.arguments import LoraConfig
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import QKV_LAYER_NAME
+from chatlearn.utils.global_vars import get_args as get_rlhf_args
 from chatlearn.utils.global_vars import is_initialized
 
 megatron_exist = importlib.util.find_spec("megatron")

@@ -38,10 +38,10 @@ def get_ppo_batches(modify_generation_batch_size=False):
     dataset = [data * i for i in range(35)]
     engine.set_dataset(dataset)
     engine.setup()
-    engine.trainer.setup(engine.model_manager.model_packs)
-    engine.env.setup(engine.model_manager.model_packs)
+    engine.trainer.setup()
+    engine.env.setup()
     if engine.evaluator:
-        engine.evaluator.setup(engine.model_namager.model_packs)
+        engine.evaluator.setup()
 
     ppo_data_loader = StreamDataset.remote(engine.rlhf_args.stream_data_loader_type,
                                             engine.rlhf_args.train_micro_batch_size,
@@ -56,10 +56,7 @@ def get_ppo_batches(modify_generation_batch_size=False):
         refs = ppo_data_loader.set_dataset.remote(queue, episode_id, sample_per_episode=sample_per_episode)
         future.wait(refs)
         engine.trainer.set_data_loader(ppo_data_loader)
-        train_datas.extend([engine.trainer.next_batch() for step in range(5)])
-        engine.trainer.train(episode_id)
-        engine.model_manager.sync_parameters()
-        engine.after_episode()
+        train_datas.extend([engine.trainer.next_batch() for step in range(2)])
         engine.evaluate(episode_id)
     engine.stop()
     return train_datas

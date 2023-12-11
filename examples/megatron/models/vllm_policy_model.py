@@ -42,7 +42,7 @@ class VLLMPolicyModel(nn.Module):
         torch.distributed.barrier()
         load_checkpoint(self, None, None)
 
-    def load_state_dict(self, state_dict, strict=True):
+    def load_state_dict(self, state_dict, strict=True): # pylint: disable=arguments-differ
         if isinstance(self.model, LlamaForCausalLM):
             convert_state_dict_internal = convert_lamma_state_dict_from_megatron_to_vllm
         elif isinstance(self.model, QWenLMHeadModel):

@@ -115,7 +115,8 @@ data = torch.ones([1024])
 engine.set_dataset([data] * 35)
 engine.learn()
 
-
+for name in ['policy', 'reference', 'value', 'reward', 'ppo_policy', 'ppo_value']:
+    setattr(engine, name, engine.named_models[name])
 
 for replica_id in range(len(engine.ppo_policy.replicas)):
     visible_devices = future.get(engine.ppo_policy.replicas[replica_id].get_visible_gpus())

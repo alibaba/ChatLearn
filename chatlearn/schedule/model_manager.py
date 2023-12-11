@@ -122,7 +122,7 @@ class ModelManager:
     def _get_group_name(self, src_model, dst_model):
         return src_model.name + dst_model.name
 
-    def set_model_sync(self, src_model, tgt_model):
+    def set_parameter_sync(self, src_model, tgt_model):
         group_name = self._get_group_name(src_model, tgt_model)
         if group_name in self.parameter_sync_groups:
             logger.warning(f"{group_name} already set, ignore")
@@ -143,7 +143,12 @@ class ModelManager:
             return
 
         model_cls = model.__class__
-        for func_name in model.call_funcs:
+        call_funcs = []
+        for is_eval in (True, False):
+            call_func = model.get_call_func(is_eval)
+            if call_func is not None and call_func not in call_funcs:
+                call_funcs.append(call_func)
+        for func_name in call_funcs:
             is_forward_step = func_name == "forward_step"
             decorate_class_func(model_cls, func_name, preprocess_compute, is_forward_step)
 
@@ -249,6 +254,16 @@ class ModelManager:
                 # TODO: for colocate gpu_per_process > 1, support later
                 assert model.gpu_per_process == 1
         self.model_packs = self.find_model_packing_strategy(models, max_device)
+        for model in models:
+            pack = []
+            for pack in self.model_packs:
+                if model in pack:
+                    break
+            colocate_models = []
+            for model2 in models:
+                if model2 is not model and model2 not in pack:
+                    colocate_models.append(model2)
+            model.set_colocate_models(colocate_models)
 
         def _get_model_replica_from_pack(device_index, model_pack):
             device_offset = 0

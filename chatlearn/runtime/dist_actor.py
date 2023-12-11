@@ -39,6 +39,7 @@ class DistActor:
         self.total_device = model.total_device
         self.gpu_per_process = model.gpu_per_process
         self.num_device_per_replica = model.num_device_per_replica
+        self.trainable = model.trainable
         self.gpu_per_node = gpu_per_node
         self.model = model
         self.all_actors = []
@@ -52,7 +53,7 @@ class DistActor:
         self._init_done = False
         self._placement_group = None
         self.rank_to_actors = {}
-        self.eval_func_name = model.eval_func_name
+        self.eval_call_func = model.eval_call_func
 
     @property
     def module_args(self):
@@ -65,6 +66,10 @@ class DistActor:
     @property
     def master(self):
         return self.all_actors[0]
+
+    @property
+    def tailer(self):
+        return self.all_actors[-1]
 
     @property
     def actor_num(self):
@@ -203,10 +208,15 @@ class DistModel:
         self.register_serial_func()
         self.register_func()
         self._need_empty_cache = False
+        self._colocate_models = None
 
     def add_replica(self, replica):
         self.replicas.append(replica)
         self.name = replica.name
+
+    @property
+    def trainable(self):
+        return self.replicas[0].trainable
 
     @property
     def module_args(self):
@@ -280,6 +290,16 @@ class DistModel:
                 res = future.get(ref)
                 results.append(res)
         return results
+
+    def set_colocate_models(self, models):
+        self._colocate_models = models
+
+    def colocate_with(self, model):
+        return model in self._colocate_models
+
+    @property
+    def colocate_models(self):
+        return self._colocate_models
 
     @property
     def all_ranks(self):

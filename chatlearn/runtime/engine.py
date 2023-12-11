@@ -19,9 +19,9 @@ import torch
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
 from chatlearn.models.rlhf_module import RLHFModule
-from chatlearn.runtime.environment import PPOEnv
+from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
-from chatlearn.runtime.trainer import PPOTrainer
+from chatlearn.runtime.trainer import Trainer
 from chatlearn.schedule.model_manager import ModelManager
 from chatlearn.schedule.resource_manager import ResourceManager
 from chatlearn.utils import future
@@ -32,7 +32,7 @@ from chatlearn.utils.timer import Timers
 LOG_START = ">>>>>>>>>>>"
 
 
-class Engine:
+class BaseEngine:
     """Base Engine"""
 
     def __init__(self, *models):
@@ -40,7 +40,6 @@ class Engine:
         self.global_args = get_args()
         self.rlhf_args = self.global_args.rlhf_args
         self.timers = Timers()
-        self._create_remote_models()
 
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
@@ -53,17 +52,27 @@ class Engine:
         """
         :meta private:
         """
+        self._create_remote_models()
+        # for ease to access model by self.{model_name}
+        for model in self.remote_models:
+            setattr(self, model.name, model)
         # include compile in init, compile dependencies need to be called serially
         for model in self.remote_models:
             model.init()
         # do not include compile dependencies in setup
-        refs = []
-        refs_val = []
-        for model in self.remote_models:
-            refs += model.model_setup()
-            refs_val += model.validate()
-        future.wait(refs)
-        future.wait(refs_val)
+        # if the program hang in setup, may try to set concurrent_setup to False.
+        if self.rlhf_args.concurrent_setup:
+            refs = []
+            refs_val = []
+            for model in self.remote_models:
+                refs += model.model_setup()
+                refs_val += model.validate()
+            future.wait(refs)
+            future.wait(refs_val)
+        else:
+            for model in self.remote_models:
+                future.wait(model.model_setup())
+                future.wait(model.validate())
         logger.info("done setup all models")
 
     def before_episode(self):
@@ -117,46 +126,51 @@ class Engine:
         self.model_manager.clean()
 
 
-class RLHFEngine(Engine):
-    """
-    RLHF engine.
+class Engine(BaseEngine):
+    """Engine"""
 
-    Args
-    ----
-    policy : RLHFModule
-        policy inference model
-    reference : RLHFModule
-        reference inference model
-    reward : RLHFModule
-        reward inference model
-    value : RLHFModule
-        value inference model
-    ppo_policy : RLHFModule
-        ppo policy training model
-    ppo_value : RLHFModule
-        ppo value training model
-    """
+    def __init__(self, environment=None, trainer=None, evaluator=None):
+        """
+        Engine.
 
-    def __init__(self,
-                 policy: RLHFModule,
-                 reference: RLHFModule,
-                 reward: RLHFModule,
-                 value: RLHFModule,
-                 ppo_policy: RLHFModule,
-                 ppo_value: RLHFModule):
-        for model in [policy, reference, reward, value]:
-            model.register_func("forward_step")
-        for model in [ppo_policy, ppo_value]:
-            model.register_func("train_step")
-        reward.module_args.return_rlhf_data = True
-        super().__init__(policy, reference, reward, value, ppo_policy, ppo_value)
-        self.evaluator = None
+        Args
+        ----
+        environment : Environment
+        trainer : Trainer
+        evaluator: Evaluator
+        """
+        models = []
+        for executor in [environment, trainer, evaluator]:
+            if executor:
+                for model in executor.models:
+                    if model not in models:
+                        models.append(model)
+        super().__init__(*models)
+        self.env = environment
+        self.trainer = trainer
+        self.evaluator = evaluator
         self._start_episode = 0
         self._dataset = None
         self._drop_last = False
         self._wrap_data = True
         self._relay_sample_fn = None
         self._ppo_data_loader = None
+        self._param_sync_pairs = []
+
+    def set_parameter_sync(self, src_model, dst_model):
+        """
+        sync model parameter from src_model to dst_model
+
+        Args
+        ----
+        src_model: RLHFModule
+            src model to sync parameters
+        dst_model: RLHFModule
+            destination model to sync parameters
+        """
+        self._param_sync_pairs.append((src_model, dst_model))
+        dst_model.set_src_parameter_model(src_model)
+        return self
 
     def _create_remote_models(self):
         """
@@ -164,46 +178,25 @@ class RLHFEngine(Engine):
         """
         resource_manager = ResourceManager(self._models)
         self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
-        ppo_policy = self._models[4]
-        policy = self._models[0]
-        ppo_value = self._models[5]
-        value = self._models[3]
-        self.model_manager.set_model_sync(ppo_policy, policy)
-        self.model_manager.set_model_sync(ppo_value, value)
+        for src_model, dst_model in self._param_sync_pairs:
+            self.model_manager.set_parameter_sync(src_model, dst_model)
         self.model_manager.remote()
         self.remote_models = self.model_manager.dist_models
         self.named_models = {model.name: model for model in self.remote_models}
-        self.policy, self.reference, self.reward, self.value, self.ppo_policy, self.ppo_value = self.remote_models
 
     def setup(self):
         """
         :meta private:
         """
         super().setup()
-        self.env = self.create_env(self.policy, self.reference, self.reward, self.value)
-        self.env.set_dataset(self._dataset)
-        self.trainer = self.create_trainer(self.ppo_policy, self.ppo_value)
-        if self.evaluator is not None:
-            self.evaluator.update_models(self.remote_models)
+        self._executors = [self.env, self.trainer, self.evaluator]
+        for executor in self._executors:
+            if executor:
+                executor.update_models(self.remote_models)
+        if self.env:
+            self.env.set_dataset(self._dataset)
         self.model_manager.build_parameter_group()
         self.model_manager.start_error_monitor()
-
-    def create_env(self, policy, reference, reward, value):
-        """
-        :meta private:
-        """
-        env = PPOEnv(self.rlhf_args,
-                     policy,
-                     reference,
-                     reward,
-                     value)
-        return env
-
-    def create_trainer(self, ppo_policy, ppo_value):
-        """
-        :meta private:
-        """
-        return PPOTrainer(self.rlhf_args, ppo_policy.replicas[0], ppo_value.replicas[0])
 
     def set_dataset(self, dataset):
         """
@@ -215,17 +208,19 @@ class RLHFEngine(Engine):
             a list of prompt string
         """
         self._dataset = dataset
+        return self
 
+    def set_trainer(self, trainer):
+        self.trainer = trainer
+        return self
+
+    def set_environment(self, env):
+        self.env = env
+        return self
 
     def set_evaluator(self, evaluator):
-        """
-        Set model evaluator.
-
-        Args
-        ----
-        evaluator - Evaluator
-        """
         self.evaluator = evaluator
+        return self
 
     def logging_summary(self, iteration=-1):
         """
@@ -248,16 +243,12 @@ class RLHFEngine(Engine):
         self._relay_sample_fn = relay_sample_fn
 
     def learn(self):
-        """
-        Start rlhf training.
-        """
         self.timers("rlhf").start()
         self.timers("setup").start()
         self.setup()
-        self.trainer.setup(self.model_manager.model_packs)
-        self.env.setup(self.model_manager.model_packs)
-        if self.evaluator:
-            self.evaluator.setup(self.model_manager.model_packs)
+        for executor in self._executors:
+            if executor:
+                executor.setup()
         self.timers("setup").stop()
         logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
@@ -279,7 +270,8 @@ class RLHFEngine(Engine):
             self.before_episode()
             logger.info(f"start train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode}")
             queue = self.env.make_experiences()
-            refs = ppo_data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn, self.rlhf_args.sample_per_episode)
+            refs = ppo_data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
+                                                      self.rlhf_args.sample_per_episode)
             future.wait(refs)
             self.trainer.set_data_loader(ppo_data_loader)
             logger.info("set dataloader for trainer done")
@@ -301,7 +293,7 @@ class RLHFEngine(Engine):
 
     def _resume_from_data_checkpoint(self):
         if self.rlhf_args.data_checkpoint_path:
-            data_ckpt_manager = CheckpointManager(self.policy.replicas[0], self.rlhf_args.data_checkpoint_path,
+            data_ckpt_manager = CheckpointManager(self.models[0].replicas[0], self.rlhf_args.data_checkpoint_path,
                                                   self.rlhf_args.max_data_ckpt_nums,
                                                   self.rlhf_args.load_data_checkpoint_iteration)
             if self.rlhf_args.enable_resume_training:
@@ -317,11 +309,11 @@ class RLHFEngine(Engine):
         :meta private:
         """
         if self.rlhf_args.save_episode_interval and \
-            (episode_id + 1) % self.rlhf_args.save_episode_interval == 0:
-            ref0 = self.ppo_policy.replicas[0].save_checkpoint(self.trainer.iteration)
-            ref1 = self.ppo_value.replicas[0].save_checkpoint(self.trainer.iteration)
-            refs = [ref0, ref1]
-            for i, model in enumerate(self.policy.replicas):
+                (episode_id + 1) % self.rlhf_args.save_episode_interval == 0:
+            refs = []
+            for model in self.trainer.models:
+                refs.append(model.replicas[0].save_checkpoint(self.trainer.iteration))
+            for i, model in enumerate(self.models[0].replicas):
                 refs.append(model.save_data_checkpoint(i, self.trainer.iteration, episode_id))
             future.get(refs)
             logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
@@ -331,8 +323,8 @@ class RLHFEngine(Engine):
         :meta private:
         """
         if self.evaluator is not None and \
-            self.rlhf_args.eval_episode_interval and \
-            (episode_id + 1) % self.rlhf_args.eval_episode_interval == 0:
+                self.rlhf_args.eval_episode_interval and \
+                (episode_id + 1) % self.rlhf_args.eval_episode_interval == 0:
             logger.info("start evaluate")
             self.timers("evaluate").start()
             self.evaluator.eval(episode_id, self.trainer.iteration)
@@ -341,14 +333,44 @@ class RLHFEngine(Engine):
             logger.info(f"evaluate done {self.timers.log(names=['evaluate'])}")
 
 
+class RLHFEngine(Engine):
+    """RLHFEngine"""
+
+    def __init__(self,
+                 policy: RLHFModule,
+                 reference: RLHFModule,
+                 reward: RLHFModule,
+                 value: RLHFModule,
+                 ppo_policy: RLHFModule,
+                 ppo_value: RLHFModule):
+        def env_compute_flow(batch):
+            policy_out = policy.forward_step(batch)
+            ref_out = reference.forward_step(policy_out)
+            value_out = value.forward_step(policy_out)
+            reward_out = reward.forward_step(policy_out, ref_out, value_out)
+            return value_out, reward_out
+
+        def trainer_compute_flow(batch):
+            ppo_policy.train_step(batch)
+            ppo_value.train_step(batch)
+
+        env = Environment([policy, reference, value, reward]).set_flow(env_compute_flow)
+        trainer = Trainer([ppo_policy, ppo_value]).set_flow(trainer_compute_flow)
+        super().__init__(env, trainer)
+        self.set_parameter_sync(ppo_policy, policy)
+        self.set_parameter_sync(ppo_value, value)
+
+
 class EvalEngine(Engine):
-    """Evaluate Engine"""
+    """Evaluation Engine"""
 
     def __init__(self, models):
-        if not isinstance(models, list):
-            models = [models]
-        super().__init__(*models)
-        self.evaluator = Evaluator(self.remote_models, self.rlhf_args)
+        evaluator = Evaluator(models)
+        super().__init__(evaluator=evaluator)
+
+    def setup(self):
+        super().setup()
+        self.evaluator.set_dataset(self._dataset)
 
     def set_dataset(self, dataset):
         """
@@ -359,13 +381,13 @@ class EvalEngine(Engine):
         dataset : list
             a list of prompt string
         """
-        self.evaluator.set_dataset(dataset)
+        self._dataset = dataset
 
     def eval(self):
         """
         Start evaluating.
         """
         self.setup()
-        self.evaluator.setup(self.model_manager.model_packs)
+        self.evaluator.setup()
         queue = self.evaluator.eval()
         return queue

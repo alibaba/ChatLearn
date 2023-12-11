@@ -18,6 +18,12 @@ use_attn_acc: ${use_attn_acc:False}
 eval_top_k: 1
 eval_top_p: 0
 
+
+# sample config
+# stop_token_list: stop token list
+stop_token_list: {stop_token_list:None}
+new_token_limit: {new_token_limit:None}
+
 # scheduler config
 max_num_batched_tokens: 32768
 max_paddings: 512

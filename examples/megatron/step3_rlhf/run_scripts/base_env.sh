@@ -9,7 +9,7 @@ export NCCL_DEBUG=WARN
 [ -z "$RANK" ] && export RANK=0
 if [ -z "${CUSTOM_PORTS}" ]; then
   ports="30000"
-  for i in $(seq 30001 30100); do
+  for i in $(seq 30001 30050); do
     ports="${ports};${i}"
   done
   export CUSTOM_PORTS=$ports

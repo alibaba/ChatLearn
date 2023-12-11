@@ -27,6 +27,7 @@ ChatLearn Documentation
    tutorial/tutorial_llama2
    tutorial/tutorial_bloom
    tutorial/continue_train
+   tutorial/custom_model_flow
 
 |
 |

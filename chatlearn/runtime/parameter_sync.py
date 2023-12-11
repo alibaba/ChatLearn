@@ -23,11 +23,11 @@ from itertools import cycle
 
 from tqdm import tqdm
 
-from chatlearn import get_args
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
+from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 
 vllm_exist = importlib.util.find_spec("vllm")
@@ -127,9 +127,9 @@ class ParameterSyncGroup:
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
         dst_pp_rank = self.get_actor_pipe_rank(dst_actor)
-        logger.info(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
-                    f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
-                    f"from tp rank {src_tp_rank} to {dst_tp_rank}")
+        logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
+                     f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
+                     f"from tp rank {src_tp_rank} to {dst_tp_rank}")
         assert src_tp_rank == dst_tp_rank, f"src_tp_rank {src_tp_rank} should be same as dst_tp_rank {dst_tp_rank}"
         self.send_recv_actor_mappings[src_actor].append(dst_actor)
         self.recv_send_actor_mappings[dst_actor].append(src_actor)

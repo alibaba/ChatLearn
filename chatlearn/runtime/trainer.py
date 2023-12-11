@@ -19,57 +19,27 @@ import ray
 
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
+from .executor import Executor
 
 
-class BaseTrainer:
-    """
-    base trainer
-    """
+class Trainer(Executor):
+    """Trainer"""
 
-    def __init__(self, args):
-        self.args = args
+    def __init__(self, models):
+        """
+        Trainer
 
-
-class PPOTrainer(BaseTrainer):
-    """
-    PPO Trainer
-    """
-
-    def __init__(self, args, ppo_policy_model, ppo_value_model):
-        super().__init__(args)
-        self.ppo_policy_model = ppo_policy_model
-        self.ppo_value_model = ppo_value_model
-        self.models = [ppo_policy_model, ppo_value_model]
-        self.args = args
-        self.num_micro_batch = args.train_global_batch_size // args.train_micro_batch_size
+        Args
+        ----
+        models : List[RLHFModule]
+            a list of modules
+        """
+        super().__init__(models)
+        self.models = models
+        for model in models:
+            model.register_func("train_step")
+        self.num_micro_batch = self.args.train_global_batch_size // self.args.train_micro_batch_size
         self.iteration = 0
-        self.ppo_policy_name = ppo_policy_model.name
-        self.ppo_value_name = ppo_value_model.name
-        self.names2colocate = {
-            self.ppo_policy_name: False,
-            self.ppo_value_name: False
-        }
-        self.is_ppo_models_colocate = True
-
-    def setup(self, model_packs=None):
-        for group in self.args.colocation:
-            for model in group:
-                if model in self.names2colocate:
-                    self.names2colocate[model] = (len(group) > 1)
-        for model_pack in model_packs:
-            model_name_pack = [model.name for model in model_pack]
-            if len(model_name_pack) > 1 \
-                    and self.ppo_policy_name in model_name_pack \
-                    and self.ppo_value_name in model_name_pack:
-                self.is_ppo_models_colocate = False
-
-    def train_step(self, train_data, train_info, wait=True, to_empty_value_cache=False, to_empty_policy_cache=False):
-        ref0 = self.ppo_value_model.train_step(train_data, train_info, to_empty_cache=to_empty_value_cache)
-        ref1 = self.ppo_policy_model.train_step(train_data, train_info, to_empty_cache=to_empty_policy_cache)
-        if wait:
-            future.wait(ref0 + ref1)
-        else:
-            return [ref0[-1], ref1[-1]]
 
     def set_data_loader(self, data_loader):
         self._data_loader = data_loader
@@ -93,51 +63,18 @@ class PPOTrainer(BaseTrainer):
         _sample_per_episode = ray.get(self._data_loader.total_samples.remote())
         return math.ceil(_sample_per_episode / self.args.train_global_batch_size)
 
-    def train_loop(self, batches, model):
-        cur_iteration = self.iteration
-        results = []
-        batch_len = len(batches)
-        for index, batch in enumerate(batches):
-            train_info = {"iteration": cur_iteration}
-            to_empty_cache = (index == batch_len - 1)
-            out = model.train_step(batch, train_info, to_empty_cache=to_empty_cache)
-            results.append(out[-1])
-            cur_iteration += 1
-        future.wait(results, desc=" ".join(model.name for model in [model]))
-
     def train(self, episode):
         _num_training_iteration = self.num_training_iteration()
+        self._batch_per_episode = _num_training_iteration
         for epoch in range(self.args.num_training_epoch):
             if epoch > 0:
                 ret = self._data_loader.shuffle.remote()
                 future.wait(ret)
-            if not self.is_ppo_models_colocate:
-                logger.info(f"{self.ppo_policy_model.name} and {self.ppo_value_model.name} execute concurrently")
-                train_refs = []
-                train_datas = [self.next_batch() for step in range(_num_training_iteration)]
-                train_data_len = len(train_datas)
-                is_last_epoch = (epoch == self.args.num_training_epoch - 1)
-                for index, train_data in enumerate(train_datas):
-                    if train_data:
-                        train_info = {"iteration": self.iteration}
-                        is_last_index = (index == train_data_len - 1)
-                        is_last_epoch_last_index = (is_last_epoch and is_last_index)
-                        refs = self.train_step(
-                            train_data, train_info, wait=False,
-                            to_empty_value_cache=self.names2colocate[self.ppo_value_name] and is_last_epoch_last_index,
-                            to_empty_policy_cache=self.names2colocate[self.ppo_policy_name] and is_last_epoch_last_index
-                        )
-                        train_refs.extend(refs)
-                        self.iteration += 1
-                future.wait(train_refs, 'ppo training')
-            else:
-                logger.info(f"{self.ppo_policy_model.name} and {self.ppo_value_model.name} execute serially")
-                batches = []
-                for step in range(_num_training_iteration):
-                    train_data = self.next_batch()
-                    if train_data:
-                        batches.append(train_data)
-                self.train_loop(batches, self.ppo_policy_model)
-                self.train_loop(batches, self.ppo_value_model)
-                self.iteration = self.iteration + len(batches)
-                logger.info(f"train episode: {episode}, epoch {epoch} step {step} iteration {self.iteration}")
+            data_queues, out_queue = self.setup_queues()
+            for mb in range(_num_training_iteration):
+                batch = self.encode_data(mb, self.next_batch())
+                for data_queue in data_queues:
+                    data_queue.put(batch)
+            self.compute_loop(data_queues, out_queue, _num_training_iteration)
+            self.iteration = self.iteration + _num_training_iteration
+            logger.info(f"train episode: {episode}, epoch {epoch} num_step {_num_training_iteration} done")

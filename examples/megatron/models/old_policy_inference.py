@@ -59,7 +59,8 @@ class PolicyInference(RLHFMegatronModule):
         # Set up model and load checkpoint
         model = get_model(self.model_provider, wrap_with_ddp=False)
         self.tokenizer = get_tokenizer()
-        if self.args.load:
+        if self.args.load and self.src_parameter_model is None:
+            # if self.src_parameter_model is not None, we broadcast parameters from src_parameter_model to current model
             torch.distributed.barrier()
             load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()
@@ -183,10 +184,9 @@ class PolicyInference(RLHFMegatronModule):
         assert prompts_tokens_tensor.size(1) == samples_length, "pad to the query_size + max generate size"
 
         # Now we are in a structured format, we can convert to tensors.
-        # prompts_tokens_tensor = torch.cuda.LongTensor(prompts_tokens)
 
         # print(f"after pad prompts_tokens_tensor size {prompts_tokens_tensor.size()}")
-        prompts_length_tensor = torch.cuda.LongTensor(prompts_length)
+        prompts_length_tensor = torch.tensor(prompts_length, dtype=torch.long, device='cuda')
         # assert torch.all(prompts_length_tensor ==  max_prompt_len), "because left padded"
         return prompts_tokens_tensor, prompts_length_tensor
 

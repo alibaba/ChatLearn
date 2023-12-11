@@ -33,7 +33,10 @@ class ErrorMonitor:
 
     def monitor(self):
         while True:
-            catch_err = future.get(self.error_signal.is_set.remote())
+            try:
+                catch_err = future.get(self.error_signal.is_set.remote())
+            except Exception:
+                catch_err = False
             if catch_err:
                 break
             time.sleep(2)
