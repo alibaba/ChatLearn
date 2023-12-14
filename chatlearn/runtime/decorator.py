@@ -24,6 +24,7 @@ from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
 from chatlearn.utils.logger import logger
+from chatlearn.utils.utils import execute
 
 
 def monitor_error(func, func_name):
@@ -41,6 +42,7 @@ def monitor_error(func, func_name):
             if self.is_master_node():
                 for line in traceback_msg.split("\n"):
                     self._logger.exception(line)
+                execute("ray stop")
                 raise
 
     return inner

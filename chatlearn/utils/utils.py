@@ -212,3 +212,18 @@ def execute(cmd, check=False, retry=1):
         time.sleep(1)
         return execute(cmd, check, retry-1)
     return state, msg
+
+
+def is_connection_refused(msg):
+    keywords = ["StatusCode.UNAVAILABLE", "Connection refused", "failed to connect to all addresses"]
+    return any(keyword in msg for keyword in keywords)
+
+
+def get_ray_status():
+    cluster_state, msg = execute("ray status", retry=3)
+    if cluster_state:
+        return True, None
+    elif is_connection_refused(msg):
+        return False, msg
+    # unknown msg
+    return True, msg

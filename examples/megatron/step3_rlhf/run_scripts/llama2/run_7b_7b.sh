@@ -17,9 +17,10 @@ fi
 
 [ -z "$OUTPUT_DIR" ] && OUTPUT_DIR=${CHATLEARN}/output/step3_rlhf/
 [ -z "$sample_per_episode" ] && sample_per_episode=1024
-LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
-TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
-SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}
+[ -z "$LOG_DIR" ] && LOG_DIR=${OUTPUT_DIR}/logs/${exp_name}
+[ -z "$TENSORBOARD_DIR" ] && TENSORBOARD_DIR=${OUTPUT_DIR}/tensorboard/${exp_name}
+[ -z "$SAVE_DIR" ] && SAVE_DIR=${OUTPUT_DIR}/save_model/${exp_name}
+
 export data_checkpoint_path=${OUTPUT_DIR}/save_model/${exp_name}/data_checkpoint
 
 mkdir -p ${LOG_DIR}
