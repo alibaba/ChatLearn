@@ -123,8 +123,6 @@ class PolicyTrainer(BaseTrainer):
             "action_rewards": data_b["action_rewards"].float(),
         }
 
-        assert all_token_ids_right_padded.size(0) != 1, f"cannot be 1 will be squeezed. {all_token_ids_right_padded}"
-
         for k, v in inputs.items():
             inputs[k] = to_device("cuda", v)
         return inputs

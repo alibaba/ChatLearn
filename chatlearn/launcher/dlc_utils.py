@@ -28,7 +28,7 @@ from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
 from chatlearn.utils.log_monitor import LogMonitor, is_proc_alive, LogActor
-from chatlearn.utils.utils import execute
+from chatlearn.utils.utils import execute, get_ray_status
 
 DLC_PORT_KEY = "CUSTOM_PORTS"
 JOB_NAME_KEY = "JOB_NAME"
@@ -138,10 +138,6 @@ def filter_known_msg(msg):
         return True
     return False
 
-def is_connection_refused(msg):
-    keywords = ["StatusCode.UNAVAILABLE", "Connection refused", "failed to connect to all addresses"]
-    return any(keyword in msg for keyword in keywords)
-
 
 @ray.remote
 class ExitActor:
@@ -214,6 +210,8 @@ class StartExitListener:
     def stop(self):
         self.quit_event.set()
         self.log_monitor_thread.join(2)
+        _, msg = execute("ray stop")
+        logger.info(msg)
 
     def start_exit_listener(self):
         atexit.register(self.stop)
@@ -223,28 +221,20 @@ class StartExitListener:
         else:
             # wait for the head node to be created
             head_created = False
-            counter = 0
             while True:
-                cluster_state, msg = execute("ray status", retry=3)
+                cluster_state, msg = get_ray_status()
                 if cluster_state:
-                    head_created = True
-                    # log per one hour
-                    if counter % 720 == 0:
-                        logger.info("worker is listening to head")
-                        logger.info(msg)
-                    counter += 1
-                elif is_connection_refused(msg):
+                    if msg is None:
+                        head_created = True
+                    else:
+                        if not filter_known_msg(msg):
+                            logger.warning(f"ray status got unknown msg {msg}, ignore ...")
+                else:
                     if head_created:
-                        self.stop()
-                        logger.info(f"ray status got error {msg}")
+                        logger.info(f"ray status got msg {msg}")
                         logger.info("head has exited, exit worker ...")
-                        _, msg = execute("ray stop")
-                        logger.info(msg)
                         break
                     logger.info("wait for head to be created.")
-                else:
-                    if not filter_known_msg(msg):
-                        logger.warning(f"ray status got error {msg}")
                 if self._start_exit_actor is None:
                     self._start_exit_actor = execute_with_timeout(ray.get_actor, [_EXIT_ACTOR_NAME], 3)
                 if self._start_exit_actor is not None:
@@ -252,12 +242,9 @@ class StartExitListener:
                         error_msg_list = ray.get(self._start_exit_actor.get_error_msg.remote(address))
                     except ray.exceptions.RayActorError:
                         logger.info("start_exit_actor has been killed")
-                        _, msg = execute("ray stop")
-                        logger.info(msg)
                         break
                     if error_msg_list:
                         msg = '\n'.join(error_msg_list)
-                        self.stop()
                         raise Exception(msg)
                 time.sleep(WORKER_SLEEP_SECOND)
             print("Exit worker", flush=True)

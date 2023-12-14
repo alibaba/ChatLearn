@@ -34,7 +34,7 @@ import ray._private.utils
 from ray._private.ray_logging import setup_component_logger
 from ray._private.worker import print_to_stdstream
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
-from chatlearn.utils.utils import execute
+from chatlearn.utils.utils import get_ray_status
 
 # Logger for this module. It should be configured at the entry point
 # into the program using Ray. Ray provides a default configuration at
@@ -254,8 +254,11 @@ class LogMonitor:
         monitor_log_paths = []
         # avoid the error raised by ray:
         # The core worker has already been shutdown.
-        cluster_state, _ = execute("ray status", retry=3)
+        cluster_state, msg = get_ray_status()
         if cluster_state:
+            # unknown msg
+            if msg is not None:
+                return
             try:
                 # TODO: try to reduce this frequency
                 logs = ray.get(self.log_actor.list_logs.remote(self.node_id))
