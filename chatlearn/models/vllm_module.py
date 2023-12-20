@@ -57,7 +57,7 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
 
         self.scheduler_config = SchedulerConfig(
             self.model_args.get("max_num_batched_tokens"),
-            self.model_args["micro_batch_size"],
+            self.model_args.get("micro_batch_size"),
             self.model_args.get("seq_length"),
             self.model_args.get("max_paddings"),
         )
@@ -143,11 +143,20 @@ class RLHFVLLMModule(RLHFTorchModule, LLMEngine, Worker):
         stop = self.model_args.get("stop_token_list", None)
         if isinstance(stop, str):
             stop = stop.split(";")
+        seq_len = self.model_args.get("seq_length")
         for prompt, prompt_token_ids in zip(prompt_list, prompt_token_id_list):
             request_id = next(self.request_counter)
-            max_tokens = self.model_args.get("max_new_tokens") \
-                if self.model_args.get("new_token_limit", None) \
-                else self.model_args.get("seq_length") - len(prompt_token_ids)
+            if self.model_args.get("new_token_limit", False):
+                max_tokens = self.model_args.get("max_new_tokens")
+                assert max_tokens < seq_len, "max_new_tokens must less than seq length."
+                prompt_token_ids = prompt_token_ids \
+                    if len(prompt_token_ids) <= seq_len-max_tokens \
+                    else prompt_token_ids[:seq_len-max_tokens]
+            else:
+                if len(prompt_token_ids) >= seq_len:
+                    prompt_token_ids = prompt_token_ids[:seq_len-1]
+                max_tokens = seq_len - len(prompt_token_ids)
+
             sampling_params = SamplingParams(
                 n=self.model_args.get("n"),
                 temperature=0.0 if self.model_args.get("use_beam_search") else 1.0,

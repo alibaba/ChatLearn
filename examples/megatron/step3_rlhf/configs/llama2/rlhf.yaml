@@ -42,6 +42,7 @@ models:
       lora_layer: ColumnParallelLinear,LinearLayer,RowParallelLinear
       column_only_qkv: False
       lora_dropout: 0.05
+    offload_optimizer_states: ${offload_optimizer_states:False}
 
   ppo_value:
     model_config_file: ppo_value.yaml
@@ -53,6 +54,7 @@ models:
       lora_layer: ColumnParallelLinear,LinearLayer,RowParallelLinear
       column_only_qkv: False
       lora_dropout: 0.05
+    offload_optimizer_states: ${offload_optimizer_states:False}
 
 rlhf:
   colocation:
@@ -60,7 +62,7 @@ rlhf:
   generation_batch_size: ${generation_batch_size:4}
   train_micro_batch_size: ${train_micro_batch_size:2}
   train_global_batch_size: ${train_global_batch_size:512}
-  num_ppo_episode: 5000
+  num_ppo_episode: ${num_ppo_episode:5000}
   sample_per_episode: ${sample_per_episode:1024}
   num_training_epoch: 1
   save_episode_interval: ${save_episode_interval:100}

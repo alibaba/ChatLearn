@@ -158,8 +158,7 @@ class ModelManager:
 
         # public user function
         # TODO: use decorator to annotate
-        for func_name in ["forward_step", "train_step",
-                          "save_checkpoint", "model_setup"]:
+        for func_name in ["save_checkpoint", "model_setup", "onload_optimizer_states", "offload_optimizer_states"] + call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 

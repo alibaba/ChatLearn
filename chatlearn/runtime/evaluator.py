@@ -55,7 +55,7 @@ class Evaluator(Environment):
         assert len(self._dataset) > 0, "dataset is not set"
         if self.models[0].module_args.batch_generation.ranking:
             logger.info("calling batch_generation_ranking")
-            self._dataset = batch_generation_ranking(self._dataset, 1, len(dataset))
+            self._dataset = batch_generation_ranking(self._dataset, 1, len(self._dataset))
         refs = []
         for model_replica in self.models[0].replicas:
             ref = model_replica.master._build_dataloader.remote(self._dataset, self.batch_size, is_eval=True)

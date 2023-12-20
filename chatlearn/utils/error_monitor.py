@@ -44,8 +44,9 @@ class ErrorMonitor:
             col.destroy_collective_group(group_name)
         for model in self.remote_models:
             model.terminate()
+        error_msg = future.get(self.error_signal.error_msg.remote())
         error_address = future.get(self.error_signal.error_address.remote())
-        raise Exception(f"Catch an exception in {error_address}")
+        raise Exception(f"Catch an exception in {error_address}, error msg: {error_msg}")
 
 
 @ray.remote(num_cpus=0)

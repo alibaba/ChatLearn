@@ -106,6 +106,7 @@ class RLHFModule:
         self._dummy_inputs = []
         # parameter sync from src_model
         self._src_parameter_model = None
+        self.to_offload_optimizer_states = self.module_args.offload_optimizer_states
 
     def finalize(self):
         """
@@ -772,3 +773,13 @@ class RLHFModule:
         src_model that sync parameter to current model
         """
         return self._src_parameter_model
+
+    def offload_optimizer_states(self):
+        """
+        offload optimizer states
+        """
+
+    def onload_optimizer_states(self):
+        """
+        onload optimizer states
+        """
