@@ -15,6 +15,8 @@
 """RLHF Megatron module"""
 
 import inspect
+import torch
+
 try:
     import megatron
     from megatron.core import mpu
@@ -98,7 +100,6 @@ class RLHFMegatronModule(RLHFTorchModule):
         :meta private:
         """
         return megatron.get_args()
-
 
     def pipeline_model_parallel_size(self):
         """
@@ -195,3 +196,38 @@ class RLHFMegatronModule(RLHFTorchModule):
                                  self.opt_param_scheduler)
         if self.enable_lora:
             self.unfuse_lora_layer()
+
+    def offload_optimizer_states(self):
+        """
+        offload optimizer states
+        """
+        if self.to_offload_optimizer_states:
+            timer = self.timers("offload")
+            if not timer.started_:
+                timer.start()
+            # offload onto cpu
+            self._optimizer_load_state_bucket_into_device(device='cpu')
+            self.empty_cache()
+            timer.stop()
+
+    def onload_optimizer_states(self):
+        """
+        onload optimizer states
+        """
+        if self.to_offload_optimizer_states:
+            timer = self.timers("onload")
+            if not timer.started_:
+                timer.start()
+            self._optimizer_load_state_bucket_into_device(device=torch.cuda.current_device())
+            timer.stop()
+
+    def _optimizer_load_state_bucket_into_device(self, device):
+        """put the state bucket onto a device
+        """
+        state_dict = self.optimizer.optimizer.state_dict()
+        for tensors in state_dict['state'].values():
+            keys = list(tensors.keys())
+            for key in keys:
+                tensors[key] = tensors[key].to(device=device, non_blocking=True)
+        # make sure the loading is finished before returning
+        torch.cuda.synchronize()

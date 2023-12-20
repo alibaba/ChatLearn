@@ -270,7 +270,9 @@ class DistModel:
                           "terminate",
                           "peak_memory",
                           "empty_cache",
-                          "set_start_iteration"]:
+                          "set_start_iteration",
+                          "offload_optimizer_states",
+                          "onload_optimizer_states"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 

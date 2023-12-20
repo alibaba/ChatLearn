@@ -207,6 +207,8 @@ class ModelConfig(BaseConfig):
     lora: LoraConfig = None
     #: batch generation config
     batch_generation: BatchGenerationConfig = None
+    #: offload optimizer states
+    offload_optimizer_states = False
 
     def __init__(self):
         super().__init__()

@@ -543,9 +543,9 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config):
     pp_size = ds_args.pipeline_model_parallel_size
     assert pp_size == 1
     # The number of heads.
-    heads = hf_config.num_attention_heads
+    heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
-    hidden_size_per_head = hf_config.hidden_size // hf_config.num_attention_heads // tp_size
+    hidden_size_per_head = hf_config.hidden_size // hf_config.num_attention_heads
     # Megatron-LM checkpoint version
     if "checkpoint_version" in input_state_dict.keys():
         checkpoint_version = input_state_dict["checkpoint_version"]
@@ -954,7 +954,8 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False,
     if expert_parallel:
         common_path = common_path + f'_{expert_rank:03d}'
 
-    return os.path.join(common_path, "model_optim_rng.pt")
+    # TODO: support automatic analysis filename.
+    return os.path.join(common_path, "model_rng.pt")
 
 
 class VllmModelConfig(ModelConfig):

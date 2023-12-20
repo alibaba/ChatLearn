@@ -196,6 +196,10 @@ class Executor:
 
     def compute_loop_one_model(self, model_node, num_batch, is_eval):
         model = model_node.model
+        # TODO: overlap with execution of other models
+        if model.trainable and model.module_args.offload_optimizer_states:
+            refs = model.onload_optimizer_states()
+            future.wait(refs)
         func_name = model_node.func_name
         if model_node.remote_objects_to_wait:
             model_node.wait_colocate_models_to_finish(func_name)
@@ -221,6 +225,10 @@ class Executor:
             # so we add them to a temp list
             logger.info(f"Sync {model} in the end of {self}")
             self._models_and_results_to_wait.append((model_node, results))
+        # TODO: overlap with execution of other models
+        if model.trainable and model.module_args.offload_optimizer_states:
+            refs = model.offload_optimizer_states()
+            future.wait(refs)
         return results
 
     def compute_loop(self, data_queues, out_queue, num_batch):
