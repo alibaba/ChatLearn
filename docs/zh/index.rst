@@ -28,6 +28,8 @@ ChatLearn Documentation
    tutorial/tutorial_bloom
    tutorial/continue_train
    tutorial/custom_model_flow
+   tutorial/offload
+   tutorial/profile
 
 |
 |

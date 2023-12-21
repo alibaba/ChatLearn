@@ -210,8 +210,8 @@ class StartExitListener:
     def stop(self):
         self.quit_event.set()
         self.log_monitor_thread.join(2)
-        _, msg = execute("ray stop")
-        logger.info(msg)
+        ray.shutdown()
+        logger.info("Execute ray.shutdown before the program exits. Done ...")
 
     def start_exit_listener(self):
         atexit.register(self.stop)
