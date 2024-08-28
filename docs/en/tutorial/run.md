@@ -15,9 +15,6 @@ Select the job type as `PyTorch` and paste the command into the `Execution Comma
 
 
 
-For RLHF, DPO, OnlineDPO, GRPO training task, you need set the advanced setting as `customPortList=30000-30050,createSvcForAllWorkers=true`.
-
-
 ## Non-PAI-DLC environment
 
 If you want to submit distributed training in a non-PAI-DLC environment,

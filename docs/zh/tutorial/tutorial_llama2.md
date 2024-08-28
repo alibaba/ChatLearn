@@ -212,7 +212,6 @@ bash scripts/train_grpo_math_llama.sh
 3. llama2-70B RLHF: 4*8 GPU
 
 分布式执行所需的环境变量和配置参考 [分布式执行](run.md)。
-**注意对于 RLHF 任务，如果在 PAI DLC 上运行，您需要填写高级配置`customPortList=30000-30050,createSvcForAllWorkers=true`。**
 
 
 ### 效果评估

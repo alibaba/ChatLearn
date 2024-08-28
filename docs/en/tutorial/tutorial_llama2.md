@@ -221,7 +221,6 @@ In our training script, the resource requirements (assuming the resources are A1
 
 For the environment variables and configurations required for distributed execution, please refer to [Distributed Execution](run.md).
 
-Note that for RLHF tasks, if you are running on PAI DLC, you need to fill in the advanced configuration `customPortList=30000-30050,createSvcForAllWorkers=true`.
 
 ### Evaluation
 
