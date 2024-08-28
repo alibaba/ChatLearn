@@ -15,7 +15,6 @@
 """DeepSpeed module"""
 
 from datetime import timedelta
-import importlib
 import math
 import os
 import random
