@@ -27,7 +27,7 @@
 请参考 [各阶段数据](data.md) 准备好您的训练数据。
 
 
-## Step: SFT
+## SFT
 
 SFT 指的是使用有标注的对话数据来微调预训练语言模型的过程。在这个示例中，我们需要下载预训练的模型，然后开始一个简单的 SFT 训练示例。
 
@@ -81,7 +81,7 @@ bash scripts/llama2_sft.sh
 
 分布式执行所需的环境变量和配置参考 [分布式执行](run.md)。
 
-## Step: Reward 模型训练
+## Reward 模型训练
 
 Reward 模型指的是在 RLHF 中作为人类评价的代理，对模型产生的问题回复进行实时评价打分的模型，Reward 模型输入问题以及模型回复，可以产生一个标量表示模型回复的质量。
 
@@ -108,7 +108,8 @@ bash scripts/train_reward_llama.sh
 
 分布式执行所需的环境变量和配置参考 [分布式执行](run.md)。
 
-## Step: Alignment 训练
+## Alignment 训练
+
 ChatLearn 支持多种 Alignment 训练模式：RLHF、DPO、OnlineDPO、GRP、GRPO
 
 

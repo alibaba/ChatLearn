@@ -15,10 +15,10 @@
 """DeepSpeed module"""
 
 from datetime import timedelta
-import importlib
 import math
 import os
 import random
+import deepspeed
 import numpy as np
 import torch
 from torch import distributed as dist
@@ -30,9 +30,6 @@ from chatlearn.utils.utils import dict_to_simplenamespace
 from .deepspeed.deepspeed_utils import get_eval_ds_config, get_tokenizer, get_train_ds_config, create_optimizer
 from .deepspeed.deepspeed_utils import save_hf_format, save_zero_three_model
 from .torch_module import TorchModule
-
-if importlib.util.find_spec("deepspeed"):
-    import deepspeed
 
 
 class DeepSpeedModule(TorchModule):
