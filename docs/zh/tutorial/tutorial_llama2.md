@@ -1,6 +1,6 @@
 # 基于 Llama 模型的端到端训练教程
 
-本文档介绍基于 ChatLearn, Megatron-LM 框架和 Llama/Llama2 模型进行 alignment 的训练流程。支持RLHF、DPO、OnlineDPO、GRPO 多种训练模式：
+本文档介绍基于 ChatLearn, Megatron-LM 和 vLLM 框架和 Llama/Llama2 模型进行 alignment 的训练流程。支持RLHF、DPO、OnlineDPO、GRPO 多种训练模式：
 1. RLHF(Reinforcement Learning from Human Feedback)：包括三阶段的训练（SFT, Reward 和 RLHF 训练）;
 2. DPO(Direct Preference Optimization)：包括两阶段的训练（SFT 和 DPO 训练）;
 3. OnlineDPO/GRPO：介于 DPO 和 RLHF 之间，使用 Policy + Reward 模型来自动生成数据并进行打分，再进行DPO训练，包括三阶段的训练（SFT, Reward 和 DPO 训练）.
@@ -44,7 +44,7 @@ SFT 指的是使用有标注的对话数据来微调预训练语言模型的过�
 export MEGATRON=path-to-megatron-lm
 export CHATLEARN=path-to-chatlearn
 
-cd ${CHATLEARN}/examples/megatron/sft/
+cd ${CHATLEARN}/examples/megatron/
 
 TP=num_of_tp \
 PP=num_of_pp \
@@ -58,23 +58,24 @@ bash scripts/convert_hf_to_megatron.sh
 ### 开启 SFT 训练
 
 下面的脚本是一个 SFT 的训练样例。其中 `DATASET_PATH` 为 SFT 训练集路径，比如`$DATASET_ROOT/sft/train.jsonl`。
-其中 `MODEL_SIZE` 为脚本中指定模型大小的环境变量，可以为 `llama2-7B`/`llama2-13B`/`llama2-70B`。
+其中 `model_size` 为脚本中指定模型大小的环境变量，可以为 `llama2-7B`/`llama2-13B`/`llama2-70B`。
 
 ```bash
 export CHATLEARN=path-to-chatlearn
 export MEGATRON=path-to-megatron-lm
-cd ${CHATLEARN}/examples/megatron/sft/
+cd ${CHATLEARN}/examples/megatron/
 
-MODEL_SIZE=$MODEL_SIZE \
+export model_size=llama2-7B
+
 LOAD_PATH=$MEGATRON_LLAMA2_CKPT_PATH \
 TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
 DATASET_PATH=$DATASET_ROOT/sft/ \
 bash scripts/llama2_sft.sh
 ```
 
-训练 log 和训练完成的模型默认会存放在`${CHATLEARN}/output/sft`中，可以通过 CHECKPOINT_PATH 来指定模型保存路径，具体的定义详见`${CHATLEARN}/examples/megatron/sft/scripts/llama2_sft.sh`脚本。
+训练 log 和训练完成的模型默认会存放在`${CHATLEARN}/output/sft`中，可以通过 CHECKPOINT_PATH 来指定模型保存路径，具体的定义详见`${CHATLEARN}/examples/megatron/scripts/train_sft_llama.sh`脚本。
 
-在我们的训练脚本里，资源需求 (假设资源为 A100-80GB/A800-80GB/H800-80GB GPU) 如下：
+在我们的训练脚本里，资源需求 (假设资源为 A100-80GB/A800-80GB GPU) 如下：
 1. llama2-7B SFT: 8 GPU
 2. llama2-13B SFT: 8 GPU
 3. llama2-70B SFT: 4*8 GPU
@@ -93,7 +94,7 @@ Reward 模型指的是在 RLHF 中作为人类评价的代理，对模型产生�
 
 ```bash
 export CHATLEARN=path-to-chatlearn
-export MEGATRON=path-to-megatron-lm-extension
+export MEGATRON=path-to-megatron-lm
 cd ${CHATLEARN}/examples/megatron/
 
 LOAD_PATH=path-to-sft-ckpt \
@@ -122,7 +123,7 @@ ChatLearn 支持多种 Alignment 训练模式：RLHF、DPO、OnlineDPO、GRP、G
 以下是一个 Llama2-7B 的 Policy 和 7B 的 Reward 模型的训练脚本。
 在这个例子中，用户需要设置 `POLICY_LOAD` 为 SFT 产出的 checkpoint 路径，Policy 模型和 Reference 模型将以 SFT 的 checkpoint 初始化。
 `REWARD_LOAD` 为 Reward 训练产出的 checkpoint 路径，同时，用户可以指定 load checkpoint 对应的 iteration 数。
-Reward 模型和 Value 模型将以 Reward 模型的权重作初始化。`TOKENIZER_MODEL` 为 `LlamaTokenizer` 所需文件 `tokenizer.model` 所在的文件夹路径。
+Reward 模型和 Value 模型将以 Reward 模型的权重作初始化。`TOKENIZER_MODEL` 为 `Llama2Tokenizer` 所需文件 `tokenizer.model` 所在的文件夹路径。
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -134,7 +135,7 @@ cd ${CHATLEARN}/examples/megatron/
 export model_size=llama2-7B
 
 POLICY_LOAD=path-to-sft-ckpt \
-REWARD_LOAD=path-to-trained-rm-checkpoint \
+REWARD_LOAD=path-to-rm-ckpt \
 REWARD_LOAD_ITERATION=1000 \
 TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
 bash scripts/train_rlhf_llama.sh
@@ -154,7 +155,7 @@ cd ${CHATLEARN}/examples/megatron/
 export model_size=llama2-7B
 
 POLICY_LOAD=path-to-sft-ckpt \
-REWARD_LOAD=path-to-trained-rm-checkpoint \
+REWARD_LOAD=path-to-rm-ckpt \
 REWARD_LOAD_ITERATION=1000 \
 TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
 bash scripts/train_online_dpo_llama.sh
@@ -163,7 +164,7 @@ bash scripts/train_online_dpo_llama.sh
 #### DPO
 以下是一个 Llama2-7B 的 Policy模型的训练脚本。
 在这个例子中，用户需要设置 `POLICY_LOAD` 为 SFT 产出的 checkpoint 路径，Policy 模型和 Reference 模型将以 SFT 的 checkpoint 初始化。
-`TOKENIZER_MODEL` 为 `LlamaTokenizer` 所需文件 `tokenizer.model` 所在的文件夹路径。
+`TOKENIZER_MODEL` 为 `Llama2Tokenizer` 所需文件 `tokenizer.model` 所在的文件夹路径。
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -193,7 +194,7 @@ cd ${CHATLEARN}/examples/megatron/
 export model_size=llama2-7B
 
 POLICY_LOAD=path-to-sft-ckpt \
-REWARD_LOAD=path-to-trained-rm-checkpoint \
+REWARD_LOAD=path-to-rm-ckpt \
 REWARD_LOAD_ITERATION=1000 \
 TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
 bash scripts/train_grpo_math_llama.sh
@@ -205,7 +206,7 @@ bash scripts/train_grpo_math_llama.sh
 如果您需要训练 llama2-13B / llama2-70B 的模型，只需要将上述训练脚本中的 `export model_size=llama2-7B` 替换成 `export model_size=llama2-13B` / `export model_size=llama2-70B`。
 您也可以根据自己的需求修改模型配置和其他参数。
 
-在我们的训练脚本里，资源需求 (假设资源为 A100-80GB/A800-80GB/H800-80GB GPU) 如下：
+在我们的训练脚本里，资源需求 (假设资源为 A100-80GB/A800-80GB GPU) 如下：
 1. llama2-7B RLHF: 8 GPU
 2. llama2-13B RLHF: 2*8 GPU
 3. llama2-70B RLHF: 4*8 GPU
@@ -222,7 +223,7 @@ bash scripts/train_grpo_math_llama.sh
 export CHATLEARN=path-to-chatlearn
 export MEGATRON=path-to-megatron-lm
 
-cd $CHATLEARN/examples/megatron/alignment
+cd $CHATLEARN/examples/megatron/
 
 LOAD_PATH=path-to-megatron-model \
 SAVE_PATH=path-to-hf-model \

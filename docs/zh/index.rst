@@ -1,12 +1,12 @@
-ChatLearn Documentation
+ChatLearn 使用文档
 =======================
 
 
 .. toctree::
    :maxdepth: 1
-   :caption: ChatLearn: 大规模 Alignment 高效训练框架
+   :caption: ChatLearn: 灵活、易用、高效的大规模 Alignmant 训练框架
 
-   chatlearn
+   chatlearn 简介
 
 |
 |

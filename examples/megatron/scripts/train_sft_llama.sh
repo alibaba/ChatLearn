@@ -23,23 +23,23 @@ DISTRIBUTED_ARGS="--nproc_per_node ${GPUS_PER_NODE} \
 
 export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}/examples/megatron:${CHATLEARN}
 
-[ -z "$MODEL_SIZE" ] && export MODEL_SIZE=llama2-7B
+[ -z "$model_size" ] && export model_size=llama2-7B
 
-if [ $MODEL_SIZE = llama2-7B ]; then
+if [ $model_size = llama2-7B ]; then
   NUM_LAYERS=32
   HIDDEN_SIZE=4096
   NUM_ATTN_HEADS=32
   INTERMEDIATE_SIZE=11008
   tp=4
   pp=1
-elif [ $MODEL_SIZE = llama2-13B ]; then
+elif [ $model_size = llama2-13B ]; then
   NUM_LAYERS=40
   HIDDEN_SIZE=5120
   NUM_ATTN_HEADS=40
   INTERMEDIATE_SIZE=13824
   tp=8
   pp=1
-elif [ $MODEL_SIZE = llama2-70B ]; then
+elif [ $model_size = llama2-70B ]; then
   NUM_LAYERS=80
   HIDDEN_SIZE=8192
   NUM_ATTN_HEADS=64
@@ -67,7 +67,7 @@ dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp))
 gbs=$(($gbs * $dp))
 
 
-[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/sft/hh_sft_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
+[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/sft/hh_sft_$(date +%F)_gpt_${model_size}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
 mkdir -p $CHECKPOINT_PATH
 
