@@ -1,6 +1,4 @@
-# ChatLearn
-
-ChatLearn 是一个灵活、易用、高效的大规模 Alignment 训练框架。
+# ChatLearn: 灵活、易用、高效的大规模 Alignmant 训练框架
 
 ## 概述
 
@@ -38,7 +36,7 @@ ChatGPT 是由 OpenAI 开发的基于大型语言模型 (Large Language Model, L
 
 ## 快速开始
 
-请参考 [文档](https://chatlearn.readthedocs.io/zh/latest/) 快速开始.
+请参考 [文档](https://chatlearn.readthedocs.io/zh-cn/latest/) 快速开始.
 
 1. [环境和代码准备](installation.md)
 2. [基于 Llama/Llama2 模型的端到端训练教程](tutorial/tutorial_llama2.md)

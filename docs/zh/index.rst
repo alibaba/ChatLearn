@@ -1,15 +1,13 @@
-ChatLearn Documentation
+ChatLearn 使用文档
 =======================
 
 
 .. toctree::
    :maxdepth: 1
-   :caption: ChatLearn: 大规模 Alignment 高效训练框架
+   :caption: 简介
 
    chatlearn
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -17,8 +15,6 @@ ChatLearn Documentation
 
    installation
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -34,8 +30,6 @@ ChatLearn Documentation
    tutorial/ems
    tutorial/profile
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -54,14 +48,9 @@ ChatLearn Documentation
 
    api/index
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
    :caption: 常见问题
 
    faq
-
-|
-|

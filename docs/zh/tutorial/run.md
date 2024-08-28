@@ -13,8 +13,6 @@
 ![image.png](../../images/dlc_2.jpg)
 
 
-**对于 RLHF/DPO/OnlineDPO/GRPO 训练任务，您需要填写高级配置`customPortList=30000-30050,createSvcForAllWorkers=true`。**
-
 
 ## 其他环境分布式执行
 

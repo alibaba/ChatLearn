@@ -6,7 +6,7 @@ ChatLearn中支持vLLM进行跨机分布式推理，支持vllm和training backen
 
 ## 模型定义
 
-类似于继承`MegatronModule`实现[PolicyInference模型](../../../examples/megatron/models/old_policy_inference.py),PolicyInference模型若想基于vLLM后端完成generation，需要继承`VLLMModule`父类，实现以下关键模块：
+类似于继承`MegatronModule`实现[PolicyInference模型](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/old_policy_inference.py),PolicyInference模型若想基于vLLM后端完成generation，需要继承`VLLMModule`父类，实现以下关键模块：
 - model_provider：模型定义函数。
 - setup：调用model_provider定义模型，可根据需要决定是否load_checkpoint等。
 - build_dataset：调用vLLM tokenizer处理数据，生成prompt dataset。
@@ -48,9 +48,9 @@ class VLLMPolicyInference(VLLMModule):
         pass
 ```
 
-示例可参考[vllm_policy_inference.py](../../../examples/megatron/models/vllm_policy_inference.py)，补充说明build_dataset、_add_request、forward_step、decode_internal如下：
+示例可参考[vllm_policy_inference.py](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py)，补充说明build_dataset、_add_request、forward_step、decode_internal如下：
 
-- build_dataset：调用tokenizer处理只需要返回prompt_ids、prompt str，其中build_dataset的[VLLMPromptPipeline](../../../examples/megatron/data/prompt_dataset.py#141)具体逻辑如下：
+- build_dataset：调用tokenizer处理只需要返回prompt_ids、prompt str，其中build_dataset的[VLLMPromptPipeline](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/data/prompt_dataset.py#141)具体逻辑如下：
 ```python
 class VLLMPromptPipeline(PromptPipeline):
     def __init__(self, prompts: List[str], max_prompt_length: int, tokenizer=None):
@@ -108,7 +108,7 @@ class VLLMPolicyInference(VLLMModule):
         return self._forward_step(data, iteration, eval_mode=False)
 ```
 
-- decode_internal：可参考[examples](../../../examples/megatron/models/vllm_policy_inference.py#L119)实现。参数batched_outputs格式为List[RequestOutput]，其中[RequestOutput](https://github.com/vllm-project/vllm/blob/v0.5.1/vllm/outputs.py#L67)包含以下重要attributes：
+- decode_internal：可参考[examples](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py#L119)实现。参数batched_outputs格式为List[RequestOutput]，其中[RequestOutput](https://github.com/vllm-project/vllm/blob/v0.5.1/vllm/outputs.py#L67)包含以下重要attributes：
 
 |   属性  |类型| 含义  |
 |:------:|:-----:|:-----:|
@@ -138,7 +138,7 @@ policy:
     model_config_file: vllm_policy_inference.yaml
     ...
 ```
-也可以参考示例 [llama2模型配置](../../../examples/megatron/configs/llama2/vllm_rlhf.yaml)。
+也可以参考示例 [llama2模型配置](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/vllm_rlhf.yaml)。
 
 ## 超参配置
 
@@ -182,4 +182,4 @@ vLLM超参可分为五部分：
 - tokenizer：vLLM tokenizer读取目录，可参考[LLama2-7B-hf](https://huggingface.co/meta-llama/Llama-2-7b)
 - 其他：includes指定模型结构等其余参数；
 
-可以参考 [vLLM超参配置](../../../examples/megatron/configs/llama2/vllm_policy_inference.yaml)。
+可以参考 [vLLM超参配置](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/vllm_policy_inference.yaml)。

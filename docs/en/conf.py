@@ -25,21 +25,23 @@ author = u'Alibaba Cloud'
 sys.path.insert(0, os.path.abspath("../../"))
 
 from unittest import mock
-
-# 使用unittest.mock来mock模块
-imports = ['torch', 'cupy.cuda', 'pynvml', 'ray', 'ray.util', 'ray.util.collective.collective_group.nccl_util',
-        'ray.util.scheduling_strategies', 'pynvml', 'ray.util.state', 'ray._private', 'ray._private.utils',
-        'ray._private.ray_logging', 'ray._private.worker', 'ray.util.collective', 'ray.util.collective.collective_group',
-        "ray.util.collective.collective_group.base_collective_group", 'ray.util.collective.collective_group.nccl_collective_group',
-        'torch.utils.data', 'torch._utils', 'transformers', 'transformers.integrations', 'transformers.trainer', 'deepspeed',
-        'deepspeed.ops.adam', 'deepspeed.runtime.zero.partition_parameters', 'torch.distributed', 'torch.nn', 'torch.nn.utils.rnn', 'ray.util.queue',
-        'ray.experimental.state.api', 'torch.cuda', 'ray.util.placement_group', "cupy.cuda.nccl", 'tqdm', 'numpy']
-
-for key in imports:
-    sys.modules[key] = mock.MagicMock()
-
-import chatlearn
-from chatlearn.utils import arguments
+try:
+    import chatlearn
+    from chatlearn.utils import arguments
+except ImportError:
+    imports = ['torch', 'cupy.cuda', 'pynvml', 'ray', 'ray.util', 'ray.util.collective.collective_group.nccl_util',
+            'ray.util.scheduling_strategies', 'pynvml', 'ray.util.state', 'ray._private', 'ray._private.utils',
+            'ray._private.ray_logging', 'ray._private.worker', 'ray.util.collective', 'ray.util.collective.collective_group',
+            "ray.util.collective.collective_group.base_collective_group", 'ray.util.collective.collective_group.nccl_collective_group',
+            'torch.utils.data', 'torch._utils', 'transformers', 'transformers.integrations', 'transformers.trainer', 'deepspeed',
+            'deepspeed.ops.adam', 'deepspeed.runtime.zero.partition_parameters', 'torch.distributed', 'torch.nn', 'torch.nn.utils.rnn', 'ray.util.queue',
+            'ray.experimental.state.api', 'torch.cuda', 'ray.util.placement_group', "cupy.cuda.nccl", 'tqdm', 'numpy']
+    
+    for key in imports:
+        sys.modules[key] = mock.MagicMock()
+    
+    import chatlearn
+    from chatlearn.utils import arguments
 
 from importlib.machinery import SourceFileLoader
 version = SourceFileLoader("chatlearn.version", "../../chatlearn/utils/version.py") \

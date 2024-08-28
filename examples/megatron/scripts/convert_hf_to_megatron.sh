@@ -17,7 +17,7 @@ megatron=${MEGATRON}
 load_dir=${LOAD_PATH}
 save_dir=${SAVE_PATH}
 tokenizer_model=${TOKENIZER_MODEL}
-model_size=${MODEL_SIZE:-llama2-7B}
+model_size=${model_size:-llama2-7B}
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 

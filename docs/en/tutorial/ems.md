@@ -26,4 +26,4 @@ Alternatively, it can also be configured in the training script using environmen
 - PPO policy model: `export free_memory_ppo_policy=True`
 - PPO value model: `export free_memory_ppo_value=True`
 
-A complete example can be found in the [llama2 configuration](../../../examples/megatron/configs/llama2/rlhf.yaml).
+A complete example can be found in the [llama2 configuration](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/rlhf.yaml).

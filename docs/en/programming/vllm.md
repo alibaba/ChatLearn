@@ -6,7 +6,7 @@ For now, we enable vLLM to accelerate policy generation.
 
 ## Model Definition
 
-Similar to inheriting `MegatronModule` for implementing [PolicyInference Model](../../../examples/megatron/models/old_policy_inference.py), the vLLM backend can be enabled by inheriting `VLLMModule` class and implementing the following key modules:
+Similar to inheriting `MegatronModule` for implementing [PolicyInference Model](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/old_policy_inference.py), the vLLM backend can be enabled by inheriting `VLLMModule` class and implementing the following key modules:
 - model_provider: model definition function.
 - setup: call model_provider to define model. Optionly, call `load_checkpoint` or others.
 - build_dataset: Preprocess train/eval dataset with vLLM tokenizer.
@@ -48,9 +48,9 @@ class VLLMPolicyInference(VLLMModule):
         pass
 ```
 
-You can refer to[vllm_policy_inference.py](../../../examples/megatron/models/vllm_policy_inference.py), in which build_dataset/_add_request/forward_step/decode_internal clarified as following:
+You can refer to[vllm_policy_inference.py](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py), in which build_dataset/_add_request/forward_step/decode_internal clarified as following:
 
-- build_dataset: Use `tokenizer`, you only need to return prompt_ids and prompt string. In `build_dataset`, [VLLMPromptPipeline](../../../examples/megatron/data/prompt_dataset.py#141) shows as following:
+- build_dataset: Use `tokenizer`, you only need to return prompt_ids and prompt string. In `build_dataset`, [VLLMPromptPipeline](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/data/prompt_dataset.py#141) shows as following:
 ```python
 class VLLMPromptPipeline(PromptPipeline):
     def __init__(self, prompts: List[str], max_prompt_length: int, tokenizer=None):
@@ -108,7 +108,7 @@ class VLLMPolicyInference(VLLMModule):
         return self._forward_step(data, iteration, eval_mode=False)
 ```
 
-- decode_internal: Refer to [examples](../../../examples/megatron/models/vllm_policy_inference.py#L119) for more details. Format of param `batched_outputs` is List[RequestOutput], in which [RequestOutput](https://github.com/vllm-project/vllm/blob/v0.5.1/vllm/outputs.py#L67)includes the following key attributes:
+- decode_internal: Refer to [examples](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py#L119) for more details. Format of param `batched_outputs` is List[RequestOutput], in which [RequestOutput](https://github.com/vllm-project/vllm/blob/v0.5.1/vllm/outputs.py#L67)includes the following key attributes:
 
 |   Attibute  |Type| Comment  |
 |:------:|:-----:|:-----:|
@@ -140,7 +140,7 @@ policy:
     ...
 ```
 
-Or you can refer to [llama2 model yaml](../../../examples/megatron/configs/llama2/vllm_rlhf.yaml).
+Or you can refer to [llama2 model yaml](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/vllm_rlhf.yaml).
 
 ## hyperparameter configuration yaml
 
@@ -186,4 +186,4 @@ Hyperparameter for vLLM can be divied into 5 parts:
 - Others: `includes` specifies model structure.
 
 
-You can refer to [vLLM Hyperparameter Configuration](../../../examples/megatron/configs/llama2/vllm_policy_inference.yaml) for details.
+You can refer to [vLLM Hyperparameter Configuration](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/vllm_policy_inference.yaml) for details.

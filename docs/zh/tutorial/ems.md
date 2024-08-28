@@ -29,4 +29,4 @@ policy:
 - ppo_policy 模型：`export free_memory_ppo_policy=True`
 - ppo_value 模型：`export free_memory_ppo_value=True`
 
-完整示例可以参考 [llama2 配置](../../../examples/megatron/configs/llama2/rlhf.yaml)。
+完整示例可以参考 [llama2 配置](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/rlhf.yaml)。

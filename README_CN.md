@@ -1,5 +1,5 @@
 
-[![docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://chatlearn.readthedocs.io/zh/latest/)
+[![docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://chatlearn.readthedocs.io/zh-cn/latest/)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/alibaba/ChatLearn/blob/main/LICENSE)
 
 <p align="center">
@@ -35,7 +35,7 @@ ChatLearn的特点如下:
 
 # 快速开始
 
-请参考 [文档](https://chatlearn.readthedocs.io/zh/latest/) 快速开始.
+请参考 [文档](https://chatlearn.readthedocs.io/zh-cn/latest/) 快速开始.
 
 1. [环境和代码准备](docs/zh/installation.md)
 2. [基于 LLaMA/LLaMA2 模型的端到端训练教程](docs/zh/tutorial/tutorial_llama2.md)
