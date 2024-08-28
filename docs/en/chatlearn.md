@@ -1,6 +1,6 @@
-# ChatLearn
+# ChatLearn: A flexible and efficient training framework for large-scale alignment
 
-ChatLearn is an efficient training framework that supports large-scale alignment. It aims to provide a flexible and user-friendly platform for alignment training based on Large Language Models (LLMs) such as ChatGPT.
+ChatLearn aims to provide a flexible and user-friendly platform for alignment training based on Large Language Models (LLMs) such as ChatGPT.
 
 ## Introduction
 

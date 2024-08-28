@@ -4,12 +4,10 @@ ChatLearn 使用文档
 
 .. toctree::
    :maxdepth: 1
-   :caption: ChatLearn: 灵活、易用、高效的大规模 Alignmant 训练框架
+   :caption: 简介
 
-   chatlearn 简介
+   chatlearn
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -17,8 +15,6 @@ ChatLearn 使用文档
 
    installation
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -34,8 +30,6 @@ ChatLearn 使用文档
    tutorial/ems
    tutorial/profile
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -54,14 +48,9 @@ ChatLearn 使用文档
 
    api/index
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
    :caption: 常见问题
 
    faq
-
-|
-|

@@ -4,21 +4,16 @@ ChatLearn Documentation
 
 .. toctree::
    :maxdepth: 1
-   :caption: ChatLearn: An Efficient Training Framework for Large-Scale Alignment
+   :caption: Introduction
 
    chatlearn
 
-|
-|
 
 .. toctree::
    :maxdepth: 1
    :caption: Installation
 
    installation
-
-|
-|
 
 .. toctree::
    :maxdepth: 1
@@ -33,10 +28,6 @@ ChatLearn Documentation
    tutorial/custom_model_flow
    tutorial/ems
    tutorial/profile
-
-|
-|
-
 
 .. toctree::
    :maxdepth: 1
@@ -55,14 +46,8 @@ ChatLearn Documentation
 
    api/index
 
-|
-|
-
 .. toctree::
    :maxdepth: 1
    :caption: FAQ
 
    faq
-
-|
-|

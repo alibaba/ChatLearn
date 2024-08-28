@@ -1,6 +1,4 @@
-# ChatLearn
-
-ChatLearn 是一个灵活、易用、高效的大规模 Alignment 训练框架。
+# ChatLearn: 灵活、易用、高效的大规模 Alignmant 训练框架
 
 ## 概述
 
