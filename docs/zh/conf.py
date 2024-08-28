@@ -33,7 +33,7 @@ imports = ['torch', 'cupy.cuda', 'pynvml', 'ray', 'ray.util', 'ray.util.collecti
         "ray.util.collective.collective_group.base_collective_group", 'ray.util.collective.collective_group.nccl_collective_group',
         'torch.utils.data', 'torch._utils', 'transformers', 'transformers.integrations', 'transformers.trainer', 'deepspeed',
         'deepspeed.ops.adam', 'deepspeed.runtime.zero.partition_parameters', 'torch.distributed', 'torch.nn', 'torch.nn.utils.rnn', 'ray.util.queue',
-        'ray.experimental.state.api', 'torch.cuda', 'ray.util.placement_group', "cupy.cuda.nccl"]
+        'ray.experimental.state.api', 'torch.cuda', 'ray.util.placement_group', "cupy.cuda.nccl", 'numpy']
 
 for key in imports:
     sys.modules[key] = mock.MagicMock()
