@@ -70,7 +70,7 @@ export model_size=llama2-7B
 LOAD_PATH=$MEGATRON_LLAMA2_CKPT_PATH \
 TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
 DATASET_PATH=$DATASET_ROOT/sft/ \
-bash scripts/llama2_sft.sh
+bash scripts/train_sft_llama.sh
 ```
 
 训练 log 和训练完成的模型默认会存放在`${CHATLEARN}/output/sft`中，可以通过 CHECKPOINT_PATH 来指定模型保存路径，具体的定义详见`${CHATLEARN}/examples/megatron/scripts/train_sft_llama.sh`脚本。
