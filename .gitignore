@@ -1,3 +1,5 @@
+examples/megatron/step3_rlhf/None
+.ipynb_checkpoints/
 output/
 build/
 dist/

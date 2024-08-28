@@ -19,7 +19,7 @@ import sys
 # -- Project information -----------------------------------------------------
 
 project = u'ChatLearn'
-copyright = u'2023, Alibaba Cloud'
+copyright = u'2024, Alibaba Cloud'
 author = u'Alibaba Cloud'
 
 sys.path.insert(0, os.path.abspath("../../"))

@@ -1,6 +1,0 @@
-includes:
-  - base_inference.yaml
-  - reward_shared.yaml
-
-tokenizer_type: AutoTokenizer
-reward_bias: 0

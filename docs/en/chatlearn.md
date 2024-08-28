@@ -1,48 +1,43 @@
 # ChatLearn
 
-ChatLearn is an efficient training framework that supports large-scale Reinforcement Learning from Human Feedback (RLHF). It aims to provide a flexible and user-friendly platform for training models based on Large Language Models (LLMs) such as ChatGPT.
+ChatLearn is an efficient training framework that supports large-scale alignment. It aims to provide a flexible and user-friendly platform for alignment training based on Large Language Models (LLMs) such as ChatGPT.
 
 ## Introduction
 
 ChatGPT, developed by OpenAI, is a chatbot model based on a large language model (LLM) that has gained popularity and widespread adoption for its impressive conversational capabilities. The success of ChatGPT can be attributed to the new training paradigm called Reinforcement Learning from Human Feedback (RLHF). RLHF optimizes language models based on human feedback using reinforcement learning techniques.
 
-
-![RLHF Flow](../images/rlhf.png)
-
+![RLHFFlow](../images/rlhf.png)
 
 Unlike traditional deep learning training, which involves iterations and optimization of a single model, RLHF and similar training paradigms necessitate the computation and data interaction of multiple large models. This poses numerous challenges in building a user-friendly and efficient training system.
 
 1. **Programming Interface**: How to design a universal and flexible programming interface that allows users to focus on the modeling of individual models while also providing flexible control over the interaction between models.
-2. **Distributed Acceleration backends**: As the scale of models increases, users often resort to distributed computing and acceleration backends such as Megatron-LM and DeepSpeed to improve performance. Integrating these acceleration backends into a multi-model computation framework requires careful consideration and design.
+2. **Distributed Acceleration backends**: As the scale of models increases, users often resort to distributed computing and acceleration backends such as Megatron-LM, DeepSpeed and vLLM to improve performance. Integrating these acceleration backends into a multi-model computation framework requires careful consideration and design.
 3. **Parallel Strategies**: Different models may possess distinct computational characteristics. For instance, models solely used for inference and those intended for training exhibit variations in terms of memory usage and computational requirements. Additionally, the most suitable parallel strategy may differ for each model. Consequently, a framework should enable the configuration of different parallel strategies for different models to maximize overall performance.
 4. **Resource Allocation**: How to flexibly allocate resources to multiple models to achieve efficient concurrent scheduling and execution.
 
-To address these challenges, we propose a novel RLHF model training framework called ChatLearn. ChatLearn abstracts the computation logic of models, decoupling the models from the computation backend and parallel strategies. It provides a flexible resource scheduling mechanism that supports flexible resource allocation and parallel scheduling strategies. Chatlearn has the following advantages:
+To address these challenges, we propose a novel alignment training framework called ChatLearn. ChatLearn abstracts the computation logic of models, decoupling the models from the computation backend and parallel strategies. It provides a flexible resource scheduling mechanism that supports flexible resource allocation and parallel scheduling strategies. Chatlearn has the following advantages:
 
 1. **User-friendly programming interface**: Users can focus on programming individual models by wrapping a few functions, while the system takes care of resource scheduling, data and control flow transmission, and distributed execution.
-2. **Multiple distributed acceleration backends**: Users can use different computation backends for model development, such as Megatron-LM and DeepSpeed.
-3. **Hybrid parallel strategies**: Various parallel strategies can be employed, including Data Parallel, Tensor Parallel, Sequence Parallel, Pipeline Parallel, ZeRO, and the combination thereof.
-4. **Flexible resource allocation**: ChatLearn supports a flexible resource scheduling mechanism, allowing for exclusive or shared resource allocation among different models. It utilizes system scheduling strategies to enable efficient sequential or parallel execution.
-5. **High performance**: Compared to the current state-of-the-art systems, ChatLearn achieves a 48%-82% improvement in performance from 7B to 30B scales. Additionally, ChatLearn supports even larger-scale RLHF training, such as 175B Policy + 175B Reward.
+2. **Highly Scalable Training Methodology**: ChatLearn offers alignment training such as RLHF, DPO, OnlineDPO and GRPO, while also supporting user-defined execution flows for models, enabling a highly convenient and customizable training process.
+3. **Diverse Distributed Acceleration Engines**: Users can model their models using different computing backends such as Megatron-LM, DeepSpeed, vLLM, etc. Users can also combine different backends, for example, using Megatron-LM to accelerate training and vLLM to speed up inference.
+4. **Flexible Parallel Strategies and Resource Allocation**: ChatLearn supports different parallel strategies for various model configurations, enabling the formulation of distinct parallel approaches tailored to each model's computational, memory, and communication characteristics. Additionally, ChatLearn features a flexible resource scheduling mechanism that accommodates exclusive or shared use of resources across models. Through its system scheduling policies, it facilitates efficient serial/parallel execution and optimized GPU memory sharing, enhancing overall performance and efficiency.
+5. **High performance**: Compared to current state-of-the-art (SOTA) systems, ChatLearn achieves a 52% performance improvement at the 7B+7B(Policy+Reward) scale and a 137% improvement at the 70B+70B scale. Meanwhile, ChatLearn supports larger-scale alignment training, such as 300B+300B.
 
-By providing a comprehensive and efficient framework, ChatLearn empowers researchers and practitioners to train large-scale RLHF models with ease, scalability, and improved performance.
+By providing a comprehensive and efficient framework, ChatLearn empowers researchers and practitioners to train large-scale alignment models with ease, scalability, and improved performance.
 
 ## Technical Architecture
 
-![arch](../images/arch.jpg)
+![arch](../images/arch.png)
 
-**API:** To support various computation backends such as Megatron-LM and DeepSpeed, ChatLearn provides a universal programming interface called `RLHFModule`. By inheriting from `RLHFModule` and implementing basic computational functions like `forward_step` and `train_step`, users can encapsulate different computation backends. Additionally, ChatLearn utilizes YAML files to configure RLHF training, including different model settings, hyperparameters, and parallel strategies, enabling flexible model and parallel strategy configurations.
+**API:** ChatLearn offers training for alignment through methods such as RLHF, DPO, Online DPO, and GRPO. It also supports the customization of the model execution flow by users to implement their own training processes. Additionally, ChatLearn provides a module abstraction, enabling users to encapsulate different computational backends by inheriting from MegatronModule, DeepSpeedModule, or VLLMModule. Through the use of YAML files, ChatLearn facilitates flexible configuration of models and parallel strategies by specifying different hyperparameters and parallelization tactics for alignment training and various model configurations.
 
-**Scheduler:** As the training scale of large language models increases (e.g., models with a scale of 175B), a single machine is no longer sufficient to accommodate such large-scale training. Distributed computing across multiple machines becomes necessary. ChatLearn introduces the abstraction of `DistActor` to represent distributed models. `DistActor` is built on top of Ray actor, providing state management and isolation between workers. It seamlessly manages parameters and states of different models. Moreover, `DistActor` addresses the limitation of Ray actors being unable to span across machines, enabling support for distributed models. With `DistActor`, ChatLearn supports inference and training for models of any scale. 
-Additionally, the ChatLearn Scheduler achieves hardware-aware affinity scheduling by partitioning the cluster's resource groups and employing scheduling strategies. This means that the system prioritizes scheduling the same distributed model on the GPUs of the same node.
-ChatLearn also supports flexible resource allocation, allowing for resource sharing or resource exclusivity among models, maximizing training efficiency with a given number of resources.
+**Scheduler:** ChatLearn introduces the abstraction of DistActor to support distributed model training or inference. The DistActor inherits the state management of the Ray actor and the isolation between workers, while at the same time breaking through the limitation that Ray actors cannot span machines. Through DistActor, ChatLearn is capable of supporting model inference and training at any scale. Simultaneously, the ChatLearn Scheduler achieves hardware-aware affinity scheduling by partitioning cluster Resource Groups and adjusting scheduling policies. ChatLearn also supports flexible resource allocation, accommodating strategies such as resource reuse, exclusivity, or partial sharing among models. This allows for the maximization of training efficiency given a certain number of resources.
 
-**Executor:** ChatLearn Executor divides the RLHF training process into two main modules: `Environment` and `Trainer`. The `Environment` module handles the concurrent execution and management of model inference and data, while the `Trainer` module handles the corresponding training components. These two modules are responsible for managing the data flow and control flow of the model. Data transfer between models is facilitated through Ray's object store, while parameter transfer between models is performed using NCCL Collective OP.
+**Executor:** The ChatLearn Executor divides the alignment training process into three primary modules: `Environment`, `Trainer`, and `Evaluator`. The `Environment` is responsible for the concurrent execution and management of inference model and data, the `Trainer` handles the corresponding training module, and the `Evaluator` oversees the assessment of model performance. Additionally, the Executor manages data transmission and parameter synchronization.
 
+**Backend:** Thanks to the well-designed programming interface abstractions of ChatLearn, users can easily integrate various distributed acceleration backends through simple encapsulation, such as Megatron-LM, DeepSpeed and vLLM.
 
-**Backend:** Thanks to the well-designed programming interface abstractions of ChatLearn, users can easily integrate various distributed acceleration backends through simple encapsulation, such as Megatron-LM and DeepSpeed.
-
-**Optimization**: ChatLearn also supports memory optimization and computational acceleration techniques. For example, by developing LoRA, ChatLearn significantly reduces the memory overhead of optimizer states, allowing for larger batch sizes and improving overall computational efficiency. ChatLearn also continuously optimizes the batch generation process for the Policy model, reducing unnecessary calculations due to padding through input sequence sorting, thereby enhancing overall performance.
+**Optimization:** ChatLearn also supports various optimizations such as computation, memory, and communication. It accelerates training through a combination of various parallel strategies, and speeds up inference by leveraging techniques like paged attention and continuous batching. The system efficiently reuses GPU memory and reduces overall resource requirements through the implementation of EMS (Efficient Memory Sharing) technology. Additionally, it employs grouping broadcast technology to facilitate efficient parameter synchronization between training and inference models.
 
 
 ## Quick Start
@@ -50,42 +45,25 @@ ChatLearn also supports flexible resource allocation, allowing for resource shar
 Please refer to the [Documentation](https://chatlearn.readthedocs.io/zh/latest/) for a quick start guide.
 
 1. [Environment and Code Setup](installation.md) 
-2. [End-to-End Training Tutorial with LLaMA/LLaMA2 Model](tutorial/tutorial_llama2.md)
-3. [End-to-End Training Tutorial with BLOOM Model](tutorial/tutorial_bloom.md)
-
-## Supported Models
-
-The ChatLearn framework currently supports RLHF training for GPT/LLaMA models of any scale.
-
-
-| Model Type                                                                                                                                                                                              |
-|:--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| GPT (various scales of GPT models)                                                                                                                                                                      |
-| LLaMA (`lmsys/vicuna-13b-v1.3`, `decapoda-research/llama-7b-hf`, `decapoda-research/llama-13b-hf`, `decapoda-research/llama-30b-hf`, `decapoda-research/llama-65b-hf`, etc.)                            |
-| LLaMA2 (`meta-llama/Llama-2-7b-hf`, `meta-llama/Llama-2-13b-hf`, `meta-llama/Llama-2-70b-hf`)                                                                                                           |
-| Baichuan (`baichuan-inc/Baichuan-7B`, `baichuan-inc/Baichuan-13B-Base`)                                                                                                                                 |
-| BLOOM (`bigscience/bloom-1b1`, `bigscience/bloom-7b1`, `bigscience/bloom`)                                                                                                                              |
+2. [End-to-End Training Tutorial with Llama/Llama2 Model](tutorial/tutorial_llama2.md)
 
 ## Performance
 
-We compared the RLHF training throughput of models with different parameter sizes. We used an N+N model configuration, where the Policy and Reward models have the same parameter size. The tests were conducted on A800-80GB GPUs, with a single node configuration of 8 GPUs and 800Gb RDMA interconnects between nodes. We compared the performance of ChatLearn with and without LoRA against DeepSpeed-Chat for models ranging from 7B to 66B. ChatLearn achieved a 48% to 82% speedup at different scales. At larger scales, with a 30B+30B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors when LoRA was disabled. With a 66B+66B, 32-GPU configuration, DeepSpeed-Chat experienced OOM errors regardless of whether LoRA was enabled or not. ChatLearn, on the other hand, was able to support training with larger model configurations on the same machine scale. Additionally, DeepSpeed-Chat encountered a kernel error when seq_len was set to 2048.
+We compared the RLHF training throughput of models with different parameter scales, adopting an N+N model configuration where both the Policy model and the Reward model have the same number of parameters. We benchmarked against DeepSpeed-Chat and OpenRLHF with 7B and 70B model configurations. For the 8 GPU setup with a 7B+7B scale, we achieved a 115% speedup; for the 32 GPU setup with a 70B+70B scale, the speedup was 208%. The larger the scale, the more pronounced the acceleration effect becomes. Additionally, ChatLearn can support even larger-scale alignment training, such as at a 300B+300B scale.
 
-![Compare PAI-ChatLearn with DeepSpeed-Chat](../images/gpt-perf-cmp.png)
+![compare perf](../images/perf.png)
 
-Furthermore, we evaluated the performance of RLHF training for models at larger scales and different sequence lengths. The following graphs show the performance for 66B+66B and 175B+175B RLHF training.
-
-![PAI-ChatLearn 66B 175B](../images/gpt-perf-66-175.png)
-
-Note: The current performance benchmarks are based on GPT series models.
+Note: The performance of DeepSpeed-Chat and OpenRLHF has already been optimized.
 
 ## Roadmap
 
 The upcoming features for ChatLearn include:
-- [ ] Support for more models
-- [ ] Support for efficient inference engines such as vLLM
+- [ ] Support models with Megatron-Core format
+- [ ] Support the alignment training for MoE (Mixture of Experts) models
 - [ ] Integration with DeepSpeed as a training backend
-- [ ] Automatic parallel strategy tuning
-- [ ] Support for more RL algorithms
+- [ ] Support for more models
+- [ ] Performance Optimization
+- [ ] Support for more alignment algorithms
 
 <br><br>
 
@@ -96,3 +74,4 @@ We welcome community members to collaborate and contribute to the development of
 
 1. Megatron-LM: https://github.com/NVIDIA/Megatron-LM
 2. DeepSpeed-Chat: https://github.com/microsoft/DeepSpeedExamples/tree/master/applications/DeepSpeed-Chat
+3. OpenRLHF: https://github.com/OpenRLHF/OpenRLHF

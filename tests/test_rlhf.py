@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 import chatlearn
 from chatlearn import RLHFEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
@@ -23,7 +23,7 @@ class CustomDataset(Dataset):
 
 chatlearn.init()
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -35,13 +35,13 @@ class PolicyModel(RLHFTorchModule):
         data["policy_out"] = torch.ones([bs, 1024]).cuda()
         return data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
 
-class ReferenceModel(RLHFTorchModule):
+class ReferenceModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -51,7 +51,7 @@ class ReferenceModel(RLHFTorchModule):
         return data
 
 
-class RewardModel(RLHFTorchModule):
+class RewardModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -59,7 +59,7 @@ class RewardModel(RLHFTorchModule):
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
         return data
 
-class ValueModel(RLHFTorchModule):
+class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         print("value forward =========", flush=True)
@@ -67,16 +67,16 @@ class ValueModel(RLHFTorchModule):
         return data
 
 
-class PPOPolicy(RLHFTorchModule):
+class PPOPolicy(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
-class PPOValue(RLHFTorchModule):
+class PPOValue(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb

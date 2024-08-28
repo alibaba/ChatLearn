@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,15 +14,21 @@
 # ==============================================================================
 """Dist Actor"""
 
+from collections import defaultdict
+import importlib
 import inspect
 from functools import partial
 
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 
-from chatlearn.models.rlhf_module import RLHFModule
+from chatlearn.models.base_module import BaseModule
 from chatlearn.utils import future
 from chatlearn.utils.utils import parse_function_args
+
+vllm_exist = importlib.util.find_spec("vllm")
+if vllm_exist:
+    from chatlearn.models.vllm_module import VLLMModule
 
 RAY_REMOTE = "remote"
 
@@ -30,15 +36,16 @@ RAY_REMOTE = "remote"
 class DistActor:
     """Manage a collection of actors"""
 
-    def __init__(self, model: RLHFModule,
+    def __init__(self, model: BaseModule,
                  gpu_per_node,
                  error_signal,
                  port_manager,
                  replica_id=0,
                  storage=None):
-        self.total_device = model.total_device
+        self.total_gpu = model.total_gpu
+        self.total_cpu = model.total_cpu
         self.gpu_per_process = model.gpu_per_process
-        self.num_device_per_replica = model.num_device_per_replica
+        self.num_gpu_per_replica = model.num_gpu_per_replica
         self.trainable = model.trainable
         self.gpu_per_node = gpu_per_node
         self.model = model
@@ -53,15 +60,14 @@ class DistActor:
         self._init_done = False
         self._placement_group = None
         self.rank_to_actors = {}
-        self.eval_call_func = model.eval_call_func
 
     @property
     def module_args(self):
         return self.model.module_args
 
     @property
-    def rlhf_args(self):
-        return self.model.rlhf_args
+    def runtime_args(self):
+        return self.model.runtime_args
 
     @property
     def master(self):
@@ -90,15 +96,19 @@ class DistActor:
             dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
+    def call_actor_remote_func(self, actor, func_name, *args, **kwargs):
+        func = getattr(actor, func_name)
+        remote_func = getattr(func, RAY_REMOTE)
+        res = remote_func(*args, **kwargs)
+        return res
+
     def call_remote_funcs(self, func_name, *args, **kwargs):
         """
         Call remote functions for a collection of actors.
         """
         results = []
         for actor in self.all_actors:
-            func = getattr(actor, func_name)
-            remote_func = getattr(func, RAY_REMOTE)
-            res = remote_func(*args, **kwargs)
+            res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
             results.append(res)
         return results
 
@@ -132,6 +142,14 @@ class DistActor:
         self.all_ranks = all_ranks
         return refs
 
+    def _setup_ranks(self, rank_offset):
+        all_ranks = []
+        for i, actor in enumerate(self.all_actors):
+            rank = i + rank_offset
+            all_ranks.append(rank)
+            self.rank_to_actors[rank] = actor
+        self.all_ranks = all_ranks
+
     def terminate(self):
         # terminate when catching exceptions
         for actor in self.all_actors:
@@ -145,6 +163,15 @@ class DistActor:
     def placement_group(self, pg):
         self._placement_group = pg
 
+    def group_dist_actors_by_tp_rank(self):
+        self.dp_rank_to_actors = defaultdict(list)
+        self.data_parallel_size = future.get(self.all_actors[0].get_data_parallel_size.remote())
+        if self.data_parallel_size is None:
+            self.data_parallel_size = 1
+        dp_ranks = future.wait([actor.get_data_parallel_rank.remote() for actor in self.all_actors], return_output=True)
+        for actor, dp_rank in zip(self.all_actors, dp_ranks):
+            self.dp_rank_to_actors[dp_rank].append(actor)
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"
 
@@ -156,7 +183,7 @@ class DistTorchActor(DistActor):
     """DistTorchActor"""
 
     def reorder_actors(self, actors, revert_placement=False):
-        gpu_per_node = min(self.gpu_per_node, self.model.num_device_per_replica)
+        gpu_per_node = min(self.gpu_per_node, self.model.num_gpu_per_replica)
         ordered_actors = []
         count = 0
         actor_gpus = []
@@ -192,11 +219,6 @@ class DistTorchActor(DistActor):
         status = sum(future.get(ret))
         assert status == world_size
 
-    def preprocess_actors(self, revert_placement=False):
-        super().preprocess_actors()
-        self.set_dist_env(revert_placement)
-        return self
-
 
 class DistModel:
     """DistModel"""
@@ -207,7 +229,7 @@ class DistModel:
         self.rank_to_actors = {}
         self.register_serial_func()
         self.register_func()
-        self._need_empty_cache = False
+        self._is_colocate = False
         self._colocate_models = None
 
     def add_replica(self, replica):
@@ -231,24 +253,28 @@ class DistModel:
         return len(self.replicas)
 
     @property
-    def total_device(self):
-        return self.replicas[0].total_device
+    def total_gpu(self):
+        return self.replicas[0].total_gpu
 
     @property
-    def num_device_per_replica(self):
-        return self.replicas[0].num_device_per_replica
+    def total_cpu(self):
+        return self.replicas[0].total_cpu
+
+    @property
+    def num_gpu_per_replica(self):
+        return self.replicas[0].num_gpu_per_replica
 
     @property
     def gpu_per_process(self):
         return self.replicas[0].gpu_per_process
 
     @property
-    def need_empty_cache(self):
-        return self._need_empty_cache
+    def is_colocate(self):
+        return self._is_colocate
 
-    @need_empty_cache.setter
-    def need_empty_cache(self, empty_cache):
-        self._need_empty_cache = empty_cache
+    @is_colocate.setter
+    def is_colocate(self, flag):
+        self._is_colocate = flag
 
     def get_actor(self, rank):
         # given rank, return the actor
@@ -272,7 +298,15 @@ class DistModel:
                           "empty_cache",
                           "set_start_iteration",
                           "offload_optimizer_states",
-                          "onload_optimizer_states"]:
+                          "onload_optimizer_states",
+                          "offload_weights",
+                          "onload_weights",
+                          "offload_main_weights",
+                          "onload_main_weights",
+                          "free_grad_buffers",
+                          "build_grad_buffers",
+                          "eval",
+                          "train"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 
@@ -306,6 +340,19 @@ class DistModel:
     @property
     def all_ranks(self):
         return [dist_actor.all_ranks for dist_actor in self.replicas]
+
+    @property
+    def use_vllm_backend(self):
+        return vllm_exist and isinstance(self.replicas[0].model, VLLMModule)
+
+    def group_dist_actors_by_tp_rank(self):
+        for replica in self.replicas:
+            replica.group_dist_actors_by_tp_rank()
+
+    @property
+    def enable_offload(self):
+        return self.module_args.free_grad_buffers or self.module_args.offload_weights or \
+            self.module_args.offload_optimizer_states
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"

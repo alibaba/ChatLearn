@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -38,8 +38,8 @@ class ModelNode:
         self.func_name = func_name
         self.input_models = []
         self.output_models = []
-        self.out_queues = []
-        self._input_queues = None
+        self.out_queues = None
+        self._input_queue = None
         # next colocate model node to execute
         self.next_colocate_node = None
         # model to wait before the execution of current model
@@ -54,19 +54,21 @@ class ModelNode:
     def add_output_node(self, model):
         self.output_models.append(model)
 
-    def add_out_queues(self, queues):
+    def set_out_queues(self, queues):
         self.out_queues = queues
 
-    def set_input_queues(self, queues):
-        self._input_queues = queues
+    def set_input_queue(self, queue):
+        self._input_queue = queue
 
     def get_input_queues(self):
-        if self._input_queues is not None:
-            return self._input_queues
         input_queues = []
+        if self._input_queue is not None:
+            input_queues.append(self._input_queue)
         for input_model_node in self.input_models:
             out_index = input_model_node.output_models.index(self)
             input_queues.append(input_model_node.out_queues[out_index])
+        if len(input_queues) == 1:
+            return input_queues[0]
         return input_queues
 
     def _find_all_parents(self, model, prev_models_results):
@@ -101,8 +103,12 @@ class ModelNode:
         self.remote_objects_to_wait.extend(remote_objects)
         return models_and_results_to_wait2
 
-    def wait_colocate_models_to_finish(self, func_name):
+    def wait_colocate_models_to_finish(self, timers, func_name):
+        for model in self.models_to_wait:
+            timers(f"{model.name}").start()
         future.wait(self.remote_objects_to_wait, f"{[model.name for model in self.models_to_wait]} {func_name}")
+        for model in self.models_to_wait:
+            timers(f"{model.name}").stop()
         self.remote_objects_to_wait = []
         self.models_to_wait = []
 
@@ -134,11 +140,13 @@ class ModelFlow:
         self.return_model_nodes = []
         self.out_to_model_node = {}
         self.cls = cls
+        # models that consumes input data
+        self.input_consumers = []
 
     def get(self, name):
         return self.name_to_node[name]
 
-    def trace(self, models, compute_flow, is_eval=False):
+    def trace(self, models, compute_flow):
         """
         Trace the model compute_flow to get model graph.
 
@@ -148,38 +156,26 @@ class ModelFlow:
             a list of DistModel
         compute_flow: callable
             compute_flow function
-        is_eval: bool
-            is evaluation
         """
         local_models = [model.replicas[0].model for model in models]
         name2remote_model = {model.name: model for model in models}
         class_to_old_func = {}
         for model in local_models:
-            func_name = model.get_call_func(is_eval)
-            assert func_name is not None, f"call func is not set for {model}, is_eval: {is_eval}"
+            func_name = self.cls.model_to_call_func[model]
             class_to_old_func[(model, func_name)] = getattr(model.__class__, func_name)
             setattr(model.__class__, func_name, fake_compute())
 
         dummy_data = DummyData()
-        if compute_flow is not None:
-            # trace the compute flow
-            dummy_output = compute_flow(dummy_data)
-        else:
-            # default is sequential computation
-            dummy_input = dummy_data
-            dummy_output = None
-            for model in local_models:
-                func_name = model.get_call_func(is_eval)
-                dummy_output = getattr(model, func_name)(dummy_input)
-                dummy_input = dummy_output
+        assert compute_flow is not None
+        dummy_output = compute_flow(dummy_data)
         # convert decorator back
         for model in local_models:
-            func_name = model.get_call_func(is_eval)
+            func_name = self.cls.model_to_call_func[model]
             setattr(model.__class__, func_name, class_to_old_func[(model, func_name)])
 
         for model in local_models:
             remote_model = name2remote_model[model.name]
-            node = ModelNode(remote_model, model.name, model.get_call_func(is_eval))
+            node = ModelNode(remote_model, model.name, self.cls.model_to_call_func[model])
             if model._dummy_output:
                 self.out_to_model_node[model._dummy_output] = node
             for dummy_input in model._dummy_inputs:
@@ -193,6 +189,7 @@ class ModelFlow:
                 self.return_model_nodes.append(self.out_to_model_node[do])
 
         self.name_to_node = {node.model.name: node for node in self.model_nodes}
+        self.input_consumers = [self.name_to_node[model.name] for model in dummy_data.to_models]
         self.flow_topology = self.topological_sort()
         self.model_nodes = flatten(self.flow_topology)
         for i, current_node in enumerate(self.model_nodes):

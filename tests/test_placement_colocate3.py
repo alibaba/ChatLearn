@@ -5,13 +5,13 @@ import torch
 import chatlearn
 from chatlearn.utils import future
 from chatlearn import RLHFEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 chatlearn.init()
 
-def set_model(name, tp, gpu_per_process, num_device):
+def set_model(name, tp, gpu_per_process, num_gpu):
     print(chatlearn.get_args().models.keys())
-    chatlearn.get_args().models[name].num_device = num_device
+    chatlearn.get_args().models[name].num_gpu = num_gpu
     chatlearn.get_args().models[name].gpu_per_process = gpu_per_process
     chatlearn.get_args().models[name].tensor_model_parallel_size = tp
 
@@ -22,7 +22,7 @@ set_model("reference", 4, 1, 8)
 set_model("ppo_policy", 8, 1, 8)
 set_model("ppo_value", 8, 1, 8)
 
-chatlearn.get_args().rlhf_args.colocation = [["policy", "reference", "reward", "value", "ppo_policy", "ppo_value"]]
+chatlearn.get_args().runtime_args.colocation = [["policy", "reference", "reward", "value", "ppo_policy", "ppo_value"]]
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
@@ -38,7 +38,7 @@ class CustomDataset(Dataset):
         return {"query": self.data[idx]}
 
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -51,13 +51,13 @@ class PolicyModel(RLHFTorchModule):
         data["policy_out"] = query
         return data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
 
-class ReferenceModel(RLHFTorchModule):
+class ReferenceModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -68,7 +68,7 @@ class ReferenceModel(RLHFTorchModule):
         return data
 
 
-class RewardModel(RLHFTorchModule):
+class RewardModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -79,7 +79,7 @@ class RewardModel(RLHFTorchModule):
         time.sleep(0.01)
         return data
 
-class ValueModel(RLHFTorchModule):
+class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         print("value forward =========", flush=True)
@@ -88,18 +88,18 @@ class ValueModel(RLHFTorchModule):
         return data
 
 
-class PPOPolicy(RLHFTorchModule):
+class PPOPolicy(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
         time.sleep(0.1)
         return num_mb
 
 
-class PPOValue(RLHFTorchModule):
+class PPOValue(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         time.sleep(0.1)

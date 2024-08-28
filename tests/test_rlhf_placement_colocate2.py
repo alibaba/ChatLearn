@@ -7,13 +7,13 @@ from chatlearn import RLHFEngine, Evaluator
 from utils import PolicyModel, ReferenceModel, RewardModel, ValueModel, PPOPolicy, PPOValue
 
 chatlearn.init()
-chatlearn.get_args().models["policy"].num_device = 8
-chatlearn.get_args().models["reference"].num_device = 4
-chatlearn.get_args().models["value"].num_device = 4
-chatlearn.get_args().models["reward"].num_device = 8
-chatlearn.get_args().models["ppo_policy"].num_device = 8
-chatlearn.get_args().models["ppo_value"].num_device = 8
-chatlearn.get_args().rlhf_args.colocation = [["policy", "reference", "value", "reward", "ppo_policy", "ppo_value"]]
+chatlearn.get_args().models["policy"].num_gpu = 8
+chatlearn.get_args().models["reference"].num_gpu = 4
+chatlearn.get_args().models["value"].num_gpu = 4
+chatlearn.get_args().models["reward"].num_gpu = 8
+chatlearn.get_args().models["ppo_policy"].num_gpu = 8
+chatlearn.get_args().models["ppo_value"].num_gpu = 8
+chatlearn.get_args().runtime_args.colocation = [["policy", "reference", "value", "reward", "ppo_policy", "ppo_value"]]
 
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
@@ -26,9 +26,12 @@ engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 data = []
 for i in range(35):
     data.append(torch.ones([10]) * i)
-policy.register_eval_func("forward_step")
-reward.register_eval_func("forward_step")
-evaluator = Evaluator([policy, reward]).set_dataset(data)
+
+def eval_flow(batch):
+    p0 = policy.forward_step(batch)
+    r0 = reward.forward_step(p0)
+    return r0
+evaluator = Evaluator(eval_flow).set_dataset(data)
 engine.set_evaluator(evaluator)
 engine.set_dataset(data)
 

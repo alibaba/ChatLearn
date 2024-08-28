@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,26 +18,27 @@ import inspect
 import numpy as np
 import torch
 import torch.nn.functional as F
-from dataset.prompt_dataset import PromptPipeline
-from megatron import arguments
-from megatron import get_args, get_tokenizer
-from megatron import print_rank_0
-from megatron.core import mpu
-from megatron.global_vars import get_tensorboard_writer
-from megatron.text_generation.communication import broadcast_float_list, \
-    broadcast_int_list, broadcast_tensor
-from megatron.text_generation.generation import generate_tokens_probs_and_return_on_first_stage
-from megatron.training import get_model
-from models.policy_model import PolicyModel
 
-from chatlearn import RLHFMegatronModule
+from megatron.core import mpu
+from megatron.training import arguments
+from megatron.training import get_args, get_tokenizer
+from megatron.training import print_rank_0
+from megatron.training.global_vars import get_tensorboard_writer
+from megatron.inference.text_generation.communication import broadcast_float_list, \
+    broadcast_int_list, broadcast_tensor
+from megatron.inference.text_generation.generation import generate_tokens_probs_and_return_on_first_stage
+from megatron.inference.text_generation.forward_step import ForwardStep
+from megatron.training import get_model
+
+from chatlearn import MegatronModule
 from chatlearn.utils import to_device
 from chatlearn.utils.megatron_utils import load_checkpoint
-from .utils import tensorboard_scalar_dict, get_loss_mask
-from .utils import get_eos_id
+from examples.megatron.data.prompt_dataset import PromptPipeline
+from .policy_model import PolicyModel
+from .utils import tensorboard_scalar_dict, get_loss_mask, get_eos_id
 
 
-class PolicyInference(RLHFMegatronModule):
+class PolicyInference(MegatronModule):
     """Policy Megatron Inference"""
 
     def add_extra_args(self, parser):
@@ -81,19 +82,13 @@ class PolicyInference(RLHFMegatronModule):
         # init num
         get_args().entropy_num = 0
         get_args().latest_entropies = []
-        return 'ok'
 
     def build_dataset(self, train_prompts, is_eval=False):
-        '''
-        framework source: dataset = self.build_dataset(data)
-        :param train_prompts: all train prompts used in this training run??
-        :return:
-            a torch.utils.data.Dataset object for prompts_loader of all prompts, and
-        '''
         args = get_args()
         max_prompt_length = (
             args.seq_length - args.max_new_tokens
         )
+
         # TODO: read from files
         prompts_dataset = PromptPipeline(
             train_prompts, max_prompt_length, get_tokenizer()
@@ -277,7 +272,7 @@ class PolicyInference(RLHFMegatronModule):
         # Main inference function.
         # Note that the outputs are available on the first stage.
         res = generate_tokens_probs_and_return_on_first_stage(
-            model, prompts_ids, context_length_tensor,
+            model, ForwardStep, prompts_ids, context_length_tensor,
             return_output_log_probs=return_output_log_probs,
             top_k=top_k_sampling,
             top_p=top_p_sampling,
@@ -336,8 +331,8 @@ class PolicyInference(RLHFMegatronModule):
 
     def _forward_step(self, data, iteration, eval_mode: bool):
         '''
-        RLHF calling
-        rlhf framework source:     policy_output = self.policy.forward_step(query)
+        ChatLearn calling
+        chatlearn framework source:     policy_output = self.policy.forward_step(query)
         :param data: entire global batch?? micro_batch?
         :return:
             data using current microbatch

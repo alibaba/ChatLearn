@@ -7,7 +7,7 @@ RLHF 的训练配置包括三部分
 
 1. runtime_env: 运行环境配置
 2. models: 模型配置。每一个模型都可以单独配置模型参数。通过`model_name`来区分不同的模型。这里`model_name`对应主文件中定义模型时传入的`model_name`。
-3. rlhf: RLHF 训练配置
+3. runtime: 训练配置
 
 以下为一个训练配置的示例。具体的配置项含义可以参考 [Config API 文档](api/config.rst).
 
@@ -31,42 +31,42 @@ runtime_env:
 models:
   policy:
     model_config_file: policy_inference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
 
   reference:
     model_config_file: reference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
     generation_batch_size: ${ref_generation_batch_size:4}
 
   reward:
     model_config_file: reward_inference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
 
   value:
     model_config_file: old_value_inference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
 
   ppo_policy:
     model_config_file: ppo_policy.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: True
 
   ppo_value:
     model_config_file: ppo_value.yaml
-    num_device: ${num_device:16}
+    num_gpu: ${num_gpu}
     trainable: True
 
-rlhf:
+runtime:
   colocation:
     - policy,ppo_policy,reward,reference,value,ppo_value
   generation_batch_size: ${generation_batch_size:4}
   train_micro_batch_size: 2
   train_global_batch_size: ${train_global_batch_size:512}
-  num_ppo_episode: 100
+  num_episode: 100
   sample_per_episode: ${sample_per_episode:1024}
   num_training_epoch: 1
   save_episode_interval: ${save_episode_interval:100}

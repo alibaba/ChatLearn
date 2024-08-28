@@ -35,42 +35,42 @@ runtime_env:
 models:
   policy:
     model_config_file: policy_inference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
 
   reference:
     model_config_file: reference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
     generation_batch_size: ${ref_generation_batch_size:4}
 
   reward:
     model_config_file: reward_inference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
 
   value:
     model_config_file: old_value_inference.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: False
 
   ppo_policy:
     model_config_file: ppo_policy.yaml
-    num_device: 8
+    num_gpu: 8
     trainable: True
 
   ppo_value:
     model_config_file: ppo_value.yaml
-    num_device: ${num_device:16}
+    num_gpu: ${num_gpu:16}
     trainable: True
 
-rlhf:
+runtime:
   colocation:
     - policy,ppo_policy,reward,reference,value,ppo_value
   generation_batch_size: ${generation_batch_size:4}
   train_micro_batch_size: 2
   train_global_batch_size: ${train_global_batch_size:512}
-  num_ppo_episode: 100
+  num_episode: 100
   sample_per_episode: ${sample_per_episode:1024}
   num_training_epoch: 1
   save_episode_interval: ${save_episode_interval:100}

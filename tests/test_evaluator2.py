@@ -4,7 +4,7 @@ from torch.utils.data import Dataset
 
 import chatlearn
 from chatlearn import EvalEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
@@ -19,7 +19,7 @@ class CustomDataset(Dataset):
         return {"query": self.data[idx]}
 
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -29,12 +29,12 @@ class PolicyModel(RLHFTorchModule):
         new_data['policy'] = ['policy_' + item for item in data['query']]
         return new_data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
-class RewardModel(RLHFTorchModule):
+class RewardModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -46,19 +46,21 @@ class RewardModel(RLHFTorchModule):
 
 
 chatlearn.init()
-chatlearn.get_args().models["policy"].num_device = 3
+chatlearn.get_args().models["policy"].num_gpu = 3
 policy = PolicyModel("policy")
-policy.register_eval_func("forward_step")
 
 reward = RewardModel("reward")
-reward.register_eval_func("eval_step")
-engine = EvalEngine([policy, reward])
+def eval_flow(b):
+    r0 = policy.forward_step(b)
+    r1 = reward.eval_step(r0)
+    return r1
+engine = EvalEngine(eval_flow)
 
 assert policy.num_replica == 3, policy.num_replica
 train_prompts = ['query_' + str(i) for i in range(10, 91)]
 
 engine.set_dataset(train_prompts)
-results = engine.eval()
+results = engine.eval()['reward']
 out = []
 for value in results:
     out += value['reward']

@@ -1,4 +1,4 @@
-# ChatLearn 支持自定义推理和训练流程
+# 自定义流程
 
 如果用户想定制自定义的推理和训练模型流程，可以通过使用 `Engine` 类来实现自定义。
 用户可以传入 environment (Environment), trainer (Trainer) 和 evaluator (Evaluator) 来初始化 Engine。(这些组件可以为None)
@@ -10,8 +10,7 @@
 
 ## 如何自定义模型流程
 
-Environment, Trainer 和 Evaluator 提供了 set_flow 方法，来定制模型的计算 flow。以下例子定义了 RLHF 中的environment flow。
-注意：当前模型调用的函数必须为 forward_step / train_step / 用户注册的 `eval_func_name` 。
+将自定义 flow 函数传入 Environment, Trainer 和 Evaluator 的构造方法，来定制模型的计算 flow。以下例子定义了 RLHF 中的environment flow。
 模型的输入个数为1个或多个，输出个数为0个或1个。任何和模型无关的调用将会被忽略。
 
 ```python
@@ -34,14 +33,14 @@ def env_flow(batch):
 
 ```python
 from chatlearn import Engine, Environment, Trainer
-from chatlearn import RLHFModule
+from chatlearn import BaseModule
+
 
 class CustomEngine(Engine):
 
     def __init__(self,
-                 reference: RLHFModule,
-                 policy_trainer: RLHFModule):
-
+                 reference: BaseModule,
+                 policy_trainer: BaseModule):
         def env_flow(batch):
             ref_out = reference.forward_step(batch)
             return ref_out
@@ -49,8 +48,8 @@ class CustomEngine(Engine):
         def trainer_flow(batch):
             policy_trainer.train_step(batch)
 
-        env = Environment([reference]).set_flow(env_flow)
-        trainer = Trainer([policy_trainer]).set_flow(trainer_flow)
+        env = Environment(env_flow)
+        trainer = Trainer(trainer_flow)
         super().__init__(env, trainer)
 ```
 在这个例子中，我们定义了2个模型的 CustomEngine，其中 environment 只有一个 reference 模型，trainer只有一个policy_trainer 模型。
@@ -70,7 +69,10 @@ engine.learn()
 ```python
 reference = PolicyReference("reference")
 ppo_policy = PolicyTrainer("policy_trainer")
-evaluator = Evaluator([policy, reward]).set_dataset(val_prompts)
+def eval_flow(batch):
+    r0 = reference.eval_step(batch)
+    return r0
+evaluator = Evaluator(eval_flow).set_dataset(val_prompts)
 engine = CustomEngine(reference, ppo_policy) \
          .set_evaluator(evaluator) \
          .set_dataset(train_prompts)
@@ -100,13 +102,16 @@ def trainer_flow(batch):
     ppo_policy.train_step(batch)
     ppo_value.train_step(batch)
 
-env = Environment([policy, value, reference, reward]) \
-                  .set_flow(env_flow)
+def eval_flow(batch):
+    r0 = policy.eval_step(batch)
+    r1 = reward.eval_step(r0)
+    return r1
 
-trainer = Trainer([ppo_policy, ppo_value]) \
-          .set_flow(trainer_flow)
+env = Environment(env_flow)
 
-evaluator = Evaluator([policy, reward]).set_dataset(val_prompts)
+trainer = Trainer(trainer_flow)
+
+evaluator = Evaluator(eval_flow).set_dataset(val_prompts)
 
 engine = Engine(env, trainer, evaluator) \
          .set_parameter_sync(ppo_policy, policy) \

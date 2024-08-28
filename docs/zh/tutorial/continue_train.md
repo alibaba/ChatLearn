@@ -1,11 +1,11 @@
 # 续跑和容错
 
-RLHF 任务涉及到多模型的计算和交互，随着模型规模的增大和计算资源的增加，由于依赖的软件栈和硬件环境都有可能出现偶发异常，会导致任务停止运行。
+Alignment 任务涉及到多模型的计算和交互，随着模型规模的增大和计算资源的增加，由于依赖的软件栈和硬件环境都有可能出现偶发异常，会导致任务停止运行。
 为了保障被中断的任务可以恢复状态进行自动续跑，ChatLearn提供了续跑的功能，结合 PAI-DLC 的 AIMaster，可以实现自动错误检测和续跑功能。
 
-## 配置 ChatLearn RLHF 续跑
+## 配置 ChatLearn 续跑
 
-RLHF 任务的续跑需要考虑以下几点：
+任务的续跑需要考虑以下几点：
 1. 数据进度的记录和恢复； 对于数据状态的记录，用户需要在训练配置主文件如 `rlhf.yaml` 中配置 `data_checkpoint_path`。
 如果 `data_checkpoint_path` 不为空，则 ChatLearn 会记录当前的数据进度，并在每次 `save_checkpoint` 的同时存储 data checkpoint。
 2. 训练状态比如 episode、iteration 等信息的恢复；当用户配置了 `data_checkpoint_path`，同时文件夹中存在对应的 data checkpoint，ChatLearn 会自动恢复训练状态到当前最新的checkpoint状态。
@@ -24,7 +24,7 @@ if self.resume_training:
     self.args.finetune = False
 ```
 
-更多详情可以参考 `examples/megatron/step3_rlhf/run_scripts/llama2/run_7b_7b.sh` 。
+更多详情可以参考 `examples/megatron/scripts/train_rlhf_llama.sh` 。
 
 如果用户在程序中配置了 `data_checkpoint_path` ，但是不想打开续跑功能，则也可以通过配置 `enable_resume_training: False` 来关闭此功能。
 

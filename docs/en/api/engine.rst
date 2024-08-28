@@ -1,6 +1,14 @@
 Engine
 ======
 
+.. autoclass:: chatlearn.DPOEngine
+    :members:
+    :undoc-members:
+
+.. autoclass:: chatlearn.OnlineDPOEngine
+    :members:
+    :undoc-members:
+
 .. autoclass:: chatlearn.RLHFEngine
     :members:
     :undoc-members:

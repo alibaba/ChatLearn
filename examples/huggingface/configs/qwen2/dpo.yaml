@@ -1,0 +1,37 @@
+runtime_env:
+  platform: DLC
+  excludes:
+    - "*pt"
+    - "logs"
+    - "tensorboards"
+    - ".nfs*"
+
+
+models:
+
+  reference:
+    model_config_file: reference.yaml
+    num_device: ${num_device:1}
+    zero_size: ${zero_size:4}
+    gpu_per_process: 1
+    trainable: False
+
+  policy_trainer:
+    model_config_file: policy_trainer.yaml
+    num_device: ${num_device:1}
+    zero_size: ${zero_size:4}
+    gpu_per_process: 1
+    trainable: True
+
+runtime:  
+  colocation:
+    - reference,policy_trainer
+  generation_batch_size: ${generation_batch_size:8}
+  data_path: ${data_path}
+  eval_data_path: ${eval_data_path}
+  output_dir: ${output_dir}
+  exp_name: ${exp_name}
+  sample_per_episode: ${sample_per_episode:1024}
+  train_micro_batch_size: ${train_micro_batch_size:4}
+  train_global_batch_size: ${train_global_batch_size:256}
+  save_episode_interval: ${save_episode_interval:100}

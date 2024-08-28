@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,12 +17,12 @@
 import torch
 import torch.distributed as dist
 from megatron.core import mpu
-from megatron.global_vars import get_args
-from megatron.global_vars import get_tokenizer
+from megatron.training.global_vars import get_args
+from megatron.training.global_vars import get_tokenizer
 
-from .constants_ppo import select_actions_from_right_padded
-from .reward_model import RewardModel
 from .utils import get_advantages_and_returns
+from .constants import select_actions_from_right_padded
+from .reward_model import RewardModel
 
 
 class ValueModel(RewardModel):
@@ -44,7 +44,7 @@ class ValueModel(RewardModel):
 
     # pylint: disable=arguments-differ
     def forward(self, all_token_ids, all_position_ids, all_token_attention_mask, training_inputs=None,
-                inference_params=None, ret_input_ids=None, ret_position_ids=None, ret_attn_mask=None):
+                inference_params=None, ret_input_ids=None, ret_position_ids=None, ret_attn_mask=None, inference_config=None):
         lm_output = self.language_model(
             all_token_ids,
             all_position_ids,

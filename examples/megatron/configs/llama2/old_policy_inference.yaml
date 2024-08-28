@@ -1,0 +1,12 @@
+includes:
+  - base_inference.yaml
+  - policy_shared.yaml
+
+
+top_p: ${policy_top_p:0.9}
+top_k: ${policy_top_k:0}
+temperature: ${policy_temperature:1.0}
+
+eval_temperature: 0.01
+eval_top_k: 1
+eval_top_p: 0

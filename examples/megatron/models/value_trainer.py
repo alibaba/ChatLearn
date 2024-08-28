@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -17,21 +17,20 @@
 from functools import partial
 
 import torch
-from megatron import get_num_microbatches
-from megatron import get_timers
-from megatron import get_tokenizer
-from megatron import print_rank_0
 from megatron.core import mpu
-from megatron.global_vars import get_tensorboard_writer
-from megatron.utils import average_losses_across_data_parallel_group
-from megatron.utils import calc_params_l2_norm
-from models.value_model import ValueModel
+from megatron.training import get_num_microbatches
+from megatron.training import get_timers
+from megatron.training import get_tokenizer
+from megatron.training import print_rank_0
+from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.utils import average_losses_across_data_parallel_group
+from megatron.training.utils import calc_params_l2_norm
 
 from chatlearn.utils import to_device
+from .value_model import ValueModel
+from .utils import tensorboard_scalar_dict, training_log, get_eos_id
 from .base_trainer import BaseTrainer
-from .constants_ppo import get_ltor_masks_and_position_ids, select_actions_from_right_padded, pad_to_max_len
-from .utils import tensorboard_scalar_dict, training_log
-from .utils import get_eos_id
+from .constants import get_ltor_masks_and_position_ids_rlhf, select_actions_from_right_padded, pad_to_max_len
 
 
 class ValueTrainer(BaseTrainer):
@@ -73,7 +72,7 @@ class ValueTrainer(BaseTrainer):
         # to stop and most likely it shouldn't stop. it's just maxed out.
         all_token_loss_mask = pad_to_max_len(data_b["loss_mask"], args.seq_length, pad_value=0)
 
-        all_token_attention_mask, all_token_position_ids = get_ltor_masks_and_position_ids(
+        all_token_attention_mask, all_token_position_ids = get_ltor_masks_and_position_ids_rlhf(
             all_token_ids_right_padded)
 
         inputs = {

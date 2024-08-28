@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,35 +14,33 @@
 # ==============================================================================
 """Environment"""
 
-import importlib
 import math
 from itertools import cycle
+
+from ray.util.queue import Queue
 
 from chatlearn.data.ranking import batch_generation_ranking
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from .executor import Executor
+from .utils import vllm_post_process_generate_step_one_model
+from .utils import encode_data, reinit_cache_engine, prepare_vllm
+from .utils import execute_in_parallel, decode_data
 
-vllm_exist = importlib.util.find_spec("vllm")
-if vllm_exist:
-    from chatlearn.models.vllm_module import RLHFVLLMModule
-
-
+# pylint: disable=not-callable
 class Environment(Executor):
     """BaseEnv"""
 
-    def __init__(self, models):
+    def __init__(self, model_flow):
         """
         Environment
 
         Args
         ----
-        models : List[RLHFModule]
+        models : List[BaseModule]
             a list of modules
         """
-        super().__init__(models)
-        for model in self.models:
-            model.register_func("forward_step")
+        super().__init__(model_flow)
         self._batch_size = None
         self._batch_per_episode = None
         self._dataset = None
@@ -59,7 +57,6 @@ class Environment(Executor):
         self.data_producer = self.models[0]
         assert self.sample_per_episode % len(self.data_producer.replicas) == 0, \
             "replica number of data producer model must be divisible by sample_per_episode"
-        self.sample_per_episode_per_replica = self.sample_per_episode // len(self.data_producer.replicas)
         logger.info("start set dataset for data_producer")
         refs = []
         if self.models[0].module_args.batch_generation.ranking:
@@ -67,15 +64,12 @@ class Environment(Executor):
             self._dataset = batch_generation_ranking(self._dataset, episode_per_epoch, self.sample_per_episode)
         for policy_replica in self.data_producer.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._dataset,
-                                                                 self.batch_size,
-                                                                 self.sample_per_episode_per_replica)
+                                                                 self.batch_size)
             refs.append(ref)
         future.get(refs)
         logger.info("set dataset for data_producer done")
 
-
     def setup(self):
-        self.use_vllm_backend = vllm_exist and isinstance(self.models[0].replicas[0].model, RLHFVLLMModule)
         super().setup()
         self.setup_dataset()
 
@@ -83,14 +77,6 @@ class Environment(Executor):
             model = model_node.model.replicas[0]
             config = future.get(model.master.padding_config.remote())
             self._padding_config.update(config)
-
-        if self.use_vllm_backend:
-            # setup vllm scheduler
-            refs = []
-            for model_replica in self.models[0].replicas:
-                ref = model_replica.tailer.build_scheduler.remote()
-                refs.append(ref)
-            future.get(refs)
 
     @property
     def sample_per_episode(self):
@@ -100,12 +86,9 @@ class Environment(Executor):
     def batch_size(self):
         if self._batch_size is not None:
             return self._batch_size
-        if self.use_vllm_backend:
+        if self.first_model.use_vllm_backend:
             num_replica = len(self.models[0].replicas)
             self._batch_size = self.sample_per_episode // num_replica
-            if self.models[0].module_args.args_dict.get("vllm_micro_batch_size") is not None and \
-                    self.models[0].module_args.args_dict["vllm_micro_batch_size"] != -1:
-                self._batch_size = self.models[0].module_args.args_dict["vllm_micro_batch_size"]
         else:
             self._batch_size = self.models[0].module_args.generation_batch_size
 
@@ -116,98 +99,76 @@ class Environment(Executor):
         if self._batch_per_episode is not None:
             return self._batch_per_episode
         num_replica = len(self.models[0].replicas)
-        if self.use_vllm_backend:
-            self._batch_per_episode = math.ceil(self.sample_per_episode_per_replica / self.batch_size)
+        num_batch = self.sample_per_episode // (num_replica * self.batch_size) * num_replica
+        remainder = self.sample_per_episode % (num_replica * self.batch_size)
+        if remainder >= num_replica:
+            self._batch_per_episode = num_batch + num_replica
         else:
-            num_batch = self.sample_per_episode // (num_replica * self.batch_size) * num_replica
-            remainder = self.sample_per_episode % (num_replica * self.batch_size)
-            if remainder >= num_replica:
-                self._batch_per_episode = num_batch + num_replica
-            else:
-                self._batch_per_episode = num_batch + remainder
+            self._batch_per_episode = num_batch + remainder
         return self._batch_per_episode
 
-    def vllm_post_process_outputs(self, replica):
-        """post precess of results in current episode"""
-        return replica.tailer.decode.remote()
-
-    def vllm_post_process_generate_step_one_model(self, model, out_queue, mb):
-        """
-        Args:
-            model: DistModel
-            out_queue: Queue
-        """
-        replica = self._get_model(model)
-        output = self.vllm_post_process_outputs(replica)
-
-        # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
-        #   length is the number of Actors. In this case, all members in the list
-        #   are the same, and we choose output[-1] to put into out_queue.
-        last_output = output[-1] if isinstance(output, list) else output
-        if isinstance(out_queue, list):
-            for oq in out_queue:
-                oq.put(self.encode_data(mb, last_output))
+    @property
+    def num_iteration(self):
+        if self.models[0].module_args.zero_size > 1:
+            assert self.batch_per_episode % self.models[0].module_args.zero_size == 0
+            return self.batch_per_episode // self.models[0].module_args.zero_size
         else:
-            out_queue.put(self.encode_data(mb, last_output))
-        # To ensure all Actors are finished synchronously, `output` itself should be returned
-        return out_queue, output
+            return self.batch_per_episode
 
-    def generate_step(self, data_queue, step):
-        for i, model_node in enumerate(self.model_flow.model_nodes):
-            if i == 0 and self.use_vllm_backend:
-                self.vllm_post_process_generate_step_one_model(model_node.model, model_node.out_queues, step)
-                continue
-            input_queues = data_queue if i == 0 else model_node.get_input_queues()
-            self.generate_step_one_model(model_node.model, input_queues, model_node.out_queues, to_empty_cache=False,
-                                         step_num=step)
-        data = []
-        for model_node in self.model_flow.model_nodes:
-            if model_node in self.model_flow.return_model_nodes:
-                data.append(model_node.out_queues[-1])
-        return self.get_merged_data(data, encode=False)
+    def execute_vllm(self, model_replica, query, out_queues, mb, is_eval, func_name):
+        self.execute_onload(model_replica)
 
-    def add_request(self, is_eval=False):
-        request_rets = []
-        for model_replica in self.models[0].replicas:
-            query = model_replica.master.next_batch.remote(is_eval=is_eval)
-            ret = model_replica.tailer._add_request.remote(query)
-            request_rets.append(ret)
-        future.get(request_rets)
+        # profile cache blocks
+        prepare_vllm(model_replica)
+
+        # reinit cache engine
+        reinit_cache_engine(model_replica)
+        # add requests of current episode to vllm scheduler
+        ret = model_replica.tailer._add_request.remote(query, is_eval=is_eval)
+        future.get(ret)
+        step_outputs = True
+        data_queue_internal = Queue()
+        while step_outputs:
+            query = model_replica.tailer.schedule.remote()
+            data_queue_internal.put(encode_data(mb, query))
+            output = self.generate_step_one_model_internal(self.first_model, data_queue_internal, mb, \
+                model_replica, func_name, False, is_eval=is_eval)
+            data = output[-1][0]
+            step_outputs = future.get(data)
+        vllm_post_process_generate_step_one_model(model_replica, out_queues, mb)
+        self.execute_offload(model_replica)
+
+
+    def execute(self, is_eval):
+        data_queues, out_queue = self.setup_queues()
+        data_producer_iter = cycle(iter(self.models[0].replicas))
+        # prepare batches for all model replicas
+        for mb in range(self.batch_per_episode):
+            current_data_producer = next(data_producer_iter)
+            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
+            encoded_data = encode_data(mb, query)
+            for data_queue in data_queues:
+                data_queue.put(encoded_data)
+
+        if self.first_model.use_vllm_backend:
+            data_queue = self.first_node.get_input_queues()
+            self.timers(f"{self.first_model.name}").start()
+            args_list = []
+            for model_replica in self.first_model.replicas:
+                if data_queue.qsize() == 0:
+                    break
+                data = data_queue.get()
+                mb, query = decode_data(data)
+                func_name = self.first_node.func_name
+                args_list.append((model_replica, query, self.first_node.out_queues, mb, is_eval, func_name))
+            execute_in_parallel(self.execute_vllm, args_list)
+            self.timers(f"{self.first_model.name}").stop()
+        self.compute_loop(out_queue, self.num_iteration)
+        return out_queue
 
     def make_experiences(self):
         """
         Generate a collection of experiences for one episode
         """
-        # Assume the first model produce the data
-        # data_producer = self.model_flow.model_nodes[0].model
-        data_queues, out_queue = self.setup_queues()
-
-        if self.use_vllm_backend:
-            data_queue = data_queues[0]
-            for mb in range(self.batch_per_episode):
-                # add requests of current episode to vllm scheduler
-                self.add_request()
-
-                # eval loop of current episode
-                num_remaining_request = True
-                while num_remaining_request:
-                    step_output_rets = []
-                    for model_replica in self.data_producer.replicas:
-                        query = model_replica.master.schedule.remote()
-                        data_queue.put(self.encode_data(mb, query))
-                        data, _ = self.generate_step_one_model_internal(self.model_flow.model_nodes[0].model,
-                                                                        data_queue, mb)
-                        step_output_rets.append(data)
-                    num_remaining_request = future.get(step_output_rets)[0][0]
-                data = self.generate_step(None, mb)
-                out_queue.put(data)
-        else:
-            data_producer_iter = cycle(iter(self.data_producer.replicas))
-            for mb in range(self.batch_per_episode):
-                current_data_producer = next(data_producer_iter)
-                query = current_data_producer.master.next_batch.remote()
-                encoded_data = self.encode_data(mb, query)
-                for data_queue in data_queues:
-                    data_queue.put(encoded_data)
-            self.compute_loop(data_queues, out_queue, self.batch_per_episode)
-        return out_queue
+        return self.execute(is_eval=False)
+# pylint: disable=not-callable

@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -23,7 +23,6 @@ import ray
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
-from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute
 
 
@@ -50,7 +49,7 @@ def monitor_error(func, func_name):
 
 def timeit(func, func_name):
     def inner(self, *args, **kwargs):
-        if self.rlhf_args.nsys:
+        if self.runtime_args.nsys:
             nvtx.range_push(func_name)
         if self.is_last_rank():
             # for the class inherited from base, it may call multiple times, so use the first start time
@@ -65,7 +64,7 @@ def timeit(func, func_name):
             self.profiler.step()
         if self.profiler is not None and self._iteration ==3 and self.replica_id == 0 and func_name in ["forward_step", "train_step"]:
             self.profiler.stop()
-        if self.rlhf_args.nsys:
+        if self.runtime_args.nsys:
             nvtx.range_pop()
         return ret
 
@@ -109,7 +108,7 @@ def concat_along_batch(tensors):
     return batched
 
 
-def preprocess_compute(func, is_forward_step):
+def preprocess_compute(func, is_forward_step, trainable):
     """
     1. if is_forward_step is True, merge a list of dict into one dict, i.e., merge inputs of forward_step.
     2. split a list of data for data_parallel, this is used for train_step
@@ -124,22 +123,20 @@ def preprocess_compute(func, is_forward_step):
                 for arg in args:
                     merged.update(arg)
                 args = [merged]
-        if self.data_parallel_size is not None and \
-            self.data_parallel_rank is not None and \
-            self.data_parallel_size > 1:
-            assert self.trainable
-            data_list = args[0]
-            assert isinstance(data_list, list)
-            start_idx, end_idx = utils.split_index(len(data_list), self.data_parallel_size)[self.data_parallel_rank]
-            args = list(args)
-            sub_data_list = data_list[start_idx: end_idx]
-            args[0] = sub_data_list
-        to_empty_cache = kwargs.pop('to_empty_cache') if 'to_empty_cache' in kwargs else False
-        is_last_batch = kwargs.pop('is_last_batch') if 'is_last_batch' in kwargs else False
-        is_eval = kwargs.pop('is_eval') if 'is_eval' in kwargs else False
+
+        def get_kwarg(key):
+            return kwargs.pop(key) if key in kwargs else False
+        to_empty_cache = get_kwarg('to_empty_cache')
+        to_onload = get_kwarg('to_onload')
+        to_offload = get_kwarg('to_offload')
+        is_last_batch = get_kwarg('is_last_batch')
+        is_eval = get_kwarg('is_eval')
+
+        if to_onload:
+            self.onload()
         generation_batch_size = self.module_args.generation_batch_size
         final_results = None
-        if not self.trainable and generation_batch_size:
+        if not trainable and generation_batch_size:
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
             input_batch = 0
@@ -159,7 +156,9 @@ def preprocess_compute(func, is_forward_step):
                     self._iteration += 1
                     ret = utils.to_device('cpu', ret)
                     results.append(ret)
-                if self.is_last_rank():
+                # for model with DP, we need to return results from all ranks
+                # for model with TP/PP, only return the results from last rank
+                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = concat_along_batch(results)
             else:
                 if is_forward_step:
@@ -167,26 +166,37 @@ def preprocess_compute(func, is_forward_step):
                 ret = func(self, *args, **kwargs)
                 ret = utils.to_device('cpu', ret)
                 self._iteration += 1
-                if self.is_last_rank():
+                final_results = None
+                # for model with DP, we need to return results from all ranks
+                # for model with TP/PP, only return the results from last rank
+                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = ret
         else:
+            kwargs["iteration"] = self._train_iteration
+            self._train_iteration += 1
             ret = func(self, *args, **kwargs)
             ret = utils.to_device('cpu', ret)
             if self.is_last_rank():
                 final_results = ret
+        if to_offload:
+            self.offload()
         if to_empty_cache:
             self.empty_cache()
         if is_last_batch and not is_eval:
-            self.rlhf_args.consumed_samples += self.rlhf_args.sample_per_episode
+            self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results
 
     return inner
 
 
 def decorate_class_func(cls, func_name, decorator, *args, **kwargs):
+    if not hasattr(cls, func_name):
+        return
     func = getattr(cls, func_name)
     if func.__qualname__.startswith(decorator.__name__):
         # already decorated
-        logger.warning(f"{func_name} {func} already decorated with {decorator}")
+        # This usually occurs when one class inherits from another class,
+        # for example, if 'reference' inherits from 'policy', then methods like 'offload_optimizer_states'
+        # would be decorated in the base class, eliminating the need for repeated decoration.
         return
     setattr(cls, func_name, decorator(func, *args, **kwargs))

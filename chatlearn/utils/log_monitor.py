@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -314,8 +314,6 @@ class LogMonitor:
                         worker_pid=worker_pid,
                     )
                 )
-                log_filename = os.path.basename(file_path)
-                logger.info(f"Beginning to track file {log_filename}")
 
     def open_closed_files(self):
         """Open some closed files if they may have new lines.
@@ -416,49 +414,81 @@ class LogMonitor:
                     if next_line == "":
                         break
                     next_line = next_line.rstrip("\r\n")
-
-                    if next_line.startswith(ray_constants.LOG_PREFIX_ACTOR_NAME):
-                        flush()  # Possible change of task/actor name.
-                        file_info.actor_name = next_line.split(
-                            ray_constants.LOG_PREFIX_ACTOR_NAME, 1
-                        )[1]
-                        file_info.task_name = None
-                    elif next_line.startswith(ray_constants.LOG_PREFIX_TASK_NAME):
-                        flush()  # Possible change of task/actor name.
-                        file_info.task_name = next_line.split(
-                            ray_constants.LOG_PREFIX_TASK_NAME, 1
-                        )[1]
-                    elif next_line.startswith(ray_constants.LOG_PREFIX_JOB_ID):
-                        file_info.job_id = next_line.split(
-                            ray_constants.LOG_PREFIX_JOB_ID, 1
-                        )[1]
-                    elif next_line.startswith(
-                        ray_constants.LOG_PREFIX_TASK_ATTEMPT_START
-                    ) or next_line.startswith(
-                        ray_constants.LOG_PREFIX_TASK_ATTEMPT_END
-                    ):
-                        # Ignore these magic tokens for task logs.
-                        pass
-                    elif next_line.startswith(
-                        "Windows fatal exception: access violation"
-                    ):
-                        # We are suppressing the
-                        # 'Windows fatal exception: access violation'
-                        # message on workers on Windows here.
-                        # As far as we know it is harmless,
-                        # but is frequently popping up if Python
-                        # functions are run inside the core
-                        # worker C extension. See the investigation in
-                        # github.com/ray-project/ray/issues/18944
-                        # Also skip the following line, which is an
-                        # empty line.
-                        file_info.file_handle.readline()
+                    if ray.__version__ >= "2.11.0":
+                        if next_line.startswith(ray_constants.LOG_PREFIX_ACTOR_NAME):
+                            flush()  # Possible change of task/actor name.
+                            file_info.actor_name = next_line.split(
+                                ray_constants.LOG_PREFIX_ACTOR_NAME, 1
+                            )[1]
+                            file_info.task_name = None
+                        elif next_line.startswith(ray_constants.LOG_PREFIX_TASK_NAME):
+                            flush()  # Possible change of task/actor name.
+                            file_info.task_name = next_line.split(
+                                ray_constants.LOG_PREFIX_TASK_NAME, 1
+                            )[1]
+                        elif next_line.startswith(ray_constants.LOG_PREFIX_JOB_ID):
+                            file_info.job_id = next_line.split(
+                                ray_constants.LOG_PREFIX_JOB_ID, 1
+                            )[1]
+                        elif next_line.startswith(
+                            "Windows fatal exception: access violation"
+                        ):
+                            # We are suppressing the
+                            # 'Windows fatal exception: access violation'
+                            # message on workers on Windows here.
+                            # As far as we know it is harmless,
+                            # but is frequently popping up if Python
+                            # functions are run inside the core
+                            # worker C extension. See the investigation in
+                            # github.com/ray-project/ray/issues/18944
+                            # Also skip the following line, which is an
+                            # empty line.
+                            file_info.file_handle.readline()
+                        else:
+                            lines_to_publish.append(next_line)
                     else:
-                        lines_to_publish.append(next_line)
+                        if next_line.startswith(ray_constants.LOG_PREFIX_ACTOR_NAME):
+                            flush()  # Possible change of task/actor name.
+                            file_info.actor_name = next_line.split(
+                                ray_constants.LOG_PREFIX_ACTOR_NAME, 1
+                            )[1]
+                            file_info.task_name = None
+                        elif next_line.startswith(ray_constants.LOG_PREFIX_TASK_NAME):
+                            flush()  # Possible change of task/actor name.
+                            file_info.task_name = next_line.split(
+                                ray_constants.LOG_PREFIX_TASK_NAME, 1
+                            )[1]
+                        elif next_line.startswith(ray_constants.LOG_PREFIX_JOB_ID):
+                            file_info.job_id = next_line.split(
+                                ray_constants.LOG_PREFIX_JOB_ID, 1
+                            )[1]
+                        elif next_line.startswith(
+                            ray_constants.LOG_PREFIX_TASK_ATTEMPT_START
+                        ) or next_line.startswith(
+                            ray_constants.LOG_PREFIX_TASK_ATTEMPT_END
+                        ):
+                            # Ignore these magic tokens for task logs.
+                            pass
+                        elif next_line.startswith(
+                            "Windows fatal exception: access violation"
+                        ):
+                            # We are suppressing the
+                            # 'Windows fatal exception: access violation'
+                            # message on workers on Windows here.
+                            # As far as we know it is harmless,
+                            # but is frequently popping up if Python
+                            # functions are run inside the core
+                            # worker C extension. See the investigation in
+                            # github.com/ray-project/ray/issues/18944
+                            # Also skip the following line, which is an
+                            # empty line.
+                            file_info.file_handle.readline()
+                        else:
+                            lines_to_publish.append(next_line)
                 except Exception:
                     logger.error(
                         f"Error: Reading file: {file_info.filename}, "
-                        f"position: {file_info.file_info.file_handle.tell()} "
+                        f"position: {file_info.file_handle.tell()} "
                         "failed."
                     )
                     raise

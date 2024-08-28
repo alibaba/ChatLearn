@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -29,18 +29,23 @@ class _Timer:
         self.started_ = False
         self.start_time = time.time()
         self._num = 0
+        self._cuda_available = torch.cuda.is_available()
+
+    def cuda_sync(self):
+        if self._cuda_available:
+            torch.cuda.synchronize()
 
     def start(self):
         """Start the timer."""
         assert not self.started_, f'timer {self.name_} has already been started'
-        torch.cuda.synchronize()
+        self.cuda_sync()
         self.start_time = time.time()
         self.started_ = True
         self._num += 1
 
     def stop(self):
         """Stop the timer."""
-        torch.cuda.synchronize()
+        self.cuda_sync()
         self.elapsed_ += (time.time() - self.start_time)
         self.started_ = False
 
@@ -91,16 +96,20 @@ class Timers:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             writer.add_scalar(name + '-time', value, iteration)
 
-    def log(self, names=None, normalizer=1.0, reset=True, return_dict=False):
+    def log(self, names=None, normalizer=1.0, reset=True, return_dict=False, e2e_cost=None):
         """Log a group of timers."""
-        if names is None:
-            names = self.timers.keys()
+        all_keys = self.timers.keys()
         name2log = {}
         assert normalizer > 0.0
         string = 'time (ms)'
-        for name in names:
+        if e2e_cost is not None:
+            string += ' | e2e_cost: {:.2f}'.format(e2e_cost)
+        for name in all_keys:
             if name not in self.timers:
                 logger.warning(f"{name} not in timers, ignore it.")
+                continue
+            if names is not None and name not in names:
+                self.timers[name].reset()
                 continue
             elapsed_time, num = self.timers[name].elapsed(reset=reset, return_num=True)
             elapsed_time = elapsed_time * 1000.0 / normalizer

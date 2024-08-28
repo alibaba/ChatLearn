@@ -8,7 +8,7 @@ from torch.utils.data import Dataset
 
 import chatlearn
 from chatlearn import RLHFEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
@@ -25,16 +25,16 @@ class CustomDataset(Dataset):
 
 
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
 
     def forward_step(self, data, iteration):
-        save_dir = self.rlhf_args.data_checkpoint_path
+        save_dir = self.runtime_args.data_checkpoint_path
         fn = f"{save_dir}/data_{iteration}"
-        if self.rlhf_args.load_data_checkpoint_iteration:
-            fn = f"{fn}_{self.rlhf_args.load_data_checkpoint_iteration}"
+        if self.runtime_args.load_data_checkpoint_iteration:
+            fn = f"{fn}_{self.runtime_args.load_data_checkpoint_iteration}"
         fn = f"{fn}.pkl"
         with open(fn, 'wb') as f:
             pickle.dump(data, f)
@@ -45,13 +45,13 @@ class PolicyModel(RLHFTorchModule):
         data["policy_out"] = query
         return data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
 
-class ReferenceModel(RLHFTorchModule):
+class ReferenceModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -61,7 +61,7 @@ class ReferenceModel(RLHFTorchModule):
         return data
 
 
-class RewardModel(RLHFTorchModule):
+class RewardModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -69,7 +69,7 @@ class RewardModel(RLHFTorchModule):
         time.sleep(0.01)
         return data
 
-class ValueModel(RLHFTorchModule):
+class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         data["value_out"] = data["policy_out"].cuda() * 3
@@ -77,17 +77,17 @@ class ValueModel(RLHFTorchModule):
         return data
 
 
-class PPOPolicy(RLHFTorchModule):
+class PPOPolicy(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         num_mb = len(data)
         time.sleep(0.1)
         return num_mb
 
 
-class PPOValue(RLHFTorchModule):
+class PPOValue(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         num_mb = len(data)
         time.sleep(0.1)
         return num_mb
@@ -98,14 +98,14 @@ run = os.environ["RUN_FLAG"]
 
 chatlearn.init()
 if run == "resume":
-    chatlearn.get_args().rlhf_args.load_data_checkpoint_iteration = 2
+    chatlearn.get_args().runtime_args.load_data_checkpoint_iteration = 2
 chatlearn.get_args().models["policy"].num_replica = 1
 chatlearn.get_args().models["policy"].generation_batch_size = 4
-chatlearn.get_args().rlhf_args.data_checkpoint_path = os.path.join(os.getcwd(), "checkpoint")
-chatlearn.get_args().rlhf_args.save_episode_interval = 1
-chatlearn.get_args().rlhf_args.num_ppo_episode = 4
-chatlearn.get_args().rlhf_args.train_global_batch_size = 8
-chatlearn.get_args().rlhf_args.sample_per_episode = 16
+chatlearn.get_args().runtime_args.data_checkpoint_path = os.path.join(os.getcwd(), "checkpoint")
+chatlearn.get_args().runtime_args.save_episode_interval = 1
+chatlearn.get_args().runtime_args.num_episode = 4
+chatlearn.get_args().runtime_args.train_global_batch_size = 8
+chatlearn.get_args().runtime_args.sample_per_episode = 16
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
@@ -122,11 +122,11 @@ engine.learn()
 if run == "resume":
     assert engine._start_episode == 1, engine._start_episode
     data = {}
-    for fn in os.listdir(chatlearn.get_args().rlhf_args.data_checkpoint_path):
+    for fn in os.listdir(chatlearn.get_args().runtime_args.data_checkpoint_path):
         if not fn.endswith('.pkl'):
             continue
 
-        with open(os.path.join(chatlearn.get_args().rlhf_args.data_checkpoint_path, fn), 'rb') as f:
+        with open(os.path.join(chatlearn.get_args().runtime_args.data_checkpoint_path, fn), 'rb') as f:
             data[fn] = pickle.load(f)
     for i in range(4, 16):
         fn_resume = f"data_{i}_2.pkl"

@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -127,7 +127,8 @@ def start_ray_cluster():
     master_addr = get_master_addr()
     rank = get_rank()
     if rank == 0:
-        cmd = f"ray start --head --port={port} --node-ip-address={master_addr} --node-manager-port {node_manager_port} --node-name={master_addr}"
+        cmd = f"RAY_prestart_worker_first_driver=0 ray start --head --port={port} --node-ip-address={master_addr} " + \
+              f"--node-manager-port {node_manager_port} --node-name={master_addr}"
     else:
         cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port} --node-name={get_addr()}"
     logger.info(f"execute {cmd}")

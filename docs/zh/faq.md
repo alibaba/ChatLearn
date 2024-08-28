@@ -20,9 +20,9 @@ RuntimeError: Error(s) in loading state_dict for VocabParallelEmbedding:
 
 参考 [配置文件](config_yaml.md)。
 
-## 如何开启 optimizer offload
+## 如何开启 `Efficient memory sharing` 功能来减少显存开销
 
-参考文档 [offload](tutorial/offload.md)。
+参考文档 [Efficient memory sharing](tutorial/ems.md)。
 
 ## Megatron 模型转换并行策略
 
@@ -67,6 +67,6 @@ python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${
 
 Megatron在load_checkpoint的时候会检查lr是否变化，需要设置 Megatron 模型参数 `override_opt_param_scheduler` 为True 来绕开检查。
 
-## 如何指定ppo阶段模型保存的频率
+## 如何指定训练时模型保存的频率
 
 rlhf.yaml 里配置  `save_episode_interval`。

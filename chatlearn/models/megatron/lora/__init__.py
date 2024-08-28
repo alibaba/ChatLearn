@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -16,6 +16,5 @@
 
 from .layers import convert_layer_to_lora
 from .layers import fuse_lora_layer
-from .layers import linear_with_grad_accumulation_and_async_allreduce_LoRA
 from .layers import only_optimize_lora_parameters
 from .layers import unfuse_lora_layer

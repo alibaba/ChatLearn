@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,17 +47,21 @@ class ResourceManager:
         except Exception as e:
             logger.warning(f"fail to get placement_group state {e}")
 
-    def create_placement_group(self, num_gpus, strategy="PACK"):
+    def create_placement_group(self, num_gpus, num_cpus=None, strategy="PACK"):
         """
         create resource placement group given model device args
         """
-        if num_gpus <= self.gpu_per_node:
-            cpu_count = int(self.cpu_per_node * num_gpus / self.gpu_per_node)
-            bundles = [{"GPU": num_gpus, "CPU": cpu_count}]
+        if num_gpus > 0:
+            if num_gpus <= self.gpu_per_node:
+                cpu_count = int(self.cpu_per_node * num_gpus / self.gpu_per_node)
+                bundles = [{"GPU": num_gpus, "CPU": cpu_count}]
+            else:
+                assert num_gpus % self.gpu_per_node == 0
+                num_nodes = num_gpus // self.gpu_per_node
+                bundles = [{"GPU": self.gpu_per_node, "CPU": self.cpu_per_node} for _ in range(num_nodes)]
         else:
-            assert num_gpus % self.gpu_per_node == 0
-            num_nodes = num_gpus // self.gpu_per_node
-            bundles = [{"GPU": self.gpu_per_node, "CPU": self.cpu_per_node} for _ in range(num_nodes)]
+            assert num_cpus is not None and isinstance(num_cpus, list), "num_cpus should be type of list"
+            bundles = [{"GPU": 0, "CPU": num_cpu} for num_cpu in num_cpus]
         pg = placement_group(bundles, strategy=strategy)
         warn_once = True
         while self.get_placement_group_state(pg) == "PENDING":

@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,10 +15,9 @@
 """Megatron generation with limit in min_prompt_length."""
 
 import inspect
-from megatron.text_generation import generation
 # pylint: disable=unused-import,wildcard-import
-from megatron.text_generation.generation import *
-from megatron.text_generation.generation import _build_attention_mask_and_position_ids
+from chatlearn.utils.megatron_import_hook_helper import *
+from chatlearn.utils.megatron_import_hook_helper import _build_attention_mask_and_position_ids
 # pylint: enable=unused-import,wildcard-import
 from chatlearn.utils.utils import detect_and_insert_code_to_func
 

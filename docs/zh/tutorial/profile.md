@@ -19,7 +19,7 @@ profiler_dir: path_to_profile_dir
 用户可以在系统的主配置文件中配置 rlhf 配置 `nsys: True` 来开启 nsys 的 profiler。
 
 ```yaml
-rlhf:
+runtime:
   nsys: True
 ```
 

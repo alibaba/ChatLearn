@@ -5,15 +5,15 @@ import torch
 import chatlearn
 from chatlearn.utils import future
 from chatlearn.runtime.engine import BaseEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 chatlearn.init()
-chatlearn.get_args().models["policy"].num_device = 2
+chatlearn.get_args().models["policy"].num_gpu = 2
 chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
-chatlearn.get_args().models["reference"].num_device = 2
+chatlearn.get_args().models["reference"].num_gpu = 2
 chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -25,7 +25,7 @@ class PolicyModel(RLHFTorchModule):
 
 
 
-class ReferenceModel(RLHFTorchModule):
+class ReferenceModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
