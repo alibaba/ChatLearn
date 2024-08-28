@@ -26,6 +26,7 @@ Please refer to [Environment and Code Setup](../installation.md).
 Please refer to [3-stage data](data.md) to prepare your training data.
 
 ## SFT
+=======
 
 SFT refers to the process of fine-tuning a pre-trained language model using annotated dialogue data. 
 In this example, we need to download the pre-trained model, and then start a simple SFT training demonstration.
@@ -84,6 +85,7 @@ In our training script, the resource requirements (assuming the resources are A1
 For the environment variables and configurations required for distributed execution, please refer to [Distributed Execution](run.md).
 
 ## Reward Model Training
+=========================
 
 The Reward model refers to the model that serves as a proxy for human evaluation in RLHF.
 It provides real-time evaluation and scoring of the model's generated question responses.
@@ -114,6 +116,7 @@ The resource requirements for training a reward model of the same scale are the 
 For the environment variables and configurations required for distributed execution, please refer to [Distributed Execution](run.md).
 
 ## Alignment Training
+======================
 
 ChatLearn supports multiple alignments: RLHF, DPO, OnlineDPO, GRPO
  
