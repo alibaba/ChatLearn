@@ -1,6 +1,6 @@
 #!/bin/bash
 set -exo pipefail
-export PYTHONPATH=$(cd ../ && pwd):${pwd}:${PYTHONPATH}
+export PYTHONPATH=$(cd ../ && pwd):${PWD}:${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
 rm -rf core*
@@ -58,6 +58,12 @@ function run_test {
 
 
 function run_all_tests {
+  run_test python test_rlhf_data_input.py -c "configs/rlhf.yaml"
+  run_test python test_data_dp.py -c "configs/rlhf.yaml"
+  run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_colocate_forward_train.py -c "configs/rlhf2.yaml"
+  run_test python test_evaluator_multi.py -c "configs/test_eval2.yaml"
+  run_test python test_rlhf_cpu.py -c "configs/rlhf_cpu.yaml"
   run_test python test_placement_colocate4.py -c "configs/rlhf.yaml"
   run_test python test_evaluator2.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_custom.py -c "configs/rlhf.yaml"
@@ -82,9 +88,11 @@ function run_all_tests {
   run_test python test_rlhf.py -c "configs/rlhf.yaml"
   run_test python test_args.py -c "configs/exp.yaml"
   run_test python test_utils.py
+  run_test python test_sampler.py
   run_test python test_distactor.py -c "configs/exp.yaml"
   run_test python test_placement.py -c "configs/exp.yaml"
   run_test python test_placement_colocate.py -c "configs/exp.yaml"
+  run_test python test_flat_tensors.py
   enable_indivisible_batch_size=True run_test python test_indivisible_batchsz.py -c "configs/rlhf.yaml"
 }
 

@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -20,7 +20,7 @@ import importlib
 megatron_exist = importlib.util.find_spec("megatron")
 
 if megatron_exist:
-    from megatron.initialize import initialize_megatron
+    from chatlearn.utils.megatron_import_helper import initialize_megatron
     if "args_dict" not in inspect.getfullargspec(initialize_megatron).args:
         from chatlearn.models.megatron.hooks import transformer
         from chatlearn.models.megatron.hooks import generation

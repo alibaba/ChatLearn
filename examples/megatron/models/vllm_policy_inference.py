@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,103 +14,81 @@
 # ==============================================================================
 """vllm policy inference"""
 
+import copy
+
 import torch
 import torch.nn.functional as F
 
-from dataset.prompt_dataset import VLLMPromptPipeline
-from models.vllm_policy_model import VLLMPolicyModel
+from chatlearn import VLLMModule
+from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 
-from vllm.transformers_utils.tokenizer import get_tokenizer
-
-from chatlearn import RLHFVLLMModule
-from chatlearn.utils.vllm_utils import get_model, print_rank_0
 from .utils import get_loss_mask
 
 
-class VLLMPolicyInference(RLHFVLLMModule):
+class VLLMPolicyInference(VLLMModule):
     """Policy vLLM Inference"""
 
-    def setup(self):
-        # Set up model and load checkpoint
-        self.tokenizer = get_tokenizer(
-            self.model_args.get("tokenizer"),
-            tokenizer_mode="auto",
-            trust_remote_code=False,
-            tokenizer_revision=None,
-            revision=None
-        )
-        model = [get_model(self.model_provider, self.model_args, wrap_with_ddp=False)]
-
-        assert len(model) == 1, "Above condition should have caught this"
-        self.model = model[0]
-
-        return 'ok'
-
     def build_dataset(self, train_prompts, is_eval=False):
-        '''
-        framework source: dataset = self.build_dataset(data)
-        :param train_prompts: all train prompts used in this training run??
-        :return:
-            a torch.utils.data.Dataset object for prompts_loader of all prompts, and
-        '''
+        if is_eval:
+            duplicated_train_prompts = train_prompts
+        else:
+            if self.model_args["init_shuffle_prompts"] == 2:
+                # this is to approximate n epochs and by pass the chatlearn epoch which currently hangs
+                # append epochs and shuffle epoch by epoch and attach them together
+                # and now num_inference_per_prompt is number of epochs
+                duplicated_train_prompts = []
+                for i in range(self.model_args["num_inference_per_prompt"]):
+                    train_prompts_cp = copy.deepcopy(train_prompts)
+                    random.shuffle(train_prompts_cp)
+                    duplicated_train_prompts.extend(train_prompts_cp)
+            elif self.model_args["init_shuffle_prompts"] == 0:
+                # otherwise, it's a huge epoch
+                duplicated_train_prompts = []
+                for p in train_prompts:
+                    duplicated_train_prompts.extend([p for i in range(self.model_args["num_inference_per_prompt"])])
+            else:
+                raise Exception(f"unsupported init_shuffle_prompts {init_shuffle_prompts}, expect 0 or 2.")
+
         max_prompt_length = (
             self.model_args.get("seq_length") - self.model_args.get("max_new_tokens")
         )
+        prompt_key = self.model_args.get("prompt_key")
         # TODO: read from files
         prompts_dataset = VLLMPromptPipeline(
-            train_prompts, max_prompt_length, self.tokenizer)
+            duplicated_train_prompts, max_prompt_length, self.tokenizer.tokenizer, prompt_key)
 
         return prompts_dataset
 
-    def model_provider(self):
-        """Build the model."""
-        print_rank_0('building vLLM model ...')
-        model = VLLMPolicyModel(self.model_config, self.model_args)
+    def eval_forward(self, data, iteration=0):
+        return self._forward_step(data, iteration, eval_mode=True)
 
-        return model
-
-    def eval_forward(self, data):
-        return self._forward_step(data, 0, eval_mode=True)
-
-    def _forward_step(self, data, iteration, eval_mode: bool):
+    def _forward_step(self, data, iteration, eval_mode):
         '''
-        RLHF calling
-        rlhf framework source:     policy_output = self.policy.forward_step(query)
-        :param data: entire global batch?? micro_batch?
+        ChatLearn calling
+        chatlearn framework source:     policy_output = self.policy.forward_step(query)
+        :param data: micro_batch
         :return:
-            data using current microbatch
+            data using current micro_batch
             {"all_tokens": tokens,  "str_samples": str_samples,
                 "str_prompts": str_prompts, "str_outputs": str_outputs, "logprobs": all_log_probs,
                 "no_padded_query_ids": no_padded_query_ids}
         '''
         assert iteration >= 0
-        assert eval_mode, "Expect eval mode is True for vllm policy model."
-        return self.model(
-            data["input_ids"],
-            data["positions"],
-            kv_caches=data["kv_caches"],
-            input_metadata=data["input_metadata"],
-            cache_events=data["cache_events"]
-        )
-
-    def _add_request(self, data):
-        return self._add_request_internal(data["prompt"], data["input_ids"])
-
-    def forward_step(self, data, iteration=0): # pylint: disable=unused-argumen
-        seq_group_metadata_list = data["seq_group_metadata_list"]
-        blocks_to_swap_in = data["blocks_to_swap_in"]
-        blocks_to_swap_out = data["blocks_to_swap_out"]
-        blocks_to_copy = data["blocks_to_copy"]
-
-        outputs = self.execute_step(
-            seq_group_metadata_list, blocks_to_swap_in, blocks_to_swap_out, blocks_to_copy)
+        assert isinstance(eval_mode, bool)
+        outputs = self.execute_step(data)
 
         return outputs
 
+    def _add_request(self, data, is_eval=False): # pylint: disable=arguments-differ
+        return self._add_request_internal(data["prompt"], data["input_ids"], is_eval=is_eval)
+
+    def forward_step(self, data, iteration=0): # pylint: disable=unused-argument
+        return self._forward_step(data, iteration, eval_mode=False)
+
     def decode_internal(self, batched_outputs):
         '''
-        RLHF calling
-        rlhf framework source:     policy_output = self.policy.forward_step(query)
+        ChatLearn calling
+        chatlearn framework source:     policy_output = self.policy.forward_step(query)
         :param batched_outputs: batched_outputs
         :return:
             data using current microbatch
@@ -118,62 +96,64 @@ class VLLMPolicyInference(RLHFVLLMModule):
                 "str_prompts": str_prompts, "str_outputs": str_outputs, "logprobs": all_log_probs,
                 "no_padded_query_ids": no_padded_query_ids}
         '''
+        max_tokens_length = self.model_args.get("seq_length")
         no_padded_query_ids = []
-        outputs_tokens = []
+        all_tokens = []
         str_outputs = []
         str_prompts = []
-        str_samples = []
         logprobs = []
-        max_prompt_len = 0
-        max_new_tokens = 0
         for output in batched_outputs:
-            max_prompt_len = max(max_prompt_len, len(output.prompt_token_ids))
-            str_prompts.append(output.prompt)
-            str_outputs.append(output.outputs[0].text)
-            str_samples.append(str_prompts[-1] + str_outputs[-1])
-            no_padded_query_ids.append(torch.tensor(output.prompt_token_ids))
-            max_new_tokens = max(max_new_tokens, len(output.outputs[0].token_ids))
-            outputs_tokens.append(torch.tensor(output.outputs[0].token_ids))
-            logprobs.append(torch.tensor([probs[output.outputs[0].token_ids[idx]] for idx, probs in enumerate(output.outputs[0].logprobs)]))
+            num_responses_per_prompt = len(output.outputs)
+            for res_idx in range(num_responses_per_prompt):
+                str_prompts.append(output.prompt)
+                str_outputs.append(output.outputs[res_idx].text)
+                no_padded_query_ids.append(torch.tensor(output.prompt_token_ids))
 
-        prompts_tokens = [
-            F.pad(
-                prompts_token,
-                (0, max_prompt_len - prompts_token.shape[0]),
-                value=self.tokenizer.eos_token_id,  # just pad_token_id
-            )
-            for prompts_token in no_padded_query_ids
-        ]
-        prompts_tokens_tensor = torch.vstack(prompts_tokens).to(torch.cuda.current_device())
+                output_logprobs = []
+                for idx, probs in enumerate(output.outputs[res_idx].logprobs):
+                    prob = probs[output.outputs[res_idx].token_ids[idx]]
+                    if isinstance(prob, float):
+                        output_logprobs.append(prob)
+                    else:
+                        output_logprobs.append(prob.logprob)
+                logprob = torch.tensor(output_logprobs)
+                if output.prompt_logprobs is not None:
+                    prompt_logprobs = []
+                    for idx, prompt_token_id in enumerate(output.prompt_token_ids):
+                        if idx == 0:
+                            continue
+                        prompt_logprobs.append(output.prompt_logprobs[idx][prompt_token_id])
+                else:
+                    prompt_logprobs = [0.0 for _ in range(len(output.prompt_token_ids) - 1)]
+                output_tokens = list(output.outputs[res_idx].token_ids)
+                all_tokens.append(torch.tensor(output.prompt_token_ids + output_tokens))
+                prompt_logprobs = torch.tensor(prompt_logprobs)
+                logprob = torch.cat([prompt_logprobs, logprob])
+                logprobs.append(logprob)
 
-        outputs_tokens = [
+        all_tokens = [
             F.pad(
-                output_token,
-                (0, max_new_tokens - output_token.shape[0]),
-                value=self.tokenizer.eos_token_id,  # just pad_token_id
+                all_token,
+                (0, max_tokens_length - all_token.shape[0]),
+                value=self.tokenizer.tokenizer.eos_token_id,  # just pad_token_id
             )
-            for output_token in outputs_tokens
+            for all_token in all_tokens
         ]
-        output_tokens_tensor = torch.vstack(outputs_tokens).to(torch.cuda.current_device())
+        all_tokens = torch.vstack(all_tokens)
 
         logprobs = [
             F.pad(
                 logprob,
-                (0, max_new_tokens - logprob.shape[0]),
+                (0, max_tokens_length - logprob.shape[0] - 1),
                 value=0.0
             )
             for logprob in logprobs
         ]
-        logprobs = torch.vstack(logprobs).to(torch.cuda.current_device())
-        logprobs_left_padding = torch.zeros(
-            [logprobs.size(0), logprobs.size(1) - 1], dtype=logprobs.dtype, layout=logprobs.layout, device=logprobs.device)
-        logprobs = torch.cat([logprobs_left_padding, logprobs], dim=1)
-
-        all_tokens = torch.cat([prompts_tokens_tensor, output_tokens_tensor], dim=1)
+        logprobs = torch.vstack(logprobs)
 
         prompt_sizes = torch.tensor([len(q) for q in no_padded_query_ids], device=all_tokens.device)
-        loss_mask = get_loss_mask(all_tokens, self.tokenizer.eos_token_id, prompt_sizes)
-
+        loss_mask = get_loss_mask(all_tokens, self.tokenizer.tokenizer.eos_token_id, prompt_sizes)
+        loss_mask = loss_mask.to("cpu")
         return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts,
             "no_padded_query_ids": no_padded_query_ids, "logprobs": logprobs,
             "loss_mask": loss_mask}

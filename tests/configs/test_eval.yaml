@@ -9,9 +9,9 @@ runtime_env:
 
 models:
     policy:
-        num_device: 2
+        num_gpu: 2
         trainable: False
 
-rlhf:
+runtime:
     debug: True
     generation_batch_size: 4

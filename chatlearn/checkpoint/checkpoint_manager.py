@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -82,15 +82,15 @@ class CheckpointManager:
         meta_data = {"episode": episode,
                      "train_iteration": train_iter,
                      "consumed_samples": consumed_samples,
-                     "sample_per_episode": self._model.rlhf_args.sample_per_episode}
+                     "sample_per_episode": self._model.runtime_args.sample_per_episode}
 
         with open(_get_path("meta.pkl"), 'wb') as f:
             pickle.dump(meta_data, f)
-
-        self._set_latest_iteration(train_iter)
-        # only reserve max nums of ckpt folders if needed
-        if isinstance(self._max_ckpt_nums, int):
-            self._delete_ckpt_files()
+        if replica_id == 0:
+            self._set_latest_iteration(train_iter)
+            # only reserve max nums of ckpt folders if needed
+            if isinstance(self._max_ckpt_nums, int):
+                self._delete_ckpt_files()
         log_rank_0("Checkpointing is done.")
         return True
 
@@ -133,7 +133,7 @@ class CheckpointManager:
             return self._meta
         meta = self.resume_meta()
         if meta is not None:
-            self._model.rlhf_args.consumed_samples = meta["consumed_samples"]
+            self._model.runtime_args.consumed_samples = meta["consumed_samples"]
             log_rank_0(f"set consumed_samples to {meta['consumed_samples']}")
         self._resumed = True
         return meta

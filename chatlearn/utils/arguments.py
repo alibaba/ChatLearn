@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,7 @@ from typing import List
 
 import yaml
 
-from chatlearn.utils.constant import LORA_LAYER
+from chatlearn.utils.constant import LORA_LAYER, RAY_PG_STRATEGY, PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -73,7 +73,10 @@ def update_dict(src, dst):
 
 def parse_args_from_yaml(config_file, config_dir):
     with open(config_file, 'r', encoding='utf-8') as stream:
-        config_vars = yaml.load(stream, Loader=yaml.FullLoader)
+        config_vars = yaml.load(stream, Loader=yaml.SafeLoader)
+        # empty yaml file
+        if config_vars is None:
+            return {}
         config_vars = {key: parse_value(value) for key, value in config_vars.items()}
         if 'includes' in config_vars:
             includes_vars = {}
@@ -88,7 +91,7 @@ def parse_args_from_yaml(config_file, config_dir):
 
 def parse_args():
     """Parse all arguments."""
-    parser = argparse.ArgumentParser(description='RLHF Arguments',
+    parser = argparse.ArgumentParser(description='ChatLearn Arguments',
                                      allow_abbrev=False)
 
     parser.add_argument("-c", "--config",
@@ -184,16 +187,28 @@ class BatchGenerationConfig(SubConfig):
 class ModelConfig(BaseConfig):
     """Config for model."""
 
-    #: [required] number of device used for one model, default 1.
-    num_device: int = 1
+    #: [legacy] number of GPU used for one model, default 0.
+    num_device: int = 0
+    #: [required] number of GPU used for one model, default 0, same as num_device
+    num_gpu: int = 0
+    #: [required] number of GPU used for one model, default 0
+    num_cpu: int = 0
     #: [optional] gpu per process, e.g., for PyTorch DDP, Megatron, DeepSpeed, `gpu_per_process` is set to 1
-    gpu_per_process: int = 1
+    gpu_per_process: int = None
+    #: [optional] cpu per process
+    cpu_per_process: int = None
+    #: [optional] number of module replica,
+    #: for gpu model, num_replica = num_gpu // (TP * PP * DP),
+    #: for cpu model, num_replica = num_cpu // cpu_per_process
+    num_replica: int = 1
     #: [required] whether model is trainable
     trainable: bool = False
     #: [optional] tensor model parallel size
     tensor_model_parallel_size: int = None
     #: [optional] pipeline model parallel size
     pipeline_model_parallel_size: int = None
+    #: [optional] zero size
+    zero_size: int = None
     #: [optional] config file for model
     model_config_file: str = ""
     config_dir: str = ""
@@ -201,7 +216,7 @@ class ModelConfig(BaseConfig):
     model_type: str = ""
     #: [optional] placeholder for other args
     args_dict: dict = None
-    #: [optional] generation batch size, will overwrite generation batch size in RLHFConfig
+    #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
     generation_batch_size: int = -1
     #: lora config
     lora: LoraConfig = None
@@ -209,6 +224,14 @@ class ModelConfig(BaseConfig):
     batch_generation: BatchGenerationConfig = None
     #: offload optimizer states
     offload_optimizer_states = False
+    #: parameter sync frequency
+    sync_frequency = 1
+    #: offload weights
+    offload_weights = False
+    #: free grad buffers
+    free_grad_buffers = False
+    #: overall switch for offload optimizer states/weights and free grad buffers
+    free_memory = False
 
     def __init__(self):
         super().__init__()
@@ -234,11 +257,11 @@ class ModelConfig(BaseConfig):
         return ser_str
 
 
-class RLHFConfig(BaseConfig):
-    """RLHF training related configs."""
+class RuntimeConfig(BaseConfig):
+    """training related configs."""
 
-    #: [required] number of ppo episodes. One episode includes a inference and training loop.
-    num_ppo_episode: int = 5000
+    #: [required] number of episodes. One episode includes a inference and training loop.
+    num_episode: int = 5000
     #: [required] number of samples per episode.
     sample_per_episode: int = 1000
     #: [optional] number of training epoch per episode. default set to 1.
@@ -267,7 +290,7 @@ class RLHFConfig(BaseConfig):
     max_data_ckpt_nums: int = None
     #: [optional]: load data checkpoint from iteration
     load_data_checkpoint_iteration: int = None
-    #: [optional]: stream_data_loader type, ["fixed", "dynamic", "relay"]
+    #: [optional]: stream_data_loader type, ["fixed", "dynamic"]
     stream_data_loader_type: str = "fixed"
     #: private
     debug: bool = False
@@ -281,12 +304,31 @@ class RLHFConfig(BaseConfig):
     coalesced_buffer_mb: int = 100
     #: concurrent parameter sync
     concurrent_comm: bool = True
+    #: parameter sync communication type, broadcast/p2p
+    param_sync_comm_type: str = PARAM_SYNC_COMM_TYPE.BROADCAST.value
+    #: parameter sync max workers
+    param_sync_max_workers: int = None
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
-    max_relay_episode: int = 1
+    #: if `max_relay_episode` is set to 0, then relay is disabled
+    max_relay_episode: int = 0
+    #: relay after n episodes
+    relay_episode_offset: int = 0
     #: consumed samples
     consumed_samples: int = 0
     #: concurrent model setup
     concurrent_setup: bool = False
+    #: bucket size in the memory manager to reduce peak memory
+    bucket_size_mb_in_memory_manager: int = 1024
+    #: free collective group after parameter synchronization and rebuild before next synchronization
+    free_sync_collective_group: bool = False
+    #: [optional] cpu only model schedule policy, PACK or SPREAD
+    #: PACK: All provided bundles are packed onto a single node on a best-effort basis.
+    #: SPREAD: Each bundle is spread onto separate nodes on a best-effort basis.
+    cpu_schedule_strategy: str = RAY_PG_STRATEGY.SPREAD.value
+    #: exp name for each run
+    exp_name: str = "CHATLEARN"
+    #: output dir
+    output_dir: str = "./"
 
     def __init__(self):
         super().__init__()
@@ -302,7 +344,7 @@ class RLHFConfig(BaseConfig):
             key to get config
         """
         if key not in self._args_dict:
-            logger.warning(f"{key} not found in RLHFConfig")
+            logger.warning(f"{key} not found in RuntimeConfig")
         else:
             return self._args_dict[key]
 
@@ -361,7 +403,7 @@ class Config(BaseConfig):
         self._finalize = False
         self.models = {}
         self.env_args = RuntimeEnvConfig()
-        self.rlhf_args = RLHFConfig()
+        self.runtime_args = RuntimeConfig()
         self.config_dir = config_dir
         self._active_module_args = None
 
@@ -369,6 +411,8 @@ class Config(BaseConfig):
         if param_dict:
             self._parse_params(param_dict)
             self._validate_params()
+        # remove later, just for compatibility
+        self.rlhf_args = self.runtime_args
         self._finalize = True
 
     def _parse_params(self, param_dict):
@@ -405,6 +449,13 @@ class Config(BaseConfig):
             for user_attribute, user_value in model_args.items():
                 if hasattr(ModelConfig, user_attribute):
                     original_value = getattr(ModelConfig, user_attribute)
+                    if 'num_device' == user_attribute:
+                        logger.warning("num_device is deprecated, please use num_gpu instead")
+                        if 'num_gpu' not in model_args.keys():
+                            setattr(model_config, "num_gpu", user_value)
+                        else:
+                            logger.warning("both num_device and num_gpu are set, use num_gpu")
+                            continue
                     if 'lora' == user_attribute:
                         set_param(user_value, LoraConfig, model_config.lora)
                         user_value = model_config.lora
@@ -422,8 +473,11 @@ class Config(BaseConfig):
             if model_config.model_config_file:
                 model_config.model_config_file = get_path(model_config.model_config_file, self.config_dir)
                 model_config.args_dict = parse_args_from_yaml(model_config.model_config_file, self.config_dir)
-        if "rlhf" in param_dict:
-            set_param(param_dict["rlhf"], RLHFConfig, self.rlhf_args)
+        if "runtime" in param_dict:
+            set_param(param_dict["runtime"], RuntimeConfig, self.runtime_args)
+        elif "rlhf" in param_dict:
+            logger.warning("rlhf is deprecated, please use runtime as section name")
+            set_param(param_dict["rlhf"], RuntimeConfig, self.runtime_args)
         if "runtime_env" in param_dict:
             set_param(param_dict["runtime_env"], RuntimeEnvConfig, self.env_args)
 
@@ -439,46 +493,77 @@ class Config(BaseConfig):
             return value
 
     def _validate_params(self):
-        if self.rlhf_args.train_global_batch_size is None:
-            self.rlhf_args.train_global_batch_size = self.rlhf_args.train_micro_batch_size
-        assert self.rlhf_args.train_global_batch_size % self.rlhf_args.train_micro_batch_size == 0, \
+        if self.runtime_args.train_global_batch_size is None:
+            self.runtime_args.train_global_batch_size = self.runtime_args.train_micro_batch_size
+        assert self.runtime_args.train_global_batch_size % self.runtime_args.train_micro_batch_size == 0, \
             f"train_global_batch_size should be times of train_micro_batch_size," \
-            f"but got {self.rlhf_args.train_global_batch_size}/{self.rlhf_args.train_micro_batch_size}" 
-        assert self.rlhf_args.stream_data_loader_type.lower() in ["fixed", "dynamic", "relay"]
-
+            f"but got {self.runtime_args.train_global_batch_size}/{self.runtime_args.train_micro_batch_size}"
+        assert self.runtime_args.stream_data_loader_type.lower() in ["fixed", "dynamic"]
+        assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
+        assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)
         for model_name, model_args in self.models.items():
-            assert model_args.gpu_per_process <= model_args.num_device
+            if model_args.num_gpu > 1:
+                if model_args.gpu_per_process is None:
+                    model_args.gpu_per_process = 1
+                else:
+                    assert model_args.gpu_per_process <= model_args.num_gpu, \
+                        f"{model_name}: gpu_per_process: {model_args.gpu_per_process}, num_cpu: {model_args.num_gpu}"
+            elif model_args.num_cpu > 1:
+                if model_args.cpu_per_process is None:
+                    model_args.cpu_per_process = 1
+                else:
+                    assert model_args.cpu_per_process <= model_args.num_cpu, \
+                        f"{model_name}: cpu_per_process: {model_args.cpu_per_process}, num_cpu: {model_args.num_cpu}"
             if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
-                if self.rlhf_args.generation_batch_size:
-                    model_args.generation_batch_size = self.rlhf_args.generation_batch_size
-            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size"]:
+                if self.runtime_args.generation_batch_size:
+                    model_args.generation_batch_size = self.runtime_args.generation_batch_size
+            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
                     assert getattr(model_args, key) >= 1
-                else:
+                elif getattr(model_args, key) is None:
                     setattr(model_args, key, 1)
-            assert model_args.num_device % (
-                model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size) == 0, \
-                "num_device must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size " \
-                f"for {model_name} model, but got num_device = {model_args.num_device}, "\
-                f"tensor_model_parallel_size = {model_args.tensor_model_parallel_size}, and " \
-                f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}."
-            model_args.num_replica = model_args.num_device // (
-                model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)
-            assert model_args.num_replica * model_args.generation_batch_size <= self.rlhf_args.sample_per_episode, \
+            if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1:
+                assert model_args.zero_size == 1 or model_args.zero_size is None
+                assert model_args.num_gpu % (
+                    model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size) == 0, \
+                    "num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size " \
+                    f"for {model_name} model, but got num_gpu = {model_args.num_gpu}" \
+                    f"tensor_model_parallel_size = {model_args.tensor_model_parallel_size}, and " \
+                    f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}."
+            assert model_args.num_gpu > 0 or model_args.num_cpu > 0, \
+                f"{model_name} num_gpu: {model_args.num_gpu}, num_cpu: {model_args.num_cpu}, at least one of them should be set"
+
+            if model_args.num_gpu >= 1:
+                if model_args.zero_size > 1:
+                    assert model_args.num_gpu % model_args.zero_size == 0
+                    model_args.num_replica = model_args.num_gpu // model_args.zero_size
+                else:
+                    model_args.num_replica = model_args.num_gpu // (
+                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)
+            elif model_args.num_cpu >= 1:
+                model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
+            assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \
                 f"num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
-                f"should be less than sample_per_episode {self.rlhf_args.sample_per_episode}"
+                f"should be less than sample_per_episode {self.runtime_args.sample_per_episode}"
             if model_args.batch_generation.min_prompt_length:
                 logger.info(f"Enable batch generation: \
                     min_prompt_length = {model_args.batch_generation.min_prompt_length}")
-        if self.rlhf_args.colocation and len(self.rlhf_args.colocation) > 0:
+            if model_args.free_memory:
+                model_args.offload_weights = True
+                if model_args.trainable:
+                    model_args.free_grad_buffers = True
+                    model_args.offload_optimizer_states = True
+        if self.runtime_args.colocation and len(self.runtime_args.colocation) > 0:
             model_set = set()
-            for colocate_models in self.rlhf_args.colocation:
+            for colocate_models in self.runtime_args.colocation:
                 for model_name in colocate_models:
                     assert model_name not in model_set, f"Model {model_name} should only appear once in colocation group"
                     model_set.add(model_name)
+        if self.runtime_args.exp_name not in self.runtime_args.output_dir:
+            self.runtime_args.output_dir = f"{self.runtime_args.output_dir}/{self.runtime_args.exp_name}"
         logger.info(f"Env Config: \n{self.env_args}")
-        logger.info(f"RLHF Config: \n{self.rlhf_args}")
+        logger.info(f"Runtime Config: \n{self.runtime_args}")
         for name, model_args in self.models.items():
             logger.info(f"Model({name}) Config: \n{model_args}")
 

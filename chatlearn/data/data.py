@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -98,10 +98,10 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, batch_size, padding_config=None, max_relay_episode=1):
+    def __init__(self, data_loader_type, batch_size, padding_config=None, max_relay_episode=0, relay_episode_offset=0):
         """
         Args:
-            data_loader_type: fixed/dynamic/relay
+            data_loader_type: fixed or dynamic
         """
         if data_loader_type == "fixed":
             self._dynamic_dataset = False
@@ -114,8 +114,8 @@ class StreamDataset:
         if max_relay_episode < 0:
             max_relay_episode = math.inf
         self._max_relay_episode = max_relay_episode
+        self._relay_episode_offset = relay_episode_offset
         self._episode_relay_buffers = []
-
 
     def shuffle(self):
         """
@@ -197,12 +197,12 @@ class StreamDataset:
 
     def set_dataset(self, queue, episode_id, relay_sample_fn=None, sample_per_episode=-1):
         relay_buffer = EpisodeRelayBuffer(episode_id, queue=queue)
-        if self._max_relay_episode > 1:
+        if self._max_relay_episode > 0 and episode_id >= self._relay_episode_offset:
             self._episode_relay_buffers.append(relay_buffer)
             if len(self._episode_relay_buffers) > self._max_relay_episode:
                 old_buffer = self._episode_relay_buffers.pop(0)
                 del old_buffer
-        if self._max_relay_episode > 1:
+
             # this function will sync until all data computing finished,
             # which will block training until environment rollout finished.
             relay_buffer.sync()

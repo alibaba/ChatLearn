@@ -7,7 +7,7 @@ import ray
 
 import chatlearn
 from chatlearn import RLHFEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
@@ -23,11 +23,11 @@ class CustomDataset(Dataset):
 
 chatlearn.init()
 
-chatlearn.get_args().rlhf_args.max_relay_episode = 1
+chatlearn.get_args().runtime_args.max_relay_episode = 1
 
-sample_per_episode = chatlearn.get_args().rlhf_args.sample_per_episode
+sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -39,13 +39,13 @@ class PolicyModel(RLHFTorchModule):
         data["policy_out"] = torch.ones([bs, 1024]).cuda()
         return data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
 
-class ReferenceModel(RLHFTorchModule):
+class ReferenceModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -55,7 +55,7 @@ class ReferenceModel(RLHFTorchModule):
         return data
 
 
-class RewardModel(RLHFTorchModule):
+class RewardModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -64,7 +64,7 @@ class RewardModel(RLHFTorchModule):
         return data
 
 
-class ValueModel(RLHFTorchModule):
+class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         print("value forward =========", flush=True)
@@ -72,16 +72,16 @@ class ValueModel(RLHFTorchModule):
         return data
 
 
-class PPOPolicy(RLHFTorchModule):
+class PPOPolicy(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
-class PPOValue(RLHFTorchModule):
+class PPOValue(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
@@ -99,7 +99,7 @@ def relay_sample_fn(episode_relay_buffers):
     for relay_buffer in episode_relay_buffers:
         buffers += relay_buffer.buffer
     episode_id = episode_relay_buffers[-1].episode_id
-    assert len(buffers) == (episode_id+1) * sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
+    assert len(buffers) == sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
     return buffers
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
@@ -111,9 +111,9 @@ engine.set_dataset([data] * 35)
 
 engine.learn()
 assert len(engine.env._dataset) == 35, len(engine.env._dataset)
-ref = engine._ppo_data_loader.episode_relay_buffers.remote()
+ref = engine._data_loader.episode_relay_buffers.remote()
 episode_relay_buffers = ray.get(ref)
 print(episode_relay_buffers)
-micro_batch_per_episode = ray.get(engine._ppo_data_loader.batch_per_episode.remote())
+micro_batch_per_episode = ray.get(engine._data_loader.batch_per_episode.remote())
 assert micro_batch_per_episode == 4
-assert engine.trainer.num_training_iteration() == 2
+assert engine.trainer.num_iteration == 2

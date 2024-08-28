@@ -7,16 +7,16 @@ import random
 
 import chatlearn
 from chatlearn import RLHFEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 from chatlearn.utils import future
 from chatlearn.data.data import StreamDataset
 
 
 chatlearn.init()
 args = chatlearn.get_args()
-sample_per_episode = chatlearn.get_args().rlhf_args.sample_per_episode
+sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
 
-def get_ppo_batches(modify_generation_batch_size=False):
+def get_batches(modify_generation_batch_size=False):
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
     reward = RewardModel("reward")
@@ -43,19 +43,22 @@ def get_ppo_batches(modify_generation_batch_size=False):
     if engine.evaluator:
         engine.evaluator.setup()
 
-    ppo_data_loader = StreamDataset.remote(engine.rlhf_args.stream_data_loader_type,
-                                            engine.rlhf_args.train_micro_batch_size,
+    data_loader = StreamDataset.remote(engine.runtime_args.stream_data_loader_type,
+                                            engine.runtime_args.train_micro_batch_size,
                                             engine.env._padding_config,
-                                            engine.rlhf_args.max_relay_episode)
-    engine._ppo_data_loader = ppo_data_loader
+                                            engine.runtime_args.max_relay_episode,
+                                            engine.runtime_args.relay_episode_offset)
+    engine._data_loader = data_loader
+    engine.trainer.num_micro_batch_per_dp = engine.trainer.args.train_global_batch_size // \
+        engine.trainer.args.train_micro_batch_size // engine.trainer.data_parallel_size
     train_datas = []
     for episode_id in range(20):
         print(f"Testing episode {episode_id}...")
         engine.before_episode()
         queue = engine.env.make_experiences()
-        refs = ppo_data_loader.set_dataset.remote(queue, episode_id, sample_per_episode=sample_per_episode)
+        refs = data_loader.set_dataset.remote(queue, episode_id, sample_per_episode=sample_per_episode)
         future.wait(refs)
-        engine.trainer.set_data_loader(ppo_data_loader)
+        engine.trainer.set_data_loader(data_loader)
         train_datas.extend([engine.trainer.next_batch() for step in range(2)])
         engine.evaluate(episode_id)
     engine.stop()
@@ -82,7 +85,7 @@ class CustomDataset(Dataset):
             batched_data[sample_key] = torch.stack(sample_value)
         return batched_data
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -92,12 +95,12 @@ class PolicyModel(RLHFTorchModule):
         data["policy_out"] = data["query"].cuda()
         return data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
-class ReferenceModel(RLHFTorchModule):
+class ReferenceModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -107,7 +110,7 @@ class ReferenceModel(RLHFTorchModule):
         return data
 
 
-class RewardModel(RLHFTorchModule):
+class RewardModel(TorchModule):
 
 
     def forward_step(self, data, iteration):
@@ -116,7 +119,7 @@ class RewardModel(RLHFTorchModule):
         return data
 
 
-class ValueModel(RLHFTorchModule):
+class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         print("value forward =========", flush=True)
@@ -124,27 +127,27 @@ class ValueModel(RLHFTorchModule):
         return data
 
 
-class PPOPolicy(RLHFTorchModule):
+class PPOPolicy(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
-class PPOValue(RLHFTorchModule):
+class PPOValue(TorchModule):
 
-    def train_step(self, data, train_info):
+    def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
-divisible_batches = get_ppo_batches()
+divisible_batches = get_batches()
 
-indivisible_batches = get_ppo_batches(modify_generation_batch_size=True)
+indivisible_batches = get_batches(modify_generation_batch_size=True)
 
 assert len(divisible_batches) == len(indivisible_batches), \
-    f"Divisible ppo data loader has {len(divisible_batches)} batches, " \
-    f"while indivisible ppo data loader has {len(indivisible_batches)} batches."
+    f"Divisible data loader has {len(divisible_batches)} batches, " \
+    f"while indivisible data loader has {len(indivisible_batches)} batches."
 
 for divisible_data_refs, indivisible_data_refs in list(zip(divisible_batches, indivisible_batches)):
     if divisible_data_refs is None and indivisible_data_refs is None:

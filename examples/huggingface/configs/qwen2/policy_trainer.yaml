@@ -1,0 +1,10 @@
+includes:
+  - base.yaml
+normalize_reward: True
+zero_stage: 3
+# rename to model_path
+pretrain_or_model: ${policy_model_path}
+learning_rate: 5e-6
+l2: 0.0
+learning_rate: 5e-7
+gradient_checkpointing: True

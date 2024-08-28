@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,13 +15,14 @@
 """reward model"""
 
 import torch
-from dataset.reward_dataset import preprocess
-from megatron import get_args
-from megatron import print_rank_0
+from megatron.training import get_args
+from megatron.training import print_rank_0
 from megatron.core import tensor_parallel
-from megatron.model import GPTModel
-from megatron.model.module import MegatronModule
-from megatron.model.utils import get_linear_layer
+from megatron.legacy.model import GPTModel
+from megatron.legacy.model.module import MegatronModule
+from megatron.legacy.model.utils import get_linear_layer
+
+from examples.megatron.data.reward_dataset import preprocess
 from .utils import has_config_in_args
 
 
@@ -93,7 +94,7 @@ class RewardModel(GPTModel):
         args = get_args()
         if has_config_in_args(GPTModel):
             # new API
-            from megatron.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
+            from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
             config = core_transformer_config_from_args(args)
             super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
         else:
@@ -111,6 +112,7 @@ class RewardModel(GPTModel):
                 labels=None, tokentype_ids=None, inference_params=None, # pylint: disable=unused-argument
                 pooling_sequence_index=None,
                 list_strs=None,  # pylint: disable=unused-argument
+                inference_config=None
                 ):
         lm_output = self.language_model(
             input_ids,
@@ -121,7 +123,14 @@ class RewardModel(GPTModel):
             ret_attn_mask,
             inference_params=inference_params)
         if self.post_process:
-            assert labels is None, "assume labels is None in reawrd model"
+            if inference_config is not None and "batch_encode" in inference_config:
+                print('GPTrewrad model batch encoding, give the transformers encodings')
+                if get_args().sequence_parallel:
+                    lm_output = tensor_parallel.gather_from_sequence_parallel_region(
+                        lm_output,  # [s, b, h]
+                        tensor_parallel_output_grad=False)
+                return lm_output
+            assert labels is None, "assume labels is None in reward model"
             return self.pooler_head(lm_output, pooling_sequence_index)
         # [b x score_dim]
         return lm_output
@@ -140,7 +149,7 @@ class RewardModel(GPTModel):
         """Customized load."""
         super().load_state_dict(state_dict, strict)
         if self._pooler_head_key in state_dict:
-            # for rlhf training
+            # for alignment training
             print_rank_0("load reward model pooler_head success")
             self.pooler_head.load_state_dict(state_dict[self._pooler_head_key], strict=strict)
         elif self.post_process:

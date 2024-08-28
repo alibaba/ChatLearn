@@ -5,10 +5,10 @@ import torch
 import chatlearn
 from chatlearn.utils import future
 from chatlearn.runtime.engine import BaseEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 chatlearn.init()
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)

@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,21 +22,21 @@ from pathlib import Path
 from time import time
 
 import torch
-from megatron import get_args
-from megatron import get_tokenizer
 from megatron.core import mpu
-from megatron.global_vars import get_tensorboard_writer
+from megatron.training import get_args
 from megatron.training import get_model
-from megatron.utils import get_ltor_masks_and_position_ids
-from models.reward_model import batch_padded_tokenize_data, model_provider
+from megatron.training import get_tokenizer
+from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.utils import get_ltor_masks_and_position_ids
 
-from chatlearn import RLHFMegatronModule
+import chatlearn
+from chatlearn import MegatronModule
 from chatlearn.utils import to_device
 from chatlearn.utils.megatron_utils import load_checkpoint
-from .constants_ppo import RunningMoments, get_running_stats, reset_running_stats
+from .reward_model import batch_padded_tokenize_data, model_provider
+from .utils import tensorboard_scalar_dict, get_eos_id
+from .constants import RunningMoments, get_running_stats, reset_running_stats
 from .forward_step import forward_step_helper
-from .utils import tensorboard_scalar_dict
-from .utils import get_eos_id
 
 ANS_RE = re.compile(r"#### (\-?[0-9\.\,]+)")
 INVALID_ANS = "[invalid]"
@@ -52,8 +52,8 @@ def dump_jsonl_chinese(res, file_path, mode="w"):
 
 
 def save_list_str(list_strs, iteration):
-    args = get_args()
-    inference_output_path = f"{args.log_dir}/{args.exp_name}/inference_outputs_{iteration}.json"
+    args = chatlearn.get_args().runtime_args
+    inference_output_path = f"{args.output_dir}/inference_outputs/inference_outputs_{iteration}.json"
     Path(inference_output_path).parent.mkdir(parents=True, exist_ok=True)
 
     res = []
@@ -63,7 +63,7 @@ def save_list_str(list_strs, iteration):
     dump_jsonl_chinese(res, inference_output_path, mode="a")
 
 
-class RewardInference(RLHFMegatronModule):
+class RewardInference(MegatronModule):
     """RewardInference"""
 
     def setup(self):
@@ -95,8 +95,6 @@ class RewardInference(RLHFMegatronModule):
         self.add_padding_config("action_logprobs", 0.0)
         self.add_padding_config("action_values", 0.0)
         self.add_padding_config("action_rewards", 0.0)
-        return 'ok'
-
 
     def normalized_and_clip(self, scores):
         if self.model_args['scale_reward'] == "running":
@@ -217,7 +215,7 @@ class RewardInference(RLHFMegatronModule):
                 scores = self.args.raw_reward_coeff * scores.view(-1, 1)
             else:
                 # we only need last rank results, so return None for other rank
-                return
+                return None, None
         else:
             scores = torch.zeros(n, 1, device=loss_mask.device)
         if self.args.ngram_coef > 0:
@@ -259,6 +257,12 @@ class RewardInference(RLHFMegatronModule):
             self.stats["rewards/klrewards_max"] = kl_rw_sums.max()
             self.stats["rewards/klrewards_min"] = kl_rw_sums.min()
             self.per_episode_metrics["rewards/klrewards"].update(kl_rw_sums)
+
+            action_lengths = []
+            for action_token in action_tokens:
+                action_lengths.append(action_token.size(0))
+            action_lengths = torch.tensor(action_lengths, dtype=torch.float32, device=torch.cuda.current_device())
+            self.per_episode_metrics["action_lengths"].update(action_lengths)
 
         if self.args.lm_coef > 0:
             lm_reward = self.args.lm_coef * ref_logprobs
@@ -305,7 +309,8 @@ class RewardInference(RLHFMegatronModule):
             self.per_episode_metrics["rewards/all_rw_sum"].update(all_rw_means)
             self.stats["rewards/all_rw_sum_max"] = all_rw_means.max()
             self.stats["rewards/all_rw_sum_min"] = all_rw_means.min()
-        return all_rewards
+
+        return all_rewards, scores.view(-1).cpu().tolist()
 
     def forward_step(self, data, iteration=None):
         '''
@@ -330,7 +335,7 @@ class RewardInference(RLHFMegatronModule):
                 # last rank save inference output
                 save_list_str(list_strs, iteration)
 
-        old_value = data["old_values"]
+        old_value = data["old_values"] if "old_values" in data else None
         ref_logprobs = data["ref_logprobs"]
         logprobs = data["logprobs"]
 
@@ -351,15 +356,17 @@ class RewardInference(RLHFMegatronModule):
                 1), f"{ref_logprobs.size(1)}, {all_tokens_right_padded.size(1)} "
             assert logprobs.size(1) + 1 == all_tokens_right_padded.size(
                 1), f"{logprobs.size(1)}, {all_tokens_right_padded.size(1)} "
-            assert old_value.size(1) == all_tokens_right_padded.size(
-                1), f"{old_value.size(1)}, {all_tokens_right_padded.size(1)} "
+            if old_value is not None:
+                assert old_value.size(1) == all_tokens_right_padded.size(
+                    1), f"{old_value.size(1)}, {all_tokens_right_padded.size(1)} "
 
         n = all_tokens_right_padded.shape[0]
         # if ends with a eos_token also pad, it doesn't change.
         # if stopped due to len limit, discard last token to align with rewards.
         # because reward is r(s,a) which is a state action pair starts from state,
         # thus the last unstopped token has no reward assigned and thus need to discard
-        values = old_value[:, :-1]
+        if old_value is not None:
+            values = old_value[:, :-1]
 
         if self.args.loss_on_prompts:
             # because first token has no prob and serve as the first token to attend to so no loss
@@ -378,11 +385,14 @@ class RewardInference(RLHFMegatronModule):
         # eg [ pad, q1, q2, q3, a1, a2, a3, pad, pad] -> ends[i] = 4
         # eg [ pad, q1, q2, q3, a1, a2, a3] -> [ pad, q1, q2, q3, a1, a2] ends[i] = 3
         # all values = value(hidden(q3, a1, a2, a3)).
-        all_values = [values[ix, starts[ix] - 1: ends[ix] - 1] for ix in range(n)]  # we want states
+        if old_value is not None:
+            all_values = [values[ix, starts[ix] - 1: ends[ix] - 1] for ix in range(n)]  # we want states
+        else:
+            all_values = None
 
         action_tokens = [all_tokens_right_padded[ix, starts[ix]: ends[ix]] for ix in range(n)]
 
-        all_rewards = self.get_all_rewards(starts, ends, loss_mask, all_tokens_right_padded, logprobs,
+        all_rewards, rm_rewards_list = self.get_all_rewards(starts, ends, loss_mask, all_tokens_right_padded, logprobs,
                                            ref_logprobs, kl_coef, action_tokens, list_strs)
 
         # [ pad, q1, q2, q3, a1, a2, a3], logprobs= logprob[ q1, q2, q3, a1, a2, a3]
@@ -392,16 +402,24 @@ class RewardInference(RLHFMegatronModule):
         if self.args.log_interval > 0 and mpu.is_pipeline_last_stage():
             for i in range(n):
                 # for each traj, num states == num actions
-                assert all_logprobs[i].size(0) == all_values[i].size(0) == all_rewards[i].size(0), \
-                    f"all_rewards[i].size() {all_rewards[i].size(0)} all_values[i].size(0) {all_values[i].size(0)}" \
-                    f"all_logprobs[i].size(0) {all_logprobs[i].size(0)}"
+
+                assert all_logprobs[i].size(0) == all_rewards[i].size(0), \
+                    f"all_rewards[i].size() {all_rewards[i].size(0)} all_logprobs[i].size(0) {all_logprobs[i].size(0)}"
+                if old_value is not None:
+                    assert all_logprobs[i].size(0) == all_values[i].size(0), \
+                    f"all_logprobs[i].size() {all_logprobs[i].size(0)} all_values[i].size(0) {all_values[i].size(0)}"
 
         if self.args.log_interval > 0 and iteration % self.args.log_interval == 0 and mpu.is_pipeline_last_stage():
             self.log_each_step(iteration)
 
-        return {"all_token_ids_right_padded": all_tokens_right_padded, "action_start_indices": starts,
-                "action_logprobs": all_logprobs,
-                "action_values": all_values, "action_rewards": all_rewards, "loss_mask": loss_mask}
+        res_dict = {"all_token_ids_right_padded": all_tokens_right_padded, "action_start_indices": starts,
+                "action_logprobs": all_logprobs, "action_rewards": all_rewards, "loss_mask": loss_mask,
+                "ref_logprobs": ref_logprobs, "old_logprobs": logprobs, "no_padded_query_ids": no_padded_query_ids,
+                "str_prompts":str_prompts, "rm_rewards": rm_rewards_list}
+        if all_values is not None:
+            res_dict["action_values"]= all_values
+
+        return res_dict
 
     def log_each_step(self, iteration):
         writer = get_tensorboard_writer()
@@ -457,23 +475,30 @@ class RewardInference(RLHFMegatronModule):
             reward_model_scores = torch.tensor(math_rewards, device="cuda")
 
         else:
-            reward_model_scores = self.get_raw_reward(all_tokens_right_padded, ends).view(-1, 1)
-        self.per_episode_metrics["eval_rewards/reward_model_scores"].update(reward_model_scores)
+            reward_model_scores = self.get_raw_reward(all_tokens_right_padded, ends)
 
-        reward_checkpoint = self.args.load
-        reward_checkpoint_load_iteration = self.args.load_iteration
+        if mpu.is_pipeline_last_stage():
+            reward_model_scores = reward_model_scores.view(-1, 1)
 
-        output = []
-        rewards_output = []
-        for str_prompt, str_output, reward in zip(str_prompts, str_outputs, reward_model_scores):
-            rw = reward.cpu().item()
-            rewards_output.append(rw)
+            self.per_episode_metrics["eval_rewards/reward_model_scores"].update(reward_model_scores)
 
-            score_dict = {reward_checkpoint: {reward_checkpoint_load_iteration: [rw]}}
-            j = {"query": str_prompt, "responses": [str_output], "eval_score_dict": score_dict}
-            output.append(j)
+            reward_checkpoint = self.args.load
+            reward_checkpoint_load_iteration = self.args.load_iteration
 
-        return {"eval_jsonl": output, "rewards": rewards_output}
+            output = []
+            rewards_output = []
+            for str_prompt, str_output, reward in zip(str_prompts, str_outputs, reward_model_scores):
+                rw = reward.cpu().item()
+                rewards_output.append(rw)
+
+                score_dict = {reward_checkpoint: {reward_checkpoint_load_iteration: [rw]}}
+                j = {"query": str_prompt, "responses": [str_output], "eval_score_dict": score_dict}
+                output.append(j)
+
+            return {"eval_jsonl": output, "rewards": rewards_output}
+        else:
+            # we only need first rank results, so return None for other rank
+            return
 
     def forward_step_pipeline(self, list_strs=None, all_tokens_right_padded=None, ends=None):
         self.model.eval()

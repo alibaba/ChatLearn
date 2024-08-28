@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,15 +14,19 @@
 # ==============================================================================
 """Forward step utilities."""
 
+import copy
+
 import torch
 
-from megatron import get_args
+from megatron.training import get_args
 from megatron.core import mpu
-from megatron.text_generation.communication import send_to_next_pipeline_rank, recv_from_prev_pipeline_rank_
-from megatron.text_generation.forward_step import _allocate_recv_buffer
+from megatron.inference.text_generation.communication import send_to_next_pipeline_rank, recv_from_prev_pipeline_rank_
+from megatron.inference.text_generation.forward_step import _allocate_recv_buffer
+
+from .constants import TrainerEngine
 
 
-def forward_step_helper(model, tokens, position_ids, attention_mask, pooling_sequence_index=None, pooling=False):
+def forward_step_helper(model, tokens, position_ids, attention_mask, pooling_sequence_index=None, pooling=False, inference_config=None):
     # Pipelining case.
     args = get_args()
     if args.pipeline_model_parallel_size > 1:
@@ -36,17 +40,19 @@ def forward_step_helper(model, tokens, position_ids, attention_mask, pooling_seq
                                                  attention_mask,
                                                  micro_batch_size,
                                                  pooling_sequence_index=pooling_sequence_index,
-                                                 pooling=pooling)
+                                                 pooling=pooling,
+                                                 inference_config=inference_config)
 
     return _no_pipelining_forward_step(model,
                                        tokens,
                                        position_ids,
                                        attention_mask,
-                                       pooling_sequence_index=pooling_sequence_index)
+                                       pooling_sequence_index=pooling_sequence_index,
+                                       inference_config=inference_config)
 
 
 def _forward_step_helper(model, tokens, position_ids, attention_mask,
-                         recv_buffer=None, pooling_sequence_index=None):
+                         recv_buffer=None, pooling_sequence_index=None, inference_config=None):
     """Single forward step. Update the allocate memory flag so
     only the first time the memory is allocated."""
     batch_size = tokens.size(0)
@@ -60,9 +66,9 @@ def _forward_step_helper(model, tokens, position_ids, attention_mask,
     # Forward pass through the model.
     model.set_input_tensor(recv_buffer)
     if pooling_sequence_index is not None:
-        output_tensor = model(tokens, position_ids, attention_mask, pooling_sequence_index=pooling_sequence_index)
+        output_tensor = model(tokens, position_ids, attention_mask, pooling_sequence_index=pooling_sequence_index, inference_config=inference_config)
     else:
-        output_tensor = model(tokens, position_ids, attention_mask)
+        output_tensor = model(tokens, position_ids, attention_mask, inference_config=inference_config)
 
     # Send output to the next stage.
     send_to_next_pipeline_rank(output_tensor)
@@ -71,12 +77,12 @@ def _forward_step_helper(model, tokens, position_ids, attention_mask,
 
 
 def _no_pipelining_forward_step(model, tokens, position_ids, attention_mask,
-                                recv_buffer=None, pooling_sequence_index=None):
+                                recv_buffer=None, pooling_sequence_index=None, inference_config=None):
     """If recv_buffer is none, we will allocate one on the fly."""
     # Run a simple forward pass.
     output_tensor = _forward_step_helper(model, tokens, position_ids,
                                          attention_mask, recv_buffer=recv_buffer,
-                                         pooling_sequence_index=pooling_sequence_index)
+                                         pooling_sequence_index=pooling_sequence_index, inference_config=inference_config)
 
     logits = None
     if mpu.is_pipeline_last_stage():
@@ -86,7 +92,7 @@ def _no_pipelining_forward_step(model, tokens, position_ids, attention_mask,
 
 
 def _with_pipelining_forward_step(model, tokens, position_ids, attention_mask,
-                                  micro_batch_size, pooling_sequence_index=None, pooling=False):
+                                  micro_batch_size, pooling_sequence_index=None, pooling=False, inference_config=None):
     """No interleaving is supported."""
     sequence_length = tokens.size(1)
     batch_size = tokens.size(0)
@@ -103,8 +109,19 @@ def _with_pipelining_forward_step(model, tokens, position_ids, attention_mask,
         args = get_args()
         if pooling:
             logits = None
+        elif inference_config is not None and "DPO_labels" in inference_config:
+            if get_args().trainer_engine == TrainerEngine.DPO: # dpo
+                logits = torch.empty(
+                    (batch_size), dtype=torch.float32, device=torch.cuda.current_device()
+                )
+            else: # online dpo
+                logits = torch.empty(
+                    (batch_size, sequence_length),
+                    dtype=torch.float32, device=torch.cuda.current_device())
         else:
-            if args.parallel_output:
+            parallel_output = inference_config["parallel_output"] if inference_config is not None and \
+                "parallel_output" in inference_config else args.parallel_output
+            if parallel_output:
                 padded_vocab_size = args.padded_vocab_size // args.tensor_model_parallel_size
             else:
                 padded_vocab_size = args.padded_vocab_size
@@ -114,7 +131,9 @@ def _with_pipelining_forward_step(model, tokens, position_ids, attention_mask,
 
     # Preallocate recv buffer.
     recv_buffer = _allocate_recv_buffer(micro_batch_size, sequence_length)
-
+    inference_config_master = None
+    if inference_config is not None and "DPO_labels" in inference_config:
+        inference_config_master = copy.deepcopy(inference_config)
     for micro_batch_index in range(num_micro_batches):
         # Slice among the batch dimenion.
         start = micro_batch_index * micro_batch_size
@@ -130,9 +149,13 @@ def _with_pipelining_forward_step(model, tokens, position_ids, attention_mask,
         # Run a simple forward pass.
         if this_micro_batch_size != micro_batch_size:
             recv_buffer = None
+        if inference_config_master is not None and "DPO_labels" in inference_config_master:
+            for key, value in inference_config_master.items():
+                inference_config[key] = value[start:end, ...]
         output = _forward_step_helper(model, tokens2use, position_ids2use,
                                       attention_mask, recv_buffer=recv_buffer,
-                                      pooling_sequence_index=pooling_sequence_index2use)
+                                      pooling_sequence_index=pooling_sequence_index2use,
+                                      inference_config=inference_config)
 
         # Copy logits.
         if mpu.is_pipeline_last_stage():

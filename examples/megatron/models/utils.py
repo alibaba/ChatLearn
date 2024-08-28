@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -14,6 +14,7 @@
 # ==============================================================================
 """utils"""
 
+import copy
 import json
 import inspect
 import math
@@ -28,10 +29,10 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from megatron import print_rank_last, is_last_rank, get_num_microbatches, get_args, get_timers
+from megatron.training import print_rank_last, is_last_rank, get_num_microbatches, get_args, get_timers
 from megatron.core import mpu
-from megatron.global_vars import get_tensorboard_writer
-from megatron.training import print_datetime
+from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.training import print_datetime
 from torchtyping import TensorType
 
 
@@ -325,7 +326,7 @@ def listdict_to_dictlist(ld, list_extend=True):
     :param ld:
     :return:
     '''
-    res = ld[0]
+    res = copy.deepcopy(ld[0])
     for res_key, v in res.items():
         if list_extend and isinstance(res[res_key], list):
             continue
@@ -423,3 +424,23 @@ def has_config_in_args(func):
 
 def get_eos_id(tokenizer):
     return tokenizer.eos_id if hasattr(tokenizer, 'eos_id') else tokenizer.eod_id
+
+
+def pad_to_length(tensor, length, pad_value, dim=-1):
+    if tensor.size(dim) >= length:
+        return tensor
+    else:
+        pad_size = list(tensor.shape)
+        pad_size[dim] = length - tensor.size(dim)
+        return torch.cat(
+            [tensor, pad_value * torch.ones(*pad_size, dtype=tensor.dtype, device=tensor.device)], dim=dim
+        )
+
+
+def get_padding_length(enable_sequence_parallel, tensor_parallel_size, max_length):
+    if not enable_sequence_parallel:
+        padding_len = 0
+    else:
+        mod_value = max_length % tensor_parallel_size
+        padding_len = (tensor_parallel_size - mod_value) if mod_value else 0
+    return max_length + padding_len

@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,7 +21,9 @@ import subprocess
 import textwrap
 import time
 from contextlib import closing
+from types import SimpleNamespace
 
+import pynvml
 import torch
 from chatlearn.utils.logger import logger
 
@@ -172,7 +174,7 @@ def get_indent_count(string):
             return count
 
 
-def detect_and_insert_code(lines, pattern, new_code, additional_indent=0, line_offset=0):
+def detect_and_insert_code(lines, pattern, new_code, additional_indent=0, line_offset=0, replace=False):
     """
     Insert new_code above the pattern detected
     """
@@ -185,12 +187,12 @@ def detect_and_insert_code(lines, pattern, new_code, additional_indent=0, line_o
     added_lines = []
     for line in new_lines:
         added_lines.append(" "*indent + line)
-    lines = lines[:type_line_number+line_offset] + added_lines + lines[type_line_number+line_offset:]
+    lines = lines[:type_line_number+line_offset - replace] + added_lines + lines[type_line_number+line_offset:]
     return lines
 
-def detect_and_insert_code_to_func(source_code, pattern, new_code, additional_indent=0, line_offset=0):
+def detect_and_insert_code_to_func(source_code, pattern, new_code, additional_indent=0, line_offset=0, replace=False):
     lines = source_code.split('\n')
-    lines = detect_and_insert_code(lines, pattern, new_code, additional_indent, line_offset)
+    lines = detect_and_insert_code(lines, pattern, new_code, additional_indent, line_offset, replace)
     if lines is None:
         return
     indent = get_indent_count(lines[0])
@@ -207,10 +209,12 @@ def execute(cmd, check=False, retry=1):
     ret = subprocess.run(cmd, shell=True, capture_output=True, text=True, check=check)
     state = ret.returncode == 0
     msg = ret.stdout if state else ret.stderr
-    if not state and retry > 1:
-        logger.warning(f"execute {cmd} got error {msg}, retry...")
-        time.sleep(1)
-        return execute(cmd, check, retry-1)
+    if not state:
+        logger.warning(f"execute {cmd} got error {msg}")
+        if retry > 1:
+            logger.warning(f"retry {cmd} ...")
+            time.sleep(1)
+            return execute(cmd, check, retry-1)
     return state, msg
 
 
@@ -227,3 +231,31 @@ def get_ray_status():
         return False, msg
     # unknown msg
     return True, msg
+
+
+def get_full_proc_memory_info(prefix):
+    torch.cuda.synchronize()
+    s = prefix + ': '
+    s += f'memory allocated: {torch.cuda.memory_allocated() / (1 << 30):.2f} GiB, ' \
+         f'memory reserved: {torch.cuda.memory_reserved() / (1 << 30):.2f} GiB, ' \
+         f'proc memory usage: {nvml_proc_memory_info()}'
+    return s
+
+
+def nvml_proc_memory_info():
+    pynvml.nvmlInit()
+    s = ''
+    for dev_id in range(pynvml.nvmlDeviceGetCount()):
+        handle = pynvml.nvmlDeviceGetHandleByIndex(dev_id)
+        mem_str = ' | '.join([f'(pid {proc.pid}: {proc.usedGpuMemory / (1 << 30):.2f} GiB)' \
+                  for proc in pynvml.nvmlDeviceGetComputeRunningProcesses(handle)])
+        s += mem_str
+        break
+    return s
+
+
+def dict_to_simplenamespace(d):
+    for key, value in d.items():
+        if isinstance(value, dict):
+            d[key] = dict_to_simplenamespace(value)
+    return SimpleNamespace(**d)

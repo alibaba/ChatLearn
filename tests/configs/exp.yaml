@@ -1,20 +1,20 @@
 models:
     policy:
         model_config_file: model.yaml
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: False
 
     reference:
         model_config_file: model.yaml
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: False
 
 
-rlhf:
+runtime:
     num_rollout_worker: 1
-    num_ppo_iteration: 5000
+    num_iteration: 5000
     sample_per_episode: 1000
     num_training_epoch: ${num_training_epoch:3}
     unknown_args: "test_unknown"

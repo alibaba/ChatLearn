@@ -15,7 +15,7 @@ Select the job type as `PyTorch` and paste the command into the `Execution Comma
 
 
 
-For RLHF Training task, you need set the advanced setting as `customPortList=30000-30050,createSvcForAllWorkers=true`.
+For RLHF, DPO, OnlineDPO, GRPO training task, you need set the advanced setting as `customPortList=30000-30050,createSvcForAllWorkers=true`.
 
 
 ## Non-PAI-DLC environment
@@ -31,6 +31,6 @@ export GPUS_PER_NODE=8
 export RANK=xx
 ```
 
-# reference
+## Reference
 
-1. Aliyun Machine Learning PAI-DLC：[https://www.aliyun.com/activity/bigdata/pai-dlc](https://www.aliyun.com/activity/bigdata/pai-dlc)
+1. Aliyun Machine Learning PAI-DLC: [https://www.aliyun.com/activity/bigdata/pai-dlc](https://www.aliyun.com/activity/bigdata/pai-dlc)

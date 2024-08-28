@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -21,16 +21,16 @@ import subprocess
 
 import torch
 
-from megatron import get_args
-from megatron.core import mpu
-from megatron.arguments import parse_args, validate_args
-from megatron.checkpointing import _load_base_checkpoint
-from megatron.checkpointing import load_args_from_checkpoint
-from megatron.checkpointing import load_checkpoint as megatron_load_checkpoint
-from megatron.global_vars import set_global_variables
-from megatron.utils import unwrap_model
+from chatlearn.utils.megatron_import_helper import get_args
+from chatlearn.utils.megatron_import_helper import mpu
+from chatlearn.utils.megatron_import_helper import parse_args, validate_args
+from chatlearn.utils.megatron_import_helper import _load_base_checkpoint
+from chatlearn.utils.megatron_import_helper import load_args_from_checkpoint
+from chatlearn.utils.megatron_import_helper import load_checkpoint as megatron_load_checkpoint
+from chatlearn.utils.megatron_import_helper import set_global_variables
+from chatlearn.utils.megatron_import_helper import unwrap_model
 
-from megatron.initialize import _initialize_distributed, _set_random_seed, _init_autoresume, _compile_dependencies
+from chatlearn.utils.megatron_import_helper import _initialize_distributed, _set_random_seed, _init_autoresume, _compile_dependencies
 
 from chatlearn.utils.logger import logger
 

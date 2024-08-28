@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -18,7 +18,7 @@ import torch
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
-from chatlearn.models.rlhf_module import RLHFModule
+from chatlearn.models.base_module import BaseModule
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
@@ -27,6 +27,7 @@ from chatlearn.schedule.resource_manager import ResourceManager
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
+from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.timer import Timers
 
 LOG_START = ">>>>>>>>>>>"
@@ -38,8 +39,22 @@ class BaseEngine:
     def __init__(self, *models):
         self._models = models
         self.global_args = get_args()
-        self.rlhf_args = self.global_args.rlhf_args
-        self.timers = Timers()
+        self.runtime_args = self.global_args.runtime_args
+        self._timers = Timers()
+
+    def set_timers(self, _timers):
+        self._timers = _timers
+
+    @property
+    def timers(self):
+        return self._timers
+
+    def timer_summary(self):
+        """
+        :meta private:
+        """
+        if self._timers:
+            return self._timers.log(reset=False, return_dict=True)
 
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
@@ -57,11 +72,13 @@ class BaseEngine:
         for model in self.remote_models:
             setattr(self, model.name, model)
         # include compile in init, compile dependencies need to be called serially
+        logger.info(get_full_proc_memory_info('Before model init'))
         for model in self.remote_models:
             model.init()
+        logger.info(get_full_proc_memory_info('After model init'))
         # do not include compile dependencies in setup
         # if the program hang in setup, may try to set concurrent_setup to False.
-        if self.rlhf_args.concurrent_setup:
+        if self.runtime_args.concurrent_setup:
             refs = []
             refs_val = []
             for model in self.remote_models:
@@ -104,20 +121,21 @@ class BaseEngine:
             refs.append(mem_ref)
         summaries = future.get(refs)
 
-        logger.info(f"{LOG_START} memory summary:")
+        logger.debug(f"{LOG_START} memory summary:")
         for model, summary in zip(self.remote_models, summaries):
             mem_str = ' | '.join(['{:.2f}'.format(i) for i in flatten(summary)])
-            mem_log = f"peak_mem(GB): {mem_str}"
-            logger.info(f"{LOG_START} {model.name} {mem_log}")
+            mem_log = f"peak_mem(GiB): {mem_str}"
+            logger.debug(f"{LOG_START} {model.name} {mem_log}")
 
     def logging_summary(self, iteration=-1):
+        _, e2e_time_dict = self.timer_summary()
         refs = []
         for model in self.remote_models:
-            time_ref = model.replicas[0].timer_summary()
+            time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_time_dict.get(model.name, None))
             refs.append(time_ref)
         summaries = future.get(refs)
 
-        logger.info(f"{LOG_START} PPO iteration {iteration} time summary for each model as follows:")
+        logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
             logger.info(f"{LOG_START} [{model.name}] {summary[-1]}")
         self.logging_memory()
@@ -129,7 +147,7 @@ class BaseEngine:
 class Engine(BaseEngine):
     """Engine"""
 
-    def __init__(self, environment=None, trainer=None, evaluator=None):
+    def __init__(self, environment=None, trainer=None, evaluator=None, name='alignment'):
         """
         Engine.
 
@@ -146,16 +164,22 @@ class Engine(BaseEngine):
                     if model not in models:
                         models.append(model)
         super().__init__(*models)
+        if environment:
+            environment.set_timers(self.timers)
+        if trainer:
+            trainer.set_timers(self.timers)
         self.env = environment
         self.trainer = trainer
         self.evaluator = evaluator
         self._start_episode = 0
         self._dataset = None
+        self._post_process_func = None
         self._drop_last = False
         self._wrap_data = True
         self._relay_sample_fn = None
-        self._ppo_data_loader = None
+        self._data_loader = None
         self._param_sync_pairs = []
+        self._name = name
 
     def set_parameter_sync(self, src_model, dst_model):
         """
@@ -163,9 +187,9 @@ class Engine(BaseEngine):
 
         Args
         ----
-        src_model: RLHFModule
+        src_model: BaseModule
             src model to sync parameters
-        dst_model: RLHFModule
+        dst_model: BaseModule
             destination model to sync parameters
         """
         self._param_sync_pairs.append((src_model, dst_model))
@@ -228,7 +252,7 @@ class Engine(BaseEngine):
         """
         super().logging_summary(iteration)
         episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
-        logger.info(f"{LOG_START} RLHF episode summary episode iteration {iteration} {episode_str}")
+        logger.info(f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
         self.episode_stats = episode_stats
         return episode_stats
 
@@ -243,60 +267,72 @@ class Engine(BaseEngine):
         self._relay_sample_fn = relay_sample_fn
 
     def learn(self):
-        self.timers("rlhf").start()
+        self.timers("chatlearn").start()
         self.timers("setup").start()
         self.setup()
         for executor in self._executors:
             if executor:
                 executor.setup()
         self.timers("setup").stop()
-        logger.info(f"{LOG_START} RLHF setup summary {self.timers.log(names=['setup'])}")
+        logger.info(f"{LOG_START} {self._name} setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
         self._resume_from_data_checkpoint()
 
-        ppo_data_loader = StreamDataset.remote(self.rlhf_args.stream_data_loader_type,
-                                               self.rlhf_args.train_micro_batch_size,
+        data_loader = StreamDataset.remote(self.runtime_args.stream_data_loader_type,
+                                               self.runtime_args.train_micro_batch_size,
                                                self.env._padding_config,
-                                               self.rlhf_args.max_relay_episode)
+                                               self.runtime_args.max_relay_episode,
+                                               self.runtime_args.relay_episode_offset)
+        logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         self.model_manager.sync_parameters(requires_grad=False)
-        self._ppo_data_loader = ppo_data_loader
-        for episode_id in range(self._start_episode, self.rlhf_args.num_ppo_episode):
-            if self.rlhf_args.nsys:
+        logger.info(f"{LOG_START} " + get_full_proc_memory_info('After first param sync'))
+        self._data_loader = data_loader
+        for episode_id in range(self._start_episode, self.runtime_args.num_episode):
+            if self.runtime_args.nsys:
                 if episode_id == 4:
                     torch.cuda.cudart().cudaProfilerStart()
                 if episode_id == 5:
                     torch.cuda.cudart().cudaProfilerStop()
             self.timers("episode").start()
             self.before_episode()
-            logger.info(f"start train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode}")
+            logger.info(f"start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
+            if self.env.timers is None:
+                self.env.set_timers(self.timers)
             queue = self.env.make_experiences()
-            refs = ppo_data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
-                                                      self.rlhf_args.sample_per_episode)
+            self.timers("set_train_dataset").start()
+            refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
+                                                      self.runtime_args.sample_per_episode)
             future.wait(refs)
-            self.trainer.set_data_loader(ppo_data_loader)
-            logger.info("set dataloader for trainer done")
-            self.trainer.train(episode_id)
-            logger.info(f"train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode} done")
-            self.timers("sync_parameters").start()
-            self.model_manager.sync_parameters()
-            self.timers("sync_parameters").stop()
-            logger.info(f"train episode_id: {episode_id + 1}/{self.rlhf_args.num_ppo_episode} parameter sync done")
+            if self.trainer is not None:
+                self.timers("set_train_dataset").stop()
+                self.trainer.set_data_loader(data_loader)
+                logger.info("set dataloader for trainer done")
+                logger.info(get_full_proc_memory_info(f'Before train {episode_id}'))
+                if self.trainer.timers is None:
+                    self.trainer.set_timers(self.timers)
+                self.trainer.train(episode_id)
+                logger.info(get_full_proc_memory_info(f'After train {episode_id}'))
+                logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
+                self.timers("sync_parameters").start()
+                self.model_manager.sync_parameters(episode_id + 1)
+                self.timers("sync_parameters").stop()
+                logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             self.after_episode()
             self.timers("episode").stop()
             self.logging_summary(episode_id)
             self.save_checkpoint(episode_id)
             self.evaluate(episode_id)
 
-        self.timers("rlhf").stop()
-        logger.info(f"{LOG_START} RLHF overall summary {self.timers.log(names=['rlhf'])}")
-        logger.info("train rlhf done")
+        self.timers("chatlearn").stop()
+        logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
+        logger.info(f"train {self._name} done")
 
     def _resume_from_data_checkpoint(self):
-        if self.rlhf_args.data_checkpoint_path:
-            data_ckpt_manager = CheckpointManager(self.models[0].replicas[0], self.rlhf_args.data_checkpoint_path,
-                                                  self.rlhf_args.max_data_ckpt_nums,
-                                                  self.rlhf_args.load_data_checkpoint_iteration)
-            if self.rlhf_args.enable_resume_training:
+        if self.runtime_args.data_checkpoint_path:
+            data_ckpt_manager = CheckpointManager(self.models[0].replicas[0], self.runtime_args.data_checkpoint_path,
+                                                  self.runtime_args.max_data_ckpt_nums,
+                                                  self.runtime_args.load_data_checkpoint_iteration)
+            if self.runtime_args.enable_resume_training:
                 meta = data_ckpt_manager.resume_meta()
                 if meta:
                     self._start_episode = meta["episode"] + 1
@@ -308,13 +344,33 @@ class Engine(BaseEngine):
         """
         :meta private:
         """
-        if self.rlhf_args.save_episode_interval and \
-                (episode_id + 1) % self.rlhf_args.save_episode_interval == 0:
-            refs = []
+        if self.runtime_args.save_episode_interval and \
+                (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
             for model in self.trainer.models:
-                refs.append(model.replicas[0].save_checkpoint(self.trainer.iteration))
+                # `build_grad_buffers` is called before `onload_main_weights` and after `onload_weights` because it
+                # has higher peak memory than allocated and is dependent on weights.
+                if model.module_args.offload_weights or model.module_args.free_memory:
+                    refs = model.onload_weights()
+                    future.wait(refs)
+                if model.module_args.free_grad_buffers or model.module_args.free_memory:
+                    refs = model.build_grad_buffers()
+                    future.wait(refs)
+                if model.module_args.offload_weights or model.module_args.free_memory:
+                    refs = model.onload_main_weights()
+                    future.wait(refs)
+                refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
+                future.wait(refs)
+                if model.module_args.offload_weights or model.module_args.free_memory:
+                    refs = model.offload_weights()
+                    future.wait(refs)
+                    refs = model.offload_main_weights()
+                    future.wait(refs)
+                if model.module_args.free_grad_buffers or model.module_args.free_memory:
+                    refs = model.free_grad_buffers()
+                    future.wait(refs)
+            refs = []
             for i, model in enumerate(self.models[0].replicas):
-                refs.append(model.save_data_checkpoint(i, self.trainer.iteration, episode_id))
+                refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
             logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
@@ -323,8 +379,10 @@ class Engine(BaseEngine):
         :meta private:
         """
         if self.evaluator is not None and \
-                self.rlhf_args.eval_episode_interval and \
-                (episode_id + 1) % self.rlhf_args.eval_episode_interval == 0:
+                self.runtime_args.eval_episode_interval and \
+                (episode_id + 1) % self.runtime_args.eval_episode_interval == 0:
+            if self.evaluator.timers is None:
+                self.evaluator.set_timers(self.timers)
             logger.info("start evaluate")
             self.timers("evaluate").start()
             self.evaluator.eval(episode_id, self.trainer.iteration)
@@ -337,12 +395,12 @@ class RLHFEngine(Engine):
     """RLHFEngine"""
 
     def __init__(self,
-                 policy: RLHFModule,
-                 reference: RLHFModule,
-                 reward: RLHFModule,
-                 value: RLHFModule,
-                 ppo_policy: RLHFModule,
-                 ppo_value: RLHFModule):
+                 policy: BaseModule,
+                 reference: BaseModule,
+                 reward: BaseModule,
+                 value: BaseModule,
+                 policy_trainer: BaseModule,
+                 value_trainer: BaseModule):
         def env_compute_flow(batch):
             policy_out = policy.forward_step(batch)
             ref_out = reference.forward_step(policy_out)
@@ -351,26 +409,122 @@ class RLHFEngine(Engine):
             return value_out, reward_out
 
         def trainer_compute_flow(batch):
-            ppo_policy.train_step(batch)
-            ppo_value.train_step(batch)
+            policy_trainer.train_step(batch)
+            value_trainer.train_step(batch)
 
-        env = Environment([policy, reference, value, reward]).set_flow(env_compute_flow)
-        trainer = Trainer([ppo_policy, ppo_value]).set_flow(trainer_compute_flow)
-        super().__init__(env, trainer)
+        env = Environment(env_compute_flow)
+        trainer = Trainer(trainer_compute_flow)
+        super().__init__(env, trainer, name='rlhf')
+        self.set_parameter_sync(policy_trainer, policy)
+        self.set_parameter_sync(value_trainer, value)
+
+
+class OnlineDPOEngine(Engine):
+    """Online DPO Engine."""
+    def __init__(self,
+                 policy: BaseModule,
+                 reference: BaseModule,
+                 reward: BaseModule,
+                 policy_trainer: BaseModule):
+        def env_compute_flow(batch):
+            policy_out = policy.forward_step(batch)
+            ref_out = reference.forward_step(policy_out)
+            reward_out = reward.forward_step(policy_out, ref_out)
+            return reward_out
+
+        def trainer_compute_flow(batch):
+            policy_trainer.train_step(batch)
+
+        env = Environment(env_compute_flow)
+        trainer = Trainer(trainer_compute_flow)
+        super().__init__(env, trainer, name='online_dpo')
+        self.set_parameter_sync(policy_trainer, policy)
+
+
+class DPOEngine(Engine):
+    """DPO Engine."""
+    def __init__(self,
+                 reference: BaseModule,
+                 policy_trainer: BaseModule):
+        def env_compute_flow(batch):
+            ref_out = reference.forward_step(batch)
+            return ref_out
+
+        def trainer_compute_flow(batch):
+            policy_trainer.train_step(batch)
+
+        env = Environment(env_compute_flow)
+        trainer = Trainer(trainer_compute_flow)
+        super().__init__(env, trainer, name='dpo')
+
+
+class GRPOEngine(Engine):
+    """GRPO Engine."""
+    def __init__(self,
+                 policy: BaseModule,
+                 reference: BaseModule,
+                 reward: BaseModule,
+                 policy_trainer: BaseModule):
+        def env_compute_flow(batch):
+            policy_out = policy.forward_step(batch)
+            ref_out = reference.forward_step(policy_out)
+            reward_out = reward.forward_step(policy_out, ref_out)
+            return reward_out
+
+        def trainer_compute_flow(batch):
+            policy_trainer.train_step(batch)
+
+        env = Environment(env_compute_flow)
+        trainer = Trainer(trainer_compute_flow)
+        super().__init__(env, trainer, name='grpo')
+        self.set_parameter_sync(policy_trainer, policy)
+
+
+class GRPOMathEngine(Engine):
+    """GRPO Engine with math reward"""
+    def __init__(self,
+                 policy,
+                 reference,
+                 reward,
+                 reward1,
+                 ppo_policy):
+
+        def env_compute_flow(batch):
+            policy_out = policy.forward_step(batch)
+            ref_out = reference.forward_step(policy_out)
+            reward_out = reward.forward_step(policy_out, ref_out)
+            reward_out1 = reward1.forward_step(batch, policy_out)
+            return reward_out, reward_out1
+
+        def trainer_compute_flow(batch):
+            ppo_policy.train_step(batch)
+
+        def evaluator_flow(batch):
+            policy_out = policy.eval_forward(batch)
+            reward_out = reward.eval_forward(policy_out)
+            reward_out1 = reward1.eval_forward(policy_out)
+            return reward_out, reward_out1
+
+        env = Environment(env_compute_flow)
+        trainer = Trainer(trainer_compute_flow)
+        evaluator = Evaluator(evaluator_flow)
+        super().__init__(env, trainer, evaluator, name='grpo_math')
         self.set_parameter_sync(ppo_policy, policy)
-        self.set_parameter_sync(ppo_value, value)
 
 
 class EvalEngine(Engine):
     """Evaluation Engine"""
 
-    def __init__(self, models):
-        evaluator = Evaluator(models)
+    def __init__(self, eval_flow=None, evaluator=None):
+        if evaluator is None:
+            evaluator = Evaluator(eval_flow)
         super().__init__(evaluator=evaluator)
 
     def setup(self):
         super().setup()
         self.evaluator.set_dataset(self._dataset)
+        self.evaluator.set_timers(self.timers)
+        self.evaluator.set_post_process_func(self._post_process_func)
 
     def set_dataset(self, dataset):
         """
@@ -382,12 +536,30 @@ class EvalEngine(Engine):
             a list of prompt string
         """
         self._dataset = dataset
+        return self
 
-    def eval(self):
+    def set_post_process_func(self, post_process_func):
+        """
+        Set post process function.
+
+        Args
+        ----
+        post_process_func
+            This function accept two arguments.
+            1. results: a list of evaluation results
+            2. eval_info: a dict meta that contains "train_iteration" and "episode_iteration"
+        """
+        self._post_process_func = post_process_func
+        return self
+
+    def eval(self, cur_iter=None, train_iteration=None):
         """
         Start evaluating.
         """
         self.setup()
         self.evaluator.setup()
-        queue = self.evaluator.eval()
-        return queue
+        self.timers("episode").start()
+        results = self.evaluator.eval(
+            cur_iter=cur_iter, train_iteration=train_iteration)
+        self.timers("episode").stop()
+        return results

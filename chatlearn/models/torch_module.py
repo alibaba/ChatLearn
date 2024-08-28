@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,16 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""RLHF torch module"""
+"""Torch module"""
 
 import os
 import ray
 import torch
-from chatlearn.utils.logger import log_rank_0
-from .rlhf_module import RLHFModule
+import torch.distributed as dist
+from chatlearn.utils.logger import log_rank_0, debug_rank_0
 
-class RLHFTorchModule(RLHFModule):
-    """RLHFTorchModule is the class for RLHF Torch models.
+from chatlearn.utils.utils import get_full_proc_memory_info
+from .base_module import BaseModule
+
+class TorchModule(BaseModule):
+    """TorchModule is the class for Alignment Torch models.
 
     Args
     ----
@@ -31,14 +34,13 @@ class RLHFTorchModule(RLHFModule):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.profiler = None
 
     def model_setup(self):
         """
         :meta private:
         """
         super().model_setup()
-        if self.rlhf_args.profiler_dir is not None and self.replica_id == 0:
+        if self.runtime_args.profiler_dir is not None and self.replica_id == 0:
             self.profiler = torch.profiler.profile(
                 activities=[
                     torch.profiler.ProfilerActivity.CPU,
@@ -52,7 +54,7 @@ class RLHFTorchModule(RLHFModule):
                     record_shapes=False,
                     with_stack=False,
                     with_flops=False,
-                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.rlhf_args.profiler_dir)
+                on_trace_ready=torch.profiler.tensorboard_trace_handler(self.runtime_args.profiler_dir)
             )
             self.profiler.start()
 
@@ -67,7 +69,7 @@ class RLHFTorchModule(RLHFModule):
         :meta private:
         """
         for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
-            assert key in args, f"{key} is not set for RLHFTorchWrapper"
+            assert key in args, f"{key} is not set for TorchModule"
             os.environ[key] = str(args[key])
         self._rank = int(os.environ['RANK'])
         return 1
@@ -88,33 +90,19 @@ class RLHFTorchModule(RLHFModule):
         self._peak_memory = max(self._peak_memory, torch.cuda.max_memory_allocated() / (1024 ** 3))
         return self._peak_memory
 
-    @property
-    def data_parallel_size(self):
-        """
-        data parallel size
-
-        :meta private:
-        """
-
-    @property
-    def data_parallel_rank(self):
-        """
-        data parallel rank
-
-        :meta private:
-        """
-
     def empty_cache(self):
         """
         :meta private:
         """
         if not self.timers("empty_cache").started_:
             self.timers("empty_cache").start()
-        log_rank_0(f"{self.name} replica: {self.replica_id}, before empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB",
+        peak_mem = torch.cuda.max_memory_allocated() / (1024 ** 3)
+        debug_rank_0(f"{self.name} replica: {self.replica_id}, before empty cache, peak mem: {peak_mem:.2f} GiB",
                    self._logger)
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
-        log_rank_0(f"{self.name} replica: {self.replica_id}, after empty cache, peak mem: {torch.cuda.max_memory_allocated() / (1024 ** 3)}GB",
+        peak_mem = torch.cuda.max_memory_allocated() / (1024 ** 3)
+        debug_rank_0(f"{self.name} replica: {self.replica_id}, after empty cache, peak mem: {peak_mem:.2f} GiB",
                    self._logger)
         self.timers("empty_cache").stop()
 
@@ -137,6 +125,50 @@ class RLHFTorchModule(RLHFModule):
         """
         Is last rank.
         """
-        if torch.distributed.is_initialized():
-            return torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1)
+        if dist.is_initialized():
+            return dist.get_rank() == (dist.get_world_size() - 1)
         return True
+
+    @property
+    def world_size(self):
+        return dist.get_world_size()
+
+    def onload(self):
+        if self.module_args.free_grad_buffers or self.module_args.offload_weights or \
+            self.module_args.offload_optimizer_states:
+            log_rank_0(get_full_proc_memory_info('Before onload'), self._logger)
+            torch.distributed.barrier()
+            if self.module_args.offload_weights:
+                self.onload_weights()
+            if self.trainable:
+                if self.module_args.free_grad_buffers:
+                    self.build_grad_buffers()
+                if self.module_args.offload_weights:
+                    self.onload_main_weights()
+                if self.module_args.offload_optimizer_states:
+                    self.onload_optimizer_states()
+            torch.distributed.barrier()
+            log_rank_0(get_full_proc_memory_info('After onload'), self._logger)
+
+    def offload(self, to_offload_weights=None, to_free_grad_buffers=None, to_offload_optimizer_states=None):
+        # The first time of calling `offload_weights` and `offload_main_weights` has a higher peak memory.
+        # So `free_grad_buffers` is called first to free memory, and `offload_weights` is called afterward
+        # to make more space for `offload_main_weights`.
+        to_offload_weights = self.module_args.offload_weights if to_offload_weights is None else to_offload_weights
+        to_free_grad_buffers = self.module_args.free_grad_buffers if to_free_grad_buffers is None else to_free_grad_buffers
+        if to_offload_optimizer_states is None:
+            to_offload_optimizer_states = self.module_args.offload_optimizer_states
+        if to_free_grad_buffers or to_offload_weights or to_offload_optimizer_states:
+            log_rank_0(get_full_proc_memory_info('Before offload'), self._logger)
+            torch.distributed.barrier()
+            if self.trainable:
+                if to_free_grad_buffers:
+                    self.free_grad_buffers()
+                if to_offload_weights:
+                    self.offload_main_weights()
+                if to_offload_optimizer_states:
+                    self.offload_optimizer_states()
+            if to_offload_weights:
+                self.offload_weights()
+            torch.distributed.barrier()
+            log_rank_0(get_full_proc_memory_info('After offload'), self._logger)

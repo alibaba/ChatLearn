@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -273,6 +273,8 @@ def convert_checkpoint_from_megatron_to_transformers(args):
             # Stop if that's not a layer
             if m is None:
                 break
+            if val is None:
+                continue
 
             # The index of the layer.
             layer_idx = int(m.group(1)) + pp_rank * num_layers

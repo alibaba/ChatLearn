@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -58,21 +58,20 @@ def wait(refs, desc=None, return_output=False):
         return
     nested2, sublist_lens = check_nested_2_level_list(refs)
     refs = flatten(refs)
-    outputs = []
     if desc is not None:
         total = len(refs) if not nested2 else len(sublist_lens)
         pbar = logging_tqdm(total=total, desc=desc)
     i = 0
-    while refs:
+    wait_refs = refs.copy()
+    while wait_refs:
         num_returns = 1 if not nested2 else sublist_lens[i]
-        done, refs = ray.wait(refs, num_returns=num_returns)
+        done, wait_refs = ray.wait(wait_refs, num_returns=num_returns)
         i += 1
         if desc is not None:
             done_size = len(done) if not nested2 else 1
             pbar.update(done_size)
-        if return_output:
-            res = ray.get(done)
-            outputs += res
+    if return_output:
+        outputs = ray.get(refs)
     if desc is not None:
         pbar.close()
     if return_output:

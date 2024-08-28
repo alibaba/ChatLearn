@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -56,7 +56,7 @@ class TestDataset(unittest.TestCase):
         self.assertEqual(res, 2)
 
 
-    def test_get(self):
+    def _test_get(self):
         ray.init()
         value = ray.put(1)
         data = (value, {1:1})

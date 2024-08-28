@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -51,7 +51,7 @@ def init_ray(runtime_env_args):
         _set_runtime_env(runtime_env_args, key, runtime_env)
 
     # namespace is needed to get NamedActor
-    ray.init(runtime_env=runtime_env, namespace="RLHF", _node_ip_address=dlc_utils.get_addr(), log_to_driver=False)
+    ray.init(runtime_env=runtime_env, namespace="CHATLEARN", _node_ip_address=dlc_utils.get_addr(), log_to_driver=False)
 
 
 def init(args=None):
@@ -74,4 +74,4 @@ def init(args=None):
             logger.info(f"RANK: {dlc_utils.get_rank()}: task finish, exit ...")
             # other workers exit after head exit
             sys.exit(0)
-    logger.info(f"init rlhf done, rlhf version {VERSION}")
+    logger.info(f"init chatlearn done, version {VERSION}")

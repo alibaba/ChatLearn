@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,19 +15,19 @@
 """old value inference"""
 
 import torch
-from megatron import get_args, get_tokenizer
-from megatron import print_rank_0
+from megatron.training import get_args, get_tokenizer
+from megatron.training import print_rank_0
 from megatron.core import mpu
 from megatron.training import get_model
-from models.value_model import ValueModel
 
-from chatlearn import RLHFMegatronModule
+from chatlearn import MegatronModule
 from chatlearn.utils import to_device
-from .constants_ppo import get_ltor_masks_and_position_ids
+from .value_model import ValueModel
+from .constants import get_ltor_masks_and_position_ids_rlhf
 from .forward_step import forward_step_helper
 
 
-class ValueInference(RLHFMegatronModule):
+class ValueInference(MegatronModule):
     """ValueInference"""
 
     def setup(self):
@@ -41,7 +41,6 @@ class ValueInference(RLHFMegatronModule):
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
         self.model.eval()
-        return 'ok'
 
     def model_provider(self, pre_process=True, post_process=True):
         """Build the model."""
@@ -60,7 +59,7 @@ class ValueInference(RLHFMegatronModule):
         # Run infernece
         # =============
         with torch.no_grad():
-            attention_mask, position_ids = get_ltor_masks_and_position_ids(all_tokens)
+            attention_mask, position_ids = get_ltor_masks_and_position_ids_rlhf(all_tokens)
             # logits will be meanigful only in the last pipeline stage.
             output_values = forward_step_helper(self.model, all_tokens, position_ids, attention_mask, pooling=True)
 

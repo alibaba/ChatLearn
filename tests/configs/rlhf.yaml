@@ -9,27 +9,27 @@ runtime_env:
 
 models:
     policy:
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: False
     
     reference:
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: False
 
     reward:
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: False
     
     value:
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: False
     
     ppo_policy:
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: True
         lora:
@@ -40,16 +40,16 @@ models:
             lora_dropout: 0.05
     
     ppo_value:
-        num_device: 1
+        num_gpu: 1
         gpu_per_process: 1
         trainable: True
 
-rlhf:
+runtime:
     debug: True
     generation_batch_size: ${batch_size:4}
     train_micro_batch_size: 5
     train_global_batch_size: 10
-    num_ppo_episode: 2
+    num_episode: 2
     sample_per_episode: 16
     num_training_epoch: 1
     save_episode_interval: 200

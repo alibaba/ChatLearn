@@ -6,7 +6,7 @@ from torch.utils.data import Dataset
 
 import chatlearn
 from chatlearn import RLHFEngine
-from chatlearn import RLHFTorchModule
+from chatlearn import TorchModule
 
 import chatlearn
 from chatlearn import EvalEngine
@@ -25,7 +25,7 @@ class CustomDataset(Dataset):
 
 
 
-class PolicyModel(RLHFTorchModule):
+class PolicyModel(TorchModule):
 
     def setup(self):
         time.sleep(0.05)
@@ -34,22 +34,25 @@ class PolicyModel(RLHFTorchModule):
         print("policy forward =========", flush=True)
         return data
 
-    def build_dataset(self, prompts):
+    def build_dataset(self, prompts, is_eval=False):
         dataset = CustomDataset(prompts)
         return dataset
 
 
 chatlearn.init()
-chatlearn.get_args().models["policy"].num_device = 3
+chatlearn.get_args().models["policy"].num_gpu = 3
 policy = PolicyModel("policy")
-policy.register_eval_func("forward_step")
-engine = EvalEngine(policy)
+def eval_flow(b):
+    r0 = policy.forward_step(b)
+    return r0
+
+engine = EvalEngine(eval_flow)
 
 assert policy.num_replica == 3, policy.num_replica
 train_prompts = ['query_'+str(i) for i in range(10, 91)]
 
 engine.set_dataset(train_prompts)
-results = engine.eval()
+results = engine.eval()["policy"]
 
 out = []
 for value in results:

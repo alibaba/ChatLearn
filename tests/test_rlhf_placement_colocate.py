@@ -8,13 +8,13 @@ from chatlearn.utils import future
 from utils import PolicyModel, ReferenceModel, RewardModel, ValueModel, PPOPolicy, PPOValue
 
 chatlearn.init()
-chatlearn.get_args().models["policy"].num_device = 4
+chatlearn.get_args().models["policy"].num_gpu = 4
 chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
-chatlearn.get_args().models["reference"].num_device = 4
+chatlearn.get_args().models["reference"].num_gpu = 4
 chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
 chatlearn.get_args().models["policy"].gpu_per_process = 1
 chatlearn.get_args().models["reference"].gpu_per_process = 1
-chatlearn.get_args().rlhf_args.colocation = [["policy", "reference"]]
+chatlearn.get_args().runtime_args.colocation = [["policy", "reference"]]
 
 chatlearn.get_args().models["policy"].num_replica = 1
 policy = PolicyModel("policy")

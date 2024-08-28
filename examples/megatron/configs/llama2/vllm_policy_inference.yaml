@@ -1,0 +1,36 @@
+includes:
+  - base_inference.yaml
+  - policy_shared.yaml
+  - data.yaml
+
+
+# sampling params
+n: 1
+ignore_eos: ${policy_ignore_eos:False}
+top_p: ${policy_top_p:0.9}
+top_k: ${policy_top_k:-1}
+temperature: ${policy_temperature:1.0}
+use_beam_search: ${policy_use_beam_search:False}
+
+eval_temperature: ${eval_temperature:1.0}
+eval_top_k: ${eval_top_k:-1}
+eval_top_p: ${eval_top_p:0.9}
+
+
+# sample config
+# stop_token_list: stop token string list, not token ids.
+stop_token_list: ${stop_token_list:<EOS>;</s>}
+new_token_limit: ${new_token_limit:True}
+prompt_logprobs: ${prompt_logprobs:None}
+
+# scheduler config
+max_num_batched_tokens: ${max_num_batched_tokens:32768}
+max_paddings: ${max_paddings:512}
+
+# cache config
+block_size: ${cache_block_size:16}
+gpu_memory_utilization: ${gpu_memory_utilization:0.5}
+swap_space: ${swap_space:4}
+sliding_window: ${sliding_window:None}
+
+tokenizer: ${tokenizer_load}

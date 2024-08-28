@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -15,15 +15,11 @@
 """lora layers."""
 
 import math
-import os
-import warnings
-from typing import Optional
 
 import importlib.util
 import torch
 import torch.nn.functional as F
 from torch import nn
-from torch.cuda.amp import custom_fwd, custom_bwd
 from torch.nn import Embedding
 from torch.nn.parallel.distributed import DistributedDataParallel as torchDDP
 
@@ -32,256 +28,37 @@ from chatlearn.models.megatron.lora.utils import recursive_getattr, recursive_se
 from chatlearn.utils.arguments import LoraConfig
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import QKV_LAYER_NAME
-from chatlearn.utils.global_vars import get_args as get_rlhf_args
+from chatlearn.utils.global_vars import get_args as get_runtime_args
 from chatlearn.utils.global_vars import is_initialized
 
 megatron_exist = importlib.util.find_spec("megatron")
 if megatron_exist:
-    from megatron import get_args
-    from megatron.core import mpu
-    from megatron.model import Float16Module
-    from megatron.optimizer.optimizer import MegatronOptimizer
-    from megatron.utils import unwrap_model
-    from megatron.core.parallel_state import (
+    from chatlearn.utils.megatron_import_helper import get_args
+    from chatlearn.utils.megatron_import_helper import mpu
+    from chatlearn.utils.megatron_import_helper import Float16Module
+    from chatlearn.utils.megatron_import_helper import MegatronOptimizer
+    from chatlearn.utils.megatron_import_helper import unwrap_model
+    from chatlearn.utils.megatron_import_helper import (
         get_tensor_model_parallel_rank,
-        get_tensor_model_parallel_world_size,
-        get_tensor_model_parallel_group,
-        get_global_memory_buffer
+        get_tensor_model_parallel_world_size
     )
-    from megatron.core.tensor_parallel.layers import (  # pylint: disable=unused-import
+    from chatlearn.utils.megatron_import_helper import (  # pylint: disable=unused-import
         ColumnParallelLinear,
+        linear_with_frozen_weight,
+        linear_with_grad_accumulation_and_async_allreduce,
         LinearWithGradAccumulationAndAsyncCommunication,
         RowParallelLinear,
         VocabParallelEmbedding
     )
 
-    from megatron.core.tensor_parallel.mappings import (
+    from chatlearn.utils.megatron_import_helper import (
         copy_to_tensor_model_parallel_region,
         gather_from_tensor_model_parallel_region,
         reduce_from_tensor_model_parallel_region,
         scatter_to_tensor_model_parallel_region,
         reduce_scatter_to_sequence_parallel_region
     )
-    from megatron.core.tensor_parallel.utils import VocabUtility
-
-_grad_accum_fusion_available = True
-try:
-    import fused_weight_gradient_mlp_cuda
-except ImportError:
-    _grad_accum_fusion_available = False
-
-
-class LinearWithGradAccumulationAndAsyncCommunication_LoRA(torch.autograd.Function):  # pylint: disable=abstract-method
-    """See linear_with_grad_accumulation_and_async_allreduce_LoRA"""
-
-    @staticmethod
-    @custom_fwd
-    def forward(ctx, inputs, weight, bias, gradient_accumulation_fusion,  # pylint: disable=arguments-differ
-                async_grad_allreduce, sequence_parallel):
-        ctx.save_for_backward(inputs, weight)
-        ctx.use_bias = bias is not None
-        ctx.gradient_accumulation_fusion = gradient_accumulation_fusion
-        ctx.async_grad_allreduce = async_grad_allreduce
-        ctx.sequence_parallel = sequence_parallel
-
-        if sequence_parallel:
-            world_size = get_tensor_model_parallel_world_size()
-            dim_size = list(inputs.size())
-            dim_size[0] = dim_size[0] * world_size
-
-            all_gather_buffer = \
-                get_global_memory_buffer().get_tensor(dim_size, inputs.dtype, "mpu")
-            torch.distributed._all_gather_base(
-                all_gather_buffer,
-                inputs,
-                group=get_tensor_model_parallel_group())
-            total_input = all_gather_buffer
-        else:
-            total_input = inputs
-
-        output = torch.matmul(total_input, weight.t())
-        if bias is not None:
-            output = output + bias
-        return output
-
-    @staticmethod
-    @custom_bwd
-    def backward(ctx, grad_output):  # pylint: disable=arguments-differ
-        inputs, weight = ctx.saved_tensors
-        use_bias = ctx.use_bias
-
-        if ctx.sequence_parallel:
-            world_size = get_tensor_model_parallel_world_size()
-            dim_size = list(inputs.size())
-            dim_size[0] = dim_size[0] * world_size
-
-            all_gather_buffer = \
-                get_global_memory_buffer().get_tensor(dim_size, inputs.dtype, "mpu")
-            handle = torch.distributed._all_gather_base(
-                all_gather_buffer,
-                inputs,
-                group=get_tensor_model_parallel_group(), async_op=True)
-
-            # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
-            # gather is scheduled before the input gradient computation
-            total_input = all_gather_buffer
-        else:
-            total_input = inputs
-        grad_input = grad_output.matmul(weight)
-
-        if ctx.sequence_parallel:
-            handle.wait()
-
-        # Doing gather + slicing during the NeMo forward pass can make this tensor
-        # not be contiguous. PyTorch only checks if the tensor is contiguous, and only
-        # clones it if it's not contiguous:
-        # https://github.com/pytorch/pytorch/blob/c47cf9bc7f9e02f649ab4ed53fe4d35732c92ab6/torch/_refs/__init__.py#L2761
-        grad_output = grad_output.contiguous()
-        # Convert the tensor shapes to 2D for execution compatibility
-        grad_output = grad_output.view(grad_output.shape[0] * grad_output.shape[1],
-                                       grad_output.shape[2])
-        total_input = total_input.view(total_input.shape[0] * total_input.shape[1],
-                                       total_input.shape[2])
-
-        if ctx.async_grad_allreduce:
-            # Asynchronous all-reduce
-            handle = torch.distributed.all_reduce(
-                grad_input, group=get_tensor_model_parallel_group(), async_op=True)
-            # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
-            # all-reduce is scheduled before the weight gradient computation
-
-        if ctx.sequence_parallel:
-            assert not ctx.async_grad_allreduce
-            dim_size = list(inputs.size())
-            sub_grad_input = torch.empty(dim_size, dtype=inputs.dtype,
-                                         device=torch.cuda.current_device(),
-                                         requires_grad=False)
-            # reduce_scatter
-            handle = torch.distributed._reduce_scatter_base(sub_grad_input, grad_input,
-                                                            group=get_tensor_model_parallel_group(),
-                                                            async_op=True)
-            # Here we rely on CUDA_DEVICE_MAX_CONNECTIONS=1 to ensure that the
-            # reduce scatter is scheduled before the weight gradient computation
-
-        if weight.requires_grad:
-            if ctx.gradient_accumulation_fusion:
-                if weight.main_grad.dtype == torch.float32:
-                    fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp32(total_input, grad_output, # pylint: disable=c-extension-no-member
-                                                                         weight.main_grad)  # pylint: disable=c-extension-no-member
-                elif weight.main_grad.dtype == torch.float16:
-                    fused_weight_gradient_mlp_cuda.wgrad_gemm_accum_fp16(total_input, grad_output, # pylint: disable=c-extension-no-member
-                                                                         weight.main_grad)  # pylint: disable=c-extension-no-member
-                else:
-                    raise RuntimeError("Unsupported gradient type for gradient accumulation fusion")
-                grad_weight = None
-            else:
-                grad_weight = grad_output.t().matmul(total_input)
-        else:
-            grad_weight = None
-        grad_bias = grad_output.sum(dim=0) if use_bias else None
-
-        if ctx.sequence_parallel:
-            handle.wait()
-            return sub_grad_input, grad_weight, grad_bias, None, None, None
-
-        if ctx.async_grad_allreduce:
-            handle.wait()
-
-        return grad_input, grad_weight, grad_bias, None, None, None
-
-
-def linear_with_grad_accumulation_and_async_allreduce_LoRA(
-    input: torch.Tensor,  # pylint: disable=redefined-builtin
-    weight: torch.Tensor,
-    bias: Optional[torch.Tensor],
-    gradient_accumulation_fusion: bool,
-    async_grad_allreduce: bool,
-    sequence_parallel_enabled: bool,
-) -> torch.Tensor:
-    """Linear layer execution with asynchronous communication and
-    gradient accumulation fusion in backprop.
-
-    This has the option to accumulate the result of backprop
-    calculation into an existing gradient buffer, preventing the need
-    to do an additional addition kernel after the gradient
-    calculation.
-
-    Additionally, the tensor parallel all reduce of the input
-    gradients can be done asynchronously with the calculation of
-    the weight gradients.
-
-    In the case of sequence parallelism, the reduce scatter of the
-    input gradients is done asynchronously with the calcluation of the
-    weight gradients.
-
-    Use of this module requires that the environment variable
-    CUDA_DEVICE_MAX_CONNECTIONS=1. There are a few collective
-    operations, noted in the code, that should be scheduled before
-    compute kernels to overlap the communication with the computation,
-    which is necessary for a speedup but not for correctness so that
-    ordering isn't imposed by the scheduler. Setting
-    CUDA_DEVICE_MAX_CONNECTIONS=1 forces the kernels to be scheduled
-    in the order they are called.
-
-    Arguments:
-
-    input (torch.Tensor required): input like torch.nn.functional.linear
-
-    weight (torch.Tensor required): weight like torch.nn.functional.linear
-
-    bias (torch.Tensor optional): bias like torch.nn.functional.linear
-
-    gradient_accumulation_fusion (bool required): Perform the gradient
-        accumulation fusion, requires the custom CUDA extension
-        fused_weight_gradient_mlp_cuda module. To use
-        gradient_accumulation_fusion you must install APEX with
-        --cpp_ext and --cuda_ext. For example: "pip install
-        --global-option=\"--cpp_ext\" --global-option=\"--cuda_ext .\"
-        " Note that the extension requires CUDA>=11. Otherwise, you
-        must turn off gradient accumulation fusion."
-
-    async_grad_allreduce (bool required): Do the allreduce of input
-        gradients asyncronously with the computation of weight
-        gradients. If sequence_parallel_enabled is True, this must be
-        False, as no all reduce is performed.
-
-    sequence_parallel_enabled (bool required): Indicates that sequence
-        parallelism is used and thus in the forward pass the input is
-        all gathered, and the backward pass the input gradients are
-        reduce scattered.
-    """
-    args = [
-        input,
-        weight,
-        bias,
-        gradient_accumulation_fusion,
-        async_grad_allreduce,
-        sequence_parallel_enabled,
-    ]
-
-    if not linear_with_grad_accumulation_and_async_allreduce_LoRA.warned:
-        if os.environ.get('CUDA_DEVICE_MAX_CONNECTIONS') != "1":
-            if sequence_parallel_enabled:
-                warnings.warn(
-                    "When using sequence parallelism it is recommended to set the "
-                    "environment variable CUDA_DEVICE_MAX_CONNECTIONS to 1 for "
-                    "maximum speedup")
-                linear_with_grad_accumulation_and_async_allreduce_LoRA.warned = True
-
-            if async_grad_allreduce:
-                warnings.warn(
-                    "When using async grad allreduce it is recommended to set the "
-                    "environment variable CUDA_DEVICE_MAX_CONNECTIONS to 1 for "
-                    "maximum speedup")
-                linear_with_grad_accumulation_and_async_allreduce_LoRA.warned = True
-
-    return LinearWithGradAccumulationAndAsyncCommunication_LoRA.apply(*args)
-
-
-if megatron_exist:
-    linear_with_grad_accumulation_and_async_allreduce_LoRA.warned = False
-    linear_with_grad_accumulation_and_async_allreduce = linear_with_grad_accumulation_and_async_allreduce_LoRA
-    LinearWithGradAccumulationAndAsyncCommunication.backward = LinearWithGradAccumulationAndAsyncCommunication_LoRA.backward
+    from chatlearn.utils.megatron_import_helper import VocabUtility
 
 
 class LoraBase(torch.nn.Module):  # pylint: disable=abstract-method
@@ -397,29 +174,29 @@ class ColumnParallelLinear_LoRA(LoraBase):
         else:
             input_parallel = copy_to_tensor_model_parallel_region(input_)
         # Matrix multiply.
-        output_parallel = linear_with_grad_accumulation_and_async_allreduce_LoRA(
+        output_parallel = linear_with_frozen_weight(
             input=input_parallel,
             weight=self.weight,
             bias=bias,
             gradient_accumulation_fusion=self.gradient_accumulation_fusion,
             async_grad_allreduce=self.async_tensor_model_parallel_allreduce,
-            sequence_parallel_enabled=self.sequence_parallel,
+            sequence_parallel=self.sequence_parallel,
         )
-        residual = linear_with_grad_accumulation_and_async_allreduce_LoRA(
+        residual = linear_with_grad_accumulation_and_async_allreduce(
             input=input_parallel,
             weight=self.lora_right_weight,
             bias=None,
             gradient_accumulation_fusion=self.gradient_accumulation_fusion,
             async_grad_allreduce=self.async_tensor_model_parallel_allreduce,
-            sequence_parallel_enabled=self.sequence_parallel,
+            sequence_parallel=self.sequence_parallel,
         )
-        residual = linear_with_grad_accumulation_and_async_allreduce_LoRA(
+        residual = linear_with_grad_accumulation_and_async_allreduce(
             input=residual,
             weight=self.lora_left_weight,
             bias=None,
             gradient_accumulation_fusion=self.gradient_accumulation_fusion,
             async_grad_allreduce=self.async_tensor_model_parallel_allreduce,
-            sequence_parallel_enabled=False,
+            sequence_parallel=False,
         )
         residual = self.lora_dropout(residual)
         output_parallel = output_parallel + self.lora_scaling * residual
@@ -525,29 +302,29 @@ class RowParallelLinear_LoRA(LoraBase):
             assert not self.sequence_parallel
             input_parallel = scatter_to_tensor_model_parallel_region(input_)
         # Matrix multiply.
-        output_parallel = linear_with_grad_accumulation_and_async_allreduce_LoRA(
+        output_parallel = linear_with_frozen_weight(
             input=input_parallel,
             weight=self.weight,
             bias=None,
             gradient_accumulation_fusion=self.gradient_accumulation_fusion,
             async_grad_allreduce=False,
-            sequence_parallel_enabled=False,
+            sequence_parallel=False,
         )
-        residual = linear_with_grad_accumulation_and_async_allreduce_LoRA(
+        residual = linear_with_grad_accumulation_and_async_allreduce(
             input=input_parallel,
             weight=self.lora_right_weight,
             bias=None,
             gradient_accumulation_fusion=self.gradient_accumulation_fusion,
             async_grad_allreduce=False,
-            sequence_parallel_enabled=False,
+            sequence_parallel=False,
         )
-        residual = linear_with_grad_accumulation_and_async_allreduce_LoRA(
+        residual = linear_with_grad_accumulation_and_async_allreduce(
             input=residual,
             weight=self.lora_left_weight,
             bias=None,
             gradient_accumulation_fusion=self.gradient_accumulation_fusion,
             async_grad_allreduce=False,
-            sequence_parallel_enabled=False,
+            sequence_parallel=False,
         )
         residual = self.lora_dropout(residual)
 
@@ -880,7 +657,7 @@ class MegatronOptimizer_LoRA(MegatronOptimizer):
                 unwrapped_model = self.models[0]
 
             if hasattr(unwrapped_model, "share_word_embeddings"):
-                from megatron.model import DistributedDataParallel as LocalDDP # pylint: disable=import-outside-toplevel
+                from chatlearn.utils.megatron_import_helper import DistributedDataParallel as LocalDDP # pylint: disable=import-outside-toplevel
                 unwrapped_model = unwrap_model(
                     unwrapped_model, (torchDDP, LocalDDP, Float16Module))
                 if unwrapped_model.share_word_embeddings:
@@ -926,7 +703,7 @@ def convert_layer_to_lora(model,
                           lora_layer=None,
                           column_only_qkv=None):
     if is_initialized():
-        default_args = get_rlhf_args().active_module_args.lora
+        default_args = get_runtime_args().active_module_args.lora
     else:
         default_args = LoraConfig
 

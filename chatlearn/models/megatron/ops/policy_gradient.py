@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,13 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""RLHF Policy Gradient Loss"""
+"""Policy Gradient Loss"""
 
 import torch
-from megatron.core import mpu
-from megatron.core.tensor_parallel.utils import VocabUtility
-from megatron.global_vars import get_args
-from megatron.utils import average_losses_across_data_parallel_group
+from chatlearn.utils.megatron_import_helper import average_losses_across_data_parallel_group
+from chatlearn.utils.megatron_import_helper import get_args
+from chatlearn.utils.megatron_import_helper import mpu
+from chatlearn.utils.megatron_import_helper import VocabUtility
 
 
 # pylint: disable=arguments-differ,abstract-method

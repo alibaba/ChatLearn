@@ -1,4 +1,4 @@
-# Copyright 2023 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -28,7 +28,7 @@ def get_indent_count(string):
         else:
             return count
 
-def repair_util(source):
+def repair_entry_file(source):
     source = source.replace("choices=['GPT', 'BERT']", "choices=['GPT', 'BERT', 'REWARD']")
     return source
 
@@ -51,7 +51,7 @@ def repair_loader_model_provider(lines):
     new_code = \
 """
 elif args.model_type == 'REWARD':
-    from models.reward_model import model_provider
+    from examples.megatron.models.reward_model import model_provider
     margs.model_type = ModelType.encoder_or_decoder
 """
     indent = -4
@@ -100,6 +100,10 @@ if msg != "done" and msg["name"] == "pooler_head":
 """
     return detect_and_insert_code(lines, pattern, new_code, 0, 0)
 
+def exist_checkpoint_util():
+    spec = importlib.util.find_spec('tools.checkpoint.util')
+    return spec is not None
+
 
 class CheckpointUtilsImporter:
     """CheckpointUtilsImporter"""
@@ -117,8 +121,8 @@ class CheckpointUtilsImporter:
 
     def repair_code(self, source, module_name):
 
-        if module_name == 'util':
-            source = repair_util(source)
+        if module_name in ['util', 'convert']:
+            source = repair_entry_file(source)
         elif module_name == 'loader_megatron':
             lines = source.split('\n')
             lines = repair_loader_model_provider(lines)
@@ -170,8 +174,16 @@ class CheckpointUtilsImporter:
         return module
 
 if __name__ == '__main__':
-    sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.util', 'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron'))
-    from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
-    from tools.checkpoint import util
-    util.main()
+    if exist_checkpoint_util():
+        sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.util', \
+            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron'))
+        from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
+        from tools.checkpoint import util
+        util.main()
+    else:
+        sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.convert', \
+            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron'))
+        from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
+        from tools.checkpoint import convert
+        convert.main()
 # pylint: enable=wildcard-import,exec-used
