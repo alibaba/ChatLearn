@@ -49,11 +49,7 @@ Please refer to the [documentation](https://chatlearn.readthedocs.io/en/latest/)
 
 We compared the RLHF training throughput of models with different parameter scales, adopting an N+N model configuration where both the Policy model and the Reward model have the same number of parameters. We benchmarked against DeepSpeed-Chat and OpenRLHF with 7B and 70B model configurations. For the 8 GPU setup with a 7B+7B scale, we achieved a 115% speedup; for the 32 GPU setup with a 70B+70B scale, the speedup was 208%. The larger the scale, the more pronounced the acceleration effect becomes. Additionally, ChatLearn can support even larger-scale alignment training, such as at a 300B+300B scale.
 
-<p align="center">
-  <picture>
-    <img alt="compare perf" src="docs/images/perf.png" width=50%>
-  </picture>
-</p>
+![Compare Performance](docs/images/perf.png)
 
 Note: The performance of DeepSpeed-Chat and OpenRLHF has already been optimized.
 
