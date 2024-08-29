@@ -1,12 +1,9 @@
 #!/bin/bash
-set -exo pipefail
+#set -exo pipefail
 export PYTHONPATH=$(cd ../ && pwd):${PWD}:${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
 rm -rf core*
-MAX_GRAPH_SIZE=500
-GRAPH_CHECK_FREQUENCY=100
-VERBOSITY=2
 
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
@@ -34,12 +31,6 @@ do
     L)
       LOGFILE=
       ;;
-    M)
-      MAX_GRAPH_SIZE=$OPTARG
-      ;;
-    C)
-      GRAPH_CHECK_FREQUENCY=$OPTARG
-      ;;
     V)
       VERBOSITY=$OPTARG
       ;;
@@ -50,7 +41,7 @@ shift $(($OPTIND - 1))
 
 function run_test {
   attempts=0
-  while [ $attempts -lt 3 ]; do
+  while [[ $attempts -lt 3 ]]; do
       ray stop
       "$@"
       if [ $? -eq 0 ]; then
@@ -59,7 +50,7 @@ function run_test {
       fi
       
       attempts=$((attempts + 1))
-      if [ $attempts -lt 3 ]; then
+      if [[ $attempts -lt 3 ]]; then
           echo "$file fail, retry ($attempts/3)..."
       else
           echo "$file fail, exit ..."
