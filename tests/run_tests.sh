@@ -49,11 +49,24 @@ shift $(($OPTIND - 1))
 
 
 function run_test {
+  attempts=0
+  while [ $attempts -lt 3 ]; do
+      ray stop
+      "$@"
+      if [ $? -eq 0 ]; then
+          echo "$@ success"
+          break
+      fi
+      
+      attempts=$((attempts + 1))
+      if [ $attempts -lt 3 ]; then
+          echo "$file fail, retry ($attempts/3)..."
+      else
+          echo "$file fail, exit ..."
+	  exit 1
+      fi
+  done
   ray stop
-  "$@"
-  exit_code=$? ; echo "Exit code: $exit_code"
-  ray stop
-  echo $@
 }
 
 
