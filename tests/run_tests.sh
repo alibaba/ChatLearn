@@ -42,6 +42,7 @@ shift $(($OPTIND - 1))
 function run_test {
   attempts=0
   while [[ $attempts -lt 3 ]]; do
+      rm -rf core*
       ray stop
       "$@"
       if [ $? -eq 0 ]; then
