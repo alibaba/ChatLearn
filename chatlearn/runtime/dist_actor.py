@@ -306,7 +306,8 @@ class DistModel:
                           "free_grad_buffers",
                           "build_grad_buffers",
                           "eval",
-                          "train"]:
+                          "train",
+                          "set_src_parameter_model"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 
