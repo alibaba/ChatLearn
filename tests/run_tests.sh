@@ -54,7 +54,7 @@ function run_test {
           echo "$file fail, retry ($attempts/3)..."
       else
           echo "$file fail, exit ..."
-	  exit 1
+          exit 1
       fi
   done
   ray stop

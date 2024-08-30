@@ -14,7 +14,9 @@
 # ==============================================================================
 """model manager"""
 
+import concurrent.futures
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor
 
 import ray
 import ray.experimental.state.api
@@ -100,10 +102,24 @@ class ModelManager:
                     model.is_colocate = True
             for name in group:
                 remote_states.add(name)
+        num_non_colocate_models = 0
         for model in self.dist_models:
-            # place non-colocate models
+            # count non-colocate models
             if model.name not in remote_states:
-                self.place_models_to_remote_devices([model])
+                num_non_colocate_models += 1
+        if num_non_colocate_models > 0:
+            with ThreadPoolExecutor(max_workers=num_non_colocate_models) as executor:
+                futures = []
+                for model in self.dist_models:
+                    # place non-colocate models
+                    if model.name not in remote_states:
+                        futures.append(executor.submit(self.place_models_to_remote_devices, [model]))
+                for _future in concurrent.futures.as_completed(futures):
+                    try:
+                        _future.result()
+                    except Exception as e:
+                        raise RuntimeError(f"Place models to remote devices generated an exception: {e}") # pylint: disable=raise-missing-from
+                concurrent.futures.wait(futures)
         self.converted = True
         return self.dist_models
 
