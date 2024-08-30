@@ -12,6 +12,7 @@ on:
 
 jobs:
   run-shell-script:
+    if: github.event.review.state == 'approved'
     runs-on: self-hosted
 
     steps:
