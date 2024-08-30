@@ -283,7 +283,7 @@ class DistModel:
                 return dist_actor.rank_to_actors[rank]
 
     def register_serial_func(self):
-        for func_name in ["init", "set_src_parameter_model"]:
+        for func_name in ["init"]:
             dist_call = partial(self.call_replica_serial_func, func_name)
             setattr(self, func_name, dist_call)
 
@@ -306,7 +306,8 @@ class DistModel:
                           "free_grad_buffers",
                           "build_grad_buffers",
                           "eval",
-                          "train"]:
+                          "train",
+                          "set_src_parameter_model"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 

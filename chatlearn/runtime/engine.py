@@ -72,10 +72,12 @@ class BaseEngine:
         for model in self.remote_models:
             setattr(self, model.name, model)
         
+        ref_set_src = []
         for src_model, dst_model in self._param_sync_pairs:
             remote_src_model = getattr(self, src_model.name)
             remote_dst_model = getattr(self, dst_model.name)
-            remote_dst_model.set_src_parameter_model(remote_src_model)
+            ref_set_src += remote_dst_model.set_src_parameter_model(remote_src_model)
+        future.wait(ref_set_src)
         # include compile in init, compile dependencies need to be called serially
         logger.info(get_full_proc_memory_info('Before model init'))
         for model in self.remote_models:
