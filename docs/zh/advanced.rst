@@ -160,7 +160,6 @@ YAML 配置
 
 .. code-block:: python
 
-    # model = get_model(model_provider)
     load_checkpoint(
         model, None, None,
         adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint

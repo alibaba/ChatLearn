@@ -7,12 +7,9 @@ For now, we enable vLLM to accelerate policy generation.
 ## Model Definition
 
 Similar to inheriting `MegatronModule` for implementing [PolicyInference Model](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/old_policy_inference.py), the vLLM backend can be enabled by inheriting `VLLMModule` class and implementing the following key modules:
-- model_provider: model definition function.
 - setup: call model_provider to define model. Optionly, call `load_checkpoint` or others.
 - build_dataset: Preprocess train/eval dataset with vLLM tokenizer.
-- eval_forward: distributed inference tasks in eval mode.
 - forward_step: distributed inference tasks in training mode.
-- _add_request: prepare inputs for vLLM scheduler.
 - decode_internal: decode generation outputs of vLLM as you need.
 
 Code structure shows as following:
@@ -31,16 +28,6 @@ class VLLMPolicyInference(VLLMModule):
     def build_dataset(self, train_prompts, is_eval=False):
         pass
 
-    def model_provider(self):
-        """Build the model."""
-        pass
-
-    def eval_forward(self, data, iteration=0):
-        pass
-
-    def _add_request(self, data):
-        pass
-
     def forward_step(self, data, iteration=0):
         pass
 
@@ -48,7 +35,7 @@ class VLLMPolicyInference(VLLMModule):
         pass
 ```
 
-You can refer to[vllm_policy_inference.py](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py), in which build_dataset/_add_request/forward_step/decode_internal clarified as following:
+You can refer to[vllm_policy_inference.py](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py), in which build_dataset/forward_step/decode_internal clarified as following:
 
 - build_dataset: Use `tokenizer`, you only need to return prompt_ids and prompt string. In `build_dataset`, [VLLMPromptPipeline](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/data/prompt_dataset.py#141) shows as following:
 ```python
@@ -80,12 +67,6 @@ class VLLMPolicyInference(VLLMModule):
             train_prompts, max_prompt_length, self.tokenizer.tokenizer)
 
         return prompts_dataset
-```
-
-- _add_request: add preprocessed request pairs (input_ids, prompt) to vLLM scheduler
-```python
-    def _add_request(self, data, is_eval=False):
-        return self._add_request_internal(data["prompt"], data["input_ids"], is_eval=is_eval)
 ```
 
 - forward_step: take batch `data` scheduled by vLLM scheduler as input, and call `execute_step` for distributed inference.

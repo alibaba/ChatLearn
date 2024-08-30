@@ -34,3 +34,6 @@ swap_space: ${swap_space:4}
 sliding_window: ${sliding_window:None}
 
 tokenizer: ${tokenizer_load}
+
+vllm_input_ids_key: input_ids
+vllm_prompt_key: prompt

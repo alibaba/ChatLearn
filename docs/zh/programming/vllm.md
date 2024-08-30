@@ -7,12 +7,9 @@ ChatLearn中支持vLLM进行跨机分布式推理，支持vllm和training backen
 ## 模型定义
 
 类似于继承`MegatronModule`实现[PolicyInference模型](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/old_policy_inference.py),PolicyInference模型若想基于vLLM后端完成generation，需要继承`VLLMModule`父类，实现以下关键模块：
-- model_provider：模型定义函数。
 - setup：调用model_provider定义模型，可根据需要决定是否load_checkpoint等。
 - build_dataset：调用vLLM tokenizer处理数据，生成prompt dataset。
-- eval_forward：Evaluation任务中调用完成分布式推理。
 - forward_step：RLHF/OnlineDPO训练任务中调用完成分布式推理。
-- _add_request：将待处理数据作为vLLM scheduler输入，以供后续使用vLLM批调度数据功能，完成continuous batching generation；
 - decode_internal：根据实际需要，将vLLM输出的generation结果解析为相应格式。
 
 代码结构参考如下：
@@ -31,16 +28,6 @@ class VLLMPolicyInference(VLLMModule):
     def build_dataset(self, train_prompts, is_eval=False):
         pass
 
-    def model_provider(self):
-        """Build the model."""
-        pass
-
-    def eval_forward(self, data, iteration=0):
-        pass
-
-    def _add_request(self, data):
-        pass
-
     def forward_step(self, data, iteration=0):
         pass
 
@@ -48,7 +35,7 @@ class VLLMPolicyInference(VLLMModule):
         pass
 ```
 
-示例可参考[vllm_policy_inference.py](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py)，补充说明build_dataset、_add_request、forward_step、decode_internal如下：
+示例可参考[vllm_policy_inference.py](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py)，补充说明build_dataset、forward_step、decode_internal如下：
 
 - build_dataset：调用tokenizer处理只需要返回prompt_ids、prompt str，其中build_dataset的[VLLMPromptPipeline](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/data/prompt_dataset.py#141)具体逻辑如下：
 ```python
@@ -80,12 +67,6 @@ class VLLMPolicyInference(VLLMModule):
             train_prompts, max_prompt_length, self.tokenizer.tokenizer)
 
         return prompts_dataset
-```
-
-- _add_request：将处理好的(input_ids, prompt)数据对输入给vLLM scheduler
-```python
-    def _add_request(self, data, is_eval=False):
-        return self._add_request_internal(data["prompt"], data["input_ids"], is_eval=is_eval)
 ```
 
 - forward_step：参数中data为vLLM scheduler调度的批数据，格式固定，调用vLLM的execute_step完成分布式推理

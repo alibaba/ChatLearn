@@ -18,7 +18,6 @@ import ast
 import concurrent.futures
 import textwrap
 import inspect
-from chatlearn.utils import future
 
 
 def encode_data(mb, data):
@@ -29,68 +28,6 @@ def decode_data(data):
     mb = data["iter"]
     data = data["data"]
     return mb, data
-
-
-def build_scheduler(model_replica):
-    # build for only last rank of each replica.
-    future.get(model_replica.tailer.build_scheduler.remote())
-
-
-def free_cache_engine(model_replica):
-    rets = []
-    for actor in model_replica.all_actors:
-        rets.append(actor.free_cache_engine.remote())
-    rets = future.get(rets)
-
-
-def prepare_vllm(model_replica):
-    """Profiling cache blocks and build scheduler."""
-    profile_cache_blocks(model_replica)
-    # setup vllm scheduler
-    build_scheduler(model_replica)
-
-
-def profile_cache_blocks(model_replica):
-    rets = []
-    for actor in model_replica.all_actors:
-        rets.append(actor.profile_cache_blocks.remote())
-    rets = future.get(rets)
-
-    num_gpu_blocks = min(a[0] for a in rets)
-    num_cpu_blocks = min(a[1] for a in rets)
-
-    rets = []
-    for actor in model_replica.all_actors:
-        rets.append(actor.set_cache_config.remote(num_gpu_blocks, num_cpu_blocks))
-    rets = future.get(rets)
-
-
-def reinit_cache_engine(model_replica):
-    rets = []
-    for actor in model_replica.all_actors:
-        rets.append(actor.reinit_cache_engine.remote())
-    rets = future.get(rets)
-
-
-def vllm_post_process_generate_step_one_model(replica, out_queue, mb):
-    """
-    Args:
-        model: DistModel
-        out_queue: Queue
-    """
-    output = replica.tailer.decode.remote()
-
-    free_cache_engine(replica)
-
-    # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
-    #   length is the number of Actors. In this case, all members in the list
-    #   are the same, and we choose output[-1] to put into out_queue.
-    last_output = output[-1] if isinstance(output, list) else output
-    if isinstance(out_queue, list):
-        for oq in out_queue:
-            oq.put(encode_data(mb, last_output))
-    else:
-        out_queue.put(encode_data(mb, last_output))
 
 
 def parse_assign_target(line):

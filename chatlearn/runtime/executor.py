@@ -21,7 +21,7 @@ from chatlearn.runtime.model_flow import ModelFlow, ModelNode
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import encode_data, decode_data
+from .utils import encode_data
 from .utils import FlowParser
 
 
@@ -285,10 +285,8 @@ class Executor:
         return results
 
     def compute_loop(self, out_queue, num_batch):
-        for i, model_group in enumerate(self.model_flow.flow_topology):
+        for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
-                if model_node.model.use_vllm_backend and i == 0:
-                    continue
                 self.compute_loop_one_model(model_node, num_batch, self.is_eval)
 
         data = [None] * len(self.model_flow.return_model_nodes)

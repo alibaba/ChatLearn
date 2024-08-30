@@ -43,3 +43,10 @@ class Storage:
             logger.warning("%s is not found in storage", key)
             return None
         return future.get(ref)
+
+    def delete(self, key):
+        if isinstance(key, str):
+            key = [key]
+        for k in key:
+            # TODO: do we need to release the remote obj?
+            self._storage.pop(k)
