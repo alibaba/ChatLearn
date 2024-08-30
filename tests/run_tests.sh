@@ -1,5 +1,4 @@
 #!/bin/bash
-#set -exo pipefail
 export PYTHONPATH=$(cd ../ && pwd):${PWD}:${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
@@ -45,7 +44,7 @@ function run_test {
       rm -rf core*
       ray stop
       "$@"
-      if [ $? -eq 0 ]; then
+      if [[ $? -eq 0 ]]; then
           echo "$@ success"
           break
       fi
