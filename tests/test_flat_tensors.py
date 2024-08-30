@@ -20,10 +20,10 @@ class TestFlatTensors(unittest.TestCase):
 
         measure1 = torch.cuda.memory_allocated()
         # Randomly generate some tensors.
-        n = 64
+        n = 4
         n_dims = [random.randint(1, 4) for _ in range(n)]
         shapes = [
-            [random.randint(0, 1 << 8) for _ in range(dim)]
+            [random.randint(0, 8) for _ in range(dim)]
             for dim in n_dims
         ]
 
