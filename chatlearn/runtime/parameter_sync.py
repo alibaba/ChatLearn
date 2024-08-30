@@ -232,7 +232,7 @@ class ParameterSyncGroup:
         for rank, actor in enumerate(actors):
             ref = actor.broadcast_parameter.remote(rank, 0, group_name, pipe_stage)
             refs.append(ref)
-        return future.wait(refs, return_output=True)
+        future.wait(refs, return_output=True)
 
 
     def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None):
