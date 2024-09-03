@@ -104,8 +104,8 @@ class ModelManager:
                 remote_states.add(name)
         env_list = []
         for model in self.dist_models:
-             # place non-colocate models
-             if model.name not in remote_states:
+            # place non-colocate models
+            if model.name not in remote_states:
                 self.place_models_to_remote_devices([model], env_list)
         self.set_dist_env_concurrent(env_list)
         self.converted = True
