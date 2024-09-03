@@ -27,12 +27,13 @@ jobs:
 
     steps:
     - name: Check for 2 approvals
-        id: approvals
-        run: |
-          REVIEW_API_URL="https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews"
-          reviews=$(curl -s -H "Authorization: token ${{ secrets._GITHUB_TOKEN }}" $REVIEW_API_URL)
-          approve_count=$(echo "$reviews" | jq '[.[] | select(.state == "APPROVED")] | length')
-          echo "approve_count=$approve_count" >> $GITHUB_ENV
+      id: approvals
+      run: |
+        REVIEW_API_URL="https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/reviews"
+        reviews=$(curl -s -H "Authorization: token ${{ secrets._GITHUB_TOKEN }}" $REVIEW_API_URL)
+        approve_count=$(echo "$reviews" | jq '[.[] | select(.state == "APPROVED")] | length')
+        echo "approve_count=$approve_count" >> $GITHUB_ENV
+
     - name: Checkout code
       uses: actions/checkout@v3
 
