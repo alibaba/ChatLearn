@@ -430,6 +430,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
             sampling_params = SamplingParams(
                 n=self.model_args.get("n"),
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty,
+                repetition_penalty=repetition_penalty,
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
