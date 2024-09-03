@@ -15,7 +15,7 @@
 """distributed utils"""
 
 from collections import defaultdict
-
+import torch
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 
