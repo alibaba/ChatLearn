@@ -43,4 +43,3 @@ class Storage:
             logger.warning("%s is not found in storage", key)
             return None
         return future.get(ref)
-

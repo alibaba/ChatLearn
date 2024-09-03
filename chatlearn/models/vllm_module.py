@@ -24,6 +24,7 @@ from tqdm import tqdm
 from chatlearn.models.vllm.vllm_model import VLLMModel
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+from chatlearn.utils.dist_utils import broadcast_var_object_dict
 from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import Scheduler
@@ -587,22 +588,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         return self.model_config.hf_config.num_hidden_layers
 
-    def broadcast_var_object_dict(self, obj_dict, src_rank):
-        if torch.distributed.get_rank() == src_rank:
-            dict_as_list = list(obj_dict.items())
-            list_length = len(dict_as_list)
-            length_tensor = torch.tensor(list_length, device='cuda')
-            torch.distributed.broadcast(length_tensor, src_rank)
-            torch.distributed.broadcast_object_list(dict_as_list, src=src_rank)
-            return obj_dict
-        else:
-            length_tensor = torch.tensor(0, device='cuda')
-            torch.distributed.broadcast(length_tensor, src_rank)
-            list_length = length_tensor.item()
-            dict_as_list = [None] * list_length
-            torch.distributed.broadcast_object_list(dict_as_list, src=src_rank)
-            return dict(dict_as_list)
-
     def generate_vllm(self, query, is_eval):
         num_gpu_blocks, num_cpu_blocks = self.profile_cache_blocks()
         num_blocks = torch.tensor([num_gpu_blocks, num_cpu_blocks], device='cuda')
@@ -621,7 +606,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             schedule_query = None
             if self.is_last_rank():
                 schedule_query = self.schedule()
-            schedule_query = self.broadcast_var_object_dict(schedule_query, torch.distributed.get_world_size()-1)
+            schedule_query = broadcast_var_object_dict(schedule_query, torch.distributed.get_world_size()-1)
             output = self.execute_step(schedule_query)
             if self.is_last_rank():
                 step_outputs = bool(output)
@@ -632,6 +617,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 torch.distributed.broadcast(signal_tensor, torch.distributed.get_world_size()-1)
             step_outputs = signal_tensor.item()
         if self.is_last_rank():
+            self.outputs = sorted(self.outputs, key=lambda x: int(x.request_id))
             return self.outputs
 
     def schedule(self):

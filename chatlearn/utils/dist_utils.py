@@ -63,3 +63,19 @@ def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
         for tensor, synced in zip(
             bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
             tensor.copy_(synced)
+
+def broadcast_var_object_dict(obj_dict, src_rank):
+    if torch.distributed.get_rank() == src_rank:
+        dict_as_list = list(obj_dict.items())
+        list_length = len(dict_as_list)
+        length_tensor = torch.tensor(list_length, device='cuda')
+        torch.distributed.broadcast(length_tensor, src_rank)
+        torch.distributed.broadcast_object_list(dict_as_list, src=src_rank)
+        return obj_dict
+    else:
+        length_tensor = torch.tensor(0, device='cuda')
+        torch.distributed.broadcast(length_tensor, src_rank)
+        list_length = length_tensor.item()
+        dict_as_list = [None] * list_length
+        torch.distributed.broadcast_object_list(dict_as_list, src=src_rank)
+        return dict(dict_as_list)

@@ -65,7 +65,6 @@ class VLLMPolicyInference(VLLMModule):
     def _forward_step(self, data, iteration, is_eval): # pylint: disable=unused-argument
         outputs = self.generate_vllm(data, is_eval)
         if self.is_last_rank():
-            outputs = sorted(outputs, key=lambda x: int(x.request_id))
             rets = self.decode_internal(outputs)
             return rets
 
