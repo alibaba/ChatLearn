@@ -177,7 +177,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
     def setup(self):
         """Set up model and load checkpoint"""
-        model = [get_model(self.model_provider, self.model_args)]
+        need_load_ckpt = self.src_parameter_model is None
+        model = [get_model(self.model_provider, self.model_args, need_load_ckpt)]
 
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]

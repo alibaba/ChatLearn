@@ -4,7 +4,7 @@
 StreamDataset
 -------------
 
-`StreamDataset` 接收 `Env` rollout 产生的数据，并重组 batch 提供给 Alignment 训练模块 `Trainer`。目前我们支持三种形式的 `StreamDataset`:
+`StreamDataset` 接收 `Env` rollout 产生的数据，并重组 batch 提供给 Alignment 训练模块 `Trainer`。目前我们支持两种形式的 `StreamDataset`:
 
 1. `fixed` ：这种形式生成的总训练样本数是由配置 `sample_per_episode` 指定的。`Env` 接收 `sample_per_episode` 个 prompts，生成 `sample_per_episode` 个训练样本。`Trainer` 接受 `sample_per_episode` 个训练样本进行训练。
 2. `dynamic` : 这种形式生成的总训练样本数是动态判断的。`Env` 接收 `sample_per_episode` 个 prompts，生成 `N*sample_per_episode` 个训练样本，这里 `N>0`。`Trainer` 接受 `N*sample_per_episode` 个训练样本进行训练。
@@ -27,7 +27,7 @@ YAML 配置
 .. csv-table::
    :header: "参数名", "类型", "注释"
 
-   "stream_data_loader_type",               "str",      "指定类型，默认是 fixed，必须是以下三种类型之一，['fixed', 'dynamic']"
+   "stream_data_loader_type",               "str",      "指定类型，默认是 fixed，必须是以下类型之一，['fixed', 'dynamic']"
    "max_relay_episode",               "int",      "指定 relay 的最近的 max_relay_episode 个 episode，超过 max_relay_episode，会淘汰最老的 episode 数据。如果 max_relay_episode 设为 -1，则不会淘汰，记录每个 episode 的历史数据。如果 max_relay_episode 设为 0，则不会开启 relay。"
    "relay_episode_offset",               "int",      "指定从第relay_episode_offset+1个episode开始relay，记录episode 的历史数据。默认为0。"
 
@@ -135,7 +135,7 @@ YAML 配置
 Adaptive checkpoint
 --------------------
 
-基础配置中，如果需要对 RLHF 的各个模型应用不同的并行策略，就要事先调用 Megatron-LM 的 `checkpoint_utils.py` 进行离线转换，然后读取转换并行策略后保存的 checkpoint 才能正常执行 RLHF 流程。进阶配置中，adaptive checkpoint 支持在模型 checkpoint 的加载过程中自适应读取 checkpoint 并自动转换成用户指定的并行策略。该进阶配置相比基础配置可以减少磁盘开销，多进程并行执行 checkpoint 转换。
+基础配置中，如果需要对 Alignment 的各个模型应用不同的并行策略，就要事先调用 Megatron-LM 的 `checkpoint_utils.py` 进行离线转换，然后读取转换并行策略后保存的 checkpoint 才能正常执行 Alignment 流程。进阶配置中，adaptive checkpoint 支持在模型 checkpoint 的加载过程中自适应读取 checkpoint 并自动转换成用户指定的并行策略。该进阶配置相比基础配置可以减少磁盘开销，多进程并行执行 checkpoint 转换。
 
 
 YAML 配置
