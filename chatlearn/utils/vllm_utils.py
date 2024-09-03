@@ -396,13 +396,13 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     return args
 
 
-def get_model(model_provider, args):
+def get_model(model_provider, args, need_load_ckpt=True):
     with _set_default_torch_dtype(args.get("params_dtype")):
         # Create a model instance.
         # The weights will be initialized as empty tensors.
         model = model_provider()
         model = model.cuda()
-        if args["load"]:
+        if args["load"] and need_load_ckpt:
             model.load_weights()
         else:
             # For accurate performance evaluation, we assign
