@@ -89,18 +89,3 @@ def get(data):
     while isinstance(data, ray.ObjectRef):
         data = ray.get(data)
     return data
-
-
-def wait_and_empty_cache(models, results, desc=None, return_output=False):
-    results = wait(results, desc=desc, return_output=return_output)
-    if not isinstance(models, list):
-        models = [models]
-    # empty cache, so that other models can use
-    ref_list = []
-    for model in models:
-        empty_cache_ref = model.empty_cache()
-        ref_list.append(empty_cache_ref)
-    get(ref_list)
-
-    if return_output:
-        return results

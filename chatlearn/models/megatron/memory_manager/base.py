@@ -33,7 +33,6 @@ class BaseMemoryManager:
     def _wrap_method(self, func, timers: Timers):
         def inner(*args, **kwargs):
             torch.cuda.synchronize()
-            torch.cuda.empty_cache()
             timer: _Timer = timers(f'{self._model_name}_free_memory')
             if not timer.started_:
                 timer.start()

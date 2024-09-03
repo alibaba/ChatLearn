@@ -136,7 +136,7 @@ def preprocess_compute(func, is_forward_step, trainable):
             self.onload()
         generation_batch_size = self.module_args.generation_batch_size
         final_results = None
-        if not trainable and generation_batch_size:
+        if not trainable and generation_batch_size and not hasattr(self, 'generate_vllm'):
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
             input_batch = 0
@@ -178,10 +178,10 @@ def preprocess_compute(func, is_forward_step, trainable):
             ret = utils.to_device('cpu', ret)
             if self.is_last_rank():
                 final_results = ret
-        if to_offload:
-            self.offload()
         if to_empty_cache:
             self.empty_cache()
+        if to_offload:
+            self.offload()
         if is_last_batch and not is_eval:
             self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results
