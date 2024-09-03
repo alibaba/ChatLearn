@@ -2,7 +2,7 @@ name: Unit Tests
 
 on: 
   workflow_dispatch:
-  pull_request_review:
+  pull_request:
     types: [submitted]
     branches:
       - main
