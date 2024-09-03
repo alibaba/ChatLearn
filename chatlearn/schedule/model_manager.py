@@ -94,15 +94,15 @@ class ModelManager:
                            f"while the number of required gpus is {total_gpu_required}, " + \
                            f"there is {self.resouce_manager.total_gpu - total_gpu_required} wasted gpus")
 
+        env_list = []
         for group in self.runtime_args.colocation:
             colocate_models = [self._name2distmodel[name] for name in group]
-            self.place_models_to_remote_devices(colocate_models)
+            self.place_models_to_remote_devices(colocate_models, env_list)
             if len(colocate_models) > 1:
                 for model in colocate_models:
                     model.is_colocate = True
             for name in group:
                 remote_states.add(name)
-        env_list = []
         for model in self.dist_models:
             # place non-colocate models
             if model.name not in remote_states:
