@@ -48,7 +48,7 @@ class BaseTrainer(MegatronModule):
 
         self.args = get_args()
 
-        print(f"value trainer loading : {self.args.load}")
+        print(f"{self.name} trainer loading : {self.args.load}")
 
         self.model_type = ModelType.encoder_or_decoder
         self.tokenizer = get_tokenizer()
