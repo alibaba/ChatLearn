@@ -406,8 +406,11 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         temperature = 0.0
         if not self.model_args.get("use_beam_search"):
             temperature = self.model_args.get("eval_temperature", 1.0) if is_eval else self.model_args.get("temperature", 1.0)
-        top_p = self.model_args.get("eval_top_p") if is_eval else self.model_args.get("top_p")
-        top_k = self.model_args.get("eval_top_k") if is_eval else self.model_args.get("top_k")
+        top_p = self.model_args.get("eval_top_p", 1.0) if is_eval else self.model_args.get("top_p", 1.0)
+        top_k = self.model_args.get("eval_top_k", -1) if is_eval else self.model_args.get("top_k", -1)
+        presence_penalty = self.model_args.get("eval_presence_penalty", 0.0) if is_eval else self.model_args.get("presence_penalty", 0.0)
+        frequency_penalty = self.model_args.get("eval_frequency_penalty", 0.0) if is_eval else self.model_args.get("frequency_penalty", 0.0)
+        repetition_penalty = self.model_args.get("eval_repetition_penalty", 1.0) if is_eval else self.model_args.get("repetition_penalty", 1.0)
 
         stop = self.model_args.get("stop_token_list", None)
         if isinstance(stop, str):
@@ -428,6 +431,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
             sampling_params = SamplingParams(
                 n=self.model_args.get("n"),
+                presence_penalty=presence_penalty,
+                frequency_penalty=frequency_penalty,
+                repetition_penalty=repetition_penalty,
                 temperature=temperature,
                 top_p=top_p,
                 top_k=top_k,
