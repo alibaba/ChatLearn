@@ -21,7 +21,7 @@ from chatlearn.runtime.model_flow import ModelFlow, ModelNode
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import encode_data
+from .utils import encode_data, decode_data
 from .utils import FlowParser
 
 
