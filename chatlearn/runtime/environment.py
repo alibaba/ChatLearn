@@ -17,15 +17,11 @@
 import math
 from itertools import cycle
 
-from ray.util.queue import Queue
-
 from chatlearn.data.ranking import batch_generation_ranking
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from .executor import Executor
-from .utils import vllm_post_process_generate_step_one_model
-from .utils import encode_data, reinit_cache_engine, prepare_vllm
-from .utils import execute_in_parallel, decode_data
+from .utils import encode_data
 
 # pylint: disable=not-callable
 class Environment(Executor):
@@ -115,30 +111,6 @@ class Environment(Executor):
         else:
             return self.batch_per_episode
 
-    def execute_vllm(self, model_replica, query, out_queues, mb, is_eval, func_name):
-        self.execute_onload(model_replica)
-
-        # profile cache blocks
-        prepare_vllm(model_replica)
-
-        # reinit cache engine
-        reinit_cache_engine(model_replica)
-        # add requests of current episode to vllm scheduler
-        ret = model_replica.tailer._add_request.remote(query, is_eval=is_eval)
-        future.get(ret)
-        step_outputs = True
-        data_queue_internal = Queue()
-        while step_outputs:
-            query = model_replica.tailer.schedule.remote()
-            data_queue_internal.put(encode_data(mb, query))
-            output = self.generate_step_one_model_internal(self.first_model, data_queue_internal, mb, \
-                model_replica, func_name, False, is_eval=is_eval)
-            data = output[-1][0]
-            step_outputs = future.get(data)
-        vllm_post_process_generate_step_one_model(model_replica, out_queues, mb)
-        self.execute_offload(model_replica)
-
-
     def execute(self, is_eval):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
@@ -149,20 +121,6 @@ class Environment(Executor):
             encoded_data = encode_data(mb, query)
             for data_queue in data_queues:
                 data_queue.put(encoded_data)
-
-        if self.first_model.use_vllm_backend:
-            data_queue = self.first_node.get_input_queues()
-            self.timers(f"{self.first_model.name}").start()
-            args_list = []
-            for model_replica in self.first_model.replicas:
-                if data_queue.qsize() == 0:
-                    break
-                data = data_queue.get()
-                mb, query = decode_data(data)
-                func_name = self.first_node.func_name
-                args_list.append((model_replica, query, self.first_node.out_queues, mb, is_eval, func_name))
-            execute_in_parallel(self.execute_vllm, args_list)
-            self.timers(f"{self.first_model.name}").stop()
         self.compute_loop(out_queue, self.num_iteration)
         return out_queue
 

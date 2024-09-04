@@ -113,7 +113,7 @@ ppo_value = PPOValue("ppo_value")
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
-engine.learn()
+engine.setup()
 
 for name in ['policy', 'reference', 'value', 'reward', 'ppo_policy', 'ppo_value']:
     setattr(engine, name, engine.named_models[name])

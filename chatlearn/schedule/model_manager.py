@@ -183,12 +183,9 @@ class ModelManager:
 
         # public user function
         # TODO: use decorator to annotate
-        # TODO: we may need to merge these vllm func call
-        vllm_funcs = ['build_scheduler', 'free_cache_engine', 'profile_cache_blocks',
-                      'set_cache_config', 'reinit_cache_engine', 'decode', '_add_request', 'schedule']
         for func_name in ["save_checkpoint", "model_setup", "onload_optimizer_states", "offload_optimizer_states",
                           'offload_weights', 'onload_weights', 'offload_main_weights', 'onload_main_weights',
-                          'free_grad_buffers', 'build_grad_buffers', 'build_dataset', '_build_dataloader'] + model.call_funcs + vllm_funcs:
+                          'free_grad_buffers', 'build_grad_buffers', 'build_dataset', '_build_dataloader', "generate_vllm"] + model.call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 

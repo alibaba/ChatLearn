@@ -116,7 +116,7 @@ ppo_value = PPOValue("ppo_value")
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
-engine.learn()
+engine.setup()
 
 
 for replica_id in range(len(engine.named_models['ppo_policy'].replicas)):

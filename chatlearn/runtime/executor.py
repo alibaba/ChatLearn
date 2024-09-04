@@ -263,8 +263,6 @@ class Executor:
             to_empty_cache = step >= last_step_start and model.is_colocate
             to_onload = step < replica_num and model.is_colocate and model.enable_offload
             to_offload = step >= last_step_start and model.is_colocate and model.enable_offload
-            # offload already includes empty cache
-            to_empty_cache = False if to_offload else to_empty_cache
             _, data = self.generate_step_one_model(model, in_queue, out_queue, step, func_name, to_empty_cache,
                                                    is_eval=is_eval, to_onload=to_onload, to_offload=to_offload)
             results.append(data)
@@ -285,10 +283,8 @@ class Executor:
         return results
 
     def compute_loop(self, out_queue, num_batch):
-        for i, model_group in enumerate(self.model_flow.flow_topology):
+        for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
-                if model_node.model.use_vllm_backend and i == 0:
-                    continue
                 self.compute_loop_one_model(model_node, num_batch, self.is_eval)
 
         data = [None] * len(self.model_flow.return_model_nodes)

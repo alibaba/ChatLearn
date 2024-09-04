@@ -1,17 +1,10 @@
-# RLHF
+# 编程接口
 
-This section will introduce the programming interface of ChatLearn. We will start with the main file and explain how to construct the `RLHFEngine`. Then, we will discuss how to write models.
+本章节将介绍 ChatLearn 的编程接口。
 
+## 训练主文件
+以下为用户的训练主文件的范例。
 
-## Main Training File
-
-The following is an example of a user's main training file:
-
-1. Call `chatlearn.init()` to initialize the runtime environment for RLHF.
-2. Define the models required for training. Each model needs to have a unique `model_name`. Different models are distinguished by their `model_name` when configuring the model parameters. Please refer to the [training configuration](../config_yaml) for more details.
-3. Define the engine [RLHFEngine](../api/engine.rst).
-4. Set up the training dataset.
-5. Call `engine.learn` to start the RLHF training.
 
 ```python
 from examples.megatron.models import PolicyInference
@@ -51,19 +44,26 @@ engine.set_dataset(train_prompts)
 engine.learn()
 ```
 
+1. 调用 `chatlearn.init()` 初始化 ChatLearn 的运行环境。
+2. 定义模型, 其中每个模型需要定义一个唯一的 `model_name`。在配置模型参数的时候，不同模型的配置通过   `model_name` 来区分。详见[训练配置文件](config_yaml)。
+3. 定义 engine [RLHFEngine](api/engine.rst)。
+4. 定义 evaluator (可选)
+4. 设置训练数据集。
+5. 调用 `engine.learn` 开启 alignment 的训练。 
 
-## Model Definition
+完整的例子请参考 [train_rlhf_llama.sh](https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/scripts/train_rlhf_llama.sh)
 
-![image.png](../../images/class.png)
 
-User-defined models need to inherit from `BaseModule` or its subclasses. `TorchModule` is the wrapper for general Torch models, `MegatronModule` is the wrapper for Megatron models, `DeepSpeedModule` is the wrapper for DeepSpeed models, and `VLLMModule` is the wrapper for vLLM generation models, If you want to use VLLMModule, refer to [vLLM generation](vllm.md). If the user's RLHF modeling is based on Megatron-LM, they can directly inherit from `MegatronModule` to complete the model construction.
+## 定义模型
 
-Here are examples of model construction for both the inference and training models, using inheritance from `MegatronModule`:
-1. For the inference model, users need to implement the `setup` and `forward_step` methods. In `setup`, define the model, initialize parameters, and define global parameters. In `forward_step`, implement the logic required for one forward pass of the model.
-2. For the training model, users need to implement the `setup` and `train_step` methods. In `train_step`, implement the logic required for one training step.
-3. In addition, the `PolicyInference` model needs to implement the `build_dataset` method to construct the prompt dataset.
+![image.png](../images/class.png)
 
-For more API information, refer to [RLHF Module API](../api/module.rst).
+用户的模型需要继承 `BaseModule` 或其子类，`TorchModule` 为通用的 Torch 模型的封装，`MegatronModule` 为 Megatron 模型的封装，`DeepSpeedModule` 为 DeepSpeed 模型的封装，`VLLMModule` 为 vLLM 模型的封装。如果要使用 `VLLMModule` 来进行 generation，可以参考：[vLLM generation](vllm.md)。如果用户的模型建模是基于 Megatron-LM，可以直接继承 `MegatronModule` 完成模型的建模。下述两段代码展现了 inference 模型的建模和 training 模型建模的例子：
+1. 对于 inference 模型，用户需要实现 `setup` 和 `forward_step` 方法。在 `setup` 中，完成模型的定义，参数初始化，全局参数定义等工作。在 `forward_step` 中，实现模型一次前向所需的逻辑。
+2. 对于 training 模型，用户需要实现 `setup` 和 `train_step` 方法。在 `train_step` 中，实现训练一个 step 所需的逻辑。
+3. 除此之外，engine 的第一个模型需要实现 `build_dataset` 方法，完成 prompt 数据集的构建。
+
+更多 API 信息参考 [Module API](api/module.rst).
 
 ```python
 from chatlearn import MegatronModule
@@ -134,11 +134,20 @@ class PolicyTrainer(MegatronModule):
         """
         pass
 ```
+
+## 定义 engine
+
+![image.png](../images/engine.jpg)
+
+ChatLearn 提供了一些列内置的 Engine 类型，用户可以直接使用内置的 Engine 构造训练，同时，用户也可以构造自定义的 Engine，来定制化模型 Flow，参考[自定义流程](tutorial/custom_model_flow.md)。
+
+## 定义 evaluator
+
+evaluator 的使用可以参考[构造 Evaluator](tutorial/evaluator.md)。
+
 ## Dataset
 
-To utilize a user-defined dataset in the ChatLearn framework, users need to inherit from `torch.utils.data.Dataset` and specify the `collate_fn` method. Inheriting from `torch.utils.data.Dataset` requires users to override the `__init__`, `__getitem__`, and `__len__` methods according to their specific requirements, as explained in the PyTorch tutorial on creating custom datasets see [Creating a Custom Dataset for Your Files](https://pytorch.org/tutorials/beginner/basics/data_tutorial.html#creating-a-custom-dataset-for-your-files). The `collate_fn` method allows users to customize the data collation process, as documented in the [collate_fn API](https://pytorch.org/docs/stable/data.html#dataloader-collate-fn). If users do not require custom data collation, they can set `self.collate_fn = None` in the `__init__` method.
-
-Here is an example that demonstrates how to inherit from torch.utils.data.Dataset and specify the collate_fn method:
+用户使用的 Dataset 需要继承 `torch.utils.data.Dataset` 并指定 `collate_fn` 方法。要继承`torch.utils.data.Dataset`，用户需要根据需求重写`__init__`、`__getitem__`和`__len__`方法（see [Creating a Custom Dataset for Your Files](https://pytorch.org/tutorials/beginner/basics/data_tutorial.html#creating-a-custom-dataset-for-your-files)）。`collate_fn`方法允许用户自定义数据整理（see [collate-fn](https://pytorch.org/docs/stable/data.html#dataloader-collate-fn)）。如果用户不需要自定义数据整理，则需要在 `__init__` 方法中设置 `self.collate_fn = None`。
 
 ```bash
 class PromptDataset(Dataset):

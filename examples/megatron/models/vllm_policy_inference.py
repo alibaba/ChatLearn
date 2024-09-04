@@ -60,42 +60,18 @@ class VLLMPolicyInference(VLLMModule):
         return prompts_dataset
 
     def eval_forward(self, data, iteration=0):
-        return self._forward_step(data, iteration, eval_mode=True)
+        return self._forward_step(data, iteration, True)
 
-    def _forward_step(self, data, iteration, eval_mode):
-        '''
-        ChatLearn calling
-        chatlearn framework source:     policy_output = self.policy.forward_step(query)
-        :param data: micro_batch
-        :return:
-            data using current micro_batch
-            {"all_tokens": tokens,  "str_samples": str_samples,
-                "str_prompts": str_prompts, "str_outputs": str_outputs, "logprobs": all_log_probs,
-                "no_padded_query_ids": no_padded_query_ids}
-        '''
-        assert iteration >= 0
-        assert isinstance(eval_mode, bool)
-        outputs = self.execute_step(data)
+    def _forward_step(self, data, iteration, is_eval): # pylint: disable=unused-argument
+        outputs = self.generate_vllm(data, is_eval)
+        if self.is_last_rank():
+            rets = self.decode_internal(outputs)
+            return rets
 
-        return outputs
-
-    def _add_request(self, data, is_eval=False): # pylint: disable=arguments-differ
-        return self._add_request_internal(data["prompt"], data["input_ids"], is_eval=is_eval)
-
-    def forward_step(self, data, iteration=0): # pylint: disable=unused-argument
-        return self._forward_step(data, iteration, eval_mode=False)
+    def forward_step(self, data, iteration=0):
+        return self._forward_step(data, iteration, False)
 
     def decode_internal(self, batched_outputs):
-        '''
-        ChatLearn calling
-        chatlearn framework source:     policy_output = self.policy.forward_step(query)
-        :param batched_outputs: batched_outputs
-        :return:
-            data using current microbatch
-            {"all_tokens": tokens,  "str_samples": str_samples,
-                "str_prompts": str_prompts, "str_outputs": str_outputs, "logprobs": all_log_probs,
-                "no_padded_query_ids": no_padded_query_ids}
-        '''
         max_tokens_length = self.model_args.get("seq_length")
         no_padded_query_ids = []
         all_tokens = []

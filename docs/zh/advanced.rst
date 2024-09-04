@@ -1,6 +1,54 @@
 进阶配置
 ========
 
+vLLM
+-----
+ChatLearn supports vLLM for distributed reasoning across machines, and supports automatic parameter synchronization between vLLM and the training backend.
+Examples of vLLM usage can be found in `vllm_policy_inference.py <https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/models/vllm_policy_inference.py>`_.
+
+YAML Configuration
+>>>>>>>>>>>>>>>>>>
+
+The hyperparameters for vLLM can be divided into the following sections:
+
+- sampling params: Sampling hyperparameters, with specific meanings as shown in the table below
+
+.. csv-table::
+   :header: "Attribute", "Type", "Description"
+
+   "n",               "int",      "Number of responses for each prompt output"
+   "ignore_eos",               "bool",      "Control whether to end generation when generating eos tokens for a certain prompt"
+   "top_p",               "float",      "Float that controls the cumulative probability of the top tokens to consider"
+   "top_k",               "int",      "Integer that controls the number of top tokens to consider. Set to -1 to consider all tokens."
+   "temperature",               "float",      "Float that controls the randomness of the sampling. Lower values make the model more deterministic, while higher values make the model more random. Zero means greedy sampling."
+   "use_beam_search",               "bool",      "Whether to use beam search instead of sampling."
+   "eval_temperature",               "float",      "Same as temperature, but used in the Evaluation scenario."
+   "eval_top_k",               "int",      "Same as top_k, but used in the Evaluation scenario."
+   "eval_top_p",               "float",      "Same as top_p, but used in the Evaluation scenario."
+   "stop_token_list",               "string",      "Stop token string, separated by semicolon."
+   "new_token_limit",               "bool",      "Whether to limit the number of generated tokens"
+   "prompt_logprobs",               "int",      "Prompt token logprobs calculation, set to None to save memory"
+
+- scheduler config: Configuration hyperparameters for batch scheduling of data samples
+
+.. csv-table::
+   :header: "Attribute", "Type", "Description"
+
+   "max_num_batched_tokens",               "int",      "Upper limit on the number of tokens in a batch of data, recommended to be set as batch_size*(max_seq_len-max_prompt_length)"
+   "max_paddings",               "int",      "Upper limit on the number of padding tokens in a batch of data"
+
+- cache config: Configuration for generating vLLM cache blocks, related to GPU/memory usage
+
+.. csv-table::
+   :header: "Attribute", "Type", "Description"
+
+   "block_size",               "int",      "GPU blocks size, default is 16MB, can be derived based on the activation size of the specific model"
+   "gpu_memory_utilization",               "float",      "Set the upper limit of GPU memory utilization for all processes during reasoning, range (0, 1.0], higher is better when GPU memory is sufficient"
+
+- tokenizer: Directory for vLLM tokenizer reading, can refer to `LLama2-7B-hf <https://huggingface.co/meta-llama/Llama-2-7b>`_
+- Others: includes specifying model structure and other parameters; refer to `vLLM hyperparameter configuration <https://github.com/alibaba/ChatLearn/blob/main/examples/megatron/configs/llama2/vllm_policy_inference.yaml>`_.
+
+
 StreamDataset
 -------------
 
@@ -160,7 +208,6 @@ YAML 配置
 
 .. code-block:: python
 
-    # model = get_model(model_provider)
     load_checkpoint(
         model, None, None,
         adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint

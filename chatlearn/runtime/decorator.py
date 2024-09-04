@@ -144,7 +144,7 @@ def preprocess_compute(func, is_forward_step, trainable):
                 input_batch = len(value)
                 break
             input_data = args[0]
-            if input_batch > generation_batch_size:
+            if input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []
@@ -178,10 +178,10 @@ def preprocess_compute(func, is_forward_step, trainable):
             ret = utils.to_device('cpu', ret)
             if self.is_last_rank():
                 final_results = ret
-        if to_offload:
-            self.offload()
         if to_empty_cache:
             self.empty_cache()
+        if to_offload:
+            self.offload()
         if is_last_batch and not is_eval:
             self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results

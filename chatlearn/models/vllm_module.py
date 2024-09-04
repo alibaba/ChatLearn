@@ -24,6 +24,7 @@ from tqdm import tqdm
 from chatlearn.models.vllm.vllm_model import VLLMModel
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+from chatlearn.utils.dist_utils import broadcast_var_object_dict
 from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import Scheduler
@@ -51,7 +52,6 @@ except ImportError:
 
 from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2LlamaSyncMap, Megatron2QWenSyncMap
 
-from chatlearn.utils import utils
 from chatlearn.utils.vllm_utils import get_model, print_rank_0
 from .torch_module import TorchModule
 try:
@@ -316,7 +316,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
             self.worker.initialize_cache(self.cache_config.num_gpu_blocks, self.cache_config.num_cpu_blocks)
 
-    def free_cache_engine(self):
+    def empty_cache(self):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
             self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
             self.worker.cache_engine.cpu_cache = None
@@ -339,7 +339,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         gc.collect()
         self.timers("gc").stop()
 
-        self.empty_cache()
+        super().empty_cache()
 
     def profile_cache_blocks(self):
         """Profiles the memory usage and initializes the KV cache."""
@@ -396,6 +396,11 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             inputs.append(item)
 
         return inputs
+
+    def _add_request(self, data, is_eval=False): # pylint: disable=arguments-differ
+        prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
+        input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
+        return self._add_request_internal(data[prompt_key], data[input_ids_key], is_eval=is_eval)
 
     def _add_request_internal(self, prompt_list, prompt_token_id_list, is_eval=False):
         if self._need_to_reset_scheduler:
@@ -590,6 +595,38 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         return self.model_config.hf_config.num_hidden_layers
 
+    def generate_vllm(self, query, is_eval):
+        num_gpu_blocks, num_cpu_blocks = self.profile_cache_blocks()
+        num_blocks = torch.tensor([num_gpu_blocks, num_cpu_blocks], device='cuda')
+        torch.distributed.all_reduce(num_blocks, op=torch.distributed.ReduceOp.MIN)
+        min_gpu_blocks = num_blocks[0].item()
+        min_cpu_blocks = num_blocks[1].item()
+        self.set_cache_config(min_gpu_blocks, min_cpu_blocks)
+        if self.is_last_rank():
+            self.build_scheduler()
+        self.reinit_cache_engine()
+        # add requests of current episode to vllm scheduler
+        if self.is_last_rank():
+            self._add_request(query, is_eval=is_eval)
+        step_outputs = True
+        while step_outputs:
+            schedule_query = None
+            if self.is_last_rank():
+                schedule_query = self.schedule()
+            schedule_query = broadcast_var_object_dict(schedule_query, torch.distributed.get_world_size()-1)
+            output = self.execute_step(schedule_query)
+            if self.is_last_rank():
+                step_outputs = bool(output)
+                signal_tensor = torch.tensor(step_outputs, device='cuda')
+                torch.distributed.broadcast(signal_tensor, torch.distributed.get_world_size()-1)
+            else:
+                signal_tensor = torch.tensor(True, device='cuda')
+                torch.distributed.broadcast(signal_tensor, torch.distributed.get_world_size()-1)
+            step_outputs = signal_tensor.item()
+        if self.is_last_rank():
+            self.outputs = sorted(self.outputs, key=lambda x: int(x.request_id))
+            return self.outputs
+
     def schedule(self):
         if self.start_time is None:
             self.start_time = time.monotonic()
@@ -670,15 +707,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             return self.process_model_outputs(output)
 
         return output
-
-    def decode(self):
-        if not self.timers("decode").started_:
-            self.timers("decode").start()
-        self.outputs = sorted(self.outputs, key=lambda x: int(x.request_id))
-        rets = self.decode_internal(self.outputs)
-        rets = utils.to_device('cpu', rets)
-        self.timers("decode").stop()
-        return rets
 
     def offload_weights(self):
         """
