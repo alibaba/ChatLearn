@@ -20,6 +20,7 @@ import socket
 import subprocess
 import textwrap
 import time
+import math
 from contextlib import closing
 from types import SimpleNamespace
 
@@ -259,3 +260,21 @@ def dict_to_simplenamespace(d):
         if isinstance(value, dict):
             d[key] = dict_to_simplenamespace(value)
     return SimpleNamespace(**d)
+
+
+def multi_thread_tokenize(prompts: list, tokenizer, max_prompt_length, num_threads=4):
+    from chatlearn.runtime.utils import execute_in_parallel
+
+    result = [ {"input_ids":tokenizer.encode(prompts[0]), "prompt":prompts[0]} for _ in range(len(prompts))]
+
+    data_size_per_thread = math.ceil(len(prompts) / num_threads)
+    thread_args = [(i, prompts[i*data_size_per_thread : min((i+1)*data_size_per_thread, len(prompts))]) for i in range(num_threads)]
+
+    def tokenize_fun(thread_id: int, pending_data):
+        offset = thread_id * data_size_per_thread
+        for i in range(len(pending_data)):
+            result[offset + i] = (pending_data[i], tokenizer.encode(pending_data[i])[:max_prompt_length])
+
+    execute_in_parallel(tokenize_fun, thread_args)
+
+    return result

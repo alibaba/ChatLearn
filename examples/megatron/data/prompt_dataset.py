@@ -17,6 +17,7 @@
 import copy
 from collections import defaultdict
 from typing import List
+import math
 
 import torch
 from megatron.training import get_args
@@ -24,6 +25,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from examples.megatron.models.utils import get_eos_id
 
+from chatlearn.utils.utils import multi_thread_tokenize
 
 def zero_pad_sequences(sequences, side: str = "right", value=0, pad_to_seq_length=False):
     assert side in ("left", "right")
@@ -154,7 +156,8 @@ class VLLMPromptPipeline(PromptPipeline):
             "Prompt length for RLHF/OnlineDPO trainer must be an integer greater than 0"
         if prompt_key is None:
             if len(prompts[0]) == 3:
-                self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt, _, _ in prompts]
+                valid_prompts = [p for p, _, _ in prompts]
+                self.prompts = multi_thread_tokenize(valid_prompts, tokenizer, max_prompt_length)
             else:
                 self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt in prompts]
             self.data = []
