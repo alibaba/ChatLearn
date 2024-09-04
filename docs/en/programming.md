@@ -138,13 +138,13 @@ class PromptDataset(Dataset):
     """
     def __init__(self, data):
         self.data = data
-    
+ 
     def __len__(self):
         return len(self.data)
 
     def __getitem__(self, idx):
         return {"query": self.data[idx]}
-        
+
     def collate_fn(self, samples):
         batched_data = {}
         for sample_key, sample_value in samples.items():
