@@ -17,7 +17,6 @@
 import copy
 from collections import defaultdict
 from typing import List
-import math
 
 import torch
 from megatron.training import get_args
