@@ -22,7 +22,7 @@
 
 ---
 
-ChatLearn 是一个灵活、易用、高效的大规模 Alignment 训练框架。ChatLearn 通过对模型计算逻辑的抽象，解耦了模型和计算 backend、分布式策略的绑定，提供灵活的资源调度机制，可以支持灵活的资源分配和并行调度策略。
+ChatLearn 是阿里云 PAI 团队开发的大规模 Alignment 训练框架。ChatLearn 通过对模型计算逻辑的抽象，解耦了模型和计算 backend、分布式策略的绑定，提供灵活的资源调度机制，可以支持灵活的资源分配和并行调度策略。
 
 ![RLHF Flow](docs/images/rlhf.png)
 

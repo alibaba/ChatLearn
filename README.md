@@ -24,7 +24,7 @@ A flexible and efficient training framework for large-scale alignment
 
 ---
 
-ChatLearn is a flexible and efficient training framework for large-scale alignment.
+ChatLearn is a large-scale alignment training framework developed by the Alibaba Cloud PAI platform.
 
 ![RLHF Flow](docs/images/rlhf.png)
 
