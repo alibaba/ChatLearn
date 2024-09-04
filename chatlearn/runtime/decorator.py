@@ -136,7 +136,7 @@ def preprocess_compute(func, is_forward_step, trainable):
             self.onload()
         generation_batch_size = self.module_args.generation_batch_size
         final_results = None
-        if not trainable and generation_batch_size and not hasattr(self, 'generate_vllm'):
+        if not trainable and generation_batch_size:
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
             input_batch = 0
@@ -144,7 +144,7 @@ def preprocess_compute(func, is_forward_step, trainable):
                 input_batch = len(value)
                 break
             input_data = args[0]
-            if input_batch > generation_batch_size:
+            if input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []

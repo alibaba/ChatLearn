@@ -33,10 +33,7 @@ ChatLearn Documentation
    :maxdepth: 1
    :caption: Programming
 
-   programming/rlhf
-   programming/dpo
-   programming/online_dpo
-   programming/vllm
+   programming
    config_yaml
    advanced
 

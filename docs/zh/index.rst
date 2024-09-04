@@ -35,10 +35,7 @@ ChatLearn 使用文档
    :maxdepth: 1
    :caption: 编程接口
 
-   programming/rlhf
-   programming/dpo
-   programming/online_dpo
-   programming/vllm
+   programming
    config_yaml
    advanced
 
