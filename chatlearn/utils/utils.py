@@ -272,8 +272,8 @@ def multi_thread_tokenize(prompts: list, tokenizer, max_prompt_length, num_threa
 
     def tokenize_fun(thread_id: int, pending_data):
         offset = thread_id * data_size_per_thread
-        for i in range(len(pending_data)):
-            result[offset + i] = (pending_data[i], tokenizer.encode(pending_data[i])[:max_prompt_length])
+        for i, data in enumerate(pending_data):
+            result[offset + i] = (data, tokenizer.encode(data)[:max_prompt_length])
 
     execute_in_parallel(tokenize_fun, thread_args)
 
