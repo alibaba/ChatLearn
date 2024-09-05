@@ -215,7 +215,6 @@ class MegatronModule(TorchModule):
         
         :meta private:
         """
-        # TODO: why need to_build_grad_buffers?
         self.onload(to_onload_optimizer_states=False)
         if self.enable_lora:
             self.fuse_lora_layer()
@@ -223,7 +222,7 @@ class MegatronModule(TorchModule):
                                  self.opt_param_scheduler)
         if self.enable_lora:
             self.unfuse_lora_layer()
-        self.offload(to_offload_optimizer_states=False)
+        self.offload()
 
     def offload_optimizer_states(self):
         """
