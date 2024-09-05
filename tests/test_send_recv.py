@@ -70,4 +70,3 @@ if __name__ == "__main__":
     print(ray.get(results))
 
     ray.get([w.destroy.remote() for w in workers])
-    ray.shutdown()
