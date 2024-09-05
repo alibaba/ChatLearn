@@ -7,11 +7,6 @@ from chatlearn.utils import future
 from chatlearn.runtime.engine import BaseEngine
 from chatlearn import TorchModule
 
-chatlearn.init()
-chatlearn.get_args().models["policy"].num_gpu = 2
-chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
-chatlearn.get_args().models["reference"].num_gpu = 2
-chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
 
 class PolicyModel(TorchModule):
 
@@ -24,7 +19,6 @@ class PolicyModel(TorchModule):
         return data
 
 
-
 class ReferenceModel(TorchModule):
 
     def setup(self):
@@ -35,6 +29,12 @@ class ReferenceModel(TorchModule):
         time.sleep(0.1)
         return data
 
+
+chatlearn.init()
+chatlearn.get_args().models["policy"].num_gpu = 2
+chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
+chatlearn.get_args().models["reference"].num_gpu = 2
+chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
 
 model = PolicyModel('policy')
 model2 = ReferenceModel("reference")

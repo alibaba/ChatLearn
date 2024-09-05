@@ -10,6 +10,7 @@ from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -20,8 +21,6 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         return {"query": self.data[idx]}
 
-
-chatlearn.init()
 
 class PolicyModel(TorchModule):
 
@@ -40,9 +39,7 @@ class PolicyModel(TorchModule):
         return dataset
 
 
-
 class ReferenceModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         print("reference forward =========", flush=True)
@@ -53,11 +50,11 @@ class ReferenceModel(TorchModule):
 
 class RewardModel(TorchModule):
 
-
     def forward_step(self, data, iteration):
         print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
         return data
+
 
 class ValueModel(TorchModule):
 
@@ -74,6 +71,7 @@ class PPOPolicy(TorchModule):
         num_mb = len(data)
         return num_mb
 
+
 class PPOValue(TorchModule):
 
     def train_step(self, data, iteration):
@@ -82,13 +80,13 @@ class PPOValue(TorchModule):
         return num_mb
 
 
+chatlearn.init()
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
 value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
-
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 assert policy.num_replica == 1

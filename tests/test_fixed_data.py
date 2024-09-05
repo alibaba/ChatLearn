@@ -11,6 +11,7 @@ from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -21,11 +22,13 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         return {"query": self.data[idx]}
 
+
 chatlearn.init()
 
 chatlearn.get_args().runtime_args.max_relay_episode = 1
 
 sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
+
 
 class PolicyModel(TorchModule):
 
@@ -44,9 +47,7 @@ class PolicyModel(TorchModule):
         return dataset
 
 
-
 class ReferenceModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         print("reference forward =========", flush=True)
@@ -56,7 +57,6 @@ class ReferenceModel(TorchModule):
 
 
 class RewardModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         print("reward forward =========", flush=True)
@@ -78,6 +78,7 @@ class PPOPolicy(TorchModule):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
+
 
 class PPOValue(TorchModule):
 

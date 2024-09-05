@@ -7,6 +7,7 @@ from chatlearn.utils import future
 from chatlearn import RLHFEngine
 from chatlearn import TorchModule
 
+
 chatlearn.init()
 
 def set_model(name, tp, gpu_per_process, num_gpu):
@@ -26,7 +27,9 @@ chatlearn.get_args().runtime_args.colocation = [["policy", "reference", "reward"
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
+
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -55,9 +58,7 @@ class PolicyModel(TorchModule):
         return dataset
 
 
-
 class ReferenceModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         print("reference forward =========", flush=True)
@@ -69,12 +70,12 @@ class ReferenceModel(TorchModule):
 
 class RewardModel(TorchModule):
 
-
     def forward_step(self, data, iteration):
         print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
         time.sleep(0.01)
         return data
+
 
 class ValueModel(TorchModule):
 
@@ -102,13 +103,13 @@ class PPOValue(TorchModule):
         time.sleep(0.1)
         return num_mb
 
+
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
 value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
-
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 data = torch.ones([1024])
@@ -144,5 +145,3 @@ for replica_id in range(len(engine.value.replicas)):
 for replica_id in range(len(engine.reward.replicas)):
     visible_devices = future.get(engine.reward.replicas[replica_id].get_visible_gpus())
     assert visible_devices[0][0] == replica_id, visible_devices
-
-

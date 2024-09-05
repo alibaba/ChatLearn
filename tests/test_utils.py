@@ -55,7 +55,6 @@ class TestDataset(unittest.TestCase):
         res = parse_function_return_num(func4)
         self.assertEqual(res, 2)
 
-
     def _test_get(self):
         ray.init()
         value = ray.put(1)
@@ -70,13 +69,11 @@ class TestDataset(unittest.TestCase):
         data1 = get(data)
         self.assertEqual(data1, ([{"a":2}], {1:1}))
 
-
     def test_split_index(self):
         length = 10
         num_splits = 3
         res = split_index(length,num_splits)
         self.assertEqual(res, [(0, 4), (4, 7), (7, 10)])
-
 
 # pylint: enable=missing-class-docstring
 

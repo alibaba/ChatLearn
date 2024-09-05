@@ -7,7 +7,7 @@ from chatlearn.utils import future
 from chatlearn.runtime.engine import BaseEngine
 from chatlearn import TorchModule
 
-chatlearn.init()
+
 class PolicyModel(TorchModule):
 
     def setup(self):
@@ -19,6 +19,7 @@ class PolicyModel(TorchModule):
         return data
 
 
+chatlearn.init()
 model = PolicyModel('policy')
 
 engine = BaseEngine(model)
@@ -39,7 +40,3 @@ assert visible_devices == [[0]], visible_devices
 engine.logging_summary()
 
 print(res0)
-
-
-
-

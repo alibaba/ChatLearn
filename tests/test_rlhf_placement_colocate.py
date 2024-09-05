@@ -51,20 +51,16 @@ for replica_id in range(len(model.replicas)):
     print(visible_devices)
 engine.env.setup()
 
-
 def check_output_models(model_name, expected_models):
     assert [node.model.name for node in engine.env.model_flow.get(model_name).output_models] == expected_models
-
 
 check_output_models("policy", ['reference', 'value', 'reward'])
 check_output_models("reference", ['reward'])
 check_output_models("value", ['reward'])
 check_output_models("reward", [])
 
-
 def check_colocate_models(model_name, expected_models):
     assert [model.name for model in engine.env.model_flow.get(model_name).model.colocate_models] == expected_models
-
 
 check_colocate_models("policy", ['reference'])
 check_colocate_models("reference", ['policy'])

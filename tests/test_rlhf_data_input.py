@@ -13,9 +13,6 @@ from chatlearn.runtime.trainer import Trainer
 from utils import CustomDataset, RewardModel, ValueModel, PPOPolicy, PPOValue
 
 
-chatlearn.init()
-
-
 class PolicyModel(TorchModule):
 
     def setup(self):
@@ -41,15 +38,14 @@ class ReferenceModel(TorchModule):
         return data
 
 
+chatlearn.init()
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
-
 
 def env_compute_flow(batch):
     policy_out = policy.forward_step(batch)
     ref_out = reference.forward_step(policy_out, batch)
     return ref_out
-
 
 engine = EvalEngine(env_compute_flow)
 
