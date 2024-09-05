@@ -8,6 +8,7 @@ from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -44,6 +45,7 @@ class RewardModel(TorchModule):
         new_data['reward'] = ['reward_' + item for item in data['policy']]
         return new_data
 
+
 class RewardModel2(TorchModule):
 
     def setup(self):
@@ -54,11 +56,13 @@ class RewardModel2(TorchModule):
         new_data['reward2'] = ['reward2_' + item for item in data['policy']]
         return new_data
 
+
 chatlearn.init()
 chatlearn.get_args().models["policy"].num_gpu = 3
 policy = PolicyModel("policy")
 reward = RewardModel("reward")
 reward2 = RewardModel2("reward2")
+
 
 class CustomEngine(EvalEngine):
 
@@ -70,6 +74,7 @@ class CustomEngine(EvalEngine):
             return r, r1
         evaluator = Evaluator(eval_flow)
         super().__init__(models, evaluator=evaluator)
+
 
 engine = CustomEngine([policy, reward, reward2])
 

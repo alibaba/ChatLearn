@@ -11,6 +11,7 @@ from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -21,6 +22,7 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         return {"query": self.data[idx]}
 
+
 chatlearn.init()
 
 chatlearn.get_args().runtime_args.max_relay_episode = 5
@@ -29,6 +31,7 @@ chatlearn.get_args().runtime_args.sample_per_episode = 16
 chatlearn.get_args().runtime_args.stream_data_loader_type = "relay"
 
 sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
+
 
 class PolicyModel(TorchModule):
 
@@ -47,7 +50,6 @@ class PolicyModel(TorchModule):
         return dataset
 
 
-
 class ReferenceModel(TorchModule):
 
     def forward_step(self, data, iteration):
@@ -57,7 +59,6 @@ class ReferenceModel(TorchModule):
 
 
 class RewardModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
@@ -76,6 +77,7 @@ class PPOPolicy(TorchModule):
     def train_step(self, data, iteration):
         num_mb = len(data)
         return num_mb
+
 
 class PPOValue(TorchModule):
 

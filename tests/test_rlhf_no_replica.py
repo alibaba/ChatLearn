@@ -20,10 +20,8 @@ value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
 
-
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
 data = torch.ones([1024])
 engine.set_dataset([data] * 35)
 engine.learn()
-

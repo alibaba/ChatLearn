@@ -6,6 +6,7 @@ from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None

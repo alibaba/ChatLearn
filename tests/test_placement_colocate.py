@@ -7,14 +7,6 @@ from chatlearn.utils import future
 from chatlearn.runtime.engine import BaseEngine
 from chatlearn import TorchModule
 
-chatlearn.init()
-chatlearn.get_args().models["policy"].num_gpu = 4
-chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
-chatlearn.get_args().models["reference"].num_gpu = 4
-chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
-chatlearn.get_args().models["policy"].gpu_per_process = 1
-chatlearn.get_args().models["reference"].gpu_per_process = 1
-chatlearn.get_args().runtime_args.colocation = [["policy", "reference"]]
 
 class PolicyModel(TorchModule):
 
@@ -38,6 +30,15 @@ class ReferenceModel(TorchModule):
         return data
 
 
+chatlearn.init()
+chatlearn.get_args().models["policy"].num_gpu = 4
+chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
+chatlearn.get_args().models["reference"].num_gpu = 4
+chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
+chatlearn.get_args().models["policy"].gpu_per_process = 1
+chatlearn.get_args().models["reference"].gpu_per_process = 1
+chatlearn.get_args().runtime_args.colocation = [["policy", "reference"]]
+
 model = PolicyModel('policy')
 model2 = ReferenceModel("reference")
 engine = BaseEngine(model, model2)
@@ -60,4 +61,3 @@ for replica_id in range(len(model.replicas)):
     else:
         assert visible_devices == [[2], [3]], visible_devices
     print(visible_devices)
-

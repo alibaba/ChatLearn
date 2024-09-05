@@ -30,7 +30,6 @@ def test_args():
     assert args0.models['policy'].args_dict['test'] == 123
     assert args0.models['policy'].args_dict['generate_config']['eos_token_id'] == 103
 
-
 def test_args2():
     os.environ["num_training_epoch"] = "2"
     args0 = parse_args()

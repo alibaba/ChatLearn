@@ -22,7 +22,6 @@ value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
 
-
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 #engine.setup()
 
@@ -42,5 +41,3 @@ if policy.num_replica == 2:
     visible_devices = engine.models[0].replicas[1].get_visible_gpus()
     visible_devices = future.get(visible_devices)
     assert visible_devices == [[1]], visible_devices
-
-

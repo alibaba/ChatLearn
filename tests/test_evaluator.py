@@ -13,6 +13,7 @@ from chatlearn import EvalEngine
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -22,7 +23,6 @@ class CustomDataset(Dataset):
 
     def __getitem__(self, idx):
         return {"query": self.data[idx]}
-
 
 
 class PolicyModel(TorchModule):
@@ -42,6 +42,7 @@ class PolicyModel(TorchModule):
 chatlearn.init()
 chatlearn.get_args().models["policy"].num_gpu = 3
 policy = PolicyModel("policy")
+
 def eval_flow(b):
     r0 = policy.forward_step(b)
     return r0
