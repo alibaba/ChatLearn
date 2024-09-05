@@ -155,16 +155,16 @@ class ModelManager:
                 sync_group: ParameterSyncGroup = sync_group
 
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
-                refs = src_model.onload_weights()
+                refs = src_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
-                refs = dst_model.onload_weights()
+                refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
 
                 sync_group.sync(requires_grad)
 
-                refs = src_model.offload_weights()
+                refs = src_model.offload()
                 future.wait(refs)
-                refs = dst_model.offload_weights()
+                refs = dst_model.offload()
                 future.wait(refs)
 
     def set_func_decorator(self, model):
@@ -183,9 +183,8 @@ class ModelManager:
 
         # public user function
         # TODO: use decorator to annotate
-        for func_name in ["save_checkpoint", "model_setup", "onload_optimizer_states", "offload_optimizer_states",
-                          'offload_weights', 'onload_weights', 'offload_main_weights', 'onload_main_weights',
-                          'free_grad_buffers', 'build_grad_buffers', 'build_dataset', '_build_dataloader', "generate_vllm"] + model.call_funcs:
+        for func_name in ["save_checkpoint", "model_setup", "onload", "offload", "build_dataset",
+                          "_build_dataloader", "generate_vllm"] + model.call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 

@@ -355,27 +355,8 @@ class Engine(BaseEngine):
         if self.runtime_args.save_episode_interval and \
                 (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
             for model in self.trainer.models:
-                # `build_grad_buffers` is called before `onload_main_weights` and after `onload_weights` because it
-                # has higher peak memory than allocated and is dependent on weights.
-                if model.module_args.offload_weights or model.module_args.free_memory:
-                    refs = model.onload_weights()
-                    future.wait(refs)
-                if model.module_args.free_grad_buffers or model.module_args.free_memory:
-                    refs = model.build_grad_buffers()
-                    future.wait(refs)
-                if model.module_args.offload_weights or model.module_args.free_memory:
-                    refs = model.onload_main_weights()
-                    future.wait(refs)
                 refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
                 future.wait(refs)
-                if model.module_args.offload_weights or model.module_args.free_memory:
-                    refs = model.offload_weights()
-                    future.wait(refs)
-                    refs = model.offload_main_weights()
-                    future.wait(refs)
-                if model.module_args.free_grad_buffers or model.module_args.free_memory:
-                    refs = model.free_grad_buffers()
-                    future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
                 refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
