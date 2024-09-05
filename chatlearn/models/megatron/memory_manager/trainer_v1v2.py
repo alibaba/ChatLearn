@@ -44,8 +44,6 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
         use_distributed_optimizer,
         accumulate_allreduce_grads_in_fp32,
         params_dtype,
-        model_name,
-        timers,
         bucket_size_mb=0,
     ):
         super().__init__(
@@ -54,8 +52,6 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             use_distributed_optimizer,
             accumulate_allreduce_grads_in_fp32,
             params_dtype,
-            model_name,
-            timers,
             bucket_size_mb,
         )
         self._weights_offloaded = False

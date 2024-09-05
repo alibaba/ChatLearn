@@ -19,7 +19,6 @@ from typing import List, Optional
 
 import torch
 
-from chatlearn.models.megatron.memory_manager.base import BaseMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
 from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
@@ -37,8 +36,6 @@ def create_trainer_memory_manager(
     use_distributed_optimizer,
     accumulate_allreduce_grads_in_fp32,
     params_dtype,
-    model_name,
-    timers,
     bucket_size_mb=0,
 ) -> 'BaseTrainerMemoryManager':
     """
@@ -64,13 +61,11 @@ def create_trainer_memory_manager(
         use_distributed_optimizer,
         accumulate_allreduce_grads_in_fp32,
         params_dtype,
-        model_name,
-        timers,
         bucket_size_mb,
     )
 
 
-class BaseTrainerMemoryManager(BaseMemoryManager, ABC):
+class BaseTrainerMemoryManager(ABC):
     """
     Base class for Megatron trainer memory managers, which provides common routines for all versions, such as
     optimizer states offloading, and main weights offloading.
@@ -83,11 +78,9 @@ class BaseTrainerMemoryManager(BaseMemoryManager, ABC):
         use_distributed_optimizer,
         accumulate_allreduce_grads_in_fp32,
         params_dtype,
-        model_name,
-        timers,
         bucket_size_mb=0,
     ):
-        super().__init__(model, model_name, timers)
+        self._model = model
         self._optimizer = optimizer
         self._accumulate_allreduce_grads_in_fp32 = accumulate_allreduce_grads_in_fp32
         self._params_dtype = params_dtype
@@ -112,20 +105,6 @@ class BaseTrainerMemoryManager(BaseMemoryManager, ABC):
         self._group_flat_main_weights: Optional[List[BucketizedFlatTensors]] = None
 
         self._megatron_version = get_megatron_version()
-
-        funcs = [
-            self.offload_optimizer_states,
-            self.onload_optimizer_states,
-            self.offload_weights,
-            self.onload_weights,
-            self.offload_main_weights,
-            self.onload_main_weights,
-            self.free_grad_buffers,
-            self.build_grad_buffers,
-        ]
-        for func in funcs:
-            func_name = func.__name__
-            setattr(self, func_name, self._wrap_method(func, timers))
 
     def _optimizer_load_state_bucket_into_device(self, device):
         """put the state bucket onto a device"""

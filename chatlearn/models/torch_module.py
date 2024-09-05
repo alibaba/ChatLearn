@@ -14,6 +14,7 @@
 # ==============================================================================
 """Torch module"""
 
+import gc
 import os
 import ray
 import torch
@@ -133,42 +134,68 @@ class TorchModule(BaseModule):
     def world_size(self):
         return dist.get_world_size()
 
-    def onload(self):
-        if self.module_args.free_grad_buffers or self.module_args.offload_weights or \
-            self.module_args.offload_optimizer_states:
+    def _get_if_not_none(self, to_set, default):
+        if not default:
+            return False
+        if to_set is not None:
+            return to_set
+        return default
+
+    def onload(self, to_onload_weights=None, to_build_grad_buffers=None, to_onload_main_weights=None, to_onload_optimizer_states=None):
+        to_onload_weights = self._get_if_not_none(to_onload_weights, self.module_args.offload_weights)
+        to_build_grad_buffers = self._get_if_not_none(to_build_grad_buffers, self.module_args.free_grad_buffers)
+        to_onload_main_weights = self._get_if_not_none(to_onload_main_weights, self.module_args.offload_weights)
+        to_onload_optimizer_states = self._get_if_not_none(to_onload_optimizer_states, self.module_args.offload_optimizer_states)
+        if to_onload_weights or to_build_grad_buffers or to_onload_main_weights or to_onload_optimizer_states:
             log_rank_0(get_full_proc_memory_info('Before onload'), self._logger)
+            torch.cuda.synchronize()
+            timer = self.timers(f'{self.name}_free_memory')
+            if not timer.started_:
+                timer.start()
             torch.distributed.barrier()
-            if self.module_args.offload_weights:
+            if to_onload_weights:
                 self.onload_weights()
             if self.trainable:
-                if self.module_args.free_grad_buffers:
+                if to_build_grad_buffers:
                     self.build_grad_buffers()
-                if self.module_args.offload_weights:
+                if to_onload_main_weights:
                     self.onload_main_weights()
-                if self.module_args.offload_optimizer_states:
+                if to_onload_optimizer_states:
                     self.onload_optimizer_states()
             torch.distributed.barrier()
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            gc.collect()
+            timer.stop()
             log_rank_0(get_full_proc_memory_info('After onload'), self._logger)
 
-    def offload(self, to_offload_weights=None, to_free_grad_buffers=None, to_offload_optimizer_states=None):
+    def offload(self, to_offload_weights=None, to_free_grad_buffers=None, to_offload_main_weights=None, to_offload_optimizer_states=None):
         # The first time of calling `offload_weights` and `offload_main_weights` has a higher peak memory.
         # So `free_grad_buffers` is called first to free memory, and `offload_weights` is called afterward
         # to make more space for `offload_main_weights`.
-        to_offload_weights = self.module_args.offload_weights if to_offload_weights is None else to_offload_weights
-        to_free_grad_buffers = self.module_args.free_grad_buffers if to_free_grad_buffers is None else to_free_grad_buffers
-        if to_offload_optimizer_states is None:
-            to_offload_optimizer_states = self.module_args.offload_optimizer_states
-        if to_free_grad_buffers or to_offload_weights or to_offload_optimizer_states:
+        to_offload_weights = self._get_if_not_none(to_offload_weights, self.module_args.offload_weights)
+        to_offload_main_weights = self._get_if_not_none(to_offload_main_weights, self.module_args.offload_weights)
+        to_free_grad_buffers = self._get_if_not_none(to_free_grad_buffers, self.module_args.free_grad_buffers)
+        to_offload_optimizer_states = self._get_if_not_none(to_offload_optimizer_states, self.module_args.offload_optimizer_states)
+        if to_free_grad_buffers or to_offload_weights or to_offload_optimizer_states or to_offload_main_weights:
             log_rank_0(get_full_proc_memory_info('Before offload'), self._logger)
+            torch.cuda.synchronize()
+            timer = self.timers(f'{self.name}_free_memory')
+            if not timer.started_:
+                timer.start()
             torch.distributed.barrier()
             if self.trainable:
                 if to_free_grad_buffers:
                     self.free_grad_buffers()
-                if to_offload_weights:
+                if to_offload_main_weights:
                     self.offload_main_weights()
                 if to_offload_optimizer_states:
                     self.offload_optimizer_states()
             if to_offload_weights:
                 self.offload_weights()
             torch.distributed.barrier()
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+            gc.collect()
+            timer.stop()
             log_rank_0(get_full_proc_memory_info('After offload'), self._logger)
