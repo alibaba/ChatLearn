@@ -498,7 +498,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             if InferenceMemoryManager is None:
                 raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
             self._memory_manager = InferenceMemoryManager(
-                self.model, self.name, self.timers,
+                self.model,
                 self.runtime_args.bucket_size_mb_in_memory_manager,
             )
             self.offload()
