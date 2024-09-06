@@ -1,5 +1,3 @@
-import time
-
 import torch
 
 import chatlearn
@@ -43,13 +41,9 @@ class CustomDataset(Dataset):
 
 class PolicyModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
         query = data["query"]
-        time.sleep(1)
         self.put("policy_put", 100)
         data["policy_out"] = query
         return data
@@ -64,7 +58,6 @@ class ReferenceModel(TorchModule):
     def forward_step(self, data, iteration):
         print("reference forward =========", flush=True)
         query = data["policy_out"].cuda()
-        time.sleep(0.01)
         data["ref_out"] = query
         return data
 
@@ -76,7 +69,6 @@ class RewardModel(TorchModule):
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
         policy_put = self.get("policy_put")
         assert policy_put == 100
-        time.sleep(0.01)
         return data
 
 
@@ -85,7 +77,6 @@ class ValueModel(TorchModule):
     def forward_step(self, data, iteration):
         print("value forward =========", flush=True)
         data["value_out"] = data["policy_out"].cuda() * 3
-        time.sleep(0.01)
         return data
 
 
@@ -94,7 +85,6 @@ class PPOPolicy(TorchModule):
     def train_step(self, data, iteration):
         print("ppo policy train_step =========", flush=True)
         num_mb = len(data)
-        time.sleep(0.1)
         return num_mb
 
 
@@ -103,7 +93,6 @@ class PPOValue(TorchModule):
     def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
-        time.sleep(0.1)
         return num_mb
 
 

@@ -1,6 +1,5 @@
 import os
 import pickle
-import time
 
 import torch
 from torch.utils.data import DataLoader
@@ -26,9 +25,6 @@ class CustomDataset(Dataset):
 
 class PolicyModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def forward_step(self, data, iteration):
         save_dir = self.runtime_args.data_checkpoint_path
         fn = f"{save_dir}/data_{iteration}"
@@ -40,7 +36,6 @@ class PolicyModel(TorchModule):
             print(f"save to {fn}", flush=True)
 
         query = data["query"]
-        time.sleep(0.1)
         data["policy_out"] = query
         return data
 
@@ -53,7 +48,6 @@ class ReferenceModel(TorchModule):
 
     def forward_step(self, data, iteration):
         query = data["policy_out"].cuda()
-        time.sleep(0.01)
         data["ref_out"] = query
         return data
 
@@ -62,7 +56,6 @@ class RewardModel(TorchModule):
 
     def forward_step(self, data, iteration):
         data["reward_out"] = data["ref_out"].cuda()
-        time.sleep(0.01)
         return data
 
 
@@ -70,7 +63,6 @@ class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         data["value_out"] = data["policy_out"].cuda() * 3
-        time.sleep(0.01)
         return data
 
 
@@ -78,7 +70,6 @@ class PPOPolicy(TorchModule):
 
     def train_step(self, data, iteration):
         num_mb = len(data)
-        time.sleep(0.1)
         return num_mb
 
 
@@ -86,7 +77,6 @@ class PPOValue(TorchModule):
 
     def train_step(self, data, iteration):
         num_mb = len(data)
-        time.sleep(0.1)
         return num_mb
 
 

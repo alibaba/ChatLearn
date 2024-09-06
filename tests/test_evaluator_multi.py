@@ -1,5 +1,3 @@
-import time
-
 from torch.utils.data import Dataset
 
 import chatlearn
@@ -22,9 +20,6 @@ class CustomDataset(Dataset):
 
 class PolicyModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def forward_step(self, data, iteration):
         new_data = {}
         new_data['policy'] = ['policy_' + item for item in data['query']]
@@ -37,9 +32,6 @@ class PolicyModel(TorchModule):
 
 class RewardModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def eval_step(self, data):
         new_data = {}
         new_data['reward'] = ['reward_' + item for item in data['policy']]
@@ -47,9 +39,6 @@ class RewardModel(TorchModule):
 
 
 class RewardModel2(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
 
     def eval_step(self, data):
         new_data = {}

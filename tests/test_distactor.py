@@ -1,5 +1,3 @@
-import time
-
 import torch
 
 import chatlearn
@@ -10,12 +8,8 @@ from chatlearn import TorchModule
 
 class PolicyModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def forward_step(self, data, iteration=0):
         #assert data['a'].device.type == 'cpu', data['a'].device.type
-        time.sleep(0.1)
         return data
 
 
