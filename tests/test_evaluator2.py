@@ -1,3 +1,4 @@
+from torch.utils.data import Dataset
 import chatlearn
 from chatlearn import EvalEngine
 from chatlearn import TorchModule
