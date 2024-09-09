@@ -14,14 +14,11 @@
 # ==============================================================================
 """entry file for training RLHF"""
 
-import random
 import os
 
 from examples.megatron.models import PolicyReference, PolicyTrainer, RewardInference, ValueInference, ValueTrainer
-from examples.megatron.models.train_helper import eval_post_process, get_prompts
 
 import chatlearn
-from chatlearn import Evaluator
 from chatlearn import RLHFEngine
 
 # pylint: disable=invalid-envvar-default,bad-exception-cause,ungrouped-imports
