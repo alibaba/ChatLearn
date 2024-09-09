@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import Dataset
 
@@ -13,9 +11,6 @@ from utils import CustomDataset, RewardModel, ValueModel, PPOPolicy, PPOValue
 
 
 class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)

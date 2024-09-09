@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -17,7 +15,6 @@ class RewardModel(TorchModule):
     def forward_step(self, data, iteration):
         print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"] + data["policy_out"]
-        time.sleep(0.01)
         return data
 
 
