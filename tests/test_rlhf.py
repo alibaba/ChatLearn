@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -23,9 +21,6 @@ class CustomDataset(Dataset):
 
 
 class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)

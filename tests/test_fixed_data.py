@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -31,9 +29,6 @@ sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
 
 
 class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
