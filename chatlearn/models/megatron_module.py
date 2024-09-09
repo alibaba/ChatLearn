@@ -215,14 +215,12 @@ class MegatronModule(TorchModule):
         
         :meta private:
         """
-        self.onload(to_onload_optimizer_states=False)
         if self.enable_lora:
             self.fuse_lora_layer()
         save_checkpoint_and_time(iteration, self.model, self.optimizer,
                                  self.opt_param_scheduler)
         if self.enable_lora:
             self.unfuse_lora_layer()
-        self.offload()
 
     def offload_optimizer_states(self):
         """

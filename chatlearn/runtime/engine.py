@@ -328,7 +328,9 @@ class Engine(BaseEngine):
             self.after_episode()
             self.timers("episode").stop()
             self.logging_summary(episode_id)
-            self.save_checkpoint(episode_id)
+            if self.runtime_args.save_episode_interval and \
+                (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
+                self.save_checkpoint(episode_id)
             self.evaluate(episode_id)
 
         self.timers("chatlearn").stop()
@@ -352,16 +354,18 @@ class Engine(BaseEngine):
         """
         :meta private:
         """
-        if self.runtime_args.save_episode_interval and \
-                (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
-            for model in self.trainer.models:
-                refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
-                future.wait(refs)
-            refs = []
-            for i, model in enumerate(self.models[0].replicas):
-                refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
-            future.get(refs)
-            logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
+        for model in self.trainer.models:
+            refs = model.replicas[0].onload(to_onload_optimizer_states=False)
+            future.wait(refs)
+            refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
+            future.wait(refs)
+            refs = model.replicas[0].offload()
+            future.wait(refs)
+        refs = []
+        for i, model in enumerate(self.models[0].replicas):
+            refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+        future.get(refs)
+        logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
     def evaluate(self, episode_id):
         """

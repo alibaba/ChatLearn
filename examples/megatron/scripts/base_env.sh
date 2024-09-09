@@ -5,6 +5,8 @@ ray stop
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NCCL_NVLS_ENABLE=0
 export NCCL_DEBUG=WARN
+export OPENBLAS_NUM_THREADS=1
+
 
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
@@ -52,7 +54,14 @@ export num_gpu=$(($WORLD_SIZE * $GPUS_PER_NODE))
 [ -z "$num_gpu_ppo_policy" ] && export num_gpu_ppo_policy=$num_gpu
 [ -z "$num_gpu_ppo_value" ] && export num_gpu_ppo_value=$num_gpu
 
-if [[ "$model_size" == "gpt-30B" ]]; then
+if [[ "$model_size" == "gpt-345M" ]]; then
+  export policy_num_layers=12
+  export policy_hidden_size=512
+  export policy_num_attention_heads=8
+  export reward_num_layers=12
+  export reward_hidden_size=512
+  export reward_num_attention_heads=8
+elif [[ "$model_size" == "gpt-30B" ]]; then
   export policy_num_layers=48
   export policy_hidden_size=7168
   export policy_num_attention_heads=56
