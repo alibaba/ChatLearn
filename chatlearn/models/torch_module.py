@@ -142,6 +142,8 @@ class TorchModule(BaseModule):
         return default
 
     def onload(self, to_onload_weights=None, to_build_grad_buffers=None, to_onload_main_weights=None, to_onload_optimizer_states=None):
+        if not self.is_colocate:
+            return
         to_onload_weights = self._get_if_not_none(to_onload_weights, self.module_args.offload_weights)
         to_build_grad_buffers = self._get_if_not_none(to_build_grad_buffers, self.module_args.free_grad_buffers)
         to_onload_main_weights = self._get_if_not_none(to_onload_main_weights, self.module_args.offload_weights)
@@ -173,6 +175,8 @@ class TorchModule(BaseModule):
         # The first time of calling `offload_weights` and `offload_main_weights` has a higher peak memory.
         # So `free_grad_buffers` is called first to free memory, and `offload_weights` is called afterward
         # to make more space for `offload_main_weights`.
+        if not self.is_colocate:
+            return
         to_offload_weights = self._get_if_not_none(to_offload_weights, self.module_args.offload_weights)
         to_offload_main_weights = self._get_if_not_none(to_offload_main_weights, self.module_args.offload_weights)
         to_free_grad_buffers = self._get_if_not_none(to_free_grad_buffers, self.module_args.free_grad_buffers)
