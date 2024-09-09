@@ -64,7 +64,7 @@ class ParameterSyncGroup:
         self._actor2dp = {}
         self._validate_params = {}
         self._comm_type = get_args().runtime_args.param_sync_comm_type
-        if self._comm_type is PARAM_SYNC_COMM_TYPE.BROADCAST:
+        if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
             if self.num_src_tensor_parallel % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
