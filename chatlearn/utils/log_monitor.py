@@ -261,6 +261,11 @@ class LogMonitor:
                 return
             try:
                 # TODO: try to reduce this frequency
+                actor_state = ray.util.state.get_actor(self.log_actor._ray_actor_id.hex())
+                if actor_state.state == "DEAD":
+                    logger.info("log_actor exit, quit the LogMonitor")
+                    self.need_quit = True
+                    return
                 logs = ray.get(self.log_actor.list_logs.remote(self.node_id))
                 global LOG_NAME_UPDATE_INTERVAL_S
                 if not self.has_log_file_list_changed(logs):
