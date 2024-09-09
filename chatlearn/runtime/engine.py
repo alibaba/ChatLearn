@@ -328,9 +328,7 @@ class Engine(BaseEngine):
             self.after_episode()
             self.timers("episode").stop()
             self.logging_summary(episode_id)
-            if self.runtime_args.save_episode_interval and \
-                (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
-                self.save_checkpoint(episode_id)
+            self.save_checkpoint(episode_id)
             self.evaluate(episode_id)
 
         self.timers("chatlearn").stop()

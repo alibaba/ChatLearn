@@ -126,18 +126,6 @@ class DistActor:
         actor.set_storage.remote(self.storage)
         self.all_actors.append(actor)
 
-    # def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
-    #     refs = []
-    #     for i, actor in enumerate(self.all_actors):
-    #         rank = i + rank_offset
-    #         ref = actor.setup_collective_group.remote(
-    #             rank=rank,
-    #             world_size=world_size,
-    #             backend=backend,
-    #             group_name=group_name)
-    #         refs.append(ref)
-    #     return refs
-
     def _setup_ranks(self, rank_offset):
         all_ranks = []
         for i, actor in enumerate(self.all_actors):

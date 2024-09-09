@@ -78,7 +78,6 @@ class ParameterSyncGroup:
         self.collective_groups = []
         self.src_dp_size = future.get(self.src_model.replicas[0].all_actors[0].get_data_parallel_size.remote())
         self.sorted_send_actors = None
-        self.same_gpu_pairs = defaultdict(list)
 
     def get_group_name(self, actors):
         return f"{self.group_name}_" + "_".join(str(self.actor2rank[actor]) for actor in actors)
@@ -177,7 +176,7 @@ class ParameterSyncGroup:
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
         dst_pp_rank = self.get_actor_pipe_rank(dst_actor)
-        logger.info(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
+        logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
                      f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
                      f"from tp rank {src_tp_rank} to {dst_tp_rank}")
         assert src_tp_rank == dst_tp_rank, f"src_tp_rank {src_tp_rank} should be same as dst_tp_rank {dst_tp_rank}"
