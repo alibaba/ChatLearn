@@ -48,7 +48,7 @@ if [[ ${model} == 'gpt_llama' ]]; then
         --tokenizer-model ${tokenizer_model}
 elif [[ ${model} == 'mixtral' ]]; then
     # Mixtral can only be converted to mcore models.
-    # Require Megatron-LM commit id >= c7a1f82.
+    # Require Megatron-Core 0.8.0 or later.
     cd ${megatron}
     python tools/checkpoint/convert.py \
         --model-type GPT \
