@@ -20,6 +20,7 @@ from typing import List
 
 import torch
 from megatron.training import get_args
+# from chatlearn.utils.global_vars import get_args
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from examples.megatron.models.utils import get_eos_id
@@ -164,14 +165,26 @@ class VLLMPromptPipeline(PromptPipeline):
                 prompt_encodings = multi_thread_execute(num_threads, valid_prompts, encode_single_prompt, fn_args)
                 self.prompts = list(zip(valid_prompts, prompt_encodings))
             else:
-                self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt in prompts]
+                def encode_single_prompt(single_prompt, max_len):
+                    return tokenizer.encode(single_prompt)[:max_len]
+                fn_args = [max_prompt_length]
+
+                prompt_encodings = multi_thread_execute(num_threads, prompts, encode_single_prompt, fn_args)
+                self.prompts = list(zip(prompts, prompt_encodings))
             self.data = []
             for prompt, prompt_ids in self.prompts:
                 p = {"input_ids": prompt_ids, "prompt": prompt}
                 self.data.extend([copy.deepcopy(p)])
         else:
-            for prompt in prompts:
-                prompt["input_ids"] = tokenizer.encode(prompt[prompt_key])[:max_prompt_length]
+            valid_prompts = [p[prompt_key] for p in prompts]
+
+            def encode_single_prompt(single_prompt, max_len):
+                return tokenizer.encode(single_prompt)[:max_len]
+            fn_args = [max_prompt_length]
+
+            prompt_encodings = multi_thread_execute(num_threads, valid_prompts, encode_single_prompt, fn_args)
+            for i, prompt in enumerate(prompts):
+                prompt["input_ids"] = prompt_encodings[i]
                 if 'prompt' != prompt_key:
                     prompt['prompt'] = prompt[prompt_key]
             self.data = prompts
