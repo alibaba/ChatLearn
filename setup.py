@@ -25,7 +25,7 @@ else:
       .load_module().VERSION
 
 setup(
-    name='chatlearn',
+    name='pai-chatlearn',
     version=VERSION,
     python_requires='>3.6.0',
     packages=find_packages(),
