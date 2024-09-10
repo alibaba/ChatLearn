@@ -15,7 +15,6 @@
 """Sync parameters"""
 
 import importlib
-import random
 import concurrent.futures
 import traceback
 from collections import defaultdict
@@ -31,6 +30,7 @@ from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
+from .utils import execute_in_parallel
 
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
@@ -88,6 +88,24 @@ class ParameterSyncGroup:
     @property
     def frequency(self):
         return self._frequency
+
+    def get_or_cache(self, actor, func_name):
+        def inner_func():
+            return future.get(getattr(getattr(actor, func_name), 'remote')())
+        cached_name = "_actor2" + func_name
+        if hasattr(self, cached_name):
+            cached = getattr(self, cached_name)
+        else:
+            cached = {}
+            setattr(self, cached_name, cached)
+        return utils.get_or_cache(cached, actor, inner_func)
+
+    def is_same_gpu(self, src_actor, dst_actor):
+        src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
+        dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
+        src_address = self.get_or_cache(src_actor, "get_address")
+        dst_address = self.get_or_cache(dst_actor, "get_address")
+        return src_gpu == dst_gpu and src_address == dst_address
 
     @property
     def num_src_pipeline_stage(self):
@@ -147,8 +165,8 @@ class ParameterSyncGroup:
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.actor2rank[dst_actor] = dst_rank
 
-        src_gpu = future.get(src_actor.get_visible_gpus.remote())
-        dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
+        src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
+        dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
         src_tp_rank = self.get_actor_tp_rank(src_actor)
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
@@ -179,8 +197,10 @@ class ParameterSyncGroup:
 
         assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
             f"src training model ranks should be times of dst ranks, but got {len(src_ranks[0])} and {len(dst_ranks[0])}"
-
-        replica_rank_iter = cycle(iter(src_ranks))
+        if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
+            replica_rank_iter = cycle(reversed(src_ranks))
+        else:
+            replica_rank_iter = cycle(iter(src_ranks))
         logger.debug(f"src_ranks: {src_ranks}")
         logger.debug(f"dst_ranks: {dst_ranks}")
         assert self.num_src_tensor_parallel == self.num_dst_tensor_parallel, \
@@ -209,12 +229,13 @@ class ParameterSyncGroup:
             dst_name = self._dst_prefix + src_name
         return dst_name
 
-    def validate_sync_results(self, send_actor, recv_actor, src_names, dst_names):
+    def validate_sync_results(self, send_actor, recv_actor, requires_grad):
+        src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
 
         def validate():
             # check the value of src model and tgt model
-            random_names = random.sample(list(zip(src_names, dst_names)), 5)
-            for src_name, dst_name in tqdm(random_names):
+            names = list(zip(src_names, dst_names))
+            for src_name, dst_name in tqdm(names):
                 src_tensor = future.get(send_actor.get_parameter.remote(src_name))
                 dst_tensor = future.get(recv_actor.get_parameter.remote(dst_name))
                 assert (
@@ -242,9 +263,7 @@ class ParameterSyncGroup:
     def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None):
         src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
-        send_gpu = future.get(send_actor.get_visible_gpus.remote())
-        recv_gpu = future.get(recv_actor.get_visible_gpus.remote())
-        is_the_same_gpu = (len(send_gpu) == len(recv_gpu) and len(send_gpu) == 1 and send_gpu[0] == recv_gpu[0])
+        is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
 
         if self.enable_coalesce_param:
             if is_the_same_gpu:
@@ -271,7 +290,6 @@ class ParameterSyncGroup:
                 recv_ref = recv_actor.recv_parameter.remote(dst_name, self.actor2rank[send_actor], self.group_name)
                 future.get([send_ref, recv_ref])
             logger.debug(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
-        self.validate_sync_results(send_actor, recv_actor, src_names, dst_names)
 
     def sync_send_recv(self, send_actor, recv_actor, requires_grad=None):
         try:
@@ -454,8 +472,15 @@ class ParameterSyncGroup:
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
+        if self._debug:
+            args = []
+            for send_actor, recv_actors in self.send_recv_actor_mappings.items():
+                for recv_actor in recv_actors:
+                    args.append((send_actor, recv_actor, requires_grad))
+            execute_in_parallel(self.validate_sync_results, args)
+
         if self._free_sync_collective_group:
             self.destroy_collective_group()
             self._is_collective_group_created = False
             self.collective_groups = []
-        logger.info(f"Group {self.group_name} sync all parameters done")
+        logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")

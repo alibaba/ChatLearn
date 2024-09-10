@@ -301,7 +301,8 @@ class DistModel:
                           "onload",
                           "eval",
                           "train",
-                          "set_src_parameter_model"]:
+                          "set_src_parameter_model",
+                          "set_colocate"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 
