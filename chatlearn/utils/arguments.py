@@ -502,13 +502,13 @@ class Config(BaseConfig):
         assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
         assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)
         for model_name, model_args in self.models.items():
-            if model_args.num_gpu > 1:
+            if model_args.num_gpu >= 1:
                 if model_args.gpu_per_process is None:
                     model_args.gpu_per_process = 1
                 else:
                     assert model_args.gpu_per_process <= model_args.num_gpu, \
                         f"{model_name}: gpu_per_process: {model_args.gpu_per_process}, num_cpu: {model_args.num_gpu}"
-            elif model_args.num_cpu > 1:
+            elif model_args.num_cpu >= 1:
                 if model_args.cpu_per_process is None:
                     model_args.cpu_per_process = 1
                 else:
