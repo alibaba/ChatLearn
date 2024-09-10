@@ -5,7 +5,9 @@ set -x
 
 # model config
 # can be `gpt_llama' for GPT or Llama, or `mixtral' for Mixtral
-model=${MODEL:-'gpt_llama'} 
+model=${MODEL:-'gpt_llama'}
+# Whether to use legacy models, default: True
+use_legacy_models=${USE_LEGACY_MODELS:-"True"}
 
 # parallel config
 tp=${TP:-1}
@@ -28,12 +30,17 @@ START_TIME=$SECONDS
 
 if [[ ${model} == 'gpt_llama' ]]; then
     cd ${megatron}
+    if [[ ${use_legacy_models} = "False" ]]; then
+        saver="mcore"
+    else
+        saver="megatron"
+    fi
     python tools/checkpoint/convert.py \
         --model-type GPT \
         --loader llama_mistral \
         --checkpoint-type hf \
         --model-size ${model_size} \
-        --saver megatron \
+        --saver ${saver} \
         --target-tensor-parallel-size ${tp} \
         --target-pipeline-parallel-size ${pp} \
         --load-dir ${load_dir} \

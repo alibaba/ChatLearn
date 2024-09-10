@@ -63,7 +63,9 @@ def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interv
         if requires_grad:
             if not partition_param.requires_grad:
                 continue
-        if src_name.endswith("word_embeddings.weight") and "language_model" not in src_name:
+        if src_name.endswith("word_embeddings.weight") \
+                and "language_model" not in src_name \
+                and hasattr(model, "language_model"):
             # See comment in MegatronModule.initialize_word_embeddings()
             if not tgt_last_stage:
                 tgt_name = src_name.replace("word_embeddings.weight", "language_model.embedding.word_embeddings.weight")
@@ -182,8 +184,14 @@ def load_checkpoint(*_args, **kwargs):
                     if 'pooler_head' in key:
                         model_type = "REWARD"
                         break
-                cmd = f"python {script_path} --model-type {model_type} --load-dir {args.load} " + \
-                      f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} --target-pipeline-parallel-size {target_pp}"
+                if args.use_legacy_models:
+                    cmd = f"python {script_path} --model-type {model_type} --load-dir {args.load} " + \
+                        f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \
+                        f"--target-pipeline-parallel-size {target_pp}"
+                else:
+                    cmd = f"python {script_path} --model-type {model_type} --loader mcore --load-dir {args.load} " + \
+                        f"--saver mcore --save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \
+                        f"--target-pipeline-parallel-size {target_pp}"
                 logger.info(f"Transforming checkpoint for new parallel strategies {cmd}")
                 subprocess.run(cmd, shell=True, check=True)
         torch.distributed.barrier()

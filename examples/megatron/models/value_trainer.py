@@ -18,7 +18,10 @@ from functools import partial
 
 import torch
 from megatron.core import mpu
-from megatron.training import get_num_microbatches
+try:
+    from megatron.training import get_num_microbatches
+except ImportError:
+    from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import get_timers
 from megatron.training import get_tokenizer
 from megatron.training import print_rank_0
@@ -27,7 +30,8 @@ from megatron.training.utils import average_losses_across_data_parallel_group
 from megatron.training.utils import calc_params_l2_norm
 
 from chatlearn.utils import to_device
-from .value_model import ValueModel
+from .value_model import ValueModel as LegacyValueModel
+from .mcore_value_model import MCoreValueModel
 from .utils import tensorboard_scalar_dict, training_log, get_eos_id
 from .base_trainer import BaseTrainer
 from .constants import get_ltor_masks_and_position_ids_rlhf, select_actions_from_right_padded, pad_to_max_len
@@ -40,14 +44,23 @@ class ValueTrainer(BaseTrainer):
         """Build the model."""
 
         print_rank_0('building GPT model ...')
-        model = ValueModel(
-            num_tokentypes=0,
-            parallel_output=True,
-            pre_process=pre_process,
-            post_process=post_process,
-            stats=self.stats,
-            buffer=self.buffer
-        )
+        if self.args.use_legacy_models:
+            model = LegacyValueModel(
+                num_tokentypes=0,
+                parallel_output=True,
+                pre_process=pre_process,
+                post_process=post_process,
+                stats=self.stats,
+                buffer=self.buffer
+            )
+        else:
+            model = MCoreValueModel(
+                parallel_output=True,
+                pre_process=pre_process,
+                post_process=post_process,
+                stats=self.stats,
+                buffer=self.buffer
+            )
         if self.module_args.lora.enable_lora:
             from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
             model = convert_layer_to_lora(model)

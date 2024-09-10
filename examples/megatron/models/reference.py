@@ -26,6 +26,7 @@ from chatlearn.utils import to_device
 from chatlearn.utils.megatron_utils import load_checkpoint
 from examples.megatron.data.prompt_dataset import DPOPromptPipeline
 from .policy_model import PolicyModel
+from .mcore_policy_model import MCorePolicyModel
 from .utils import get_eos_id, get_padding_length, pad_to_length
 from .constants import get_ltor_masks_and_position_ids_rlhf
 from .constants import TrainerEngine
@@ -47,8 +48,12 @@ class PolicyReference(PolicyInference):
             print_rank_0("enable parallel output")
         else:
             self._parallel_output = False
-        model = PolicyModel(num_tokentypes=0, parallel_output=self._parallel_output, pre_process=pre_process,
-                            post_process=post_process)
+        if args.use_legacy_models:
+            model = PolicyModel(num_tokentypes=0, parallel_output=self._parallel_output, pre_process=pre_process,
+                                post_process=post_process)
+        else:
+            model = MCorePolicyModel(parallel_output=self._parallel_output, pre_process=pre_process,
+                                     post_process=post_process)
 
         return model
 

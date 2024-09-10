@@ -23,6 +23,7 @@ from megatron.training import get_model
 from chatlearn import MegatronModule
 from chatlearn.utils import to_device
 from .value_model import ValueModel
+from .mcore_value_model import MCoreValueModel
 from .constants import get_ltor_masks_and_position_ids_rlhf
 from .forward_step import forward_step_helper
 
@@ -46,8 +47,12 @@ class ValueInference(MegatronModule):
         """Build the model."""
 
         print_rank_0('building GPT model ...')
-        model = ValueModel(num_tokentypes=0, parallel_output=False, pre_process=pre_process, post_process=post_process,
-                           stats=self.stats, buffer=self.buffer)
+        if self.args.use_legacy_models:
+            model = ValueModel(num_tokentypes=0, parallel_output=False, pre_process=pre_process, post_process=post_process,
+                               stats=self.stats, buffer=self.buffer)
+        else:
+            model = MCoreValueModel(parallel_output=False, pre_process=pre_process, post_process=post_process,
+                                    stats=self.stats, buffer=self.buffer)
 
         return model
 

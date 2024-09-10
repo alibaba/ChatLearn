@@ -50,7 +50,7 @@ try:
 except ImportError:
     print("Cannot import addtional module for vllm 0.5.1, please install vllm 0.5.1 first.")
 
-from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2LlamaSyncMap, Megatron2QWenSyncMap
+from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
 
 from chatlearn.utils.vllm_utils import get_model, print_rank_0
 from .torch_module import TorchModule
@@ -536,7 +536,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self._to_fix_qkv_ordering_func = fix_query_key_value_ordering
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
         elif isinstance(self.model.model, LlamaForCausalLM):
-            sync_map_cls = Megatron2LlamaSyncMap
+            sync_map_cls = Megatron2LlamaSyncMap if self.model_args["use_legacy_models"] else MCore2LlamaSyncMap
             from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
             self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
             sync_map = sync_map_cls(src_names, layer_offset)

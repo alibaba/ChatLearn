@@ -29,8 +29,12 @@ import numpy as np
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-from megatron.training import print_rank_last, is_last_rank, get_num_microbatches, get_args, get_timers
+from megatron.training import print_rank_last, is_last_rank, get_args, get_timers
 from megatron.core import mpu
+try:
+    from megatron.training import get_num_microbatches
+except ImportError:
+    from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training.global_vars import get_tensorboard_writer
 from megatron.training.training import print_datetime
 from torchtyping import TensorType

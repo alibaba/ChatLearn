@@ -48,4 +48,5 @@ adaptive_parallel_strategy_on_checkpoint: True
 
 trainer_engine: ${trainer_engine:rlhf}
 attention_softmax_in_fp32: True
-transformer_impl: local
+transformer_impl: ${transformer_impl:local}
+use_legacy_models: ${use_legacy_models:True}

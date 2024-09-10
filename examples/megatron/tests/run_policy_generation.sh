@@ -8,6 +8,7 @@ set -x
 [ -z "$LOAD" ] && export LOAD=path-to-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
 [ -z "$model_size" ] && export model_size=llama2-13B
+[ -z "$tokenizer_load" ] && export tokenizer_load=path-to-hf-tokenizer-for-vllm-backend
 
 cd $CHATLEARN/examples/megatron
 

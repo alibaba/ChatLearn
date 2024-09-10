@@ -22,22 +22,7 @@ from megatron.legacy.model import GPTModel
 from megatron.legacy.model.module import MegatronModule
 from megatron.legacy.model.utils import get_linear_layer
 
-from examples.megatron.data.reward_dataset import preprocess
 from .utils import has_config_in_args
-
-
-def batch_padded_tokenize_data(list_strs, tokenizer, max_length):
-    processed_dict = [preprocess(tokenizer.tokenize(line[0]), tokenizer.tokenize(line[1]), max_length, tokenizer) for
-                      line in list_strs]
-    input_ids, input_lengths = [], []
-    for item in processed_dict:
-        input_ids.append(torch.tensor(item['ids']))
-        input_lengths.append(item['length'])
-    max_l = min(max(input_lengths), max_length)
-    input_ids = torch.stack(input_ids, dim=0)[:, :max_l]
-    input_eos_tok = torch.tensor(input_lengths) - 1
-
-    return input_ids, input_eos_tok
 
 
 class LinearPooler(MegatronModule):

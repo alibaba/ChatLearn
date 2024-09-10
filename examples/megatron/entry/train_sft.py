@@ -23,10 +23,16 @@ from megatron.training import get_tokenizer
 from megatron.training import print_rank_0
 from megatron.core import tensor_parallel
 from megatron.core.enums import ModelType
-from megatron.legacy.model import GPTModel
+from megatron.legacy.model import GPTModel as LegacyGPTModel
+from megatron.core.models.gpt import GPTModel as MCoreGPTModel
 from megatron.training import pretrain
 from megatron.training.utils import average_losses_across_data_parallel_group
 from megatron.training.utils import get_ltor_masks_and_position_ids
+from megatron.core.models.gpt.gpt_layer_specs import (
+    get_gpt_layer_local_spec,
+    get_gpt_layer_with_transformer_engine_spec,
+)
+from megatron.core.transformer.spec_utils import import_module
 
 from examples.megatron.data.sft_dataset import build_train_valid_test_datasets
 from examples.megatron.models.utils import has_config_in_args
@@ -36,23 +42,54 @@ def model_provider(pre_process=True, post_process=True):
     """Build the model."""
 
     print_rank_0('building GPT model ...')
-    if has_config_in_args(GPTModel):
-        from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
-        args = get_args()
-        config = core_transformer_config_from_args(args)
-        model = GPTModel(
-            config,
-            num_tokentypes=0,
-            parallel_output=True,
-            pre_process=pre_process,
-            post_process=post_process
-        )
+    args = get_args()
+
+    if args.use_legacy_models:
+        if has_config_in_args(LegacyGPTModel):
+            from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
+
+            config = core_transformer_config_from_args(args)
+            model = LegacyGPTModel(
+                config,
+                num_tokentypes=0,
+                parallel_output=True,
+                pre_process=pre_process,
+                post_process=post_process
+            )
+        else:
+            model = LegacyGPTModel(
+                num_tokentypes=0,
+                parallel_output=True,
+                pre_process=pre_process,
+                post_process=post_process
+            )
     else:
-        model = GPTModel(
-            num_tokentypes=0,
-            parallel_output=True,
+        # MCore models consistantly have `config`
+        from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
+
+        config = core_transformer_config_from_args(args)
+
+        if args.spec is not None:
+            transformer_layer_spec = import_module(args.spec)
+        else:
+            if args.transformer_impl == "transformer_engine":
+                transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(args.num_experts, args.moe_grouped_gemm, args.qk_layernorm)
+            else:
+                transformer_layer_spec = get_gpt_layer_local_spec(args.num_experts, args.moe_grouped_gemm, args.qk_layernorm)
+
+        model = MCoreGPTModel(
+            config=config,
+            transformer_layer_spec=transformer_layer_spec,
+            vocab_size=args.padded_vocab_size,
+            max_sequence_length=args.max_position_embeddings,
             pre_process=pre_process,
-            post_process=post_process
+            post_process=post_process,
+            fp16_lm_cross_entropy=args.fp16_lm_cross_entropy,
+            parallel_output=True,
+            share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
+            position_embedding_type=args.position_embedding_type,
+            rotary_percent=args.rotary_percent,
+            rotary_base=args.rotary_base
         )
     return model
 

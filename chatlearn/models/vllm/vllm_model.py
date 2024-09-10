@@ -26,6 +26,7 @@ from chatlearn.utils.vllm_import_helper import get_model_architecture
 
 from chatlearn.utils.vllm_utils import (
     convert_llama_state_dict_from_megatron_to_vllm,
+    convert_llama_state_dict_from_mcore_to_vllm,
     convert_qwen_state_dict_from_megatron_to_vllm,
     load_checkpoint
 )
@@ -49,10 +50,13 @@ class VLLMModel(nn.Module):
         load_checkpoint(self, None, None)
         torch.distributed.barrier()
 
-    def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disable=unused-argument
+    def load_state_dict(self, state_dict, strict=True, assign=False):
         qwen_version = None
         if isinstance(self.model, LlamaForCausalLM):
-            convert_state_dict_internal = convert_llama_state_dict_from_megatron_to_vllm
+            if self.model_args["use_legacy_models"]:
+                convert_state_dict_internal = convert_llama_state_dict_from_megatron_to_vllm
+            else:
+                convert_state_dict_internal = convert_llama_state_dict_from_mcore_to_vllm
         elif isinstance(self.model, QWenLMHeadModel):
             qwen_version = 1.0
             convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm

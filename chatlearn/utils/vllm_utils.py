@@ -98,6 +98,13 @@ megatron_qwen2_to_transformers = {
 }
 
 
+mcore_to_transformers = {
+    "self_attention.linear_proj": ".self_attn.o_proj.",
+    "mlp.linear_fc1": ".mlp.gate_up_proj.",
+    "mlp.linear_fc2": ".mlp.down_proj.",
+}
+
+
 class ParameterSyncMap:
     """Base ParameterSyncMap."""
     def __init__(self, src_names, layer_offset):
@@ -150,7 +157,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
         src_prefix = "module.module.language_model"
         dst_prefix = "model.model"
         # The regex to extract layer names.
-        self.layer_re = re.compile(f"{src_prefix}.encoder.layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)") # pylint: disable=anomalous-backslash-in-string
+        self.layer_re = re.compile(rf"{src_prefix}.encoder.layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
         self.src_prefix = src_prefix
         self.dst_prefix = dst_prefix
         self._embedding_sync_map = {
@@ -230,6 +237,94 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
                 self._dst_names.append(layer_name + out_name)
 
 
+class MCore2LlamaSyncMap(ParameterSyncMap):
+    """sync map:megatron-core to llama transformer"""
+    def __init__(self, src_names, layer_offset):
+        src_prefix = "module.module"
+        dst_prefix = "model.model"
+        # The regex to extract layer names.
+        self.layer_re = re.compile(rf"{src_prefix}.decoder.layers\.(\d+)\.([a-z0-9_.]+)[\._]([a-z]+)")
+        self.src_prefix = src_prefix
+        self.dst_prefix = dst_prefix
+        # vLLM skips loading rotary_pos_emb and re-initializes it. Thus, we don't synchronize it from MCore to vllm.
+        self._embedding_sync_map = {
+            f"{src_prefix}.embedding.word_embeddings.weight": f"{dst_prefix}.embed_tokens.weight",
+        }
+        self._layer_sync_map = {
+            "self_attention.linear_proj": ".self_attn.o_proj.",
+            "mlp.linear_fc1": ".mlp.gate_up_proj.",
+            "mlp.linear_fc2": ".mlp.down_proj.",
+        }
+        self._final_layer_sync_map = {
+            f"{src_prefix}.decoder.final_layernorm.weight": f"{dst_prefix}.norm.weight",
+            f"{src_prefix}.output_layer.weight": "model.lm_head.weight"
+        }
+        self._concat_params_dict = None
+        self._to_fix_act_ordering_dict = None
+        self._to_fix_qkv_ordering_dict = {
+            "modules": [
+                "self_attention.linear_qkv",
+            ],
+            "layer_re": self.layer_re
+        }
+        super().__init__(src_names, layer_offset)
+
+    def map_src_to_dst(self):
+        for src_name in self.src_names:
+             # convert word embeddings.
+            if src_name in self.embedding_sync_map:
+                self._dst_names.append(self.get_dst_name(self.embedding_sync_map, src_name))
+                continue
+
+            # final layer
+            if src_name in self.final_layer_sync_map:
+                self._dst_names.append(self.get_dst_name(self.final_layer_sync_map, src_name))
+                continue
+
+            m = self.layer_re.match(src_name)
+            # Stop if that's not a layer
+            if m is None:
+                raise RuntimeError(f"expect src_name ({src_name}) to be a layer")
+
+            # The index of the layer.
+            layer_idx = int(m.group(1)) + self.layer_offset
+
+            # The name of the operation.
+            op_name = m.group(2)
+            # Is it a weight or a bias?
+            weight_or_bias = m.group(3)
+            # The name of the layer.
+            layer_name = f"{self.dst_prefix}.layers.{layer_idx}"
+
+            # For layernorm(s), simply store the layer norm.
+            if op_name.endswith("layer_norm") and weight_or_bias == 'weight':
+                if op_name == "self_attention.linear_qkv.layer_norm":
+                    ln_name = "input_layernorm"
+                elif op_name == "mlp.linear_fc1.layer_norm":
+                    ln_name = "post_attention_layernorm"
+                else:
+                    assert False, f"expect op_name ({op_name}) to be layer norm"
+                self._dst_names.append(layer_name + "." + ln_name + "." + weight_or_bias)
+
+            # Transpose the QKV matrix.
+            elif op_name == "self_attention.linear_qkv" and weight_or_bias == 'weight':
+                self._dst_names.append(layer_name + ".self_attn.qkv_proj.weight")
+
+            # Transpose the weights.
+            elif weight_or_bias == "weight":
+                out_name = self.get_dst_name(self.layer_sync_map, op_name)
+                self._dst_names.append(layer_name + out_name + "weight")
+
+            # Ignore biases and extra_states.
+            elif weight_or_bias in ["bias", "_extra_state"]:
+                pass
+
+            # Copy the rest.
+            else:
+                out_name = self.get_dst_name(self.layer_sync_map, op_name)
+                self._dst_names.append(layer_name + out_name)
+
+
 class Megatron2QWenSyncMap(ParameterSyncMap):
     """sync map:megatron to qwen transformer"""
     def __init__(self, src_names, layer_offset, qwen_version=QwenVersion.v_1.value):
@@ -255,7 +350,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             raise RuntimeError(f"Unsupported qwen version {qwen_version}, only 1.0 or 2.0 for now.")
 
         # The regex to extract layer names.
-        self.layer_re = re.compile(f"{src_prefix}.encoder.layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)") # pylint: disable=anomalous-backslash-in-string
+        self.layer_re = re.compile(rf"{src_prefix}.encoder.layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
         self.src_prefix = src_prefix
         self.dst_prefix = dst_prefix
         self._embedding_sync_map = {
@@ -573,17 +668,8 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     return tp_state_dicts
 
 
-def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=None):
-    """Convert NVIDIA Megatron-LM state_dict to vLLM llama state_dict.
-
-        Args:
-            args (argparse.Namespace): the arguments to the script
-    """
-    assert qwen_version is None, f"Expect qwen_version is None for Llama, while {qwen_version}"
+def load_llama_state_dict(args):
     # Load original state dict from Megatron-LM checkpoint.
-    tp_rank = mpu.get_tensor_model_parallel_rank()
-    pp_rank = get_pipeline_model_parallel_rank()
-    assert pp_rank == 0
     possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
 
     for root, dirnames, _ in os.walk(args["load"]):
@@ -593,8 +679,24 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
                 args["load"] = root
                 rank0_checkpoint_path = rank0_checkpoint_name[0]
 
-    print(f"Loading Megatron-LM checkpoint arguments from: {rank0_checkpoint_path}")
+    print(f"Loading Megatron checkpoint arguments from: {rank0_checkpoint_path}")
     state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")
+    return state_dict
+
+
+def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=None):
+    """Convert NVIDIA Megatron-LM state_dict to vLLM llama state_dict.
+
+        Args:
+            args (argparse.Namespace): the arguments to the script
+    """
+    assert qwen_version is None, f"Expect qwen_version is None for Llama, while {qwen_version}"
+    tp_rank = mpu.get_tensor_model_parallel_rank()
+    pp_rank = get_pipeline_model_parallel_rank()
+    assert pp_rank == 0
+
+    state_dict = load_llama_state_dict(args)
+
     megatron_args = state_dict.get("args", None)
     if "checkpoint_version" in state_dict.keys():
         checkpoint_version = state_dict["checkpoint_version"]
@@ -620,7 +722,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     hidden_size_per_head = hf_config.hidden_size // hf_config.num_attention_heads
 
     # The regex to extract layer names.
-    layer_re = re.compile("layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)") # pylint: disable=anomalous-backslash-in-string
+    layer_re = re.compile(r"layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
 
     # Convert.
     print("Start to convert...")
@@ -755,6 +857,179 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     return output_state_dict
 
+def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=None):
+    """Convert NVIDIA Megatron-Core state_dict to vLLM llama state_dict.
+
+        Args:
+            args (argparse.Namespace): the arguments to the script
+    """
+    assert qwen_version is None, f"Expect qwen_version is None for Llama, while {qwen_version}"
+    tp_rank = mpu.get_tensor_model_parallel_rank()
+    pp_rank = get_pipeline_model_parallel_rank()
+    assert pp_rank == 0
+
+    state_dict = load_llama_state_dict(args)
+
+    megatron_args = state_dict.get("args", None)
+    if "checkpoint_version" in state_dict.keys():
+        checkpoint_version = state_dict["checkpoint_version"]
+    else:
+        checkpoint_version = 0.0
+    if megatron_args is None:
+        raise ValueError(
+            "Megatron-LM checkpoint does not contain arguments. This utility only supports Megatron-LM checkpoints"
+            " containing all the megatron arguments. This is because it loads all config related to model"
+            " architecture, the tensor and pipeline model parallel size from the checkpoint insead of user having to"
+            " manually specify all the details. Please save Megatron-LM checkpoint along with all the megatron"
+            " arguments to use this utility."
+        )
+
+    output_state_dict = {}
+
+    tp_size = megatron_args.tensor_model_parallel_size
+    pp_size = megatron_args.pipeline_model_parallel_size
+    assert pp_size == 1
+    # The number of heads.
+    heads = hf_config.num_attention_heads // tp_size
+    # The hidden_size per head.
+    hidden_size_per_head = hf_config.hidden_size // hf_config.num_attention_heads
+
+    # The regex to extract layer names.
+    layer_re = re.compile(r"decoder.layers\.(\d+)\.([a-z0-9_.]+)[\._]([a-z]+)")
+
+    # Convert.
+    print("Start to convert...")
+
+    # Embeddings
+    print("Converting embeddings")
+    tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, 0)
+    # tp_state_dicts: list of state dict for each tp rank
+    # tp_state_dicts[0]: a state dict for tp rank 0
+    # |-keys: dict_keys(['args', 'checkpoint_version', 'iteration', 'model', ...])
+    # |-tp_state_dicts[0]['model']
+    #    |-keys: ['embedding.word_embeddings.weight',
+    #             'decoder.layers.0.self_attention.core_attention.fused_attention._extra_state',
+    #             'decoder.layers.0.self_attention.linear_proj.weight',
+    #             'decoder.layers.0.self_attention.linear_proj._extra_state',
+    #             'decoder.layers.0.self_attention.linear_qkv.layer_norm_weight',
+    #             'decoder.layers.0.self_attention.linear_qkv.weight',
+    #             'decoder.layers.0.self_attention.linear_qkv._extra_state',
+    #             'decoder.layers.0.mlp.linear_fc1.layer_norm_weight',
+    #             'decoder.layers.0.mlp.linear_fc1.weight',
+    #             'decoder.layers.0.mlp.linear_fc1._extra_state',
+    #             'decoder.layers.0.mlp.linear_fc2.weight',
+    #             'decoder.layers.0.mlp.linear_fc2._extra_state',
+    #             ...
+    #             'decoder.final_layernorm.weight',
+    #             'output_layer.weight',
+    #             'output_layer._extra_state'
+    # Convert and store the position embeddings.
+    position_embeddings = tp_state_dicts[0]['model'].get("embedding.position_embeddings.weight", None)
+    if position_embeddings:
+        output_state_dict["transformer.position_embeddings.weight"] = position_embeddings.to(hf_config.torch_dtype)
+
+    # Convert and store the word embeddings.
+    word_embeddings = tp_state_dicts[tp_rank]['model'].get("embedding.word_embeddings.weight", None)
+    word_embeddings = word_embeddings.to(hf_config.torch_dtype)
+    output_state_dict["model.model.embed_tokens.weight"] = word_embeddings
+    # Reset the vocab size
+    hf_config.vocab_size = word_embeddings.shape[0]
+
+    # Transformer Layers
+    print("Converting transformer layers")
+
+    for key, val in tp_state_dicts[tp_rank]['model'].items():
+        if val is None:
+            assert 'extra_state' in key, "weight/bias shouldn't be None except for extra_state in mcore"
+            continue
+        if "_extra_state" in key:
+            continue
+
+        # Match the name
+        layer_match_res = layer_re.match(key)
+        # Skip if that's not a layer
+        if layer_match_res is None:
+            continue
+        # The index of the layer
+        layer_idx = int(layer_match_res.group(1))
+        # The name of the operation.
+        op_name = layer_match_res.group(2)
+        # Is it a weight or a bias?
+        weight_or_bias = layer_match_res.group(3)
+        # The name of the layer
+        layer_name = f"model.model.layers.{layer_idx}"
+
+        params = val.to(hf_config.torch_dtype)
+
+        # For layernorm(s), simply store the layer norm.
+        if op_name.endswith("layer_norm") and weight_or_bias == 'weight':
+            if op_name == "self_attention.linear_qkv.layer_norm":
+                ln_name = "input_layernorm"
+            elif op_name == "mlp.linear_fc1.layer_norm":
+                ln_name = "post_attention_layernorm"
+            else:
+                assert False, f"Unrecognized op_name {op_name} for layer norm"
+            output_state_dict[layer_name + "." + ln_name + "." + weight_or_bias] = params
+
+        # Transpose the QKV matrix.
+        elif op_name == "self_attention.linear_qkv" and weight_or_bias == 'weight':
+            input_shape = params.size()
+            shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
+            division = reduce(operator.mul, shape, 1)
+            num_elements = params.numel()
+            if num_elements != division:
+                # model with gqa dont need to fix qkv ordering.
+                output_state_dict[layer_name + ".self_attn.qkv_proj.weight"] = params
+            else:
+                out_val = fix_qwen_query_key_value_ordering(
+                    params, checkpoint_version, 3, heads, hidden_size_per_head
+                )
+                # Megatron stores (3*D) x D but transformers-GPT2 expects D x 3*D.
+                out_val = out_val.contiguous()
+                # Store.
+                output_state_dict[layer_name + ".self_attn.qkv_proj.weight"] = out_val
+
+        # Transpose the bias.
+        elif op_name == "self_attention.linear_qkv" and weight_or_bias == "bias":
+            out_val = fix_qwen_query_key_value_ordering(
+                params, checkpoint_version, 3, heads, hidden_size_per_head
+            )
+            # Store. No change of shape.
+            output_state_dict[layer_name + ".self_attn.qkv_proj.bias"] = out_val
+
+        # Transpose the weights.
+        elif weight_or_bias == "weight":
+            out_name = mcore_to_transformers[op_name]
+            output_state_dict[layer_name + out_name + "weight"] = params
+
+        # Copy the bias.
+        # Ignore them
+        elif weight_or_bias == "bias":
+            pass
+
+        # Copy the Rotary Embedding
+        else:
+            out_name = mcore_to_transformers[op_name]
+            output_state_dict[layer_name + out_name] = params
+
+    if hf_config.num_hidden_layers != (layer_idx + 1):
+        raise ValueError(f"Expected {hf_config.num_hidden_layers} layers but found {layer_idx + 1}")
+
+    # The final layernorm.
+    print("Converting final layernorm")
+    final_norm_weight = tp_state_dicts[0]['model'].get("decoder.final_layernorm.weight", None)
+    output_state_dict["model.model.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
+
+    # For LM head, transformers' wants the matrix to weight embeddings.
+    print("Converting LM head")
+    params = tp_state_dicts[tp_rank]['model'].get('output_layer.weight', None)
+    output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+
+    # It should be done!
+    print("Conversion from Megatron-Core to Transformers is done!")
+
+    return output_state_dict
+
 
 def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=QwenVersion.v_1.value):
     # The converted output model.
@@ -843,7 +1118,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         n_positions = hf_config.max_position_embeddings
 
     # The regex to extract layer names.
-    layer_re = re.compile("layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)") # pylint: disable=anomalous-backslash-in-string
+    layer_re = re.compile(r"layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
 
     # Extract the layers.
     gate_up_proj = {}
@@ -1061,8 +1336,14 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
             if not os.path.exists(save_dir):
                 if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):
                     model_type = "GPT"
-                    cmd = f"python {script_path} --model-type {model_type} --load-dir {load_dir} " + \
-                          f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} --target-pipeline-parallel-size {target_pp}"
+                    if args.get("use_legacy_models"):
+                        cmd = f"python {script_path} --model-type {model_type} --load-dir {args.get('load')} " + \
+                            f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \
+                            f"--target-pipeline-parallel-size {target_pp}"
+                    else:
+                        cmd = f"python {script_path} --model-type {model_type} --loader mcore --load-dir {args.get('load')} " + \
+                            f"--saver mcore --save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \
+                            f"--target-pipeline-parallel-size {target_pp}"
                     subprocess.run(cmd, shell=True, check=True)
             torch.distributed.barrier()
             args[load_arg] = save_dir
