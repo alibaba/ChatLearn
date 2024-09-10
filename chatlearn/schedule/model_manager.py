@@ -281,7 +281,7 @@ class ModelManager:
         logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
         for model in gpu_models:
             # TODO: for colocate gpu_per_process > 1, support later
-            assert model.gpu_per_process == 1
+            assert model.gpu_per_process == 1, model.gpu_per_process
         self.model_packs = self.find_model_packing_strategy(gpu_models, max_gpu)
 
         for model in gpu_models:

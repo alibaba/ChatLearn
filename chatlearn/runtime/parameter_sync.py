@@ -112,8 +112,8 @@ class ParameterSyncGroup:
 
     def create_p2p_group(self):
         group_name = self.group_name
-        if group_name not in self.collective_groups:
-            return self.collective_groups[group_name]
+        if group_name in self.collective_groups:
+            return
         refs = []
         # we put src_model first, so we don't need to change the rank of training model
         models = [self.src_model, self.dst_model]
