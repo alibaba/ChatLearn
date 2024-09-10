@@ -265,12 +265,15 @@ def dict_to_simplenamespace(d):
 
 def multi_thread_execute(num_threads: int, all_data: list, process_one_data, fn_args: list):
     num_data = len(all_data)
-    result = list(range(num_data))
 
+    if num_data == 0:
+        return []
     # reduce num_threads if data amount is little
     if num_data < num_threads:
         num_threads = num_data
+    assert num_threads > 0, f"Get num_threads <= 0. Expect to be a positive number."
 
+    result = list(range(num_data))
     data_size_per_thread = math.ceil(num_data / num_threads)
     thread_args = [(i, all_data[i * data_size_per_thread : min((i+1) * data_size_per_thread, num_data)]) for i in range(num_threads)]
 
