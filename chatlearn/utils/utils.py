@@ -271,7 +271,7 @@ def multi_thread_execute(num_threads: int, all_data: list, process_one_data, fn_
     # reduce num_threads if data amount is little
     if num_data < num_threads:
         num_threads = num_data
-    assert num_threads > 0, f"Get num_threads <= 0. Expect to be a positive number."
+    assert num_threads > 0, "Get num_threads <= 0. Expect to be a positive number."
 
     result = list(range(num_data))
     data_size_per_thread = math.ceil(num_data / num_threads)
