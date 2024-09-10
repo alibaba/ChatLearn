@@ -50,7 +50,7 @@ class VLLMModel(nn.Module):
         load_checkpoint(self, None, None)
         torch.distributed.barrier()
 
-    def load_state_dict(self, state_dict, strict=True, assign=False):
+    def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disable=unused-argument
         qwen_version = None
         if isinstance(self.model, LlamaForCausalLM):
             if self.model_args["use_legacy_models"]:
