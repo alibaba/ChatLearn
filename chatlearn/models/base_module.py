@@ -67,6 +67,7 @@ class BaseModule:
         self._module_args = args
         self.replica_id = replica_id
         self.config_dir = args.config_dir
+        self._is_colocate = False
 
         if self.total_gpu > 0:
             self._num_gpu_per_replica = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.zero_size
@@ -123,6 +124,13 @@ class BaseModule:
         # parameter sync from src_model
         self._src_parameter_model = None
         self.profiler = None
+
+    @property
+    def is_colocate(self):
+        return self._is_colocate
+
+    def set_colocate(self, flag):
+        self._is_colocate = flag
 
     def finalize(self):
         """

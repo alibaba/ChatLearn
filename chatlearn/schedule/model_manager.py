@@ -99,8 +99,11 @@ class ModelManager:
             colocate_models = [self._name2distmodel[name] for name in group]
             self.place_models_to_remote_devices(colocate_models, env_list)
             if len(colocate_models) > 1:
+                set_colocate = []
                 for model in colocate_models:
                     model.is_colocate = True
+                    set_colocate.append(model.set_colocate.remote(True))
+                future.wait(set_colocate)
             for name in group:
                 remote_states.add(name)
         for model in self.dist_models:
