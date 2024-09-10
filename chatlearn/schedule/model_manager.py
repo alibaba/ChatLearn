@@ -102,7 +102,7 @@ class ModelManager:
                 set_colocate = []
                 for model in colocate_models:
                     model.is_colocate = True
-                    set_colocate.append(model.set_colocate.remote(True))
+                    set_colocate.extend(model.set_colocate(True))
                 future.wait(set_colocate)
             for name in group:
                 remote_states.add(name)

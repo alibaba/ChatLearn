@@ -82,8 +82,5 @@ def execute_in_parallel(function, arguments):
         # Using list comprehension to handle the results
         futures = [executor.submit(function, *args) for args in arguments]
         for _future in concurrent.futures.as_completed(futures):
-            try:
-                results.append(_future.result())
-            except Exception as e:
-                print(f"Thread generated an exception: {e}")
+            results.append(_future.result())
     return results
