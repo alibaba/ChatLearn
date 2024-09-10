@@ -27,6 +27,7 @@ from types import SimpleNamespace
 import pynvml
 import torch
 from chatlearn.utils.logger import logger
+from chatlearn.runtime.utils import execute_in_parallel
 
 
 def get_attributes(cls):
@@ -262,19 +263,22 @@ def dict_to_simplenamespace(d):
     return SimpleNamespace(**d)
 
 
-def multi_thread_tokenize(prompts: list, tokenizer, max_prompt_length, num_threads=4):
-    from chatlearn.runtime.utils import execute_in_parallel
+def multi_thread_execute(num_threads: int, all_data: list, process_one_data, fn_args: list):
+    num_data = len(all_data)
+    result = list(range(num_data))
 
-    result = [ {"input_ids":tokenizer.encode(prompts[0]), "prompt":prompts[0]} for _ in range(len(prompts))]
+    # reduce num_threads if data amount is little
+    if num_data < num_threads:
+        num_threads = num_data
 
-    data_size_per_thread = math.ceil(len(prompts) / num_threads)
-    thread_args = [(i, prompts[i*data_size_per_thread : min((i+1)*data_size_per_thread, len(prompts))]) for i in range(num_threads)]
+    data_size_per_thread = math.ceil(num_data / num_threads)
+    thread_args = [(i, all_data[i * data_size_per_thread : min((i+1) * data_size_per_thread, num_data)]) for i in range(num_threads)]
 
-    def tokenize_fun(thread_id: int, pending_data):
+    def thread_fn(thread_id: int, pending_data):
         offset = thread_id * data_size_per_thread
         for i, data in enumerate(pending_data):
-            result[offset + i] = (data, tokenizer.encode(data)[:max_prompt_length])
+            result[offset + i] = process_one_data(data, *fn_args)
 
-    execute_in_parallel(tokenize_fun, thread_args)
+    execute_in_parallel(thread_fn, thread_args)
 
     return result

@@ -24,7 +24,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from examples.megatron.models.utils import get_eos_id
 
-from chatlearn.utils.utils import multi_thread_tokenize
+from chatlearn.utils.utils import multi_thread_execute
 
 def zero_pad_sequences(sequences, side: str = "right", value=0, pad_to_seq_length=False):
     assert side in ("left", "right")
@@ -148,7 +148,7 @@ class VLLMPromptPipeline(PromptPipeline):
     truncted to max_prompt_length from right
     """
 
-    def __init__(self, prompts: List, max_prompt_length: int, tokenizer=None, prompt_key=None):# pylint: disable=super-init-not-called
+    def __init__(self, prompts: List, max_prompt_length: int, tokenizer=None, prompt_key=None, num_threads=4):# pylint: disable=super-init-not-called
         for p in prompts:
             assert len(p) > 0, "Got empty prompt"
         assert max_prompt_length > 0, \
@@ -156,7 +156,13 @@ class VLLMPromptPipeline(PromptPipeline):
         if prompt_key is None:
             if len(prompts[0]) == 3:
                 valid_prompts = [p for p, _, _ in prompts]
-                self.prompts = multi_thread_tokenize(valid_prompts, tokenizer, max_prompt_length)
+
+                def encode_single_prompt(single_prompt, max_len):
+                    return tokenizer.encode(single_prompt)[:max_len]
+                fn_args = [max_prompt_length]
+
+                prompt_encodings = multi_thread_execute(num_threads, valid_prompts, encode_single_prompt, fn_args)
+                self.prompts = list(zip(valid_prompts, prompt_encodings))
             else:
                 self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt in prompts]
             self.data = []
