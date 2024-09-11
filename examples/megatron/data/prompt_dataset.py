@@ -154,21 +154,18 @@ class VLLMPromptPipeline(PromptPipeline):
             assert len(p) > 0, "Got empty prompt"
         assert max_prompt_length > 0, \
             "Prompt length for RLHF/OnlineDPO trainer must be an integer greater than 0"
+        
+        def encode_single_prompt(single_prompt, max_len):
+            return tokenizer.encode(single_prompt)[:max_len]
+        fn_args = [max_prompt_length]
+
         if prompt_key is None:
             if len(prompts[0]) == 3:
                 valid_prompts = [p for p, _, _ in prompts]
 
-                def encode_single_prompt(single_prompt, max_len):
-                    return tokenizer.encode(single_prompt)[:max_len]
-                fn_args = [max_prompt_length]
-
                 prompt_encodings = multi_thread_data_processing(num_threads, valid_prompts, encode_single_prompt, fn_args)
                 self.prompts = list(zip(valid_prompts, prompt_encodings))
             else:
-                def encode_single_prompt(single_prompt, max_len):
-                    return tokenizer.encode(single_prompt)[:max_len]
-                fn_args = [max_prompt_length]
-
                 prompt_encodings = multi_thread_data_processing(num_threads, prompts, encode_single_prompt, fn_args)
                 self.prompts = list(zip(prompts, prompt_encodings))
             self.data = []
@@ -177,10 +174,6 @@ class VLLMPromptPipeline(PromptPipeline):
                 self.data.extend([copy.deepcopy(p)])
         else:
             valid_prompts = [p[prompt_key] for p in prompts]
-
-            def encode_single_prompt(single_prompt, max_len):
-                return tokenizer.encode(single_prompt)[:max_len]
-            fn_args = [max_prompt_length]
 
             prompt_encodings = multi_thread_data_processing(num_threads, valid_prompts, encode_single_prompt, fn_args)
             for i, prompt in enumerate(prompts):
