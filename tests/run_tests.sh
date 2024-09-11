@@ -3,6 +3,7 @@ export PYTHONPATH=$(cd ../ && pwd):${PWD}:${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
 rm -rf core*
+rm -rf /tmp/ray/*
 
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
