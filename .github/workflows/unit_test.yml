@@ -30,7 +30,7 @@ jobs:
       run: |
         containers=$(docker ps -aqf "name=^chatlearn_ut_")
         if [[ -n "$containers" ]]; then
-            docker rm $containers
+            docker rm $containers -f
         fi
         docker pull $UT_IMAGE
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
