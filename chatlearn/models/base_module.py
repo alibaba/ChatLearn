@@ -847,11 +847,13 @@ class BaseModule:
         """
         :meta private:
         """
+        return self.module_args.pipeline_model_parallel_size
 
     def tensor_model_parallel_size(self):
         """
         :meta private:
         """
+        return self.module_args.tensor_model_parallel_size
 
     def num_layers(self):
         """

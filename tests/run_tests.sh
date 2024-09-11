@@ -3,6 +3,7 @@ export PYTHONPATH=$(cd ../ && pwd):${PWD}:${PYTHONPATH}
 CDIR="$(cd "$(dirname "$0")" ; pwd -P)"
 LOGFILE=/tmp/pytorch_py_test.log
 rm -rf core*
+rm -rf /tmp/ray/*
 
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
@@ -42,13 +43,13 @@ function run_test {
   attempts=0
   while [[ $attempts -lt 3 ]]; do
       rm -rf core*
+      ray stop --force
       time "$@"
-      ray stop
       if [[ $? -eq 0 ]]; then
           echo "$@ success"
           break
       fi
-      
+
       attempts=$((attempts + 1))
       if [[ $attempts -lt 3 ]]; then
           echo "$file fail, retry ($attempts/3)..."
@@ -149,3 +150,5 @@ else
   echo -e "\033[31m$(date "+%Y-%m-%d %T.%N") [ERROR]: Unrecognized test name '$1'!\033[0m"
   exit -1
 fi
+
+ray stop --force
