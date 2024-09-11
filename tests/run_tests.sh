@@ -42,8 +42,8 @@ function run_test {
   attempts=0
   while [[ $attempts -lt 3 ]]; do
       rm -rf core*
-      time "$@"
       ray stop
+      time "$@"
       if [[ $? -eq 0 ]]; then
           echo "$@ success"
           break

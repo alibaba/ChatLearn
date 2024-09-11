@@ -700,10 +700,10 @@ class BaseModule:
                                 self._to_fix_qkv_ordering_func(_params_to_sync, checkpoint_version)
                             else:
                                 input_shape = _params_to_sync.size()
-                                tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
-                                heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+                                tp_size = self.module_args.tensor_model_parallel_size
+                                heads = self.module_args.num_attention_heads // tp_size
                                 hidden_size_per_head = \
-                                    self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
+                                    self.module_args.hidden_size // self.module_args.num_attention_heads
                                 shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
                                 division = reduce(operator.mul, shape, 1)
                                 num_elements = _params_to_sync.numel()
@@ -847,11 +847,13 @@ class BaseModule:
         """
         :meta private:
         """
+        return self.module_args.pipeline_model_parallel_size
 
     def tensor_model_parallel_size(self):
         """
         :meta private:
         """
+        return self.module_args.tensor_model_parallel_size
 
     def num_layers(self):
         """
