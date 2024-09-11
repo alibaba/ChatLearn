@@ -204,9 +204,9 @@ class ModelConfig(BaseConfig):
     #: [required] whether model is trainable
     trainable: bool = False
     #: [optional] tensor model parallel size
-    tensor_model_parallel_size: int = 1
+    tensor_model_parallel_size: int = None
     #: [optional] pipeline model parallel size
-    pipeline_model_parallel_size: int = 1
+    pipeline_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
     #: [optional] config file for model
