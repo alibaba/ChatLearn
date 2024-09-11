@@ -53,7 +53,10 @@ class VLLMModel(nn.Module):
     def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disable=unused-argument
         qwen_version = None
         if isinstance(self.model, LlamaForCausalLM):
-            if self.model_args["use_legacy_models"]:
+            use_legacy_models = self.model_args.get("use_legacy_models")
+            if use_legacy_models is None:
+                raise RuntimeError("Please specify use_legacy_models (True or False) for VLLMModel, but not None.")
+            if use_legacy_models:
                 convert_state_dict_internal = convert_llama_state_dict_from_megatron_to_vllm
             else:
                 convert_state_dict_internal = convert_llama_state_dict_from_mcore_to_vllm

@@ -15,6 +15,7 @@
 """vllm policy inference"""
 
 import copy
+import random
 
 import torch
 import torch.nn.functional as F

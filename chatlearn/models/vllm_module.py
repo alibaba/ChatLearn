@@ -536,7 +536,10 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self._to_fix_qkv_ordering_func = fix_query_key_value_ordering
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
         elif isinstance(self.model.model, LlamaForCausalLM):
-            sync_map_cls = Megatron2LlamaSyncMap if self.model_args["use_legacy_models"] else MCore2LlamaSyncMap
+            use_legacy_models = self.model_args.get("use_legacy_models")
+            if use_legacy_models is None:
+                raise RuntimeError("Please specify use_legacy_models (True or False) for VLLMModule, but not None.")
+            sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
             from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
             self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
             sync_map = sync_map_cls(src_names, layer_offset)
