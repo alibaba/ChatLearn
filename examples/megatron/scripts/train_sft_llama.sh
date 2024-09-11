@@ -111,7 +111,7 @@ if [[ ${use_legacy_models} = "False" ]]; then
   MCORE_ARGS="--transformer-impl transformer_engine "
 else
   if [[ ${MODEL_SIZE} = "llama3-8B" || ${MODEL_SIZE} = "llama3-70B" ]]; then
-    echo "Llama3 models are not supported with USE_LEGACY_MODELS=True"
+    echo "Expect USE_LEGACY_MODELS to be False for Llama3 models, but got True."
     exit 1
   fi
   MCORE_ARGS="
