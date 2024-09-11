@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
@@ -13,6 +11,7 @@ from chatlearn import EvalEngine
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -24,11 +23,7 @@ class CustomDataset(Dataset):
         return {"query": self.data[idx]}
 
 
-
 class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
@@ -42,6 +37,7 @@ class PolicyModel(TorchModule):
 chatlearn.init()
 chatlearn.get_args().models["policy"].num_gpu = 3
 policy = PolicyModel("policy")
+
 def eval_flow(b):
     r0 = policy.forward_step(b)
     return r0

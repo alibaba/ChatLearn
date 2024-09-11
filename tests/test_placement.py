@@ -1,5 +1,3 @@
-import time
-
 import torch
 
 import chatlearn
@@ -7,34 +5,26 @@ from chatlearn.utils import future
 from chatlearn.runtime.engine import BaseEngine
 from chatlearn import TorchModule
 
+
+class PolicyModel(TorchModule):
+
+    def forward_step(self, data):
+        #assert data['a'].device.type == 'cpu', data['a'].device.type
+        return data
+
+
+class ReferenceModel(TorchModule):
+
+    def forward_step(self, data):
+        #assert data['a'].device.type == 'cpu', data['a'].device.type
+        return data
+
+
 chatlearn.init()
 chatlearn.get_args().models["policy"].num_gpu = 2
 chatlearn.get_args().models["policy"].tensor_model_parallel_size = 2
 chatlearn.get_args().models["reference"].num_gpu = 2
 chatlearn.get_args().models["reference"].tensor_model_parallel_size = 2
-
-class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
-
-    def forward_step(self, data):
-        #assert data['a'].device.type == 'cpu', data['a'].device.type
-        time.sleep(0.1)
-        return data
-
-
-
-class ReferenceModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
-
-    def forward_step(self, data):
-        #assert data['a'].device.type == 'cpu', data['a'].device.type
-        time.sleep(0.1)
-        return data
-
 
 model = PolicyModel('policy')
 model2 = ReferenceModel("reference")

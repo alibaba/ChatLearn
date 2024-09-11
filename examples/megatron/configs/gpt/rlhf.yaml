@@ -88,3 +88,4 @@ runtime:
     nsys: False
     free_sync_collective_group: ${free_sync_collective_group:False}
     exp_name: ${exp_name:chatlearn}
+    param_sync_comm_type: ${param_sync_comm_type:broadcast}

@@ -11,9 +11,6 @@ from chatlearn.runtime.trainer import Trainer
 from utils import CustomDataset, PolicyModel, ReferenceModel, RewardModel, PPOPolicy
 
 
-chatlearn.init()
-
-
 class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
@@ -21,19 +18,18 @@ class ValueModel(TorchModule):
         data["value_out"] = data["policy_out"].cuda() * 3
         return data
 
-
     def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
 
 
+chatlearn.init()
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
 value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
-
 
 def env_compute_flow(batch):
     policy_out = policy.forward_step(batch)
@@ -42,11 +38,9 @@ def env_compute_flow(batch):
     reward_out = reward.forward_step(policy_out, ref_out, value_out)
     return value_out, reward_out
 
-
 def trainer_compute_flow(batch):
     ppo_policy.train_step(batch)
     value.train_step(batch)
-
 
 env = Environment(env_compute_flow)
 trainer = Trainer(trainer_compute_flow)

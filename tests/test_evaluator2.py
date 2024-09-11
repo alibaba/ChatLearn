@@ -1,13 +1,11 @@
-import time
-
 from torch.utils.data import Dataset
-
 import chatlearn
 from chatlearn import EvalEngine
 from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -21,9 +19,6 @@ class CustomDataset(Dataset):
 
 class PolicyModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def forward_step(self, data, iteration):
         new_data = {}
         new_data['policy'] = ['policy_' + item for item in data['query']]
@@ -36,9 +31,6 @@ class PolicyModel(TorchModule):
 
 class RewardModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
-
     def eval_step(self, data):
         new_data = {}
         new_data['reward'] = ['reward_' + item for item in data['policy']]
@@ -50,10 +42,12 @@ chatlearn.get_args().models["policy"].num_gpu = 3
 policy = PolicyModel("policy")
 
 reward = RewardModel("reward")
+
 def eval_flow(b):
     r0 = policy.forward_step(b)
     r1 = reward.eval_step(r0)
     return r1
+
 engine = EvalEngine(eval_flow)
 
 assert policy.num_replica == 3, policy.num_replica

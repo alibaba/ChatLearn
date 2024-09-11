@@ -15,19 +15,18 @@
 """Inference Memery manager for Megatron."""
 from typing import Optional, List
 
-from chatlearn.models.megatron.memory_manager.base import BaseMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
 from chatlearn.utils.megatron_import_helper import DistributedDataParallel
 
 
-class InferenceMemoryManager(BaseMemoryManager):
+class InferenceMemoryManager:
     """
     Memory manager for Megatron inference modules which provides utilities to free memory when unused.
     """
 
-    def __init__(self, model, model_name, timers, bucket_size_mb=0):
-        super().__init__(model, model_name, timers)
+    def __init__(self, model, bucket_size_mb=0):
+        self._model = model
 
         assert not isinstance(
             model, (DistributedDataParallel,)
@@ -36,11 +35,6 @@ class InferenceMemoryManager(BaseMemoryManager):
         self._weights_offloaded = False
         self._group_flat_weights: Optional[List[BucketizedFlatTensors]] = None
         self._bucket_size_mb = bucket_size_mb
-
-        funcs = [self.offload_weights, self.onload_weights]
-        for func in funcs:
-            func_name = func.__name__
-            setattr(self, func_name, self._wrap_method(func, timers))
 
     def offload_weights(self):
         """

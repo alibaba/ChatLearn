@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import Dataset
 
@@ -12,13 +10,7 @@ from chatlearn.runtime.trainer import Trainer
 from utils import CustomDataset, RewardModel, ValueModel, PPOPolicy, PPOValue
 
 
-chatlearn.init()
-
-
 class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
@@ -41,13 +33,13 @@ class ReferenceModel(TorchModule):
         return data
 
 
+chatlearn.init()
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
 value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
-
 
 def env_compute_flow(batch):
     policy_out = policy.forward_step(batch)
@@ -56,11 +48,9 @@ def env_compute_flow(batch):
     reward_out = reward.forward_step(policy_out, ref_out, value_out)
     return value_out, reward_out
 
-
 def trainer_compute_flow(batch):
     ppo_policy.train_step(batch)
     ppo_value.train_step(batch)
-
 
 env = Environment(env_compute_flow)
 trainer = Trainer(trainer_compute_flow)
