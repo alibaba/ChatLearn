@@ -21,13 +21,13 @@ import subprocess
 import textwrap
 import time
 import math
+import concurrent.futures
 from contextlib import closing
 from types import SimpleNamespace
 
 import pynvml
 import torch
 from chatlearn.utils.logger import logger
-from chatlearn.runtime.utils import execute_in_parallel
 
 
 def get_attributes(cls):
@@ -263,7 +263,22 @@ def dict_to_simplenamespace(d):
     return SimpleNamespace(**d)
 
 
-def multi_thread_execute(num_threads: int, all_data: list, process_one_data, fn_args: list):
+def execute_in_parallel(function, arguments):
+    if len(arguments) == 1:
+        return function(*arguments[0])
+    results = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Using list comprehension to handle the results
+        futures = [executor.submit(function, *args) for args in arguments]
+        for _future in concurrent.futures.as_completed(futures):
+            try:
+                results.append(_future.result())
+            except Exception as e:
+                print(f"Thread generated an exception: {e}")
+    return results
+
+
+def multi_thread_data_processing(num_threads: int, all_data: list, process_one_data, fn_args: list):
     num_data = len(all_data)
 
     if num_data == 0:
