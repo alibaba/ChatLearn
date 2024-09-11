@@ -28,7 +28,8 @@ jobs:
 
     - name: Run unit test
       run: |
+        docker ps -aqf "name=^chatlearn_ut_" | xargs docker rm
         docker pull $UT_IMAGE
-        docker run -v $PWD:$PWD -w $PWD --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
+        docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
       env: 
         UT_IMAGE: ${{ secrets.UT_IMAGE }}
