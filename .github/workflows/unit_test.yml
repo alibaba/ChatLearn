@@ -28,7 +28,7 @@ jobs:
 
     - name: Run unit test
       run: |
-        containers = $(docker ps -aqf "name=^chatlearn_ut_")
+        containers=$(docker ps -aqf "name=^chatlearn_ut_")
         if [[ -n "$containers" ]]; then
             docker rm $containers
         fi
