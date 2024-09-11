@@ -154,7 +154,7 @@ class VLLMPromptPipeline(PromptPipeline):
             assert len(p) > 0, "Got empty prompt"
         assert max_prompt_length > 0, \
             "Prompt length for RLHF/OnlineDPO trainer must be an integer greater than 0"
-        
+
         def encode_single_prompt(single_prompt, max_len):
             return tokenizer.encode(single_prompt)[:max_len]
         fn_args = [max_prompt_length]
