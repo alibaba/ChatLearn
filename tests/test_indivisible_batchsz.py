@@ -1,5 +1,3 @@
-import time
-
 import torch
 from torch.utils.data import DataLoader, Dataset
 import ray
@@ -52,7 +50,7 @@ def get_batches(modify_generation_batch_size=False):
     engine.trainer.num_micro_batch_per_dp = engine.trainer.args.train_global_batch_size // \
         engine.trainer.args.train_micro_batch_size // engine.trainer.data_parallel_size
     train_datas = []
-    for episode_id in range(20):
+    for episode_id in range(5):
         print(f"Testing episode {episode_id}...")
         engine.before_episode()
         queue = engine.env.make_experiences()
@@ -64,7 +62,9 @@ def get_batches(modify_generation_batch_size=False):
     engine.stop()
     return train_datas
 
+
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
 
@@ -85,10 +85,8 @@ class CustomDataset(Dataset):
             batched_data[sample_key] = torch.stack(sample_value)
         return batched_data
 
-class PolicyModel(TorchModule):
 
-    def setup(self):
-        time.sleep(0.05)
+class PolicyModel(TorchModule):
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
@@ -102,7 +100,6 @@ class PolicyModel(TorchModule):
 
 class ReferenceModel(TorchModule):
 
-
     def forward_step(self, data, iteration):
         print("reference forward =========", flush=True)
         query = data["policy_out"].cuda()
@@ -111,7 +108,6 @@ class ReferenceModel(TorchModule):
 
 
 class RewardModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         print("reward forward =========", flush=True)
@@ -134,12 +130,14 @@ class PPOPolicy(TorchModule):
         num_mb = len(data)
         return num_mb
 
+
 class PPOValue(TorchModule):
 
     def train_step(self, data, iteration):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
+
 
 divisible_batches = get_batches()
 

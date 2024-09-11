@@ -72,4 +72,3 @@ class FlowParser:
             code = textwrap.dedent(inspect.getsource(func))
         node_iter.visit(ast.parse(code))
         return self.model_to_call_func
-

@@ -297,17 +297,12 @@ class DistModel:
                           "peak_memory",
                           "empty_cache",
                           "set_start_iteration",
-                          "offload_optimizer_states",
-                          "onload_optimizer_states",
-                          "offload_weights",
-                          "onload_weights",
-                          "offload_main_weights",
-                          "onload_main_weights",
-                          "free_grad_buffers",
-                          "build_grad_buffers",
+                          "offload",
+                          "onload",
                           "eval",
                           "train",
-                          "set_src_parameter_model"]:
+                          "set_src_parameter_model",
+                          "set_colocate"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 

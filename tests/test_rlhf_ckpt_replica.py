@@ -1,6 +1,5 @@
 import os
 import pickle
-import time
 
 import torch
 from torch.utils.data import DataLoader
@@ -12,6 +11,7 @@ from chatlearn import TorchModule
 
 
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -23,13 +23,7 @@ class CustomDataset(Dataset):
         return {"query": self.data[idx]}
 
 
-
-
 class PolicyModel(TorchModule):
-
-    def setup(self):
-        time.sleep(0.05)
-        # self._iter = 0
 
     def forward_step(self, data, iteration):
         save_dir = self.runtime_args.data_checkpoint_path
@@ -43,7 +37,6 @@ class PolicyModel(TorchModule):
             # self._iter += 1
 
         query = data["query"]
-        time.sleep(0.1)
         data["policy_out"] = query
         return data
 
@@ -52,30 +45,25 @@ class PolicyModel(TorchModule):
         return dataset
 
 
-
 class ReferenceModel(TorchModule):
-
 
     def forward_step(self, data, iteration):
         query = data["policy_out"].cuda()
-        time.sleep(0.01)
         data["ref_out"] = query
         return data
 
 
 class RewardModel(TorchModule):
 
-
     def forward_step(self, data, iteration):
         data["reward_out"] = data["ref_out"].cuda()
-        time.sleep(0.01)
         return data
+
 
 class ValueModel(TorchModule):
 
     def forward_step(self, data, iteration):
         data["value_out"] = data["policy_out"].cuda() * 3
-        time.sleep(0.01)
         return data
 
 
@@ -83,7 +71,6 @@ class PPOPolicy(TorchModule):
 
     def train_step(self, data, iteration):
         num_mb = len(data)
-        time.sleep(0.1)
         return num_mb
 
 
@@ -91,12 +78,10 @@ class PPOValue(TorchModule):
 
     def train_step(self, data, iteration):
         num_mb = len(data)
-        time.sleep(0.1)
         return num_mb
 
 
 run = os.environ["RUN_FLAG"]
-
 
 chatlearn.init()
 if run == "resume":
@@ -114,7 +99,6 @@ reward = RewardModel("reward")
 value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
-
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
@@ -136,4 +120,3 @@ if run == "resume":
             fn = f"data_replica{replica}_{i}.pkl"
             assert (data[fn_resume]['query'] == data[fn]['query']).all()
 assert engine.trainer.iteration == 8, engine.trainer.iteration
-

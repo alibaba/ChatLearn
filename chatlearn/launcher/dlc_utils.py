@@ -17,6 +17,7 @@
 import atexit
 from collections import defaultdict
 import os
+import sys
 import time
 import concurrent.futures
 import threading
@@ -132,7 +133,9 @@ def start_ray_cluster():
     else:
         cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port} --node-name={get_addr()}"
     logger.info(f"execute {cmd}")
-    execute(cmd, check=True)
+    state, _ = execute(cmd)
+    if not state:
+        sys.exit(1)
 
 def filter_known_msg(msg):
     if "StatusCode.DEADLINE_EXCEEDED" in msg:

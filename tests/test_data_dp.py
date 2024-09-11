@@ -10,7 +10,9 @@ from chatlearn import RLHFEngine
 from chatlearn import TorchModule
 from chatlearn.utils import future
 
+
 class CustomDataset(Dataset):
+
     def __init__(self, data):
         self.data = data
         self.collate_fn = None
@@ -21,8 +23,6 @@ class CustomDataset(Dataset):
     def __getitem__(self, idx):
         return {"query": self.data[idx]}
 
-
-chatlearn.init()
 
 class PolicyModel(TorchModule):
 
@@ -38,7 +38,6 @@ class PolicyModel(TorchModule):
         return dataset
 
 
-
 class ReferenceModel(TorchModule):
 
     def forward_step(self, data, iteration):
@@ -50,11 +49,11 @@ class ReferenceModel(TorchModule):
 
 class RewardModel(TorchModule):
 
-
     def forward_step(self, data, iteration):
         print("reward forward =========", flush=True)
         data["reward_out"] = data["ref_out"].cuda() + data["policy_out"].cuda()
         return data
+
 
 class ValueModel(TorchModule):
 
@@ -93,6 +92,7 @@ class PPOPolicy(TorchModule):
     def get_data(self):
         return self.data
 
+
 class PPOValue(TorchModule):
 
     @property
@@ -110,6 +110,8 @@ class PPOValue(TorchModule):
         num_mb = len(data)
         return num_mb
 
+
+chatlearn.init()
 for _, model_config in chatlearn.get_args().models.items():
     model_config.num_gpu = 8
 
@@ -128,7 +130,7 @@ chatlearn.get_args().runtime_args.train_micro_batch_size = 4
 chatlearn.get_args().runtime_args.train_global_batch_size = 16
 chatlearn.get_args().runtime_args.generation_batch_size = 8
 chatlearn.get_args().runtime_args.max_relay_episode = 1
-chatlearn.get_args().runtime_args.sample_per_episode = 1024
+chatlearn.get_args().runtime_args.sample_per_episode = 256
 policy = PolicyModel("policy")
 reference = ReferenceModel("reference")
 reward = RewardModel("reward")
@@ -140,9 +142,9 @@ engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 def relay_sample_fn(episode_relay_buffers):
     buffer = episode_relay_buffers[-1].buffer
     episode_id = episode_relay_buffers[-1]._episode_id
-    assert len(buffer) == 1024
+    assert len(buffer) == 256
     for i in range(len(buffer)):
-        assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
+        assert int(buffer[i]['query'][0].item()) == i + episode_id * 256
     return buffer
 
 engine.set_relay_sample_fn(relay_sample_fn)
@@ -152,7 +154,7 @@ assert reward.num_replica == 2
 assert value.num_replica == 2
 assert ppo_policy.num_replica == 1
 assert ppo_value.num_replica == 1
-data = [torch.ones([1024]) * i for i in range(2048)]
+data = [torch.ones([1024]) * i for i in range(512)]
 engine.set_dataset(data)
 engine.learn()
 assert engine.named_models['policy'].replicas[0].data_parallel_size == 1
@@ -175,21 +177,21 @@ for item in data0+data1:
     for batch in item:
         all_data.extend([i for i in batch['query'][:, 0].numpy()])
 
-assert len(all_data) == 2048
+assert len(all_data) == 512
 distinct_data = set(all_data)
-assert len(distinct_data) == 2048
+assert len(distinct_data) == 512
 assert min(distinct_data) == 0.0
-assert max(distinct_data) == 2047.0
+assert max(distinct_data) == 511.0
 
 dp_rank_to_actors = engine.named_models['ppo_value'].replicas[0].dp_rank_to_actors
 assert len(dp_rank_to_actors) == 2
 assert len(dp_rank_to_actors[0]) == 4
 assert len(dp_rank_to_actors[1]) == 4
 
-assert engine.env.batch_per_episode == 256
-assert engine.env.num_iteration == 256
-assert engine.trainer.batch_per_episode == 64
-assert engine.trainer.num_iteration == 64
+assert engine.env.batch_per_episode == 64
+assert engine.env.num_iteration == 64
+assert engine.trainer.batch_per_episode == 16
+assert engine.trainer.num_iteration == 16
 assert engine.trainer.num_micro_batch_per_dp == 2
 
-assert len(engine.env._dataset) == 2048, len(engine.env._dataset)
+assert len(engine.env._dataset) == 512, len(engine.env._dataset)

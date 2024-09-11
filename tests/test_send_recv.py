@@ -48,8 +48,6 @@ class Worker:
         collective.destroy_collective_group("8")
 
 
-
-
 if __name__ == "__main__":
     chatlearn.init()
     num_workers = 3
@@ -72,4 +70,3 @@ if __name__ == "__main__":
     print(ray.get(results))
 
     ray.get([w.destroy.remote() for w in workers])
-    ray.shutdown()

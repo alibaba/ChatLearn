@@ -102,8 +102,6 @@ class MegatronModule(TorchModule):
                     self.megatron_args.use_distributed_optimizer,
                     self.megatron_args.accumulate_allreduce_grads_in_fp32,
                     self.megatron_args.params_dtype,
-                    self.name,
-                    self.timers,
                     self.runtime_args.bucket_size_mb_in_memory_manager,
                 )
                 self.offload(to_offload_optimizer_states=False)
@@ -112,7 +110,7 @@ class MegatronModule(TorchModule):
             self.model.eval()
             if self.module_args.offload_weights:
                 self._memory_manager = InferenceMemoryManager(
-                    self.megatron_model(), self.name, self.timers,
+                    self.megatron_model(),
                     self.runtime_args.bucket_size_mb_in_memory_manager,
                 )
                 self.offload()
