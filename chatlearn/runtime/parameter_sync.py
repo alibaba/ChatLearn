@@ -30,7 +30,7 @@ from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import execute_in_parallel
+from chatlearn.utils.utils import execute_in_parallel
 
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
