@@ -26,6 +26,7 @@ from megatron.core import mpu
 from megatron.training import get_args
 from megatron.training import get_model
 from megatron.training import get_tokenizer
+from megatron.training import print_rank_0
 from megatron.training.global_vars import get_tensorboard_writer
 from megatron.training.utils import get_ltor_masks_and_position_ids
 
@@ -33,6 +34,7 @@ import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.utils import to_device
 from chatlearn.utils.megatron_utils import load_checkpoint
+from examples.megatron.data.reward_dataset import preprocess
 from .reward_model import RewardModel as LegacyRewardModel
 from .mcore_reward_model import MCoreRewardModel
 from .utils import tensorboard_scalar_dict, get_eos_id
