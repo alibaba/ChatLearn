@@ -43,13 +43,13 @@ function run_test {
   attempts=0
   while [[ $attempts -lt 3 ]]; do
       rm -rf core*
-      ray stop
+      ray stop --force
       time "$@"
       if [[ $? -eq 0 ]]; then
           echo "$@ success"
           break
       fi
-      
+
       attempts=$((attempts + 1))
       if [[ $attempts -lt 3 ]]; then
           echo "$file fail, retry ($attempts/3)..."
@@ -150,3 +150,5 @@ else
   echo -e "\033[31m$(date "+%Y-%m-%d %T.%N") [ERROR]: Unrecognized test name '$1'!\033[0m"
   exit -1
 fi
+
+ray stop --force
