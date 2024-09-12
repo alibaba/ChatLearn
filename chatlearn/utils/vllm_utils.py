@@ -773,7 +773,6 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     return output_state_dict
 
 
-
 def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=QwenVersion.v_1.value):
     # The converted output model.
     output_state_dict = {}
