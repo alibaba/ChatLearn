@@ -186,7 +186,6 @@ class MCorePolicyModel(MCoreGPTModel):
         self.approx_kl = self.stats["policy/approx_kl"]  # Update kl controller stats
         return loss.contiguous()  # [b,response_size]
 
-
     def post_process_dpo(self, logits, training_inputs, attention_mask, average_log_prob=False):
         assert "labels" in training_inputs and training_inputs['labels'] is not None
         labels =  training_inputs['labels']

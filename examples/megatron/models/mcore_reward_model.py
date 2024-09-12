@@ -124,7 +124,6 @@ class MCoreRewardModel(MCoreGPTModel):
         else:
             self._pooler_head_key = None
 
-
     def _language_model_forward(self, input_ids=None, position_ids=None, attention_mask=None,
                                 inference_params=None):
         if self.pre_process:

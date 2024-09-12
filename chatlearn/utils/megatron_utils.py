@@ -33,6 +33,7 @@ from chatlearn.utils.megatron_import_helper import unwrap_model
 from chatlearn.utils.megatron_import_helper import _initialize_distributed, _set_random_seed, _init_autoresume, _compile_dependencies
 
 from chatlearn.utils.logger import logger
+from chatlearn.utils.utils import to_use_legacy_models
 
 
 # regex to parse out layer number from param name
@@ -184,7 +185,8 @@ def load_checkpoint(*_args, **kwargs):
                     if 'pooler_head' in key:
                         model_type = "REWARD"
                         break
-                if args.use_legacy_models:
+                use_legacy_models = to_use_legacy_models(args)
+                if use_legacy_models:
                     cmd = f"python {script_path} --model-type {model_type} --load-dir {args.load} " + \
                         f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \
                         f"--target-pipeline-parallel-size {target_pp}"
