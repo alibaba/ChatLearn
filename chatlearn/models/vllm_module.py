@@ -532,8 +532,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
         elif isinstance(self.model.model, Qwen2ForCausalLM):
             sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.megatron_import_helper import fix_query_key_value_ordering
-            self._to_fix_qkv_ordering_func = fix_query_key_value_ordering
+            from chatlearn.utils.vllm_utils import split_attn_state
+            self._to_fix_qkv_ordering_func = split_attn_state
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
         elif isinstance(self.model.model, LlamaForCausalLM):
             sync_map_cls = Megatron2LlamaSyncMap
