@@ -17,12 +17,11 @@
 import torch
 from megatron.training import get_args
 from megatron.training import print_rank_0
+from megatron.training.arguments import core_transformer_config_from_args
 from megatron.core import tensor_parallel
 from megatron.legacy.model import GPTModel
 from megatron.legacy.model.module import MegatronModule
 from megatron.legacy.model.utils import get_linear_layer
-
-from .utils import has_config_in_args
 
 
 class LinearPooler(MegatronModule):
@@ -77,13 +76,8 @@ class RewardModel(GPTModel):
                  pooler_head=LinearPooler,
                  score_dimension=1):
         args = get_args()
-        if has_config_in_args(GPTModel):
-            # new API
-            from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
-            config = core_transformer_config_from_args(args)
-            super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
-        else:
-            super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
+        config = core_transformer_config_from_args(args)
+        super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
 
         if self.post_process:
             self.pooler_head = pooler_head(self.language_model.hidden_size, self.language_model.init_method,

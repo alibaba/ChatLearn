@@ -26,6 +26,7 @@ from megatron.core.enums import ModelType
 from megatron.legacy.model import GPTModel as LegacyGPTModel
 from megatron.core.models.gpt import GPTModel as MCoreGPTModel
 from megatron.training import pretrain
+from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training.utils import average_losses_across_data_parallel_group
 from megatron.training.utils import get_ltor_masks_and_position_ids
 from megatron.core.models.gpt.gpt_layer_specs import (
@@ -35,7 +36,6 @@ from megatron.core.models.gpt.gpt_layer_specs import (
 from megatron.core.transformer.spec_utils import import_module
 
 from examples.megatron.data.sft_dataset import build_train_valid_test_datasets
-from examples.megatron.models.utils import has_config_in_args
 
 
 def model_provider(pre_process=True, post_process=True):
@@ -43,32 +43,17 @@ def model_provider(pre_process=True, post_process=True):
 
     print_rank_0('building GPT model ...')
     args = get_args()
+    config = core_transformer_config_from_args(args)
 
     if args.use_legacy_models:
-        if has_config_in_args(LegacyGPTModel):
-            from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
-
-            config = core_transformer_config_from_args(args)
-            model = LegacyGPTModel(
-                config,
-                num_tokentypes=0,
-                parallel_output=True,
-                pre_process=pre_process,
-                post_process=post_process
-            )
-        else:
-            model = LegacyGPTModel(
-                num_tokentypes=0,
-                parallel_output=True,
-                pre_process=pre_process,
-                post_process=post_process
-            )
+        model = LegacyGPTModel(
+            config,
+            num_tokentypes=0,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process
+        )
     else:
-        # MCore models consistantly have `config`
-        from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
-
-        config = core_transformer_config_from_args(args)
-
         if args.spec is not None:
             transformer_layer_spec = import_module(args.spec)
         else:
