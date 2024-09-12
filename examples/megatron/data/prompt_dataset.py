@@ -20,7 +20,6 @@ from typing import List
 
 import torch
 from megatron.training import get_args
-# from chatlearn.utils.global_vars import get_args
 from torch.utils.data import Dataset
 import torch.nn.functional as F
 from examples.megatron.models.utils import get_eos_id
