@@ -273,7 +273,8 @@ class LogMonitor:
                 else:
                     LOG_NAME_UPDATE_INTERVAL_S = max(LOG_NAME_UPDATE_INTERVAL_S / 2, MIN_LOG_NAME_UPDATE_INTERVAL_S)
                 self.log_files = logs
-            except ray.exceptions.RayActorError:
+            except (ray.exceptions.RayActorError, AttributeError):
+                # AttributeError: 'NoneType' object has no attribute 'address_info'
                 logger.info("log_actor exit, quit the LogMonitor")
                 self.need_quit = True
                 return
