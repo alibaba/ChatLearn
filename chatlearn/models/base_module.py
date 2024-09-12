@@ -690,7 +690,6 @@ class BaseModule:
                 if not set_sync_param_flag:
                     continue
                 if self.to_fix_qkv_ordering_dict is not None:
-                    from chatlearn.utils.megatron_import_helper import fix_query_key_value_ordering # pylint: disable=import-outside-toplevel
                     from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
                     m = layer_re.match(name)
                     if m is not None:
