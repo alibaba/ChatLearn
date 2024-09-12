@@ -700,8 +700,10 @@ class BaseModule:
                             heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                             hidden_size_per_head =  self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
                             if self._to_fix_qkv_ordering_func is split_attn_state:
-                                _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  if self.module_args.args_dict["group_query_attention"] else heads
-                                _params_to_sync = self._to_fix_qkv_ordering_func(_params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"])
+                                _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                                    if self.module_args.args_dict["group_query_attention"] else heads
+                                _params_to_sync = self._to_fix_qkv_ordering_func(
+                                    _params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"])
                             else:
                                 input_shape = _params_to_sync.size()
                                 shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
