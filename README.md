@@ -64,5 +64,5 @@ The upcoming features for ChatLearn include:
 - [ ] Support for more alignment algorithms
 
 <br><br>
-We welcome community partners to collaborate and contribute to the development.
+We welcome community partners to collaborate and contribute to the development, and welcome to join the DingTalk group: 98090003312 to participate in the discussion.
 
