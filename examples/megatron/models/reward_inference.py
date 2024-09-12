@@ -79,7 +79,11 @@ class RewardInference(MegatronModule):
         model = get_model(model_provider, wrap_with_ddp=False)
 
         if args.load:
+            torch.distributed.barrier()
             load_checkpoint(model, None, None, adaptive_parallel_strategy=args.adaptive_parallel_strategy_on_checkpoint)
+            torch.distributed.barrier()
+        else:
+            print_rank_0(f"Warning: Using random parameter for {self.name} model.")
 
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
