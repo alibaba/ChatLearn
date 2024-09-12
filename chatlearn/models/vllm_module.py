@@ -180,6 +180,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         need_load_ckpt = self.src_parameter_model is None
         model = [get_model(self.model_provider, self.model_args, need_load_ckpt)]
 
+        if self.model_args["load"] is None and need_load_ckpt:
+            print_rank_0(f"Warning: Using random parameter for {self.name} model.")
+
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
 
