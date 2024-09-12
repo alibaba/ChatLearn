@@ -104,7 +104,7 @@ class MegatronModule(TorchModule):
                     self.megatron_args.params_dtype,
                     self.runtime_args.bucket_size_mb_in_memory_manager,
                 )
-                self.offload(to_offload_optimizer_states=False)
+                self.offload()
         else:
             assert hasattr(self, "model")
             self.model.eval()
