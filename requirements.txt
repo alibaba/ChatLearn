@@ -1,0 +1,21 @@
+ray[default]==2.32.0
+transformers==4.42.0
+pynvml==11.4.1
+deepspeed==0.14.4
+vllm==0.5.1
+jsonlines
+torchtyping
+tensorboard
+cupy
+# math related
+word2number
+timeout-decorator
+latex2sympy2==1.9.0
+
+# install apex if you needed
+#   git clone https://github.com/NVIDIA/apex
+#   cd apex
+#   pip install -v --disable-pip-version-check --no-cache-dir --no-build-isolation --config-settings "--build-option=--cpp_ext" --config-settings "--build-option=--cuda_ext" ./
+
+# install transformer engine if you needed
+#   git+https://github.com/NVIDIA/TransformerEngine.git@v1.2.1

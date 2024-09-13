@@ -1,0 +1,72 @@
+# llama2 config
+add_position_embedding: False
+use_rotary_position_embeddings: True
+untie_embeddings_and_output_weights: True
+tokenizer_type: Llama2Tokenizer
+exit_on_missing_checkpoint: True
+normalization: RMSNorm
+masked_softmax_fusion: False
+apply_query_key_layer_scaling: False
+use_checkpoint_args: False
+group_query_attention: ${group_query_attention:False}
+add_bias_linear: False
+swiglu: True
+attention_softmax_in_fp32: True
+transformer_impl: local
+bf16: True
+
+
+trainer_engine: ${trainer_engine:rlhf}
+init_shuffle_prompts: ${init_shuffle_prompts:0}
+# dpo loss
+use_ipo: ${use_ipo:False}
+dpo_weight: ${dpo_weight:0.1}
+
+train_to_compare_num_responses: ${train_to_compare_num_responses:1}
+num_inference_per_prompt: ${num_inference_per_prompt:1}
+tokenizer_model: ${tokenizer_model}
+max_position_embeddings: ${max_position_embedding:4096}
+seq_length: ${seq_length:1024}
+fix_kl_coef: ${fix_kl_coef:True}
+loss_on_prompts: ${loss_on_prompts:False}
+numerical_stable: True
+
+build_path: ${build_path:build}
+
+
+init_kl_coef: ${init_kl_coef:0.02}
+target: 6
+horizon: 10000
+gamma: 1
+lam: 0.95
+cliprange: 0.2
+cliprange_value: ${cliprange_value:0.1}
+scale_reward: "None"
+
+cliprange_reward: 100
+
+max_new_tokens: ${max_new_tokens:512}
+
+
+ngram_coef: ${ngram_coef:1}
+lm_coef: ${lm_coef:0}
+math_coef: ${math_coef:0}
+raw_reward_coeff: ${raw_reward_coeff:1}
+
+clipped_value_only: ${clipped_value_only:1}
+finetune: True
+
+
+save_interval: 1000
+gradient_accumulation_fusion: 0
+max_tokens_to_oom: 99999999
+
+
+hysteresis: 2
+use_flash_attn: 1
+do_math_eval: 0
+log_entropy: False
+adaptive_parallel_strategy_on_checkpoint: True
+log_interval: ${log_interval:10}
+distributed_timeout_minutes: 30
+make_vocab_size_divisible_by: 32

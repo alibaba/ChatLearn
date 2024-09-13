@@ -1,0 +1,22 @@
+name: Daily Building Script Execution
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Runs at 00:30 every day (UTC+8)
+    - cron: '30 16 * * *'
+
+jobs:
+  run-shell-script:
+    runs-on: self-hosted
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Run shell script
+      run: |
+        tar_name=chatlearn-$(date +%F).tar.gz
+        tar czvf /tmp/${tar_name} .
+        ossutil64 -i ${{ secrets.OSS_AK_ID }} -k ${{ secrets.OSS_AK_SECRET }} -e ${{ secrets.OSS_ENDPOINT }}  cp -r /tmp/${tar_name} ${{ secrets.OSS_BUCKET }}/regression/chatlearn/src/
+

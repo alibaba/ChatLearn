@@ -1,0 +1,6 @@
+includes:
+  - base_inference.yaml
+  - reward_shared.yaml
+
+reward_bias: 0
+pipeline_model_parallel_size: ${reward_pp:1}

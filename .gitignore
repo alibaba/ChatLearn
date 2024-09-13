@@ -1,0 +1,15 @@
+examples/megatron/step3_rlhf/None
+.ipynb_checkpoints/
+output/
+build/
+dist/
+*.diff
+*.pyc
+*.idea
+*.DS_Store
+*.swp
+.nfs*
+*.dot
+*.egg-info/
+docs/zh/api/doc/*.rst
+*._*py
