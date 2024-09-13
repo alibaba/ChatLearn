@@ -54,9 +54,10 @@ class VLLMPolicyInference(VLLMModule):
             self.model_args.get("seq_length") - self.model_args.get("max_new_tokens")
         )
         prompt_key = self.model_args.get("prompt_key")
+        num_tokenize_threads = self.model_args.get("num_tokenize_threads")
         # TODO: read from files
         prompts_dataset = VLLMPromptPipeline(
-            duplicated_train_prompts, max_prompt_length, self.tokenizer.tokenizer, prompt_key)
+            duplicated_train_prompts, max_prompt_length, self.tokenizer.tokenizer, prompt_key, num_tokenize_threads)
 
         return prompts_dataset
 

@@ -181,6 +181,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         need_load_ckpt = self.src_parameter_model is None
         model = [get_model(self.model_provider, self.model_args, need_load_ckpt)]
 
+        if self.model_args["load"] is None and need_load_ckpt:
+            print_rank_0(f"Warning: Using random parameter for {self.name} model.")
+
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
 
@@ -533,8 +536,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
         elif isinstance(self.model.model, Qwen2ForCausalLM):
             sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.megatron_import_helper import fix_query_key_value_ordering
-            self._to_fix_qkv_ordering_func = fix_query_key_value_ordering
+            from chatlearn.utils.vllm_utils import split_attn_state
+            self._to_fix_qkv_ordering_func = split_attn_state
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
         elif isinstance(self.model.model, LlamaForCausalLM):
             use_legacy_models = to_use_legacy_models(self.model_args)

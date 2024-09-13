@@ -690,20 +690,22 @@ class BaseModule:
                 if not set_sync_param_flag:
                     continue
                 if self.to_fix_qkv_ordering_dict is not None:
-                    from chatlearn.utils.megatron_import_helper import fix_query_key_value_ordering # pylint: disable=import-outside-toplevel
+                    from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
                     m = layer_re.match(name)
                     if m is not None:
                         op_name = m.group(2)
                         if op_name in to_fix_modules_list:
                             checkpoint_version = 3.0
-                            if self._to_fix_qkv_ordering_func is fix_query_key_value_ordering:
-                                self._to_fix_qkv_ordering_func(_params_to_sync, checkpoint_version)
+                            tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
+                            heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+                            hidden_size_per_head =  self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
+                            if self._to_fix_qkv_ordering_func is split_attn_state:
+                                _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                                    if self.module_args.args_dict["group_query_attention"] else heads
+                                _params_to_sync = self._to_fix_qkv_ordering_func(
+                                    _params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"])
                             else:
                                 input_shape = _params_to_sync.size()
-                                tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
-                                heads = self.module_args.args_dict["num_attention_heads"] // tp_size
-                                hidden_size_per_head = \
-                                    self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
                                 shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
                                 division = reduce(operator.mul, shape, 1)
                                 num_elements = _params_to_sync.numel()

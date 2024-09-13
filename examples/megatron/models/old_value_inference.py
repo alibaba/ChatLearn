@@ -22,6 +22,7 @@ from megatron.training import get_model
 
 from chatlearn import MegatronModule
 from chatlearn.utils import to_device
+from chatlearn.utils.megatron_utils import load_checkpoint
 from .value_model import ValueModel
 from .mcore_value_model import MCoreValueModel
 from .constants import get_ltor_masks_and_position_ids_rlhf
@@ -38,6 +39,14 @@ class ValueInference(MegatronModule):
         self.args = get_args()
         # Set up model and load checkpoint
         model = get_model(self.model_provider, wrap_with_ddp=False)
+
+        if self.args.load and self.src_parameter_model is None:
+            # if self.src_parameter_model is not None, we broadcast parameters from src_parameter_model to current model
+            torch.distributed.barrier()
+            load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
+            torch.distributed.barrier()
+        elif self.args.load is None and self.src_parameter_model is None:
+            print_rank_0(f"Warning: Using random parameter for {self.name} model.")
 
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
