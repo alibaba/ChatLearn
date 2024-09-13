@@ -31,7 +31,7 @@ import torch
 import torch.distributed
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-from chatlearn.utils.utils import to_use_legacy_models
+from chatlearn.utils.utils import get_use_legacy_models
 
 try:
     from chatlearn.utils.megatron_import_helper import update_num_microbatches
@@ -1355,7 +1355,7 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
             if not os.path.exists(save_dir):
                 if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):
                     model_type = "GPT"
-                    use_legacy_models = to_use_legacy_models(args)
+                    use_legacy_models = get_use_legacy_models(args)
                     if use_legacy_models:
                         cmd = f"python {script_path} --model-type {model_type} --load-dir {args.get('load')} " + \
                             f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \

@@ -263,7 +263,7 @@ def dict_to_simplenamespace(d):
     return SimpleNamespace(**d)
 
 
-def to_use_legacy_models(model_args):
+def get_use_legacy_models(model_args):
     use_legacy_models = model_args.get("use_legacy_models")
     if use_legacy_models is None:
         raise RuntimeError("Please specify use_legacy_models (True or False), but not None.")
