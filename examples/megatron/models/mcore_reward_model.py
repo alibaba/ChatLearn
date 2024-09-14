@@ -175,6 +175,16 @@ class MCoreRewardModel(MCoreGPTModel):
         # [b x score_dim]
         return lm_output
 
+    def state_dict_for_save_checkpoint(self, prefix='', keep_vars=False):
+        state_dict_ = super().state_dict_for_save_checkpoint(prefix, keep_vars)
+
+        if self.post_process:
+            state_dict_[self._pooler_head_key] \
+                = self.pooler_head.state_dict_for_save_checkpoint(
+                prefix=prefix, keep_vars=keep_vars)
+
+        return state_dict_
+
     def load_state_dict(self, state_dict, strict=True):# pylint: disable=unused-argument
         """Customized load."""
         # Directly utilize super().load_state_dict(state_dict, strict=True) causes exceptions. This is
