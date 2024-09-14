@@ -91,7 +91,7 @@ log_file=$CHECKPOINT_PATH/stderr_$NODE_RANK.log
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-cd ${CHATLEARN}/examples/megatron/reward 
+cd ${CHATLEARN}/examples/megatron/
 
 torchrun $DISTRIBUTED_ARGS \
   entry/train_reward.py \

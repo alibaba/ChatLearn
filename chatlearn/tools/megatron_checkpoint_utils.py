@@ -104,6 +104,9 @@ def exist_checkpoint_util():
     spec = importlib.util.find_spec('tools.checkpoint.util')
     return spec is not None
 
+def repair_loader_llama_mistral(source):
+    source = source.replace('args.seq_length = 4096', 'args.seq_length = model_args["max_position_embeddings"]')
+    return source
 
 class CheckpointUtilsImporter:
     """CheckpointUtilsImporter"""
@@ -133,6 +136,8 @@ class CheckpointUtilsImporter:
             lines = repair_saver_model_provider(lines)
             lines = repair_saver_put_reward(lines)
             source = '\n'.join(lines)
+        elif module_name == 'loader_llama_mistral':
+            source = repair_loader_llama_mistral(source)
         return source
 
     def load_module(self, name):
@@ -167,7 +172,7 @@ class CheckpointUtilsImporter:
         # put the loaded module into sys.modules so that if the module is imported
         # again it could be found.
         sys.modules[name] = module
-        if 'loader_megatron' in name or 'saver_megatron' in name:
+        if 'loader_megatron' in name or 'saver_megatron' in name or 'loader_llama_mistral' in name:
             sys.modules[module_name] = module
 
         # return the module itself so that it could be used
@@ -182,8 +187,8 @@ if __name__ == '__main__':
         util.main()
     else:
         sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.convert', \
-            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron'))
-        from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
+            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron', 'tools.checkpoint.loader_llama_mistral'))
+        from tools.checkpoint import loader_megatron, saver_megatron, loader_llama_mistral # pylint: disable=unused-import
         from tools.checkpoint import convert
         convert.main()
 # pylint: enable=wildcard-import,exec-used
