@@ -413,7 +413,8 @@ class ParameterSyncGroup:
         while len(sorted_send_actors) < len(self.send_recv_actor_mappings):
             sorted_send_actors.append(dp2send_actors[dp_rank].pop(0))
             dp_rank += 1
-            if dp_rank == self.src_dp_size:
+            # dp_rank not in dp2send_actors happens when inference replica number less than training replica number
+            if dp_rank == self.src_dp_size or dp_rank not in dp2send_actors:
                 dp_rank = 0
         assert len(self.send_recv_actor_mappings) == len(sorted_send_actors)
         self.sorted_send_actors = sorted_send_actors
