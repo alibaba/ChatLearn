@@ -33,6 +33,7 @@ from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
+from chatlearn.utils.dist_utils import bucket_tensors_two_stage, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
@@ -106,6 +107,9 @@ class BaseModule:
         self._data_ckpt_manager = None
         self._peak_memory = 0
         self._parameters_to_sync = defaultdict(list)
+        self._parameters_to_send = defaultdict(list)
+        self._parameters_to_recv = defaultdict(list)
+        self._parameters_shape = []
         self._concat_params_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = None
@@ -124,6 +128,36 @@ class BaseModule:
         # parameter sync from src_model
         self._src_parameter_model = None
         self.profiler = None
+        self._buffer_multiple = {}
+        self._max_buffer_num = None
+        self._tp_division = {}
+        self._max_tp_division = None
+        self._sync_buffer = defaultdict(list)
+
+    def get_sync_buffer(self):
+        return self._sync_buffer
+
+    def set_buffer_multiple(self, buffer_num):
+        self._buffer_multiple.update(buffer_num)
+
+    def get_buffer_multiple(self, param_names):
+        return [self._buffer_multiple[name] for name in param_names]
+
+    def set_tp_division(self, tp_division):
+        self._tp_division.update(tp_division)
+
+    def get_tp_division(self, param_names):
+        return [self._tp_division[name] for name in param_names]
+
+    def get_max_tp_division(self):
+        if self._max_tp_division is not None:
+            return self._max_tp_division
+        self._max_tp_division = max(val for name, val in self._tp_division.items())
+
+    def get_max_buffer_num(self):
+        if self._max_buffer_num is not None:
+            return self._max_buffer_num
+        self._max_buffer_num = max(val for name, val in self._buffer_multiple.items())
 
     @property
     def is_colocate(self):
@@ -621,11 +655,13 @@ class BaseModule:
     def set_to_fix_qkv_ordering_func(self, _to_fix_qkv_ordering_func):
         self._to_fix_qkv_ordering_func = _to_fix_qkv_ordering_func
 
-    def set_sync_parameters(self, trainable_param_names, pipe_stage=0):
+    def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
         """
         :meta private:
         """
-        if pipe_stage not in self._parameters_to_sync or len(self._parameters_to_sync[pipe_stage]) == 0: # pylint: disable=too-many-nested-blocks
+        if parameters_to_sync is None:
+            parameters_to_sync = self._parameters_to_sync
+        if pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage]) == 0: # pylint: disable=too-many-nested-blocks
             concat = []
             set_sync_param_flag = False
 
@@ -719,8 +755,21 @@ class BaseModule:
                                         _params_to_sync = _params_to_sync.contiguous()
                 concat = []
                 set_sync_param_flag = False
-                self._parameters_to_sync[pipe_stage].append(_params_to_sync)
+                parameters_to_sync[pipe_stage].append((name, _params_to_sync))
 
+    def set_send_parameters(self, trainable_param_names, pipe_stage=0):
+        """
+        :meta private:
+        """
+        return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_send)
+
+    def set_recv_parameters(self, rank, trainable_param_names, pipe_stage=0):
+        """
+        :meta private:
+        """
+        parameters_to_recv = defaultdict(list)
+        self._parameters_to_recv[rank] = parameters_to_recv
+        return self.set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_recv)
 
     def get_parameter_names(self, requires_grad=True):
         """
@@ -731,6 +780,19 @@ class BaseModule:
             return [param_to_name[param] for param in self.parameters if param.requires_grad]
         else:
             return [param_to_name[param] for param in self.parameters]
+
+    def get_parameter_shape(self, param_names):
+        """
+        :meta private:
+        """
+        parameters_shape = []
+        for name in param_names:
+            parameters_shape.append((name, self.named_parameters[name].shape))
+        return parameters_shape
+
+    def set_sharding_dim(self, param_to_sharding_dims):
+        if not self._param_to_sharding_dims:
+            self._param_to_sharding_dims = param_to_sharding_dims
 
     def get_parameter(self, name):
         """
@@ -774,7 +836,7 @@ class BaseModule:
         """
         :meta private:
         """
-        tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+        tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
         assert len(tensors) > 0
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
         debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
@@ -785,6 +847,110 @@ class BaseModule:
 
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
+
+    def broadcast_parameter_two_stage(self, from_rank, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False, is_send=True):
+        try:
+            ret = self.broadcast_parameter_internal(from_rank, to_rank, rank, src_rank, group_name, pipe_stage, stage2, is_send)
+            self.empty_cache()
+            return ret
+        except Exception as e:
+            return {"error_message": e}
+
+    def broadcast_parameter_internal(self, from_rank, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False, is_send=True):
+        """
+        :meta private:
+        """
+        if not stage2:
+            del self._sync_buffer
+            self._sync_buffer = defaultdict(list)
+        if stage2:
+            if is_send:
+                parameters_to_sync = self._parameters_to_send
+            else:
+                parameters_to_sync = self._parameters_to_recv[rank]
+        else:
+            parameters_to_sync = self._parameters_to_sync
+
+        tensors = []
+        buffer_num = []
+
+        if stage2 and is_send and self._sync_buffer:
+            idx = 0
+            for name, param in parameters_to_sync[pipe_stage]:
+                tensors.append(self._sync_buffer[(to_rank + 1) % self.get_max_buffer_num()][idx])
+                buffer_num.append(1)
+                idx += 1
+            del self._sync_buffer[(to_rank + 1) % 2]
+        else:
+            for name, param in parameters_to_sync[pipe_stage]:
+                param_data = param.data
+                param_data_shape = param_data.shape
+                param_data_device = param_data.device
+                if rank and self._buffer_multiple and not stage2:
+                    assert name in self._buffer_multiple, f"{name} in self._buffer_multiple for rank {rank}"
+                    buffer_num.append(self._buffer_multiple[name])
+                else:
+                    if not stage2:
+                        if "attention.query_key_value" in name or "self_attention.query_key_value" in name:
+                            tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
+                            heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+                            hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
+                            param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+                            param_data = param_data.view(param_shape)
+                            param_data_list = []
+                            head_offset = heads // self._tp_division[name]
+                            for idx in range(self._tp_division[name]):
+                                start = idx * head_offset
+                                end = start + head_offset
+                                param_data_list.append(param_data[:,start:end])
+                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+
+                        if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name:
+                            param_data_list = []
+                            col_offset = param_data_shape[1] // self._tp_division[name]
+                            for idx in range(self._tp_division[name]):
+                                start = idx * col_offset
+                                end =  start + col_offset
+                                param_data_list.append(param_data[:,start:end])
+                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                            del param_data_list
+                        
+                        if "mlp.dense_h_to_4h" in name:
+                            param_data_list = []
+                            row_offset = param_data_shape[0] // self._tp_division[name] // 2
+                            for idx in range(self._tp_division[name]):
+                                w1_start = idx * row_offset
+                                w1_end = w1_start + row_offset
+                                w2_start = (idx + self._tp_division[name]) * row_offset
+                                w2_end = w2_start + row_offset
+                                param_data_list.append(
+                                    torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
+                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                            del param_data_list
+                    buffer_num.append(1)
+                tensors.append(param_data)
+
+        tensor_changed = rank != src_rank
+
+        assert len(tensors) > 0
+        dense_buckets, sparse_bucket = bucket_tensors_two_stage(
+            tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
+            buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+
+        for idx, bucket in enumerate(dense_buckets):
+            all_buffers = coalesced_comm_dense_two_stage(
+                from_rank, to_rank, idx, bucket, col.broadcast, rank,
+                extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
+                stage2=stage2, index=to_rank % self.get_max_tp_division())
+            if tensor_changed and not stage2:
+                for key, value in all_buffers.items():
+                    self._sync_buffer[key] += value
+
+        for param in sparse_bucket:
+            col.broadcast(param, src_rank, group_name)
+        
+        return self._sync_buffer
 
 
     def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
