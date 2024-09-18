@@ -18,10 +18,15 @@ import torch
 
 from megatron.training import get_args
 from megatron.core import tensor_parallel
-from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training.global_vars import get_tokenizer
-from megatron.legacy.model.gpt_model import GPTModel
+from megatron.core.models.gpt import GPTModel as MCoreGPTModel
 from megatron.legacy.model.language_model import parallel_lm_logits
+from megatron.training.arguments import core_transformer_config_from_args
+from megatron.core.transformer.spec_utils import import_module
+from megatron.core.models.gpt.gpt_layer_specs import (
+    get_gpt_layer_local_spec,
+    get_gpt_layer_with_transformer_engine_spec,
+)
 
 from chatlearn.models.megatron.ops.policy_gradient import tensor_decomp_pg_loss
 from .utils import get_advantages_and_returns, get_eos_id
@@ -29,29 +34,75 @@ from .constants import TrainerEngine
 from .constants import select_actions_from_right_padded
 
 
-
-class PolicyModel(GPTModel):
-    """PolicyModel"""
+class MCorePolicyModel(MCoreGPTModel):
+    """PolicyModel for MCore"""
 
     def __init__(self,
-                 num_tokentypes=0,
                  parallel_output=True,
                  pre_process=True,
                  post_process=True,
                  stats=None):
         self.args = get_args()
+        use_te = self.args.transformer_impl == "transformer_engine"
         config = core_transformer_config_from_args(self.args)
-        super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
+
+        if self.args.spec is not None:
+            transformer_layer_spec = import_module(self.args.spec)
+        else:
+            if use_te:
+                transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(
+                    self.args.num_experts,
+                    self.args.moe_grouped_gemm,
+                    self.args.qk_layernorm
+                )
+            else:
+                transformer_layer_spec = get_gpt_layer_local_spec(
+                    self.args.num_experts,
+                    self.args.moe_grouped_gemm,
+                    self.args.qk_layernorm
+                )
+
+        super().__init__(
+            config=config,
+            transformer_layer_spec=transformer_layer_spec,
+            vocab_size=self.args.padded_vocab_size,
+            max_sequence_length=self.args.max_position_embeddings,
+            pre_process=pre_process,
+            post_process=post_process,
+            fp16_lm_cross_entropy=self.args.fp16_lm_cross_entropy,
+            parallel_output=parallel_output,
+            share_embeddings_and_output_weights=not self.args.untie_embeddings_and_output_weights,
+            position_embedding_type=self.args.position_embedding_type,
+            rotary_percent=self.args.rotary_percent,
+            rotary_base=self.args.rotary_base
+        )
 
         self.tokenizer = get_tokenizer()
         self.stats = stats
 
     def forward_lm(self, input_ids, position_ids, attention_mask, inference_params=None):
-        lm_output = self.language_model(
-            input_ids,
-            position_ids,
-            attention_mask,
-            inference_params=inference_params)
+        if self.pre_process:
+            decoder_input = self.embedding(input_ids=input_ids, position_ids=position_ids)
+        else:
+            # intermediate stage of pipeline
+            decoder_input = None
+
+        # Rotary positional embeddings (embedding is None for PP intermediate devices)
+        rotary_pos_emb = None
+        if self.position_embedding_type == 'rope':
+            rotary_seq_len = self.rotary_pos_emb.get_rotary_seq_len(
+                inference_params, self.decoder, decoder_input, self.config
+            )
+            rotary_pos_emb = self.rotary_pos_emb(rotary_seq_len)
+
+        # Run decoder.
+        lm_output = self.decoder(
+            hidden_states=decoder_input,
+            attention_mask=attention_mask,
+            inference_params=inference_params,
+            rotary_pos_emb=rotary_pos_emb,
+        )
+
         return lm_output
 
     def forward(self, all_token_ids, all_position_ids, all_token_attention_mask, training_inputs=None,
@@ -77,7 +128,7 @@ class PolicyModel(GPTModel):
                     use_parallel_output = False
             return self.post_language_model_processing(
                 hiddens, training_inputs,
-                self.language_model.output_layer.weight if self.untie_embeddings_and_output_weights else self.shared_embedding_or_output_weight(),
+                self.shared_embedding_or_output_weight() if self.share_embeddings_and_output_weights else self.output_layer.weight,
                 use_parallel_output,
                 attention_mask=all_token_attention_mask)
         else:
@@ -134,7 +185,6 @@ class PolicyModel(GPTModel):
 
         self.approx_kl = self.stats["policy/approx_kl"]  # Update kl controller stats
         return loss.contiguous()  # [b,response_size]
-
 
     def post_process_dpo(self, logits, training_inputs, attention_mask, average_log_prob=False):
         assert "labels" in training_inputs and training_inputs['labels'] is not None

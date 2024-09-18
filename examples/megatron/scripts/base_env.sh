@@ -134,3 +134,11 @@ else
   echo "unsupported model_size ${model_size}, please set your own model config"
   exit 1
 fi
+
+if [[ ${USE_LEGACY_MODELS:-"True"} = "False" ]]; then
+  export transformer_impl=transformer_engine
+  export use_legacy_models=False
+else
+  export transformer_impl=local
+  export use_legacy_models=True
+fi

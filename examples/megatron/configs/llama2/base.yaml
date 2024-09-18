@@ -12,7 +12,7 @@ group_query_attention: ${group_query_attention:False}
 add_bias_linear: False
 swiglu: True
 attention_softmax_in_fp32: True
-transformer_impl: local
+transformer_impl: ${transformer_impl:local}
 bf16: True
 
 
@@ -70,3 +70,4 @@ adaptive_parallel_strategy_on_checkpoint: True
 log_interval: ${log_interval:10}
 distributed_timeout_minutes: 30
 make_vocab_size_divisible_by: 32
+use_legacy_models: ${use_legacy_models:True}

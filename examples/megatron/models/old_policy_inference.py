@@ -34,7 +34,8 @@ from chatlearn import MegatronModule
 from chatlearn.utils import to_device
 from chatlearn.utils.megatron_utils import load_checkpoint
 from examples.megatron.data.prompt_dataset import PromptPipeline
-from .policy_model import PolicyModel
+from .policy_model import PolicyModel as LegacyPolicyModel
+from .mcore_policy_model import MCorePolicyModel
 from .utils import tensorboard_scalar_dict, get_loss_mask, get_eos_id
 
 
@@ -102,7 +103,19 @@ class PolicyInference(MegatronModule):
         """Build the model."""
 
         print_rank_0('building GPT model ...')
-        model = PolicyModel(num_tokentypes=0, parallel_output=False, pre_process=pre_process, post_process=post_process)
+        if self.args.use_legacy_models:
+            model = LegacyPolicyModel(
+                num_tokentypes=0,
+                parallel_output=False,
+                pre_process=pre_process,
+                post_process=post_process
+            )
+        else:
+            model = MCorePolicyModel(
+                parallel_output=False,
+                pre_process=pre_process,
+                post_process=post_process
+            )
 
         return model
 

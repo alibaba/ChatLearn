@@ -34,7 +34,9 @@ import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.utils import to_device
 from chatlearn.utils.megatron_utils import load_checkpoint
-from .reward_model import batch_padded_tokenize_data, model_provider
+from examples.megatron.data.reward_dataset import preprocess
+from .reward_model import RewardModel as LegacyRewardModel
+from .mcore_reward_model import MCoreRewardModel
 from .utils import tensorboard_scalar_dict, get_eos_id
 from .constants import RunningMoments, get_running_stats, reset_running_stats
 from .forward_step import forward_step_helper
@@ -61,7 +63,45 @@ def save_list_str(list_strs, iteration):
     for prompt, response in list_strs:
         k = {"query": prompt, "responses": [response], "iteration": iteration}
         res.append(k)
-    dump_jsonl_chinese(res, inference_output_path, mode="a")
+    dump_jsonl_chinese(res, inference_output_path, mode="w")
+
+
+def model_provider(pre_process=True, post_process=True):
+    """Build the model."""
+
+    print_rank_0('building GPT model ...')
+    args = get_args()
+    if args.use_legacy_models:
+        model = LegacyRewardModel(
+            num_tokentypes=0,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process,
+            score_dimension=1,
+        )
+    else:
+        model = MCoreRewardModel(
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process,
+            score_dimension=1,
+        )
+
+    return model
+
+
+def batch_padded_tokenize_data(list_strs, tokenizer, max_length):
+    processed_dict = [preprocess(tokenizer.tokenize(line[0]), tokenizer.tokenize(line[1]), max_length, tokenizer) for
+                      line in list_strs]
+    input_ids, input_lengths = [], []
+    for item in processed_dict:
+        input_ids.append(torch.tensor(item['ids']))
+        input_lengths.append(item['length'])
+    max_l = min(max(input_lengths), max_length)
+    input_ids = torch.stack(input_ids, dim=0)[:, :max_l]
+    input_eos_tok = torch.tensor(input_lengths) - 1
+
+    return input_ids, input_eos_tok
 
 
 class RewardInference(MegatronModule):

@@ -21,7 +21,10 @@ import torch
 import torch.nn.functional as F
 
 from megatron.training import get_args
-from megatron.training import get_num_microbatches
+try:
+    from megatron.training import get_num_microbatches
+except ImportError:
+    from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import get_tokenizer
 from megatron.training import print_rank_0
 from megatron.core import mpu
@@ -30,7 +33,8 @@ from megatron.training.utils import calc_params_l2_norm
 from megatron.training.utils import get_ltor_masks_and_position_ids
 
 from chatlearn.utils import to_device
-from .policy_model import PolicyModel
+from .policy_model import PolicyModel as LegacyPolicyModel
+from .mcore_policy_model import MCorePolicyModel
 from .utils import training_log, get_eos_id, get_padding_length, pad_to_length
 from .base_trainer import BaseTrainer
 from .constants import TrainerEngine
@@ -85,16 +89,27 @@ class PolicyTrainer(BaseTrainer):
         """Build the model."""
 
         print_rank_0('building GPT model ...')
-        model = PolicyModel(
-            num_tokentypes=0,
-            parallel_output=True,
-            pre_process=pre_process,
-            post_process=post_process,
-            stats=self.stats
-        )
-        if self.module_args.lora.enable_lora:
-            from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
-            model = convert_layer_to_lora(model)
+        if self.args.use_legacy_models:
+            model = LegacyPolicyModel(
+                num_tokentypes=0,
+                parallel_output=True,
+                pre_process=pre_process,
+                post_process=post_process,
+                stats=self.stats
+            )
+            if self.module_args.lora.enable_lora:
+                from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
+                model = convert_layer_to_lora(model)
+        else:
+            model = MCorePolicyModel(
+                parallel_output=True,
+                pre_process=pre_process,
+                post_process=post_process,
+                stats=self.stats
+            )
+            if self.module_args.lora.enable_lora:
+                assert False, "ChatLearn do not support LoRA with Megatron-Core models currently."
+
         return model
 
     def get_dpo_batch(self, data_b):
