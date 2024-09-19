@@ -7,7 +7,7 @@ from chatlearn import RLHFEngine
 from chatlearn import TorchModule
 from chatlearn import Evaluator
 
-from utils import CustomDataset, PolicyModel, ReferenceModel, ValueModel, PPOPolicy, PPOValue, listdict_to_dictlist
+from utils import PolicyModel, ReferenceModel, ValueModel, PPOPolicy, PPOValue, listdict_to_dictlist
 
 class RewardModel(TorchModule):
 
@@ -34,10 +34,12 @@ for i in range(40):
 train_data = data[:32]
 val_data = data[32:]
 
+
 def eval_flow(batch):
     r0 = policy.forward_step(batch)
     r1 = reward.forward_step(r0)
     return r1
+
 
 def eval_post_process(results, eval_info):
     results = results["reward"]
@@ -51,12 +53,12 @@ def eval_post_process(results, eval_info):
     assert torch.min(results['reward_out'][1]) == 34
     assert torch.max(results['reward_out'][1]) == 35
 
+
 eval_num_limit = chatlearn.get_args().runtime_args.get('eval_data_num_limit')
 eval_num_limit = min(eval_num_limit, len(val_data))
 val_data = val_data[:eval_num_limit]
 evaluator = Evaluator(eval_flow).set_dataset(val_data).set_post_process_func(eval_post_process)
 engine.set_evaluator(evaluator)
-
 
 engine.set_dataset(train_data)
 engine.setup()
