@@ -264,7 +264,7 @@ def dict_to_simplenamespace(d):
 
 
 def get_use_legacy_models(model_args):
-    use_legacy_models = model_args.get("use_legacy_models")
+    use_legacy_models = getattr(model_args, "use_legacy_models", None)
     if use_legacy_models is None:
         raise RuntimeError("Please specify use_legacy_models (True or False), but not None.")
     return use_legacy_models
