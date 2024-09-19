@@ -19,7 +19,11 @@ megatron=${MEGATRON}
 load_dir=${LOAD_PATH}
 save_dir=${SAVE_PATH}
 tokenizer_model=${TOKENIZER_MODEL}
-model_size=${model_size:-llama2-7B}
+if [[ $model == 'gpt_llama' ]]; then
+    model_size=${MODEL_SIZE:-llama2-7B}
+elif [[ $model == 'mixtral' ]]; then
+    model_size=${MODEL_SIZE:-mixtral-8x7B}
+fi
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 

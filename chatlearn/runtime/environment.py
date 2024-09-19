@@ -108,6 +108,12 @@ class Environment(Executor):
         if self.models[0].module_args.zero_size > 1:
             assert self.batch_per_episode % self.models[0].module_args.zero_size == 0
             return self.batch_per_episode // self.models[0].module_args.zero_size
+        elif self.models[0].module_args.expert_model_parallel_size > 1:
+            assert self.batch_per_episode % self.models[0].module_args.expert_model_parallel_size == 0, (
+                f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel " 
+                f"size ({self.models[0].module_args.expert_model_parallel_size})."
+            )
+            return self.batch_per_episode // self.models[0].module_args.expert_model_parallel_size
         else:
             return self.batch_per_episode
 

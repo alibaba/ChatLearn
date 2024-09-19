@@ -14,6 +14,7 @@
 # ==============================================================================
 """Megatron module"""
 import inspect
+import torch.distributed as dist
 
 try:
     from chatlearn.utils.megatron_import_helper import get_args
@@ -138,6 +139,14 @@ class MegatronModule(TorchModule):
         """
         return self.megatron_args.tensor_model_parallel_size
 
+    def expert_model_parallel_size(self):
+        """
+        get expert_model_parallel_size
+
+        :meta private:
+        """
+        return self.megatron_args.expert_model_parallel_size
+
     @property
     def data_parallel_size(self):
         """
@@ -163,6 +172,12 @@ class MegatronModule(TorchModule):
         :meta private:
         """
         return mpu.get_tensor_model_parallel_rank()
+
+    def expert_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return mpu.get_expert_model_parallel_rank()
 
     def num_layers(self):
         """
@@ -205,8 +220,14 @@ class MegatronModule(TorchModule):
         """
         :meta private:
         """
-        data_parallel_global_ranks = list(mpu._DATA_PARALLEL_GLOBAL_RANKS)
-        return data_parallel_global_ranks, mpu.get_data_parallel_rank()
+        if self.expert_model_parallel_size() == 1:
+            data_parallel_global_ranks = list(mpu._DATA_PARALLEL_GLOBAL_RANKS)
+            return data_parallel_global_ranks, mpu.get_data_parallel_rank()
+        else:
+            # Get data parallel modulo expert parallel ranks
+            data_modulo_expert_parallel_group = mpu.get_data_modulo_expert_parallel_group()
+            data_modulo_expert_parallel_ranks = dist.get_process_group_ranks(data_modulo_expert_parallel_group)
+            return data_modulo_expert_parallel_ranks, mpu.get_data_modulo_expert_parallel_rank()
 
     def save_checkpoint(self, iteration):
         """

@@ -160,12 +160,14 @@ try:
     from megatron.optimizer import DistributedOptimizer
     from megatron.optimizer.optimizer import MegatronOptimizer
     from megatron.optimizer.optimizer import MixedPrecisionOptimizer
+    from megatron.optimizer.optimizer import ChainedOptimizer
     from megatron.optimizer.optimizer import Float16OptimizerWithFloat16Params
 except ImportError:
     from megatron.core.optimizer import get_megatron_optimizer
     from megatron.core.optimizer import DistributedOptimizer
     from megatron.core.optimizer.optimizer import MegatronOptimizer
     from megatron.core.optimizer.optimizer import MixedPrecisionOptimizer
+    from megatron.core.optimizer.optimizer import ChainedOptimizer
     from megatron.core.optimizer.optimizer import Float16OptimizerWithFloat16Params
 
 # DistributedDataParallel

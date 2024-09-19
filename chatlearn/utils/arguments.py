@@ -198,7 +198,7 @@ class ModelConfig(BaseConfig):
     #: [optional] cpu per process
     cpu_per_process: int = None
     #: [optional] number of module replica,
-    #: for gpu model, num_replica = num_gpu // (TP * PP * DP),
+    #: for gpu model, num_replica = num_gpu // (TP * PP * DP * EP),
     #: for cpu model, num_replica = num_cpu // cpu_per_process
     num_replica: int = 1
     #: [required] whether model is trainable
@@ -207,6 +207,8 @@ class ModelConfig(BaseConfig):
     tensor_model_parallel_size: int = None
     #: [optional] pipeline model parallel size
     pipeline_model_parallel_size: int = None
+    #: [optional] expert model parallel size
+    expert_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
     #: [optional] config file for model
@@ -517,20 +519,21 @@ class Config(BaseConfig):
             if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
                 if self.runtime_args.generation_batch_size:
                     model_args.generation_batch_size = self.runtime_args.generation_batch_size
-            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size"]:
+            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "expert_model_parallel_size", "zero_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
                     assert getattr(model_args, key) >= 1
                 elif getattr(model_args, key) is None:
                     setattr(model_args, key, 1)
-            if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1:
+            if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1 or model_args.expert_model_parallel_size > 1:
                 assert model_args.zero_size == 1 or model_args.zero_size is None
                 assert model_args.num_gpu % (
-                    model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size) == 0, \
+                    model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size) == 0, \
                     "num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size " \
                     f"for {model_name} model, but got num_gpu = {model_args.num_gpu}" \
-                    f"tensor_model_parallel_size = {model_args.tensor_model_parallel_size}, and " \
-                    f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}."
+                    f"tensor_model_parallel_size = {model_args.tensor_model_parallel_size}, " \
+                    f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}, and "\
+                    f"expert_model_parallel_size = {model_args.expert_model_parallel_size}."
             assert model_args.num_gpu > 0 or model_args.num_cpu > 0, \
                 f"{model_name} num_gpu: {model_args.num_gpu}, num_cpu: {model_args.num_cpu}, at least one of them should be set"
 
@@ -540,7 +543,7 @@ class Config(BaseConfig):
                     model_args.num_replica = model_args.num_gpu // model_args.zero_size
                 else:
                     model_args.num_replica = model_args.num_gpu // (
-                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size)
+                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size)
             elif model_args.num_cpu >= 1:
                 model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
             assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \

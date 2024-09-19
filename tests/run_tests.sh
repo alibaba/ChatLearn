@@ -65,6 +65,7 @@ function run_all_tests {
   run_test python test_rlhf_data_input.py -c "configs/exp.yaml"
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"
+  run_test python test_data_dp_ep.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_colocate_forward_train.py -c "configs/rlhf2.yaml"
   run_test python test_evaluator_multi.py -c "configs/test_eval2.yaml"
   run_test python test_rlhf_cpu.py -c "configs/rlhf_cpu.yaml"
@@ -106,6 +107,10 @@ if [ "$1" == "" ]; then
   else
     run_all_tests
   fi
+elif [ "$1" == "test_data" ]; then
+  run_test python test_data_dp.py -c "configs/rlhf.yaml"
+  run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"
+  run_test python test_data_dp_ep.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_fixed_data" ]; then
   run_test python test_fixed_data.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_dynamic_data" ]; then
@@ -150,5 +155,3 @@ else
   echo -e "\033[31m$(date "+%Y-%m-%d %T.%N") [ERROR]: Unrecognized test name '$1'!\033[0m"
   exit -1
 fi
-
-ray stop --force
