@@ -322,6 +322,7 @@ POLICY_LOAD=path-to-sft-ckpt \
 REWARD_LOAD=path-to-rm-ckpt \
 REWARD_LOAD_ITERATION=1000 \
 TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
+USE_LEGACY_MODELS=False \
 bash scripts/train_rlhf_llama.sh
 ```
 
