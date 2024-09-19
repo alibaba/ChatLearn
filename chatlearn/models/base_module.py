@@ -844,15 +844,15 @@ class BaseModule:
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
 
-    def broadcast_parameter_two_stage(self, from_rank, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False, is_send=True):
+    def broadcast_parameter_two_stage(self, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False, is_send=True):
         try:
-            ret = self.broadcast_parameter_internal(from_rank, to_rank, rank, src_rank, group_name, pipe_stage, stage2, is_send)
+            ret = self.broadcast_parameter_internal(to_rank, rank, src_rank, group_name, pipe_stage, stage2, is_send)
             self.empty_cache()
             return ret
         except Exception as e:
             return {"error_message": e}
 
-    def broadcast_parameter_internal(self, from_rank, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False, is_send=True):
+    def broadcast_parameter_internal(self, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False, is_send=True):
         """
         :meta private:
         """
@@ -925,7 +925,6 @@ class BaseModule:
                                 torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
-                    
                 tensors.append(param_data)
 
         tensor_changed = rank != src_rank

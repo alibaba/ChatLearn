@@ -334,7 +334,7 @@ class ParameterSyncGroup:
         for rank, actor in enumerate(actors):
             is_send = rank == send_rank
             ref = actor.broadcast_parameter_two_stage.remote(
-                self.actor2rank[send_actor], self.actor2rank[actor], rank, send_rank, group_name, pipe_stage, stage2, is_send)
+                self.actor2rank[actor], rank, send_rank, group_name, pipe_stage, stage2, is_send)
             refs.append(ref)
         rets = future.wait(refs, return_output=True)
         return rets
