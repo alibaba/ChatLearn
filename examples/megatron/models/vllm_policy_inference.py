@@ -15,6 +15,7 @@
 """vllm policy inference"""
 
 import copy
+import random
 
 import torch
 import torch.nn.functional as F
@@ -47,7 +48,7 @@ class VLLMPolicyInference(VLLMModule):
                 for p in train_prompts:
                     duplicated_train_prompts.extend([p for i in range(self.model_args["num_inference_per_prompt"])])
             else:
-                raise Exception(f"unsupported init_shuffle_prompts {init_shuffle_prompts}, expect 0 or 2.")
+                raise Exception(f"unsupported init_shuffle_prompts {self.model_args['init_shuffle_prompts']}, expect 0 or 2.")
 
         max_prompt_length = (
             self.model_args.get("seq_length") - self.model_args.get("max_new_tokens")

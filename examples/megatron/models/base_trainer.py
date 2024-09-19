@@ -19,7 +19,10 @@ import torch
 from megatron.training import get_args
 from megatron.training import get_timers
 from megatron.training import get_tokenizer
-from megatron.training import get_num_microbatches
+try:
+    from megatron.training import get_num_microbatches
+except ImportError:
+    from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import print_rank_0
 from megatron.core.enums import ModelType
 try:

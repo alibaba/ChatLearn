@@ -1,4 +1,4 @@
-PYTHON ?= python
+PYTHON ?= python3
 ADDITIONAL_DEPS ?=
 current_dir := $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
 
@@ -15,7 +15,7 @@ test: $(LIB)
 .PHONY: lint
 lint:
 	git config --global --add safe.directory $(current_dir)
-	pip install pylint==2.16.1  -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
+	@$(PYTHON) -m pip install pylint==2.16.1  -i http://mirrors.aliyun.com/pypi/simple/ --trusted-host mirrors.aliyun.com
 	@$(PYTHON) -m pylint \
 		--rcfile=.pylintrc --output-format=parseable --jobs=8 \
 		$(shell git ls-tree --full-tree --name-only -r HEAD chatlearn | grep \.py$) \

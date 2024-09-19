@@ -21,5 +21,5 @@ git clone https://github.com/alibaba/ChatLearn.git
 ```
 # 下载 Megatron-LM
 git clone https://github.com/NVIDIA/Megatron-LM.git
-git checkout 5161b1689
+git checkout core_r0.8.0
 ```
