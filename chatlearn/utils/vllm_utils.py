@@ -31,6 +31,7 @@ import torch
 import torch.distributed
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+from chatlearn.utils.utils import get_use_legacy_models
 
 try:
     from chatlearn.utils.megatron_import_helper import update_num_microbatches
@@ -623,6 +624,23 @@ def get_element_from_dict_by_path(d, path):
     return d
 
 
+def split_attn_state(param, num_heads, num_query_groups, kv_channels, hidden_size):
+    nh = num_heads
+    ng = num_query_groups
+    dim = kv_channels
+    if len(param.shape) == 1:
+        param = param.view((ng, dim*nh//ng+dim*2, 1))
+        q_proj = param[:, :dim*nh//ng, :].reshape(-1).contiguous()
+        k_proj = param[:, dim*nh//ng:dim*nh//ng+dim, :].reshape(-1).contiguous()
+        v_proj = param[:, dim*nh//ng+dim:, :].reshape(-1).contiguous()
+    else:
+        param = param.view((ng, dim*nh//ng+dim*2, hidden_size))
+        q_proj = param[:, :dim*nh//ng, :].reshape(-1, hidden_size).contiguous()
+        k_proj = param[:, dim*nh//ng:dim*nh//ng+dim, :].reshape(-1, hidden_size).contiguous()
+        v_proj = param[:, dim*nh//ng+dim:, :].reshape(-1, hidden_size).contiguous()
+    return torch.concat([q_proj, k_proj, v_proj], dim=0)
+
+
 def fix_qwen_query_key_value_ordering(
     param, checkpoint_version, num_splits, num_heads, hidden_size
 ):
@@ -1181,7 +1199,8 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 # Store.
                 output_state_dict[layer_name + f".attn.c_attn.{weight_or_bias}"] = out_val
             else:
-                fix_query_key_value_ordering(val, checkpoint_version)
+                num_query_groups = ds_args.num_query_groups if ds_args.group_query_attention else ds_args.num_attention_heads
+                val = split_attn_state(val, heads, num_query_groups // tp_size, hidden_size_per_head, hf_config.hidden_size)
                 # Store. No change of shape.
                 output_state_dict[layer_name + f".self_attn.qkv_proj.{weight_or_bias}"] = val
 
@@ -1336,7 +1355,8 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
             if not os.path.exists(save_dir):
                 if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):
                     model_type = "GPT"
-                    if args.get("use_legacy_models"):
+                    use_legacy_models = get_use_legacy_models(args)
+                    if use_legacy_models:
                         cmd = f"python {script_path} --model-type {model_type} --load-dir {args.get('load')} " + \
                             f"--save-dir {save_dir} --target-tensor-parallel-size {target_tp} " + \
                             f"--target-pipeline-parallel-size {target_pp}"

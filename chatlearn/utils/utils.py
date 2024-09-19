@@ -20,6 +20,8 @@ import socket
 import subprocess
 import textwrap
 import time
+import math
+import concurrent.futures
 from contextlib import closing
 from types import SimpleNamespace
 
@@ -259,3 +261,46 @@ def dict_to_simplenamespace(d):
         if isinstance(value, dict):
             d[key] = dict_to_simplenamespace(value)
     return SimpleNamespace(**d)
+
+
+def get_use_legacy_models(model_args):
+    use_legacy_models = model_args.get("use_legacy_models")
+    if use_legacy_models is None:
+        raise RuntimeError("Please specify use_legacy_models (True or False), but not None.")
+    return use_legacy_models
+
+
+def execute_in_parallel(function, arguments):
+    if len(arguments) == 1:
+        return function(*arguments[0])
+    results = []
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        # Using list comprehension to handle the results
+        futures = [executor.submit(function, *args) for args in arguments]
+        for _future in concurrent.futures.as_completed(futures):
+            results.append(_future.result())
+    return results
+
+
+def multi_thread_data_processing(num_threads: int, all_data: list, process_one_data, fn_args: list):
+    num_data = len(all_data)
+
+    if num_data == 0:
+        return []
+    # reduce num_threads if data amount is little
+    if num_data < num_threads:
+        num_threads = num_data
+    assert num_threads > 0, "Get num_threads <= 0. Expect to be a positive number."
+
+    result = list(range(num_data))
+    data_size_per_thread = math.ceil(num_data / num_threads)
+    thread_args = [(i, all_data[i * data_size_per_thread : min((i+1) * data_size_per_thread, num_data)]) for i in range(num_threads)]
+
+    def thread_fn(thread_id: int, pending_data):
+        offset = thread_id * data_size_per_thread
+        for i, data in enumerate(pending_data):
+            result[offset + i] = process_one_data(data, *fn_args)
+
+    execute_in_parallel(thread_fn, thread_args)
+
+    return result

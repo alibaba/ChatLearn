@@ -186,7 +186,6 @@ class MCorePolicyModel(MCoreGPTModel):
         self.approx_kl = self.stats["policy/approx_kl"]  # Update kl controller stats
         return loss.contiguous()  # [b,response_size]
 
-
     def post_process_dpo(self, logits, training_inputs, attention_mask, average_log_prob=False):
         assert "labels" in training_inputs and training_inputs['labels'] is not None
         labels =  training_inputs['labels']
@@ -242,10 +241,84 @@ class MCorePolicyModel(MCoreGPTModel):
         else:
             if self.args.trainer_engine == TrainerEngine.DPO:
                 return self.post_process_dpo(all_token_logits, training_inputs, attention_mask)
-            elif self.args.trainer_engine == TrainerEngine.RLHF.value:
+            elif self.args.trainer_engine == TrainerEngine.RLHF:
                 return self.post_process_rlhf(training_inputs, all_token_logits)
             elif self.args.trainer_engine == TrainerEngine.ONLINE_DPO:
                 return self.post_process_online_dpo(sbv_all_token_logits, training_inputs)
+            elif self.args.trainer_engine == TrainerEngine.GRPO:
+                return self.post_process_grpo(all_token_logits, sbv_all_token_logits, training_inputs)
+
+    def post_process_grpo(self, all_token_logits, sbv_all_token_logits, training_inputs):
+        all_token_ids = training_inputs["all_token_ids_right_padded"]
+        adv_scores = torch.FloatTensor(training_inputs['advantages'])
+
+        old_logprobs = training_inputs['action_logprobs'] #[b, responses size]
+        response_length = old_logprobs.shape[1]
+        action_loss_mask = select_actions_from_right_padded(ts=training_inputs["all_token_loss_mask"],
+                                                            action_starts=training_inputs["action_starts"] - 1, # because align iwth logits index
+                                                            response_size=response_length,
+                                                            pad_value=0, dim=-1).contiguous()
+
+        assert action_loss_mask.size(0) == len(adv_scores)
+
+        self.stats["policy/adv_mean"] = adv_scores.mean()
+        self.stats["policy/adv_std"] = adv_scores.std()
+
+        adv = []
+        for i, adv_score in enumerate(adv_scores):
+            adv.append(adv_score * action_loss_mask[i].float())
+        advantages = torch.stack(adv)
+        assert advantages.size(0) == action_loss_mask.size(0)
+        assert advantages.size(1) == action_loss_mask.size(1) == response_length
+
+        # because we want the logits from the previous token
+        # because it's -1 at top and then action -1 it hsould remain in bound [seem not true here]
+        action_token_logits = select_actions_from_right_padded(ts=all_token_logits,
+                                                            action_starts=training_inputs["action_starts"]-1,
+                                                            response_size=response_length,
+                                                                pad_value=1.0, dim=-2).contiguous()
+        action_ids = select_actions_from_right_padded(ts=all_token_ids,
+                                                            action_starts=training_inputs["action_starts"],
+                                                            response_size=response_length,
+                                                            pad_value=self.tokenizer.eod, dim=-1).contiguous()
+
+        loss = tensor_decomp_pg_loss(self.args,
+                                        action_token_logits=action_token_logits, # [b,response size]
+                                        action_ids=action_ids,  # [b, response size]
+                                        action_loss_mask=action_loss_mask,  # [b, response size]
+                                        old_logprobs=old_logprobs,  # [b, response size]
+                                        advantages=advantages,  # [b, response size]
+                                        stats=self.stats)  # [b, response_size] remove last logit because it's EOS
+        assert not torch.isnan(loss).any(), "pg loss is nan"
+        #### KL Loss ####
+        forward_logprob = self.cross_entropy_loss(sbv_all_token_logits,
+                                training_inputs["labels"],
+                                get_args().fp16_lm_cross_entropy) * -1
+        ref_logprobs = training_inputs['ref_logprobs']
+
+        action_forward_logprobs = select_actions_from_right_padded(ts=forward_logprob,
+                                        action_starts=training_inputs["action_starts"]-1, # because align iwth logits index
+                                        response_size=response_length,
+                                        pad_value=0, dim=-1).contiguous()
+        action_ref_logprobs = select_actions_from_right_padded(ts=ref_logprobs,
+                                        action_starts=training_inputs["action_starts"]-1, # because align iwth logits index
+                                        response_size=response_length,
+                                        pad_value=0, dim=-1).contiguous()
+        assert action_forward_logprobs.size(-1) == action_ref_logprobs.size(-1) == loss.size(-1)
+
+        if get_args().numerical_stable:
+            logprob_diff = torch.clamp(action_ref_logprobs - action_forward_logprobs, min=-1e5, max=1e5)
+            log_ratio = (logprob_diff) * action_loss_mask
+            # numerical approximate an exponential for numerical stability
+            ratio = 1 + log_ratio + torch.square(log_ratio) / 2
+        else:
+            logprob_diff = action_ref_logprobs - action_forward_logprobs
+            log_ratio = (logprob_diff) * action_loss_mask
+            ratio = torch.exp(log_ratio)
+        kl_loss = (ratio - log_ratio - 1).contiguous()
+        assert not torch.isnan(loss).any(), "kl loss is nan"
+        self.approx_kl = self.stats["policy/approx_kl"]  # Update kl controller stats
+        return loss.contiguous(), kl_loss.contiguous()  # [b,response_size]
 
     def cross_entropy_loss(self, sbv_all_token_logits, labels, fp16_lm_cross_entropy):
         #all_token_logits is [s,b,vp]

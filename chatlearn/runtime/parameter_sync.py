@@ -30,7 +30,7 @@ from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import execute_in_parallel
+from chatlearn.utils.utils import execute_in_parallel
 
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
@@ -413,7 +413,8 @@ class ParameterSyncGroup:
         while len(sorted_send_actors) < len(self.send_recv_actor_mappings):
             sorted_send_actors.append(dp2send_actors[dp_rank].pop(0))
             dp_rank += 1
-            if dp_rank == self.src_dp_size:
+            # dp_rank not in dp2send_actors happens when inference replica number less than training replica number
+            if dp_rank == self.src_dp_size or dp_rank not in dp2send_actors:
                 dp_rank = 0
         assert len(self.send_recv_actor_mappings) == len(sorted_send_actors)
         self.sorted_send_actors = sorted_send_actors

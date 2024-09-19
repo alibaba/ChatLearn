@@ -48,15 +48,16 @@ class VLLMPolicyInference(VLLMModule):
                 for p in train_prompts:
                     duplicated_train_prompts.extend([p for i in range(self.model_args["num_inference_per_prompt"])])
             else:
-                raise Exception(f"unsupported init_shuffle_prompts {init_shuffle_prompts}, expect 0 or 2.")
+                raise Exception(f"unsupported init_shuffle_prompts {self.model_args['init_shuffle_prompts']}, expect 0 or 2.")
 
         max_prompt_length = (
             self.model_args.get("seq_length") - self.model_args.get("max_new_tokens")
         )
         prompt_key = self.model_args.get("prompt_key")
+        num_tokenize_threads = self.model_args.get("num_tokenize_threads")
         # TODO: read from files
         prompts_dataset = VLLMPromptPipeline(
-            duplicated_train_prompts, max_prompt_length, self.tokenizer.tokenizer, prompt_key)
+            duplicated_train_prompts, max_prompt_length, self.tokenizer.tokenizer, prompt_key, num_tokenize_threads)
 
         return prompts_dataset
 

@@ -53,6 +53,9 @@ class ValueTrainer(BaseTrainer):
                 stats=self.stats,
                 buffer=self.buffer
             )
+            if self.module_args.lora.enable_lora:
+                from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
+                model = convert_layer_to_lora(model)
         else:
             model = MCoreValueModel(
                 parallel_output=True,
@@ -61,9 +64,9 @@ class ValueTrainer(BaseTrainer):
                 stats=self.stats,
                 buffer=self.buffer
             )
-        if self.module_args.lora.enable_lora:
-            from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
-            model = convert_layer_to_lora(model)
+            if self.module_args.lora.enable_lora:
+                assert False, "ChatLearn do not support LoRA with Megatron-Core models currently."
+
         return model
 
     def get_batch(self, batch_data):

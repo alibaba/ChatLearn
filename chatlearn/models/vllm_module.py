@@ -25,6 +25,7 @@ from chatlearn.models.vllm.vllm_model import VLLMModel
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.dist_utils import broadcast_var_object_dict
+from chatlearn.utils.utils import get_use_legacy_models
 from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import Scheduler
@@ -179,6 +180,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """Set up model and load checkpoint"""
         need_load_ckpt = self.src_parameter_model is None
         model = [get_model(self.model_provider, self.model_args, need_load_ckpt)]
+
+        if self.model_args["load"] is None and need_load_ckpt:
+            print_rank_0(f"Warning: Using random parameter for {self.name} model.")
 
         assert len(model) == 1, "Above condition should have caught this"
         self.model = model[0]
@@ -532,13 +536,11 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
         elif isinstance(self.model.model, Qwen2ForCausalLM):
             sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.megatron_import_helper import fix_query_key_value_ordering
-            self._to_fix_qkv_ordering_func = fix_query_key_value_ordering
+            from chatlearn.utils.vllm_utils import split_attn_state
+            self._to_fix_qkv_ordering_func = split_attn_state
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
         elif isinstance(self.model.model, LlamaForCausalLM):
-            use_legacy_models = self.model_args.get("use_legacy_models")
-            if use_legacy_models is None:
-                raise RuntimeError("Please specify use_legacy_models (True or False) for VLLMModule, but not None.")
+            use_legacy_models = get_use_legacy_models(self.model_args)
             sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
             from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
             self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering

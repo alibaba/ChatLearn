@@ -48,7 +48,11 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     export reward_tp=4
     export ppo_value_pp=1
     export train_global_batch_size=128
-    export generation_batch_size=512
+    if [[ "$backend" == "megatron" ]]; then
+        export generation_batch_size=256
+    elif [[ "$backend" == "vllm" ]]; then
+        export generation_batch_size=512
+    fi
     export ref_generation_batch_size=64
     export value_generation_batch_size=64
     export reward_generation_batch_size=64

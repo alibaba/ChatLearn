@@ -3,8 +3,8 @@ name: Daily Building Script Execution
 on:
   workflow_dispatch:
   schedule:
-    # Runs at 1:00 AM every day
-    - cron: '0 1 * * *'
+    # Runs at 00:30 every day (UTC+8)
+    - cron: '30 16 * * *'
 
 jobs:
   run-shell-script:

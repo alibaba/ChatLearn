@@ -15,7 +15,6 @@
 """runtime utils"""
 
 import ast
-import concurrent.futures
 import textwrap
 import inspect
 
@@ -73,14 +72,3 @@ class FlowParser:
             code = textwrap.dedent(inspect.getsource(func))
         node_iter.visit(ast.parse(code))
         return self.model_to_call_func
-
-def execute_in_parallel(function, arguments):
-    if len(arguments) == 1:
-        return function(*arguments[0])
-    results = []
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        # Using list comprehension to handle the results
-        futures = [executor.submit(function, *args) for args in arguments]
-        for _future in concurrent.futures.as_completed(futures):
-            results.append(_future.result())
-    return results

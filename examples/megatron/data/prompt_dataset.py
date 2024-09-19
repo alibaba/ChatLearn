@@ -24,6 +24,7 @@ from torch.utils.data import Dataset
 import torch.nn.functional as F
 from examples.megatron.models.utils import get_eos_id
 
+from chatlearn.utils.utils import multi_thread_data_processing
 
 def zero_pad_sequences(sequences, side: str = "right", value=0, pad_to_seq_length=False):
     assert side in ("left", "right")
@@ -147,23 +148,35 @@ class VLLMPromptPipeline(PromptPipeline):
     truncted to max_prompt_length from right
     """
 
-    def __init__(self, prompts: List, max_prompt_length: int, tokenizer=None, prompt_key=None):# pylint: disable=super-init-not-called
+    def __init__(self, prompts: List, max_prompt_length: int, tokenizer=None, prompt_key=None, num_threads=4):# pylint: disable=super-init-not-called
         for p in prompts:
             assert len(p) > 0, "Got empty prompt"
         assert max_prompt_length > 0, \
             "Prompt length for RLHF/OnlineDPO trainer must be an integer greater than 0"
+
+        def encode_single_prompt(single_prompt, max_len):
+            return tokenizer.encode(single_prompt)[:max_len]
+        fn_args = [max_prompt_length]
+
         if prompt_key is None:
             if len(prompts[0]) == 3:
-                self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt, _, _ in prompts]
+                valid_prompts = [p for p, _, _ in prompts]
+
+                prompt_encodings = multi_thread_data_processing(num_threads, valid_prompts, encode_single_prompt, fn_args)
+                self.prompts = list(zip(valid_prompts, prompt_encodings))
             else:
-                self.prompts = [(prompt, tokenizer.encode(prompt)[:max_prompt_length]) for prompt in prompts]
+                prompt_encodings = multi_thread_data_processing(num_threads, prompts, encode_single_prompt, fn_args)
+                self.prompts = list(zip(prompts, prompt_encodings))
             self.data = []
             for prompt, prompt_ids in self.prompts:
                 p = {"input_ids": prompt_ids, "prompt": prompt}
                 self.data.extend([copy.deepcopy(p)])
         else:
-            for prompt in prompts:
-                prompt["input_ids"] = tokenizer.encode(prompt[prompt_key])[:max_prompt_length]
+            valid_prompts = [p[prompt_key] for p in prompts]
+
+            prompt_encodings = multi_thread_data_processing(num_threads, valid_prompts, encode_single_prompt, fn_args)
+            for i, prompt in enumerate(prompts):
+                prompt["input_ids"] = prompt_encodings[i]
                 if 'prompt' != prompt_key:
                     prompt['prompt'] = prompt[prompt_key]
             self.data = prompts

@@ -38,7 +38,7 @@ def eval_post_process(results, eval_info):
     results = results["reward"]
     results = listdict_to_dictlist(results)
     if args.get('eval_data_num_limit') > 0:
-        assert len(results['rewards']) == args.get('eval_data_num_limit')
+        assert len(results['rewards']) == args.get('eval_data_num_limit'), f"expect {len(results['rewards'])} == {args.get('eval_data_num_limit')}"
     tensorboard_dir = f"{args.output_dir}/tensorboard"
     writer = SummaryWriter(
         log_dir=tensorboard_dir,

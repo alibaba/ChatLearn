@@ -66,10 +66,10 @@ runtime:
   generation_batch_size: ${generation_batch_size:4}
   train_micro_batch_size: ${train_micro_batch_size:2}
   train_global_batch_size: ${train_global_batch_size:512}
-  num_episode: ${num_episode:100}
+  num_episode: ${num_episode:200}
   sample_per_episode: ${sample_per_episode:1024}
   num_training_epoch: 1
-  save_episode_interval: ${save_episode_interval:100}
+  save_episode_interval: ${save_episode_interval:50}
   data_path: ${data_path}
   eval_data_path: ${eval_data_path}
   training_data_num_limit: ${training_data_num_limit:-1}

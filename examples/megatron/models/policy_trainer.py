@@ -97,6 +97,9 @@ class PolicyTrainer(BaseTrainer):
                 post_process=post_process,
                 stats=self.stats
             )
+            if self.module_args.lora.enable_lora:
+                from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
+                model = convert_layer_to_lora(model)
         else:
             model = MCorePolicyModel(
                 parallel_output=True,
@@ -104,9 +107,9 @@ class PolicyTrainer(BaseTrainer):
                 post_process=post_process,
                 stats=self.stats
             )
-        if self.module_args.lora.enable_lora:
-            from chatlearn.models.megatron.lora import convert_layer_to_lora # pylint: disable=import-outside-toplevel
-            model = convert_layer_to_lora(model)
+            if self.module_args.lora.enable_lora:
+                assert False, "ChatLearn do not support LoRA with Megatron-Core models currently."
+
         return model
 
     def get_dpo_batch(self, data_b):
