@@ -19,7 +19,7 @@ import torch
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 
-def bucket_tensors(tensors, bucket_size_mb, buffer_num=None, tensor_changed=False):
+def bucket_tensors(tensors, bucket_size_mb):
     """Group tensors into chunks. We seperate sparse and dense tensor,
     each containing tensors of same type up to certain byte limit in total size.
 
@@ -83,7 +83,8 @@ def bucket_tensors_two_stage(tensors, bucket_size_mb, buffer_num=None, tensor_ch
             buf_and_size = buf_dict[t] = [[], 0]
         buf_and_size[0].append((torch.empty(size=[tensor.numel() * buffer_multiple],
                                       dtype=tensor.dtype,
-                                      device=tensor.device) if (tensor_changed and buffer_multiple > 1) else tensor, [size // tensor.element_size(), buffer_multiple, tensor]))
+                                      device=tensor.device) if (tensor_changed and buffer_multiple > 1) else tensor,
+                                      [size // tensor.element_size(), buffer_multiple, tensor]))
         buf_and_size[1] += size
     for buf, size in buf_dict.values():
         if len(buf) > 0:
@@ -130,7 +131,7 @@ def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
             tensor.copy_(synced)
 
 
-def coalesced_comm_dense_two_stage(from_rank, to_rank, idx, bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0):
+def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0):
     """
     coalesced communication for dense parameters
     """
@@ -145,14 +146,14 @@ def coalesced_comm_dense_two_stage(from_rank, to_rank, idx, bucket, comm_call, r
         orig_tensors.append(size[2])
         orig_tensor_ele += size[2].numel()
         num_ranks = max(num_ranks, size[1])
-    src_rank = extra_args[0]
     flat_tensors = _flatten_dense_tensors(all_tensors)
     comm_call(flat_tensors, *extra_args)
     if tensor_changed:
         index = 0 if stage2 else index
         all_buffers = unflatten_dense_tensors(flat_tensors, orig_tensors, all_sizes, num_ranks)
         for tensor, synced in zip(orig_tensors, all_buffers[index]):
-            assert tensor.numel() == synced.numel(), f"rank {rank} tensor {tensor.shape} should be equal to synced.shape {synced.shape}, for all_sizes {all_sizes}"
+            assert tensor.numel() == synced.numel(), \
+                f"rank {rank} tensor {tensor.shape} should be equal to synced.shape {synced.shape}, for all_sizes {all_sizes}"
             tensor.copy_(synced)
         del all_buffers[index]
         return all_buffers

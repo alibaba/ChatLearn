@@ -790,10 +790,6 @@ class BaseModule:
             parameters_shape.append((name, self.named_parameters[name].shape))
         return parameters_shape
 
-    def set_sharding_dim(self, param_to_sharding_dims):
-        if not self._param_to_sharding_dims:
-            self._param_to_sharding_dims = param_to_sharding_dims
-
     def get_parameter(self, name):
         """
         :meta private:
@@ -885,49 +881,51 @@ class BaseModule:
             for name, param in parameters_to_sync[pipe_stage]:
                 param_data = param.data
                 param_data_shape = param_data.shape
-                param_data_device = param_data.device
                 if rank and self._buffer_multiple and not stage2:
                     assert name in self._buffer_multiple, f"{name} in self._buffer_multiple for rank {rank}"
                     buffer_num.append(self._buffer_multiple[name])
                 else:
-                    if not stage2:
-                        if "attention.query_key_value" in name or "self_attention.query_key_value" in name:
-                            tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
-                            heads = self.module_args.args_dict["num_attention_heads"] // tp_size
-                            hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-                            param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                            param_data = param_data.view(param_shape)
-                            param_data_list = []
-                            head_offset = heads // self._tp_division[name]
-                            for idx in range(self._tp_division[name]):
-                                start = idx * head_offset
-                                end = start + head_offset
-                                param_data_list.append(param_data[:,start:end])
-                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-
-                        if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name:
-                            param_data_list = []
-                            col_offset = param_data_shape[1] // self._tp_division[name]
-                            for idx in range(self._tp_division[name]):
-                                start = idx * col_offset
-                                end =  start + col_offset
-                                param_data_list.append(param_data[:,start:end])
-                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                            del param_data_list
-                        
-                        if "mlp.dense_h_to_4h" in name:
-                            param_data_list = []
-                            row_offset = param_data_shape[0] // self._tp_division[name] // 2
-                            for idx in range(self._tp_division[name]):
-                                w1_start = idx * row_offset
-                                w1_end = w1_start + row_offset
-                                w2_start = (idx + self._tp_division[name]) * row_offset
-                                w2_end = w2_start + row_offset
-                                param_data_list.append(
-                                    torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
-                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                            del param_data_list
                     buffer_num.append(1)
+                    if stage2:
+                        continue
+
+                    if "attention.query_key_value" in name or "self_attention.query_key_value" in name:
+                        tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
+                        heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+                        hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
+                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+                        param_data = param_data.view(param_shape)
+                        param_data_list = []
+                        head_offset = heads // self._tp_division[name]
+                        for idx in range(self._tp_division[name]):
+                            start = idx * head_offset
+                            end = start + head_offset
+                            param_data_list.append(param_data[:,start:end])
+                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+
+                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name:
+                        param_data_list = []
+                        col_offset = param_data_shape[1] // self._tp_division[name]
+                        for idx in range(self._tp_division[name]):
+                            start = idx * col_offset
+                            end =  start + col_offset
+                            param_data_list.append(param_data[:,start:end])
+                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                        del param_data_list
+
+                    if "mlp.dense_h_to_4h" in name:
+                        param_data_list = []
+                        row_offset = param_data_shape[0] // self._tp_division[name] // 2
+                        for idx in range(self._tp_division[name]):
+                            w1_start = idx * row_offset
+                            w1_end = w1_start + row_offset
+                            w2_start = (idx + self._tp_division[name]) * row_offset
+                            w2_end = w2_start + row_offset
+                            param_data_list.append(
+                                torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
+                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                        del param_data_list
+                    
                 tensors.append(param_data)
 
         tensor_changed = rank != src_rank
@@ -940,7 +938,7 @@ class BaseModule:
 
         for idx, bucket in enumerate(dense_buckets):
             all_buffers = coalesced_comm_dense_two_stage(
-                from_rank, to_rank, idx, bucket, col.broadcast, rank,
+                bucket, col.broadcast, rank,
                 extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
                 stage2=stage2, index=to_rank % self.get_max_tp_division())
             if tensor_changed and not stage2:
@@ -949,9 +947,7 @@ class BaseModule:
 
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
-        
         return self._sync_buffer
-
 
     def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
         """
