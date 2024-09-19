@@ -34,12 +34,10 @@ for i in range(40):
 train_data = data[:32]
 val_data = data[32:]
 
-
 def eval_flow(batch):
     r0 = policy.forward_step(batch)
     r1 = reward.forward_step(r0)
     return r1
-
 
 def eval_post_process(results, eval_info):
     results = results["reward"]
@@ -52,7 +50,6 @@ def eval_post_process(results, eval_info):
     assert torch.max(results['reward_out'][0]) == 33
     assert torch.min(results['reward_out'][1]) == 34
     assert torch.max(results['reward_out'][1]) == 35
-
 
 eval_num_limit = chatlearn.get_args().runtime_args.get('eval_data_num_limit')
 eval_num_limit = min(eval_num_limit, len(val_data))
