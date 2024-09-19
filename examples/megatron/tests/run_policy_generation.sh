@@ -54,7 +54,7 @@ log_file=${output_dir}/log_${RANK}.log
 export batch_generation_min_prompt_length=32
 
 generation_batch_size=64 \
-num_gpu=$TP \
+num_gpu=${num_gpu:-8} \
 policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \

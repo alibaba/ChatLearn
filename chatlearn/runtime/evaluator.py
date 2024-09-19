@@ -15,7 +15,6 @@
 """Evaluator"""
 
 from collections import defaultdict
-import math
 
 from chatlearn.runtime.environment import Environment
 from chatlearn.utils import future
@@ -58,7 +57,7 @@ class Evaluator(Environment):
             else:
                 self._batch_per_episode = self.sample_per_episode
         else:
-            self._batch_per_episode = math.ceil(len(self._dataset) / self.batch_size)
+            self._batch_per_episode = super().batch_per_episode
         return self._batch_per_episode
 
     def setup_dataset(self):
