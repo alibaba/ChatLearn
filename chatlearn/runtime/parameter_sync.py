@@ -276,7 +276,6 @@ class ParameterSyncGroup:
         logger.info(f"{id(self)} self.num_mapping: {self.num_mapping} pair_list: {pair_list}")
         logger.info(f"{id(self)} self.num_mapping: {self.num_mapping} p2p_list: {p2p_list}")
 
-
     def _get_dst_name(self, src_name):
         if self._src_prefix:
             dst_name = src_name[len(self._src_prefix):]
@@ -544,7 +543,6 @@ class ParameterSyncGroup:
                     max_workers = len(send_actors)
                 else:
                     max_workers = len(send_actors) * len(self.send_recv_actor_mappings[send_actors[0]])
-
             if self.send_recv_actor_mappings_stage2:
                 # stage 1
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
