@@ -555,7 +555,7 @@ class ParameterSyncGroup:
                             actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
                             futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad))
                         else:
-                            raise RuntimeError(f"support p2p only for scenes that trainer_tp not equal to inference_tp.")
+                            raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
                     for _future in concurrent.futures.as_completed(futures):
                         try:
                             _future.result()
@@ -572,7 +572,6 @@ class ParameterSyncGroup:
                         max_workers = len(sorted_send_actors)
                     else:
                         max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_stage2[sorted_send_actors[0]])
-                
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = []
                     for send_actor in sorted_send_actors:
@@ -581,7 +580,7 @@ class ParameterSyncGroup:
                             actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name="intra_comm")
                             futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, True))
                         else:
-                            raise RuntimeError(f"support p2p only for scenes that trainer_tp not equal to inference_tp.")
+                            raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
                     for _future in concurrent.futures.as_completed(futures):
                         try:
                             _future.result()
