@@ -1,6 +1,5 @@
 #!/bin/bash
-set -exo
-set pipefail
+set -exo pipefail
 
 export CHATLEARN=${CHATLEARN:-"path-to-chatlearn"}
 export MEGATRON=${MEGATRON:-"path-to-megatron-lm"}
@@ -39,7 +38,7 @@ python3 tests/test_checkpoint_conversion.py \
     --dst-path ${SAVE_PATH}
 
 if [[ $? != 0 ]]; then
-    echo -e "\033[31m Unrecognized model ${model} \033[0m"
+    echo -e "\033[31m Test failed! \033[0m"
     exit -1
 fi
 
