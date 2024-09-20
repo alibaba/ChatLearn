@@ -35,7 +35,6 @@ export trainer_engine=rlhf
 [ -z "$exp_name" ] && export exp_name=$(date +%F)-${model_size}-${trainer_engine}
 [ -z "$output_dir" ] && export output_dir=${CHATLEARN}/output/
 [ -z "$sample_per_episode" ] && sample_per_episode=1024
-[ -z "$num_episode" ] && num_episode=200
 [ -z "$tokenizer_load" ] && export tokenizer_load=path-to-hf-tokenizer-for-vllm-backend
 
 output_dir=${output_dir}/${exp_name}
@@ -83,7 +82,6 @@ num_gpu=${num_gpu} \
 data_path=${DATASET_PATH} \
 eval_data_path=${EVAL_DATASET_PATH} \
 sample_per_episode=${sample_per_episode} \
-num_episode=${num_episode} \
 python entry/train_rlhf.py -c $configs 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
 
 

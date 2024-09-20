@@ -155,3 +155,5 @@ else
   echo -e "\033[31m$(date "+%Y-%m-%d %T.%N") [ERROR]: Unrecognized test name '$1'!\033[0m"
   exit -1
 fi
+
+ray stop --force

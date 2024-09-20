@@ -18,12 +18,13 @@ import torch
 
 from megatron.training import get_args
 from megatron.core import tensor_parallel
+from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training.global_vars import get_tokenizer
 from megatron.legacy.model.gpt_model import GPTModel
 from megatron.legacy.model.language_model import parallel_lm_logits
 
 from chatlearn.models.megatron.ops.policy_gradient import tensor_decomp_pg_loss
-from .utils import get_advantages_and_returns, has_config_in_args, get_eos_id
+from .utils import get_advantages_and_returns, get_eos_id
 from .constants import TrainerEngine
 from .constants import select_actions_from_right_padded
 
@@ -31,7 +32,6 @@ from .constants import select_actions_from_right_padded
 
 class PolicyModel(GPTModel):
     """PolicyModel"""
-
     def __init__(self,
                  num_tokentypes=0,
                  parallel_output=True,
@@ -39,13 +39,9 @@ class PolicyModel(GPTModel):
                  post_process=True,
                  stats=None):
         self.args = get_args()
-        if has_config_in_args(GPTModel):
-            # new API
-            from megatron.training.arguments import core_transformer_config_from_args # pylint: disable=import-outside-toplevel
-            config = core_transformer_config_from_args(self.args)
-            super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
-        else:
-            super().__init__(num_tokentypes, parallel_output, pre_process, post_process)
+        config = core_transformer_config_from_args(self.args)
+        super().__init__(config, num_tokentypes, parallel_output, pre_process, post_process)
+
         self.tokenizer = get_tokenizer()
         self.stats = stats
 
