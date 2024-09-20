@@ -46,7 +46,8 @@ engine = EvalEngine(eval_flow)
 
 args = chatlearn.get_args()
 k = {"math_coef": 0}
-train_prompts = get_prompts(args.runtime_args.get("eval_data_path"), num_limit=15)
+num_limit = 15
+train_prompts = get_prompts(args.runtime_args.get("eval_data_path"), num_limit=num_limit)
 
 policy_checkpoint = policy.model_args["load"]
 load_iteration = policy.model_args.get("load_iteration", 0)
@@ -64,6 +65,8 @@ for res in tqdm(results, total=len(results)):
     for str_prompt, str_output in zip(str_prompts, str_outputs):
         j = {"query": str_prompt, "responses": [str_output]}
         output.append(j)
+
+assert len(output) == num_limit, f"expect length of the inference outputs to be {num_limit}, but get {len(output)}"
 
 policy_inference_fp = f"{eval_dir}/{load_iteration}/{exp_name}/inference_json.json"
 print(policy_inference_fp)

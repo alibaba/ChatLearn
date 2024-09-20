@@ -72,6 +72,7 @@ function run_all_tests {
   run_test python test_evaluator2.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_custom.py -c "configs/rlhf.yaml"
   run_test python test_evaluator.py -c "configs/rlhf.yaml"
+  run_test python test_evaluator3.py -c "configs/rlhf_eval.yaml"
   run_test python test_fixed_data.py -c "configs/rlhf.yaml"
   run_test python test_dynamic_data.py -c "configs/rlhf.yaml"
   run_test python test_relay_buffer.py -c "configs/rlhf.yaml"
@@ -144,6 +145,9 @@ elif [ "$1" == "test_placement" ]; then
   run_test python test_placement.py -c "configs/exp.yaml"
 elif [ "$1" == "test_evaluator" ]; then
   run_test python test_evaluator.py -c "configs/rlhf.yaml"
+  run_test python test_evaluator2.py -c "configs/rlhf.yaml"
+  run_test python test_evaluator3.py -c "configs/rlhf_eval.yaml"
+  run_test python test_evaluator_multi.py -c "configs/test_eval2.yaml"
 elif [ "$1" == "test_indivisible_batchsz" ]; then
   enable_indivisible_batch_size=True run_test python test_indivisible_batchsz.py -c "configs/rlhf.yaml"
 else

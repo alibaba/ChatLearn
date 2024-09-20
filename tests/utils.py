@@ -1,3 +1,5 @@
+import copy
+
 from torch.utils.data import Dataset
 
 from chatlearn import TorchModule
@@ -68,3 +70,27 @@ class PPOValue(TorchModule):
         print("ppo value train_step =========", flush=True)
         num_mb = len(data)
         return num_mb
+
+
+def listdict_to_dictlist(ld, list_extend=True):
+    '''
+    [{k1: v11, k2: v2}, {k1: v12, k2: v2},....] => {k1: [v11, v12..], k2: [v21, v22...]}
+    if v11 is list then k1: v11 + v12
+    :param ld:
+    :return:
+    '''
+    res = copy.deepcopy(ld[0])
+    for res_key, v in res.items():
+        if list_extend and isinstance(res[res_key], list):
+            continue
+
+        res[res_key] = [v]
+
+    for d in ld[1:]:
+        for key, v in d.items():
+            if list_extend and isinstance(d[key], list):
+                res[key].extend(v)
+            else:
+                res[key].append(v)
+
+    return res

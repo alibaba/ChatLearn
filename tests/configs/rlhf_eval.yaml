@@ -1,0 +1,57 @@
+runtime_env:
+    platform: DLC
+    excludes:
+        - "*pt"
+        - "logs"
+        - "tensorboards"
+        - ".nfs*"
+
+
+models:
+    policy:
+        num_gpu: 2
+        gpu_per_process: 1
+        trainable: False
+    
+    reference:
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
+
+    reward:
+        num_gpu: 2
+        gpu_per_process: 1
+        trainable: False
+    
+    value:
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
+    
+    ppo_policy:
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: True
+        lora:
+            enable_lora: ${enable_lora_policy:False}
+            lora_dim: 64
+            lora_layer: ColumnParallelLinear,LinearLayer,RowParallelLinear
+            column_only_qkv: False
+            lora_dropout: 0.05
+    
+    ppo_value:
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: True
+
+runtime:
+    debug: True
+    generation_batch_size: ${batch_size:4}
+    train_micro_batch_size: 5
+    train_global_batch_size: 10
+    num_episode: 2
+    sample_per_episode: 16
+    num_training_epoch: 1
+    save_episode_interval: 200
+    eval_data_num_limit: 4
+    eval_episode_interval: 1
