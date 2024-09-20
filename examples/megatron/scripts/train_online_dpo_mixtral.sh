@@ -13,12 +13,30 @@ source ${DIR}/base_env.sh
 backend=${1:-megatron}
 
 if [[ "$backend" != "megatron" ]]; then
-  echo "ERROR: expect megatron backend, while "$backend
+  echo "ERROR: expect megatron backend for Mixtral models, while current backend is "$backend
   exit 1
 fi
 
+if [[ "$backend" == "megatron" ]]; then
+  configs=$CHATLEARN/examples/megatron/configs/mixtral/online_dpo.yaml
+else
+  export ENABLE_VLLM=True
+  if [ -z "$tokenizer_load" ];then
+    echo "please set path to hf tokenizer for vllm backend, download from huggingface source."
+    exit 1
+  fi
+  configs=$CHATLEARN/examples/megatron/configs/mixtral/online_dpo_vllm.yaml
+fi
 
 export trainer_engine=online_dpo
+
+[ -z "$exp_name" ] && export exp_name=$(date +%F)-${model_size}-${trainer_engine}
+[ -z "$output_dir" ] && export output_dir=${CHATLEARN}/output/
+[ -z "$sample_per_episode" ] && sample_per_episode=1024
+[ -z "$tokenizer_load" ] && export tokenizer_load=path-to-hf-tokenizer-for-vllm-backend
+
+output_dir=$output_dir/$exp_name
+export data_checkpoint_path=${output_dir}/data_checkpoint
 
 export train_to_compare_num_responses=8
 export num_inference_per_prompt=8
@@ -35,33 +53,23 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
   export policy_pp=4
   export reward_pp=4
   export value_pp=4
-  export train_global_batch_size=128
-  export generation_batch_size=128
-  export ref_generation_batch_size=2
+  export train_global_batch_size=32
+  export generation_batch_size=8
+  export ref_generation_batch_size=8
   export train_micro_batch_size=1
   export policy_recompute_activations=True
   export policy_moe_layer_recompute=True
   export value_recompute_activations=True
   export value_moe_layer_recompute=True
+  export free_memory_policy=True
+  export free_memory_reference=True
+  export free_memory_reward=True
+  export free_memory_value=True
+  export free_memory_ppo_policy=True
+  export free_memory_ppo_value=True
+  export seq_length=2048
+  export max_new_tokens=1024
 fi
-
-if [[ "$backend" == "megatron" ]]; then
-  configs=$CHATLEARN/examples/megatron/configs/mixtral/online_dpo.yaml
-else
-  export ENABLE_VLLM=True
-  if [ -z "$tokenizer_load" ];then
-    echo "please set path to hf tokenizer for vllm backend, download from huggingface source."
-    exit 1
-  fi
-  configs=$CHATLEARN/examples/megatron/configs/mixtral/online_dpo_vllm.yaml
-fi
-
-[ -z "$exp_name" ] && export exp_name=$(date +%F)-${model_size}-${trainer_engine}
-[ -z "$output_dir" ] && export output_dir=${CHATLEARN}/output/
-[ -z "$sample_per_episode" ] && sample_per_episode=1024
-
-output_dir=$output_dir/$exp_name
-export data_checkpoint_path=${output_dir}/data_checkpoint
 
 mkdir -p ${output_dir}
 log_file=${output_dir}/log_${RANK}.log
