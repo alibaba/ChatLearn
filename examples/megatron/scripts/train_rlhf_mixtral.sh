@@ -52,8 +52,8 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export policy_pp=4
     export reward_pp=4
     export value_pp=4
-    export train_global_batch_size=128
-    export generation_batch_size=1
+    export train_global_batch_size=8
+    export generation_batch_size=2
     export ref_generation_batch_size=1
     export train_micro_batch_size=1
     export policy_recompute_activations=True
@@ -66,6 +66,35 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export free_memory_value=True
     export free_memory_ppo_policy=True
     export free_memory_ppo_value=True
+    export seq_length=2048
+    export max_new_tokens=1024
+elif [[ "$model_size" == "mixtral-tiny" ]]; then
+    export policy_tp=1
+    export policy_ep=4
+    export ppo_policy_pp=2
+    export reward_tp=1
+    export reward_ep=4
+    export ppo_value_pp=2
+    export ref_pp=2
+    export policy_pp=2
+    export reward_pp=2
+    export value_pp=2
+    export train_global_batch_size=8
+    export generation_batch_size=2
+    export ref_generation_batch_size=2
+    export train_micro_batch_size=1
+    export policy_recompute_activations=True
+    export policy_moe_layer_recompute=True
+    export value_recompute_activations=True
+    export value_moe_layer_recompute=True
+    # export free_memory_policy=True
+    # export free_memory_reference=True
+    # export free_memory_reward=True
+    # export free_memory_value=True
+    # export free_memory_ppo_policy=True
+    # export free_memory_ppo_value=True
+    export seq_length=2048
+    export max_new_tokens=1024
 fi
 
 mkdir -p ${output_dir}

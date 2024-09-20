@@ -19,7 +19,6 @@ from typing import List, Optional
 
 import torch
 
-from chatlearn.models.megatron.memory_manager.base import BaseMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
 from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
@@ -126,7 +125,10 @@ class BaseTrainerMemoryManager(ABC):
     def _optimizer_load_state_bucket_into_device(self, device, optimizer=None):
         """put the state bucket onto a device"""
         if optimizer is not None:
-            optimizer_list = [optimizer]
+            if isinstance(optimizer, ChainedOptimizer):
+                optimizer_list = optimizer.chained_optimizers
+            else:
+                optimizer_list = [optimizer]
         else:
             optimizer_list = self.get_optimizer_list()
 
