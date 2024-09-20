@@ -43,7 +43,7 @@ export data_checkpoint_path=${output_dir}/data_checkpoint
 
 if [[ "$model_size" == "llama2-7B" ]]; then
     export policy_tp=4
-    export policy_pp=4
+    export policy_pp=1
     export ppo_policy_tp=4
     export ppo_policy_pp=1
     export reward_tp=4
