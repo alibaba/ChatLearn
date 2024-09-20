@@ -12,7 +12,7 @@ source ${DIR}/base_env.sh
 # TODO: support vllm
 backend=${1:-megatron}
 if [[ "$backend" != "megatron" ]]; then
-  echo "ERROR: expect megatron backend, while "$backend
+  echo "ERROR: expect megatron backend for Mixtral models, while current backend is "$backend
   exit 1
 fi
 
@@ -35,6 +35,7 @@ export trainer_engine=rlhf
 [ -z "$exp_name" ] && export exp_name=$(date +%F)-${model_size}-${trainer_engine}
 [ -z "$output_dir" ] && export output_dir=${CHATLEARN}/output/
 [ -z "$sample_per_episode" ] && sample_per_episode=1024
+[ -z "$num_episode" ] && num_episode=200
 [ -z "$tokenizer_load" ] && export tokenizer_load=path-to-hf-tokenizer-for-vllm-backend
 
 output_dir=${output_dir}/${exp_name}
@@ -52,9 +53,9 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export policy_pp=4
     export reward_pp=4
     export value_pp=4
-    export train_global_batch_size=8
-    export generation_batch_size=2
-    export ref_generation_batch_size=1
+    export train_global_batch_size=32
+    export generation_batch_size=8
+    export ref_generation_batch_size=8
     export train_micro_batch_size=1
     export policy_recompute_activations=True
     export policy_moe_layer_recompute=True
@@ -66,33 +67,6 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export free_memory_value=True
     export free_memory_ppo_policy=True
     export free_memory_ppo_value=True
-    export seq_length=2048
-    export max_new_tokens=1024
-elif [[ "$model_size" == "mixtral-tiny" ]]; then
-    export policy_tp=1
-    export policy_ep=4
-    export ppo_policy_pp=2
-    export reward_tp=1
-    export reward_ep=4
-    export ppo_value_pp=2
-    export ref_pp=2
-    export policy_pp=2
-    export reward_pp=2
-    export value_pp=2
-    export train_global_batch_size=8
-    export generation_batch_size=2
-    export ref_generation_batch_size=2
-    export train_micro_batch_size=1
-    export policy_recompute_activations=True
-    export policy_moe_layer_recompute=True
-    export value_recompute_activations=True
-    export value_moe_layer_recompute=True
-    # export free_memory_policy=True
-    # export free_memory_reference=True
-    # export free_memory_reward=True
-    # export free_memory_value=True
-    # export free_memory_ppo_policy=True
-    # export free_memory_ppo_value=True
     export seq_length=2048
     export max_new_tokens=1024
 fi
@@ -109,6 +83,7 @@ num_gpu=${num_gpu} \
 data_path=${DATASET_PATH} \
 eval_data_path=${EVAL_DATASET_PATH} \
 sample_per_episode=${sample_per_episode} \
+num_episode=${num_episode} \
 python entry/train_rlhf.py -c $configs 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
 
 

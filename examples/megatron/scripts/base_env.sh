@@ -148,24 +148,6 @@ elif [[ "$model_size" == "mixtral-8x7B" ]]; then
   export max_position_embedding=32768
   export seq_length=2048
   export USE_LEGACY_MODELS=False
-elif [[ "$model_size" == "mixtral-tiny" ]]; then
-  export policy_num_layers=4
-  export policy_hidden_size=4096
-  export policy_num_attention_heads=32
-  export policy_num_query_groups=8
-  export policy_ffn_hidden_size=14336
-  export policy_num_experts=8
-  export policy_moe_router_topk=2
-  export reward_num_layers=4
-  export reward_hidden_size=4096
-  export reward_num_attention_heads=32
-  export reward_num_query_groups=8
-  export reward_ffn_hidden_size=14336
-  export reward_num_experts=8
-  export reward_moe_router_topk=2
-  export max_position_embedding=32768
-  export seq_length=2048
-  export USE_LEGACY_MODELS=False
 else
   echo "unsupported model_size ${model_size}, please set your own model config"
   exit 1

@@ -24,9 +24,9 @@ DISTRIBUTED_ARGS="--nproc_per_node ${GPUS_PER_NODE} \
                   --master_addr ${MASTER_ADDR} \
                   --master_port ${MASTER_PORT}"
 
-[ -z "$MODEL_SIZE" ] && export MODEL_SIZE="8x7B"
+[ -z "$model_size" ] && export model_size="mixtral-8x7B"
 
-if [ $MODEL_SIZE == "8x7B" ]; then
+if [ $model_size == "mixtral-8x7B" ]; then
   NUM_LAYERS=32
   HIDDEN_SIZE=4096
   NUM_ATTN_HEADS=32
@@ -35,14 +35,14 @@ if [ $MODEL_SIZE == "8x7B" ]; then
   NUM_QUERY_GROUPS=8
   NUM_EXPERTS=8
   MOE_ROUTER_TOPK=2
-  seq_len=2048
+  seq_length=2048
   tp=1
   pp=4
   ep=8
   mb=1
   gbs=64
 else
-  echo "Unrecognized MODEL_SIZE ${MODEL_SIZE}, choose from '8x7B'."
+  echo "Unrecognized model_size ${model_size}, choose from 'mixtral-8x7B'."
   exit -1
 fi
 
@@ -58,13 +58,13 @@ dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp / $ep))
 gbs=$(($gbs * $dp))
 
 
-[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/reward/mixtral_hh_reward_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_ep${ep}_mb${mb}_seqlen${seq_len}
+[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/reward/mixtral_hh_reward_$(date +%F)_gpt_${model_size}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_ep${ep}_mb${mb}_seqlen${seq_length}
 
 mkdir -p $CHECKPOINT_PATH
 
 MODEL_ARGS="
 --disable-bias-linear \
---seq-length $seq_len \
+--seq-length $seq_length \
 --max-position-embeddings ${MAX_POSITION_EMBEDDINGS} \
 --num-layers ${NUM_LAYERS} \
 --hidden-size ${HIDDEN_SIZE} \
