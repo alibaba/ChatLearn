@@ -523,7 +523,7 @@ class ParameterSyncGroup:
         assert len(send_recv_actor_mappings) == len(sorted_send_actors)
         return sorted_send_actors
 
-    def sync_broadcast_multi_threads(self, sorted_send_actors, send_recv_actor_mappings, max_workers, group_name=None, stage2=False):
+    def sync_broadcast_multi_threads(self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad, group_name=None, stage2=False):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for send_actor in sorted_send_actors:
@@ -566,7 +566,7 @@ class ParameterSyncGroup:
 
             if self.send_recv_actor_mappings_stage2:
                 # stage 1
-                self.sync_broadcast_multi_threads(sorted_send_actors, self.send_recv_actor_mappings, max_workers, stage2=False)
+                self.sync_broadcast_multi_threads(sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad, stage2=False)
                 # stage 2
                 sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
                 max_workers = get_args().runtime_args.param_sync_max_workers
@@ -578,7 +578,7 @@ class ParameterSyncGroup:
                     else:
                         max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_stage2[sorted_send_actors[0]])
                 self.sync_broadcast_multi_threads(
-                    sorted_send_actors, self.send_recv_actor_mappings_stage2, max_workers, group_name="intra_comm", stage2=True)
+                    sorted_send_actors, self.send_recv_actor_mappings_stage2, max_workers, requires_grad, group_name="intra_comm", stage2=True)
             else:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = []
