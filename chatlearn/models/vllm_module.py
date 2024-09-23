@@ -573,7 +573,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         :meta private:
         """
-        return None
+        return 1
 
     @property
     def data_parallel_rank(self):

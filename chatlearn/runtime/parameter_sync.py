@@ -190,6 +190,7 @@ class ParameterSyncGroup:
 
         src_gpu = future.get(src_actor.get_visible_gpus.remote())
         dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
+        # TODO(jiangle.jl): support ep/cp.
         src_tp_rank = self.get_actor_tp_rank(src_actor)
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
@@ -302,7 +303,7 @@ class ParameterSyncGroup:
             utils.get_or_cache(self._validate_params, (send_actor, recv_actor), validate)
             logger.info("Validation passed!")
 
-    def set_set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad):
+    def set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad):
         send_names = self.set_sync_param_names(send_actor, send_actor, requires_grad)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
@@ -314,7 +315,7 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                src_names, dst_names = self.set_set_sync_param_names_stage2(send_actor, recv_actor, rank + 1, requires_grad)
+                src_names, dst_names = self.set_sync_param_names_stage2(send_actor, recv_actor, rank + 1, requires_grad)
             else:
                 src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
                 shape_refs = []
@@ -522,6 +523,24 @@ class ParameterSyncGroup:
         assert len(send_recv_actor_mappings) == len(sorted_send_actors)
         return sorted_send_actors
 
+    def sync_broadcast_multi_threads(self, sorted_send_actors, send_recv_actor_mappings, max_workers, group_name=None, stage2=False):
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for send_actor in sorted_send_actors:
+                recv_actors = send_recv_actor_mappings[send_actor]
+                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
+                    futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
+                else:
+                    raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
+
+
     def sync(self, requires_grad=None):
         if not self._is_collective_group_created:
             # Re-create collective group only when it is destroyed before.
@@ -547,21 +566,7 @@ class ParameterSyncGroup:
 
             if self.send_recv_actor_mappings_stage2:
                 # stage 1
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
-                    for send_actor in sorted_send_actors:
-                        recv_actors = self.send_recv_actor_mappings[send_actor]
-                        if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
-                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad))
-                        else:
-                            raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
-                    for _future in concurrent.futures.as_completed(futures):
-                        try:
-                            _future.result()
-                        except Exception as e:
-                            raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-                    concurrent.futures.wait(futures)
+                self.sync_broadcast_multi_threads(sorted_send_actors, self.send_recv_actor_mappings, max_workers, stage2=False)
                 # stage 2
                 sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
                 max_workers = get_args().runtime_args.param_sync_max_workers
@@ -572,22 +577,8 @@ class ParameterSyncGroup:
                         max_workers = len(sorted_send_actors)
                     else:
                         max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_stage2[sorted_send_actors[0]])
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
-                    for send_actor in sorted_send_actors:
-                        recv_actors = self.send_recv_actor_mappings_stage2[send_actor]
-                        if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name="intra_comm")
-                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, True))
-                        else:
-                            raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
-                    for _future in concurrent.futures.as_completed(futures):
-                        try:
-                            _future.result()
-                        except Exception as e:
-                            raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-                    concurrent.futures.wait(futures)
-
+                self.sync_broadcast_multi_threads(
+                    sorted_send_actors, self.send_recv_actor_mappings_stage2, max_workers, group_name="intra_comm", stage2=True)
             else:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
                     futures = []
