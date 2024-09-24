@@ -72,7 +72,7 @@ class ParameterSyncGroup:
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
         self.setup_collective_group()
         self.num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
-        assert self.num_mapping >= 1 and self.num_dst_tensor_parallel % self.num_src_tensor_parallel ==0, \
+        assert self.num_mapping >= 1 and self.num_dst_tensor_parallel % self.num_src_tensor_parallel == 0, \
             f"num_dst_tensor_parallel expected to be divided by num_src_tensor_parallel, \
                 while {self.num_dst_tensor_parallel} {self.num_src_tensor_parallel}."
         if self.num_mapping  == 1:

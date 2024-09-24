@@ -326,9 +326,10 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self.worker.cache_engine.cpu_cache = None
             self.worker.cache_engine.gpu_cache = None
         elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
-            for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
-                ele = None
-            self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
+            if self.worker.gpu_cache is not None:
+                for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
+                    ele = None
+                self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
 
             for c_e in self.worker.cache_engine:
                 c_e.cpu_cache = None

@@ -933,10 +933,7 @@ class BaseModule:
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
 
-        try:
-            self.empty_cache()
-        except Exception as e:
-            return {"error_message": e}
+        self.empty_cache()
         return self._sync_buffer
 
 

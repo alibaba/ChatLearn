@@ -123,7 +123,7 @@ chatlearn.get_args().models['value'].pipeline_model_parallel_size = 4
 chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = 2
 chatlearn.get_args().models['ppo_value'].pipeline_model_parallel_size = 2
 chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = 2
-chatlearn.get_args().models['ppo_value'].tensor_model_parallel_size = 2
+chatlearn.get_args().models['ppo_value'].tensor_model_parallel_size = 1
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "reference", "reward", "value", "ppo_policy", "ppo_value"]]
 chatlearn.get_args().runtime_args.train_micro_batch_size = 4
