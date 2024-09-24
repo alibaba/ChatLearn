@@ -298,6 +298,15 @@ class ParameterSyncGroup:
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
 
             # stage 1: comm pairs that broadcast params from trainer to inference model
+            # Each rank in trainer holds weights for num_mapping ranks in inference model.
+            # For example: trainer_tp = 2, inference_tp = 4 => num_mapping = inference_tp // trainer_tp = 2
+            # Weight mapping from training to inference:
+            #   [0] -> [0', 1']
+            #   [1] -> [2', 3']
+            # To avoid p2p communication on the same gpu, we only broadcast params to first rank in weight_mapping_group.
+            # Comm mapping from training to inference:
+            #   [0] -> [0']
+            #   [1] -> [2']
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
                 if self.num_mapping == 1:
@@ -310,7 +319,10 @@ class ParameterSyncGroup:
                     dst_rank = dst_replica_ranks_group[j][offset]
                     self.add_recv_actor(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
-            # stage 2: comm pairs that broadcast params from some ranks to the other ranks in inference model
+            # stage 2: comm pairs that broadcast params from first rank to the other ranks for each weight_mapping_group
+            # Comm mapping in each weight_mapping_group of inference:
+            #   [0'] -> [1']
+            #   [2'] -> [3']
             def p2p_pair_grouping(tuples):
                 for s_idx, src_rank in enumerate(tuples):
                     for d_idx, dst_rank in enumerate(tuples):
