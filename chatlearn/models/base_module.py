@@ -922,8 +922,6 @@ class BaseModule:
 
         for bucket in dense_buckets:
             index = 0 if stage2 else (to_rank % self.num_mapping)
-            # if not stage2:
-            #     raise RuntimeError(f"self.num_mapping: {self.num_mapping}")
             all_buffers = coalesced_comm_dense_two_stage(
                 bucket, col.broadcast, rank,
                 extra_args=(src_rank, group_name), tensor_changed=tensor_changed,

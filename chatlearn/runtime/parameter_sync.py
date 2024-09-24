@@ -72,7 +72,14 @@ class ParameterSyncGroup:
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
         self.setup_collective_group()
         self.num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
-        self.build_rank_mapping()
+        assert self.num_mapping >= 1 and self.num_dst_tensor_parallel % self.num_src_tensor_parallel ==0, \
+            f"num_dst_tensor_parallel expected to be divided by num_src_tensor_parallel, \
+                while {self.num_dst_tensor_parallel} {self.num_src_tensor_parallel}."
+        if self.num_mapping  == 1:
+            self.build_rank_mapping()
+        else:
+            self.build_rank_mapping_two_stage()
+
         self.enable_coalesce_param = get_args().runtime_args.coalesce_param
         self.concurrent_comm = get_args().runtime_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
@@ -178,7 +185,6 @@ class ParameterSyncGroup:
         logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
                      f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
                      f"from tp rank {src_tp_rank} to {dst_tp_rank}")
-        # assert src_tp_rank == dst_tp_rank, f"src_tp_rank {src_tp_rank} should be same as dst_tp_rank {dst_tp_rank}"
         self.send_recv_actor_mappings[src_actor].append(dst_actor)
         self.recv_send_actor_mappings[dst_actor].append(src_actor)
 
@@ -198,11 +204,54 @@ class ParameterSyncGroup:
         logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
                      f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
                      f"from tp rank {src_tp_rank} to {dst_tp_rank}")
-        # assert src_tp_rank == dst_tp_rank, f"src_tp_rank {src_tp_rank} should be same as dst_tp_rank {dst_tp_rank}"
         self.send_recv_actor_mappings_stage2[src_actor].append(dst_actor)
         self.recv_send_actor_mappings_stage2[dst_actor].append(src_actor)
 
     def build_rank_mapping(self):
+        # setup rank mapping for src parameter and dst parameter
+        # get rank for one src_model, without model replicas
+        dst_ranks = self.dst_model.all_ranks
+        local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
+        if local_src_ranks[0] is None or dst_ranks is None:
+            if self._debug:
+                logger.warning(
+                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
+                return
+            else:
+                raise Exception(f"src_ranks {local_src_ranks} or dst_ranks {dst_ranks} should not be None")
+        dp_rank_to_ranks = defaultdict(list)
+        for local_ranks, dp_rank in local_src_ranks:
+            dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
+        src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+
+        assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
+            f"src training model ranks should be times of dst ranks, but got {len(src_ranks[0])} and {len(dst_ranks[0])}"
+        if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
+            replica_rank_iter = cycle(reversed(src_ranks))
+        else:
+            replica_rank_iter = cycle(iter(src_ranks))
+        logger.debug(f"src_ranks: {src_ranks}")
+        logger.debug(f"dst_ranks: {dst_ranks}")
+        assert self.num_src_tensor_parallel == self.num_dst_tensor_parallel, \
+            "currently we require the tensor_model_parallel_size to be the same between " + \
+            f"src model {self.src_model.name}(TP={self.num_src_tensor_parallel}) and " + \
+            f"dst model {self.dst_model.name}(TP={self.num_dst_tensor_parallel})"
+        assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
+
+        def split_ranks_by_tp_size(ranks, tp_size):
+            return [ranks[i:i + tp_size] for i in range(0, len(ranks), tp_size)]
+
+        for dst_replica_ranks in dst_ranks:
+            src_replica_ranks = next(replica_rank_iter)
+            src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
+            dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_src_tensor_parallel)
+            pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
+            for i, src_tp_group in enumerate(src_replica_ranks_group):
+                j = i // pipe_map_interval
+                for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[j]):
+                    self.add_recv_actor(src_rank, dst_rank)
+
+    def build_rank_mapping_two_stage(self):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
         dst_ranks = self.dst_model.all_ranks
@@ -468,7 +517,7 @@ class ParameterSyncGroup:
 
             dst_names = [self._get_dst_name(name) for name in dst_names]
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
-        if self.send_recv_actor_mappings_stage2:
+        if self.num_mapping > 1:
             key = (recv_actor, recv_actor)
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = dst_names
@@ -563,7 +612,7 @@ class ParameterSyncGroup:
                 else:
                     max_workers = len(send_actors) * len(self.send_recv_actor_mappings[send_actors[0]])
 
-            if self.send_recv_actor_mappings_stage2:
+            if self.num_mapping > 1:
                 # stage 1
                 self.sync_broadcast_multi_threads(sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad, stage2=False)
                 # stage 2
