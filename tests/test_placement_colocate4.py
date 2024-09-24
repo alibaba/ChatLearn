@@ -15,7 +15,7 @@ def set_model(name, tp, gpu_per_process, num_gpu):
     chatlearn.get_args().models[name].tensor_model_parallel_size = tp
 
 set_model("policy", 4, 1, 4)
-set_model("value", 4, 1, 4)
+set_model("value", 1, 1, 2)
 set_model("reward", 1, 1, 4)
 set_model("reference", 2, 1, 2)
 set_model("ppo_policy", 4, 1, 4)
