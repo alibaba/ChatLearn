@@ -227,8 +227,8 @@ class ParameterSyncGroup:
         else:
             replica_rank_iter = cycle(iter(src_ranks))
 
-        logger.info(f"src_ranks: {src_ranks}")
-        logger.info(f"dst_ranks: {dst_ranks}")
+        logger.debug(f"src_ranks: {src_ranks}")
+        logger.debug(f"dst_ranks: {dst_ranks}")
         assert self.num_dst_tensor_parallel % self.num_src_tensor_parallel == 0, \
             "currently we require mod value equals to zero for tensor_model_parallel_size of dst_model and that of src_model while " + \
             f"src model {self.src_model.name}(TP={self.num_src_tensor_parallel}) and " + \
@@ -244,8 +244,8 @@ class ParameterSyncGroup:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel)
-            logger.info(f"src_replica_ranks_group: {src_replica_ranks_group}")
-            logger.info(f"dst_replica_ranks_group: {dst_replica_ranks_group}")
+            logger.debug(f"src_replica_ranks_group: {src_replica_ranks_group}")
+            logger.debug(f"dst_replica_ranks_group: {dst_replica_ranks_group}")
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
 
             # stage 1: comm pairs that broadcast params from trainer to inference model
@@ -274,9 +274,8 @@ class ParameterSyncGroup:
                 for tuples in dst_tp_group:
                     p2p_pair_grouping(tuples)
 
-        logger.info(f"{id(self)} self.num_mapping: {self.num_mapping} pair_list: {pair_list}")
-        logger.info(f"{id(self)} self.num_mapping: {self.num_mapping} p2p_list: {p2p_list}")
-
+        logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
+        logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
 
     def _get_dst_name(self, src_name):
         if self._src_prefix:
