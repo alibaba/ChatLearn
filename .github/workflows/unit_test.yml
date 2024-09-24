@@ -20,6 +20,7 @@ concurrency:
 jobs:
   run-shell-script:
     runs-on: self-hosted
+    environment: CI
 
     steps:
 
@@ -35,4 +36,4 @@ jobs:
         docker pull $UT_IMAGE
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
       env: 
-        UT_IMAGE: ${{ secrets.UT_IMAGE }}
+        UT_IMAGE: ${{ vars.UT_IMAGE }}
