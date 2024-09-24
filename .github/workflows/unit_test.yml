@@ -3,6 +3,8 @@ name: Unit Tests
 on: 
   workflow_dispatch:
   pull_request_target:
+    branches:
+      - main
     paths-ignore:
       - 'docs/**'
   push:
