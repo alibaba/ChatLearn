@@ -263,13 +263,13 @@ class CheckpointUtilsImporter:
 
 if __name__ == '__main__':
     if exist_checkpoint_util():
-        sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.util', \
+        sys.meta_path.insert(0, CheckpointUtilsImporter('tools.checkpoint.util', \
             'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron'))
         from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
         from tools.checkpoint import util
         util.main()
     else:
-        sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.convert', \
+        sys.meta_path.insert(0, CheckpointUtilsImporter('tools.checkpoint.convert', \
             'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron', \
             'tools.checkpoint.loader_mcore', 'tools.checkpoint.saver_mcore', \
             'tools.checkpoint.utils', 'tools.checkpoint.loader_llama_mistral'))
