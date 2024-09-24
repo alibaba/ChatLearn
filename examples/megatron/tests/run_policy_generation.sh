@@ -8,6 +8,7 @@ set -x
 [ -z "$LOAD" ] && export LOAD=path-to-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
 [ -z "$model_size" ] && export model_size=llama2-13B
+[ -z "$tokenizer_load" ] && export tokenizer_load=path-to-hf-tokenizer-for-vllm-backend
 
 cd $CHATLEARN/examples/megatron
 
@@ -54,7 +55,7 @@ log_file=${output_dir}/log_${RANK}.log
 export batch_generation_min_prompt_length=32
 
 generation_batch_size=64 \
-num_gpu=$TP \
+num_gpu=${num_gpu:-8} \
 policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \

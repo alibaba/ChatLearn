@@ -30,7 +30,32 @@ from megatron.training.utils import average_losses_across_data_parallel_group
 from megatron.training.utils import get_ltor_masks_and_position_ids
 
 from examples.megatron.data.reward_dataset import build_train_valid_test_datasets_for_rm
-from examples.megatron.models.reward_model import model_provider
+from examples.megatron.models.reward_model import RewardModel as LegacyRewardModel
+from examples.megatron.models.mcore_reward_model import MCoreRewardModel
+
+
+def model_provider(pre_process=True, post_process=True):
+    """Build the model."""
+
+    print_rank_0('building GPT model ...')
+    args = get_args()
+    if args.use_legacy_models:
+        model = LegacyRewardModel(
+            num_tokentypes=0,
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process,
+            score_dimension=1,
+        )
+    else:
+        model = MCoreRewardModel(
+            parallel_output=True,
+            pre_process=pre_process,
+            post_process=post_process,
+            score_dimension=1,
+        )
+
+    return model
 
 
 def get_tensor_shapes_reward( # pylint: disable=unused-argument

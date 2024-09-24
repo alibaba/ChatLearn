@@ -24,6 +24,7 @@ DISTRIBUTED_ARGS="--nproc_per_node ${GPUS_PER_NODE} \
 export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}/examples/megatron:${CHATLEARN}
 
 [ -z "$model_size" ] && export model_size=llama2-7B
+[ -z "$TOKENIZER_TYPE" ] && export TOKENIZER_TYPE=Llama2Tokenizer
 
 if [ $model_size = llama2-7B ]; then
   NUM_LAYERS=32
@@ -48,6 +49,24 @@ elif [ $model_size = llama2-70B ]; then
   pp=4
   mb=2
   gbs=64
+elif [ $model_size = llama3-8B ]; then
+  NUM_LAYERS=32
+  HIDDEN_SIZE=4096
+  NUM_ATTN_HEADS=32
+  INTERMEDIATE_SIZE=14336
+  tp=4
+  pp=1
+  TOKENIZER_TYPE=Llama3Tokenizer
+elif [ $model_size = llama3-70B ]; then
+  NUM_LAYERS=80
+  HIDDEN_SIZE=8192
+  NUM_ATTN_HEADS=64
+  INTERMEDIATE_SIZE=28672
+  tp=8
+  pp=4
+  mb=2
+  gbs=64
+  TOKENIZER_TYPE=Llama3Tokenizer
 fi
 
 [ -z "$mb" ] && mb=8
@@ -73,7 +92,7 @@ mkdir -p $CHECKPOINT_PATH
 
 MODEL_ARGS="
 --max-position-embeddings 4096 \
---tokenizer-type Llama2Tokenizer \
+--tokenizer-type ${TOKENIZER_TYPE} \
 --tokenizer-model ${TOKENIZER_MODEL} \
 --exit-on-missing-checkpoint \
 --use-checkpoint-args \
@@ -84,8 +103,21 @@ MODEL_ARGS="
 --normalization RMSNorm \
 --no-position-embedding \
 --no-masked-softmax-fusion \
---transformer-impl local \
 --attention-softmax-in-fp32 "
+
+use_legacy_models=${USE_LEGACY_MODELS:-"True"}
+
+if [[ ${use_legacy_models} = "False" ]]; then
+  MCORE_ARGS="--transformer-impl transformer_engine "
+else
+  if [[ ${model_size} = "llama3-8B" || ${model_size} = "llama3-70B" ]]; then
+    echo "Expect USE_LEGACY_MODELS to be False for Llama3 models, but got True."
+    exit 1
+  fi
+  MCORE_ARGS="
+    --use-legacy-models \
+    --transformer-impl local "
+fi
 
 log_file=$CHECKPOINT_PATH/stderr_$NODE_RANK.log
 
@@ -138,4 +170,4 @@ torchrun $DISTRIBUTED_ARGS \
   --sequence-parallel \
   --finetune \
   --distributed-timeout-minutes 60 \
-  $MODEL_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
+  $MODEL_ARGS $MCORE_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}

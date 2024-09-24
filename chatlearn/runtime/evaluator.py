@@ -15,7 +15,6 @@
 """Evaluator"""
 
 from collections import defaultdict
-import math
 
 from chatlearn.runtime.environment import Environment
 from chatlearn.utils import future
@@ -43,23 +42,6 @@ class Evaluator(Environment):
     @property
     def sample_per_episode(self):
         return len(self._dataset)
-
-    @property
-    def batch_per_episode(self):
-        if self._batch_per_episode is not None:
-            return self._batch_per_episode
-        if self.first_model.use_vllm_backend:
-            # For the vLLM model, the number of samples processed at one time is sample_per_episode / num_replicas.
-            # If sample_per_episode < num_replicas, then some models will not receive any data to process,
-            # in which case batch_per_episode = sample_per_episode (each model processes one sample).
-            # If sample_per_episode is greater than num_replicas, then batch_per_episode = num_replicas.
-            if self.sample_per_episode >= len(self.models[0].replicas):
-                self._batch_per_episode = len(self.models[0].replicas)
-            else:
-                self._batch_per_episode = self.sample_per_episode
-        else:
-            self._batch_per_episode = math.ceil(len(self._dataset) / self.batch_size)
-        return self._batch_per_episode
 
     def setup_dataset(self):
         assert len(self._dataset) > 0, "dataset is not set"

@@ -30,13 +30,17 @@ try:
 except ImportError:
     from megatron.training import arguments
     from megatron.training import get_args
-    from megatron.training import get_num_microbatches
     from megatron.training import get_timers
     from megatron.training import get_tokenizer
     from megatron.training import is_last_rank
     from megatron.training import print_rank_0
     from megatron.training import print_rank_last
-    from megatron.training import update_num_microbatches
+    try:
+        from megatron.training import get_num_microbatches
+        from megatron.training import update_num_microbatches
+    except ImportError:
+        from megatron.core.num_microbatches_calculator import get_num_microbatches
+        from megatron.core.num_microbatches_calculator import update_num_microbatches
 
 # megatron.arguments.*
 try:

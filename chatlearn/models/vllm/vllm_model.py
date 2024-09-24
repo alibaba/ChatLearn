@@ -23,9 +23,11 @@ from chatlearn.utils.vllm_import_helper import LlamaForCausalLM
 from chatlearn.utils.vllm_import_helper import QWenLMHeadModel
 from chatlearn.utils.vllm_import_helper import Qwen2ForCausalLM
 from chatlearn.utils.vllm_import_helper import get_model_architecture
+from chatlearn.utils.utils import get_use_legacy_models
 
 from chatlearn.utils.vllm_utils import (
     convert_llama_state_dict_from_megatron_to_vllm,
+    convert_llama_state_dict_from_mcore_to_vllm,
     convert_qwen_state_dict_from_megatron_to_vllm,
     load_checkpoint
 )
@@ -52,7 +54,11 @@ class VLLMModel(nn.Module):
     def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disable=unused-argument
         qwen_version = None
         if isinstance(self.model, LlamaForCausalLM):
-            convert_state_dict_internal = convert_llama_state_dict_from_megatron_to_vllm
+            use_legacy_models = get_use_legacy_models(self.model_args)
+            if use_legacy_models:
+                convert_state_dict_internal = convert_llama_state_dict_from_megatron_to_vllm
+            else:
+                convert_state_dict_internal = convert_llama_state_dict_from_mcore_to_vllm
         elif isinstance(self.model, QWenLMHeadModel):
             qwen_version = 1.0
             convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm

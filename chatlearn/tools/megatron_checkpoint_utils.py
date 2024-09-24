@@ -77,7 +77,7 @@ if md.model_type == 'REWARD':
 """
     return detect_and_insert_code(lines, pattern, new_code, 0, 0)
 
-def repair_saver_put_reward(lines):
+def repair_saver_get_reward(lines):
     pattern = 'if msg != "done":'
     new_code = \
 """
@@ -95,6 +95,69 @@ if msg != "done" and msg["name"] == "pooler_head":
         models[tp_rank].pooler_head.dense1.bias.data.copy_(head_bias1)
         models[tp_rank].pooler_head.dense2.weight.data.copy_(head_weight2)
         models[tp_rank].pooler_head.dense2.bias.data.copy_(head_bias2)
+    check_message(msg)
+    msg = queue_get()
+"""
+    return detect_and_insert_code(lines, pattern, new_code, 0, 0)
+
+
+# MCore
+def repair_mcore_block_key(source):
+    source = source.replace('"BERT" : "encoder",', '"BERT" : "encoder", "REWARD" : "decoder"')
+    return source
+
+def repair_import_utils(source):
+    source = source.replace('from utils import get_mcore_transformer_block_key, print_memory_usage',
+                            'from tools.checkpoint.utils import get_mcore_transformer_block_key, print_memory_usage')
+    return source
+
+def repair_loader_mcore_import_error(source):
+    return repair_import_utils(source)
+
+def repair_saver_mcore_import_error(source):
+    source = source.replace('from setter import ModelSetter',
+                            'from tools.checkpoint.setter import ModelSetter')
+    return repair_import_utils(source)
+
+def repair_loader_mcore_model_provider(lines):
+    # Insert before following code, so line_offset=-2
+    # else:
+    #     raise Exception(f'unrecognized model type: {args.model_type}')
+    pattern = 'unrecognized model type'
+    new_code = \
+"""
+elif args.model_type == 'REWARD':
+    from examples.megatron.models.mcore_reward_model import model_provider
+    margs.model_type = ModelType.encoder_or_decoder
+"""
+    indent = -4
+    line_offset = -2
+    return detect_and_insert_code(lines, pattern, new_code, indent, line_offset)
+
+def repair_saver_mcore_model_provider(lines):
+    return repair_loader_mcore_model_provider(lines)
+
+def repair_loader_mcore_put_reward(lines):
+    return repair_loader_put_reward(lines)
+
+def repair_saver_mcore_get_reward(lines):
+    pattern = 'if msg != "done":'
+    new_code = \
+"""
+if msg != "done" and msg["name"] == "pooler_head":
+    if not hasattr(models[pp_rank][0][0], 'pooler_head'):
+        print("ERROR: got a pooler_head, but model does not have one")
+        exit(1)
+    print("received pooler_head")
+    head_weight1 = msg.pop("weight1")
+    head_bias1 = msg.pop("bias1")
+    head_weight2 = msg.pop("weight2")
+    head_bias2 = msg.pop("bias2")
+    for model in pp_local_models:
+        model.pooler_head.dense1.weight.data.copy_(head_weight1)
+        model.pooler_head.dense1.bias.data.copy_(head_bias1)
+        model.pooler_head.dense2.weight.data.copy_(head_weight2)
+        model.pooler_head.dense2.bias.data.copy_(head_bias2)
     check_message(msg)
     msg = queue_get()
 """
@@ -134,10 +197,26 @@ class CheckpointUtilsImporter:
         elif module_name == 'saver_megatron':
             lines = source.split('\n')
             lines = repair_saver_model_provider(lines)
-            lines = repair_saver_put_reward(lines)
+            lines = repair_saver_get_reward(lines)
             source = '\n'.join(lines)
         elif module_name == 'loader_llama_mistral':
             source = repair_loader_llama_mistral(source)
+        elif module_name == 'loader_mcore':
+            source = repair_loader_mcore_import_error(source)
+            lines = source.split('\n')
+            lines = repair_loader_mcore_model_provider(lines)
+            lines = repair_loader_mcore_put_reward(lines)
+            source = '\n'.join(lines)
+        elif module_name == 'saver_mcore':
+            source = repair_saver_mcore_import_error(source)
+            lines = source.split('\n')
+            lines = repair_saver_mcore_model_provider(lines)
+            lines = repair_saver_mcore_get_reward(lines)
+            source = '\n'.join(lines)
+        elif module_name == 'utils':
+            source = repair_mcore_block_key(source)
+        else:
+            raise RuntimeError(f"Unrecognized module_name {module_name}")
         return source
 
     def load_module(self, name):
@@ -172,7 +251,11 @@ class CheckpointUtilsImporter:
         # put the loaded module into sys.modules so that if the module is imported
         # again it could be found.
         sys.modules[name] = module
-        if 'loader_megatron' in name or 'saver_megatron' in name or 'loader_llama_mistral' in name:
+        if ('loader_megatron' in name
+            or 'saver_megatron' in name
+            or 'loader_mcore' in name
+            or 'saver_mcore' in name
+            or 'loader_llama_mistral' in name):
             sys.modules[module_name] = module
 
         # return the module itself so that it could be used
@@ -187,8 +270,13 @@ if __name__ == '__main__':
         util.main()
     else:
         sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.convert', \
-            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron', 'tools.checkpoint.loader_llama_mistral'))
-        from tools.checkpoint import loader_megatron, saver_megatron, loader_llama_mistral # pylint: disable=unused-import
+            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron', \
+            'tools.checkpoint.loader_mcore', 'tools.checkpoint.saver_mcore', \
+            'tools.checkpoint.utils', 'tools.checkpoint.loader_llama_mistral'))
+        from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
+        from tools.checkpoint import utils # pylint: disable=unused-import
+        from tools.checkpoint import loader_mcore, saver_mcore # pylint: disable=unused-import
+        from tools.checkpoint import loader_llama_mistral # pylint: disable=unused-import
         from tools.checkpoint import convert
         convert.main()
 # pylint: enable=wildcard-import,exec-used

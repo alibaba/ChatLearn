@@ -82,8 +82,17 @@ MODEL_ARGS="
 --normalization RMSNorm \
 --no-position-embedding \
 --no-masked-softmax-fusion \
---transformer-impl local \
 --attention-softmax-in-fp32 "
+
+use_legacy_models=${USE_LEGACY_MODELS:-"True"}
+
+if [[ ${use_legacy_models} = "False" ]]; then
+  MCORE_ARGS="--transformer-impl transformer_engine "
+else
+  MCORE_ARGS="
+    --use-legacy-models \
+    --transformer-impl local "
+fi
 
 mkdir -p $CHECKPOINT_PATH
 
@@ -138,4 +147,4 @@ torchrun $DISTRIBUTED_ARGS \
   --use-flash-attn \
   --sequence-parallel \
   --finetune \
-  $MODEL_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
+  $MODEL_ARGS $MCORE_ARGS 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
