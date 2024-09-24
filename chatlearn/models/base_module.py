@@ -861,7 +861,6 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                assert self.num_mapping == 2
                 tensors.append(self._sync_buffer[(to_rank + 1) % self.num_mapping][idx])
                 buffer_num.append(1)
                 idx += 1
