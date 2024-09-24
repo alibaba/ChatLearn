@@ -16,13 +16,10 @@
 import sys
 from setuptools import setup, find_packages
 
-if sys.version_info[0] < 3:
-  import imp
-  VERSION = imp.load_source('chatlearn.version', 'chatlearn/utils/version.py').VERSION
-else:
-  from importlib.machinery import SourceFileLoader
-  VERSION = SourceFileLoader("chatlearn.version", "chatlearn/utils/version.py") \
-      .load_module().VERSION
+
+from importlib.machinery import SourceFileLoader
+VERSION = SourceFileLoader("chatlearn.version", "chatlearn/utils/version.py") \
+    .load_module().VERSION
 
 setup(
     name='pai-chatlearn',
