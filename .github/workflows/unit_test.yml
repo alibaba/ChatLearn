@@ -2,7 +2,7 @@ name: Unit Tests
 
 on: 
   workflow_dispatch:
-  pull_request:
+  pull_request_target:
     paths-ignore:
       - 'docs/**'
   push:
@@ -35,4 +35,4 @@ jobs:
         docker pull $UT_IMAGE
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
       env: 
-        UT_IMAGE: ${{ vars.UT_IMAGE }}
+        UT_IMAGE: ${{ secrets.UT_IMAGE }}
