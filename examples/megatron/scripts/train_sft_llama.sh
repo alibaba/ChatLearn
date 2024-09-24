@@ -123,8 +123,6 @@ log_file=$CHECKPOINT_PATH/stderr_$NODE_RANK.log
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-cd ${CHATLEARN}/examples/megatron/sft
-
 torchrun $DISTRIBUTED_ARGS \
   entry/train_sft.py \
   --tensor-model-parallel-size $tp \
