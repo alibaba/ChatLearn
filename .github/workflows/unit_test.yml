@@ -6,13 +6,10 @@ on:
     types: [opened, synchronize, reopened]
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
+      - dev
   push:
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
     tags:
       - v[0-9]+.[0-9]+.[0-9]+
 
@@ -28,8 +25,14 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@v3
+    
+    - name: Get changed files
+      id: changed_files
+      run: |
+        echo "::set-output name=files::$(git diff --name-only HEAD^ HEAD)"
 
     - name: Run unit test
+      if: ${{ !contains(join(github.event.files, ', '), 'docs/,.md') }}
       run: |
         containers=$(docker ps -aqf "name=^chatlearn_ut_")
         if [[ -n "$containers" ]]; then
@@ -37,5 +40,11 @@ jobs:
         fi
         docker pull $UT_IMAGE
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
+
+    - name: Docs-Only Changes
+      if: ${{ contains(join(github.event.files, ', '), 'docs/,.md') }}
+      run: |
+        echo "Documentation or .md file(s) changed. Skipping unit tests."
+
       env: 
         UT_IMAGE: ${{ secrets.UT_IMAGE }}
