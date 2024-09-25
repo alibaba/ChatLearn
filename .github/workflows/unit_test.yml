@@ -2,14 +2,14 @@ name: Unit Tests
 
 on: 
   workflow_dispatch:
-  pull_request:
-    paths-ignore:
-      - 'docs/**'
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+      - dev
   push:
     branches:
       - main
-    paths-ignore:
-      - 'docs/**'
     tags:
       - v[0-9]+.[0-9]+.[0-9]+
 
@@ -25,8 +25,22 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@v3
+    
+    - name: Get changed files
+        id: get_changed_files
+        uses: tj-actions/changed-files@v35
+        with:
+          files: |
+            **/*.md
+            docs/**
+
+    - name: Check if unit tests should run
+        id: check_if_ut_should_run
+        run: |
+          echo "::set-output name=should_run::$(if [[ -z "${{ steps.get_changed_files.outputs.all_changed_files }}" ]]; then echo "true"; else echo "false"; fi)"
 
     - name: Run unit test
+      if: steps.check_if_ut_should_run.outputs.should_run == 'true'
       run: |
         containers=$(docker ps -aqf "name=^chatlearn_ut_")
         if [[ -n "$containers" ]]; then
@@ -36,3 +50,10 @@ jobs:
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
       env: 
         UT_IMAGE: ${{ secrets.UT_IMAGE }}
+
+    - name: Docs-Only Changes
+      if: steps.check_if_ut_should_run.outputs.should_run == 'false'
+      run: |
+        echo "Documentation or .md file(s) changed. Skipping unit tests."
+
+
