@@ -2,6 +2,7 @@
 
 ChatLearn aims to provide a flexible and user-friendly platform for alignment training based on Large Language Models (LLMs) such as ChatGPT.
 
+
 ## Introduction
 
 ChatGPT, developed by OpenAI, is a chatbot model based on a large language model (LLM) that has gained popularity and widespread adoption for its impressive conversational capabilities. The success of ChatGPT can be attributed to the new training paradigm called Reinforcement Learning from Human Feedback (RLHF). RLHF optimizes language models based on human feedback using reinforcement learning techniques.

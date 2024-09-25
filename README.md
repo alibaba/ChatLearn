@@ -56,7 +56,6 @@ Note: The performance of DeepSpeed-Chat and OpenRLHF has already been optimized.
 # Roadmap
 
 The upcoming features for ChatLearn include:
-- [ ] Support models with Megatron-Core format
 - [ ] Support the alignment training for MoE (Mixture of Experts) models
 - [ ] Integration with DeepSpeed as a training backend
 - [ ] Support for more models
