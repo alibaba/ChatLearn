@@ -116,11 +116,11 @@ class MegatronModule(TorchModule):
                     self.runtime_args.bucket_size_mb_in_memory_manager,
                 )
                 self.offload()
-        self.stage2offset, self.stage2layer_num = self.get_pipe_layer_num_offset()
+        self.set_pipe_layer_num_offset()
 
-    def get_pipe_layer_num_offset(self):
-        stage2layer_num = [None] * self.pipeline_model_parallel_size()
-        stage2offset = [0] * self.pipeline_model_parallel_size()
+    def set_pipe_layer_num_offset(self):
+        self.stage2layer_num = [None] * self.pipeline_model_parallel_size()
+        self.stage2offset = [0] * self.pipeline_model_parallel_size()
         stage_layer_num = self.get_pipeline_stage_layer_num()
         world_size = torch.distributed.get_world_size()
         rank_layer_num = torch.tensor([self.pipeline_parallel_rank(), stage_layer_num], device='cuda')
@@ -130,15 +130,14 @@ class MegatronModule(TorchModule):
         for item in all_stage_layer_nums:
             rank = item[0].item()
             num = item[1].item()
-            if stage2layer_num[rank] is None:
-                stage2layer_num[rank] = num
+            if self.stage2layer_num[rank] is None:
+                self.stage2layer_num[rank] = num
             else:
-                assert stage2layer_num[rank] == num
-        for i, num in enumerate(stage2layer_num):
-            if i+1 == len(stage2offset):
+                assert self.stage2layer_num[rank] == num
+        for i, num in enumerate(self.stage2layer_num):
+            if i+1 == len(self.stage2offset):
                 break
-            stage2offset[i+1] = stage2offset[i] + num
-        return stage2layer_num, stage2offset
+            self.stage2offset[i+1] = self.stage2offset[i] + num
 
     @property
     def megatron_args(self):
