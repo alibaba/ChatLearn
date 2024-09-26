@@ -303,7 +303,7 @@ class MegatronModule(TorchModule):
             return self.stage2layer_num[self.pipeline_parallel_rank()]
         layer_re = re.compile(r'layers\.([0-9]+)')
         layer_set = set()
-        for name in self.named_parameters.keys():
+        for name in self.named_parameters:
             layer_num = re.findall(layer_re, name)
             if layer_num:
                 layer_set.add(layer_num[0])
