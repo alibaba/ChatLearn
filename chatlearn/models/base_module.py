@@ -40,8 +40,10 @@ from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr
 from chatlearn.launcher import dlc_utils
 
+from .utils.communicator import Communicator
 
-class BaseModule:
+
+class BaseModule(Communicator):
     """BaseModule is the base class for Base models.
 
     Args
@@ -106,6 +108,7 @@ class BaseModule:
         self._data_ckpt_manager = None
         self._peak_memory = 0
         self._parameters_to_sync = defaultdict(list)
+        self._named_parameters_to_sync = defaultdict(dict)
         self._concat_params_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = None
@@ -720,6 +723,7 @@ class BaseModule:
                 concat = []
                 set_sync_param_flag = False
                 self._parameters_to_sync[pipe_stage].append(_params_to_sync)
+                self._named_parameters_to_sync[pipe_stage][name] = _params_to_sync
 
 
     def get_parameter_names(self, requires_grad=True):

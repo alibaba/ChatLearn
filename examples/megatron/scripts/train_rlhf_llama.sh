@@ -55,7 +55,7 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     export ref_generation_batch_size=64
     export value_generation_batch_size=64
     export reward_generation_batch_size=64
-    export train_micro_batch_size=16
+    export train_micro_batch_size=8
     export max_num_batched_tokens=65536
     export gpu_memory_utilization=0.9
     export num_gpu_ref=4

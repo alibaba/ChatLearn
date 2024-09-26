@@ -62,6 +62,7 @@ function run_test {
 
 
 function run_all_tests {
+ # run_test python test_send_recv_ipc.py
   run_test python test_rlhf_data_input.py -c "configs/exp.yaml"
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"

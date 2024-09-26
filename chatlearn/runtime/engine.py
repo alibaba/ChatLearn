@@ -292,7 +292,11 @@ class Engine(BaseEngine):
                                                self.runtime_args.max_relay_episode,
                                                self.runtime_args.relay_episode_offset)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
-        self.model_manager.sync_parameters(requires_grad=False)
+        for i in range(5):
+            self.timers("sync_parameters").start()
+            self.model_manager.sync_parameters(requires_grad=False)
+            self.timers("sync_parameters").stop()
+            logger.info(f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])}")
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('After first param sync'))
         self._data_loader = data_loader
         for episode_id in range(self._start_episode, self.runtime_args.num_episode):
