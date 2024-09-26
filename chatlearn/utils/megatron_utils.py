@@ -47,19 +47,16 @@ def update_layer_num(start_layer_num, m):
     return f'layers.{layer}'
 
 
-def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, _last_stage, model, requires_grad):
+def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_last_stage, model, requires_grad):
     """
     remap pipeline layer_name. For each pipeline stage, the layer number starts with 0.
     Args:
-        src_layers_per_stage: layer_per_stage in src model
-        src_rank: src model pipeline rank
-        map_interval: map interval from tgt to src, i.e. if src_layers_per_stage is 2, and tgt_layers_per_stage is 4,
-                      then the map_iterval is tgt_layers_per_stage/src_layers_per_stage = 2
+        src_layer_offset: layer offset of src model
+        tgt_layer_offset: layer offset of target model
         tgt_last_stage: is target model in last stage
         model: megatron model
         requires_grad: whether the layer requires grad
     """
-    # TODO: update comment
     name_mapping = {}
     for src_name, partition_param in model.named_parameters():
         if requires_grad:
@@ -76,6 +73,10 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, _last_
         else:
             # Translate destination layer number (0-N for each partition)
             # to source layer number (single-model layer number)
+            # e.g. for src model with 8 layers, src_num_stage=4, dst_num_stage=2
+            # for src_model, stage offsets are [0, 2, 4, 6] for dst model, stage offsets are [0, 4]
+            # then the start layer_num of src->dst is as follows:
+            # stage0 0->0 stage1 0->(2-0) stage2 0->(4-4) stage3 0->(6-4)
             start_layer_num = src_layer_offset - tgt_layer_offset
             _update_layer_num = functools.partial(update_layer_num, start_layer_num)
             tgt_name = re.sub(layer_re, _update_layer_num, src_name)
