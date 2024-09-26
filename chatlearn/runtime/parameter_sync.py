@@ -343,8 +343,10 @@ class ParameterSyncGroup:
             requires_grad = False
         if self.num_src_pipeline_stage > 1:
             dst_pipe_rank = self.get_actor_pipe_rank(recv_actor)
+            dst_layer_offset = self.get_or_cache(recv_actor, "get_pipeline_stage_layer_offset")
             dst_src_mappings = future.get(send_actor.build_pipeline_layer_name_mapping.remote(
-                                          self.num_dst_pipeline_stage, dst_pipe_rank, requires_grad=requires_grad))
+                                          self.num_dst_pipeline_stage, dst_pipe_rank, dst_layer_offset,
+                                          requires_grad=requires_grad))
             dst_names = list(dst_src_mappings.keys())
             src_names = list(dst_src_mappings.values())
         else:

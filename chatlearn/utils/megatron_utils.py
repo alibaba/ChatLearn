@@ -40,14 +40,14 @@ from chatlearn.utils.utils import get_use_legacy_models
 layer_re = re.compile(r'layers\.([0-9]+)')
 
 
-def update_layer_num(layers_per_part, rank, m):
+def update_layer_num(start_layer_num, m):
     # This assumes no interleaved pipeline execution
     layer = int(m.group(1))
-    layer += rank * layers_per_part
+    layer += start_layer_num
     return f'layers.{layer}'
 
 
-def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interval, tgt_last_stage, model, requires_grad):
+def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, _last_stage, model, requires_grad):
     """
     remap pipeline layer_name. For each pipeline stage, the layer number starts with 0.
     Args:
@@ -59,6 +59,7 @@ def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interv
         model: megatron model
         requires_grad: whether the layer requires grad
     """
+    # TODO: update comment
     name_mapping = {}
     for src_name, partition_param in model.named_parameters():
         if requires_grad:
@@ -75,8 +76,8 @@ def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interv
         else:
             # Translate destination layer number (0-N for each partition)
             # to source layer number (single-model layer number)
-            rank = src_rank % map_interval
-            _update_layer_num = functools.partial(update_layer_num, src_layers_per_stage, rank)
+            start_layer_num = src_layer_offset - tgt_layer_offset
+            _update_layer_num = functools.partial(update_layer_num, start_layer_num)
             tgt_name = re.sub(layer_re, _update_layer_num, src_name)
         name_mapping[tgt_name] = src_name
     return name_mapping

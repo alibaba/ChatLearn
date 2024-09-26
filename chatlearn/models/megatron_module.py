@@ -14,6 +14,8 @@
 # ==============================================================================
 """Megatron module"""
 import inspect
+import re
+import torch
 
 try:
     from chatlearn.utils.megatron_import_helper import get_args
@@ -114,6 +116,27 @@ class MegatronModule(TorchModule):
                     self.runtime_args.bucket_size_mb_in_memory_manager,
                 )
                 self.offload()
+        stage2layer_num = [None] * self.pipeline_model_parallel_size()
+        stage2offset = [0] * self.pipeline_model_parallel_size()
+        self.stage2offset = stage2offset
+        self.stage2layer_num = stage2layer_num
+        stage_layer_num = self.get_pipeline_stage_layer_num()
+        world_size = torch.distributed.get_world_size()
+        rank_layer_num = torch.tensor([self.pipeline_parallel_rank(), stage_layer_num], device='cuda')
+        # Gather all tensors to all processes
+        all_stage_layer_nums = [torch.zeros_like(rank_layer_num, device='cuda') for _ in range(world_size)]
+        torch.distributed.all_gather(all_stage_layer_nums, rank_layer_num)
+        for item in all_stage_layer_nums:
+            rank = item[0].item()
+            num = item[1].item()
+            if stage2layer_num[rank] is None:
+                stage2layer_num[rank] = num
+            else:
+                assert stage2layer_num[rank] == num
+        for i, num in enumerate(stage2layer_num):
+            if i+1 == len(stage2offset):
+                break
+            stage2offset[i+1] = stage2offset[i] + num
 
     @property
     def megatron_args(self):
@@ -178,7 +201,7 @@ class MegatronModule(TorchModule):
             model = self.model
         return model
 
-    def build_pipeline_layer_name_mapping(self, num_target_pipe_stage, target_pipe_rank, requires_grad=True):
+    def build_pipeline_layer_name_mapping(self, num_target_pipe_stage, target_pipe_rank, tgt_layer_offset, requires_grad=True):
         """
         build name mapping from src model to tgt model
         Args:
@@ -188,16 +211,12 @@ class MegatronModule(TorchModule):
 
         :meta private:
         """
-        src_layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
-        dst_layers_per_stage = self.num_layers() // num_target_pipe_stage
-        assert dst_layers_per_stage % src_layers_per_stage == 0, \
-            "We assume pipeline stage of target model is smaller than src model, and is divisible by src model"
-        mapping_interval = dst_layers_per_stage // src_layers_per_stage
+        src_layer_offset = self.get_pipeline_stage_layer_offset()
         src_rank = mpu.get_pipeline_model_parallel_rank()
         self._logger.debug(f"build mapping for rank {src_rank} =========")
         model = self.megatron_model()
         is_tgt_last_stage = target_pipe_rank == num_target_pipe_stage - 1 and target_pipe_rank != 0
-        name_mapping = build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, mapping_interval,
+        name_mapping = build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset,
                                                          is_tgt_last_stage, model, requires_grad)
         return name_mapping
 
@@ -277,3 +296,18 @@ class MegatronModule(TorchModule):
         """
         if self.module_args.free_grad_buffers:
             self._memory_manager.build_grad_buffers()
+
+    def get_pipeline_stage_layer_num(self):
+        if self.stage2layer_num[self.pipeline_parallel_rank()] is not None:
+            return self.stage2layer_num[self.pipeline_parallel_rank()]
+        layer_re = re.compile(r'layers\.([0-9]+)')
+        layer_set = set()
+        for name in self.named_parameters.keys():
+            layer_num = re.findall(layer_re, name)
+            if layer_num:
+                layer_set.add(layer_num[0])
+        stage_layer_num = len(layer_set)
+        return stage_layer_num
+
+    def get_pipeline_stage_layer_offset(self):
+        return self.stage2offset[self.pipeline_parallel_rank()]
