@@ -38,7 +38,7 @@ such as the Llama2 model available on HuggingFace Hub (`meta-llama/Llama-2-7b-hf
 Then, you can use the following code to convert the HuggingFace transformers model into the Megatron-LM model format:
 
 1. For the llama2-7B model, we will convert the model into a checkpoint with `TP (tensor_model_parallel_size)=4` and `PP (pipeline_model_parallel_size)=1`,
-and the model will be saved in `MEGATRON_LLAMA_CKPT_PATH`.
+and the model will be saved in `SAVE_PATH`.
 2. For the llama2-13B model, we will convert the model into a checkpoint with `TP=8` and `PP=1`.
 3. For the llama2-70B model, we will convert the model into a checkpoint with `TP=8` and `PP=4`.
 
@@ -192,7 +192,7 @@ bash scripts/train_dpo_llama.sh
 
 To train a GRPO Math model, first refer to [Math data](data.md#Math) to prepare the mathematics dataset. Below is an example of training a Llama2-7B model.
 
-```
+```bash
 export CHATLEARN=path-to-chatlearn
 export MEGATRON=path-to-megatron-lm
 export DATASET_PATH=$DATASET_ROOT/math/train.jsonl
@@ -224,7 +224,7 @@ For the environment variables and configurations required for distributed execut
 
 ### Evaluation
 
-Firstly, we can use ChatLearn's model conversion tool to convert the Megatron-LM formatted model to HuggingFace's transformers model format.
+Firstly, we can use ChatLearn's model conversion tool to convert the Megatron-LM (Legacy) formatted model to HuggingFace's transformers model format.
 
 ```bash
 export CHATLEARN=path-to-chatlearn
@@ -239,7 +239,7 @@ target_params_dtype=bf16 \
 bash scripts/convert_megatron_to_hf.sh
 ```
 
-We evaluated the performance of Llama2-7B on the HH dataset, after training with SFT, RLHF, DPO or training with OnlineDPO, using the GPT-4 API provided by MT-Bench. The results show that RLHF improves the average performance of the model compared to SFT. For RLHF, there is a significant improvement in the domains of Humanities, Math, Roleplay, Reasoning, and Writing. The performance gains observed here are due to the use of a Reward model trained on the open-source HH dataset. Customizing the Reward model contributes to achieving better results.
+We evaluated the performance of Llama2-7B on the HH dataset, after training with SFT, RLHF, DPO or training with OnlineDPO, using the GPT-4 API provided by MT-Bench. The results show that alignment training (RLHF, DPO, and OnlineDPO) by ChatLearn improves the average performance of the model compared to SFT. For RLHF, there is a significant improvement in the domains of Humanities, Math, Roleplay, Reasoning, and Writing. The performance gains observed here are due to the use of a Reward model trained on the open-source HH dataset. Customizing the Reward model contributes to achieving better results.
 
 | Metric      | llama_sft | llama_rlhf | llama_dpo | llama_onlinedpo |
 |-------------|-----------|------------|-----------|------------------|
@@ -252,6 +252,114 @@ We evaluated the performance of Llama2-7B on the HH dataset, after training with
 | STEM        | 6.05      | **5.75**   | **6.77**  | **7.10**         |
 | Writing     | 4.55      | **4.75**   | **4.8**   | **5.30**         |
 | Avg         | 3.94      | **4.22**   | **4.33**  | **4.31**         |
+
+### Using Megatron-Core Model Format
+
+If you need to train a model in the Megatron-Core format, you only need to add the environment variable `USE_LEGACY_MODELS=False` to each of the above scripts. This variable controls whether Megatron-LM selects the Megatron-Core model format for training. Its default value is `True`, indicating that Megatron-LM defaults to the Legacy model format. Setting it to `False` indicates that Megatron-LM selects the Megatron-Core model format.
+
+#### Usage Example
+
+Using the example of training an Llama-7B model with the RLHF training mode, the steps for SFT, Reward, and RLHF training are as follows:
+
+1. Convert a HuggingFace transformers model to the Megatron-Core model format
+
+```bash
+export MEGATRON=path-to-megatron-lm
+export CHATLEARN=path-to-chatlearn
+
+cd ${CHATLEARN}/examples/megatron/
+
+TP=num_of_tp \
+PP=num_of_pp \
+LOAD_PATH=path-to-hf-model \
+TOKENIZER_MODEL=$LOAD_PATH/tokenizer.model \
+SAVE_PATH=path-to-megatron-model \
+USE_LEGACY_MODELS=False \
+bash scripts/convert_hf_to_megatron.sh
+```
+
+2. Start SFT training
+
+```bash
+export CHATLEARN=path-to-chatlearn
+export MEGATRON=path-to-megatron-lm
+cd ${CHATLEARN}/examples/megatron/
+
+export model_size=llama2-7B
+
+LOAD_PATH=$MEGATRON_LLAMA2_CKPT_PATH \
+TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
+DATASET_PATH=$DATASET_ROOT/sft/ \
+USE_LEGACY_MODELS=False \
+bash scripts/train_sft_llama.sh
+```
+
+3. Start Reward training
+
+```bash
+export CHATLEARN=path-to-chatlearn
+export MEGATRON=path-to-megatron-lm
+cd ${CHATLEARN}/examples/megatron/
+
+LOAD_PATH=path-to-sft-ckpt \
+TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
+DATASET_PATH=$DATASET_ROOT/rm/ \
+USE_LEGACY_MODELS=False \
+bash scripts/train_reward_llama.sh
+```
+
+4. Start RLHF training
+
+```bash
+export CHATLEARN=path-to-chatlearn
+export MEGATRON=path-to-megatron-lm
+export DATASET_PATH=$DATASET_ROOT/alignment/train.jsonl
+
+cd ${CHATLEARN}/examples/megatron/
+
+export model_size=llama2-7B
+
+POLICY_LOAD=path-to-sft-ckpt \
+REWARD_LOAD=path-to-rm-ckpt \
+REWARD_LOAD_ITERATION=1000 \
+TOKENIZER_MODEL=$LLAMA2_TOKENIZER_MODEL \
+USE_LEGACY_MODELS=False \
+bash scripts/train_rlhf_llama.sh
+```
+
+#### Evaluation
+
+Firstly, we can use ChatLearn's model conversion tool to convert the Megatron-Core formatted model to HuggingFace's transformers model format.
+
+```bash
+export CHATLEARN=path-to-chatlearn
+export MEGATRON=path-to-megatron-lm
+
+cd $CHATLEARN/examples/megatron/
+
+LOAD_PATH=path-to-megatron-model \
+SAVE_PATH=path-to-hf-model \
+VOCAB_PATH=path-to-vocab \
+target_params_dtype=bf16 \
+USE_LEGACY_MODELS=False \
+bash scripts/convert_megatron_to_hf.sh
+```
+
+We evaluated the performance of Llama2-7B on the HH dataset, after training with SFT and RLHF, using the GPT-4 API provided by MT-Bench. The results show that RLHF by ChatLearn improves the average performance of the model compared to SFT. For RLHF, there is a significant improvement in the domains of Humanities, Roleplay, STEM, and Writing. The performance gains observed here are due to the use of a Reward model trained on the open-source HH dataset. Customizing the Reward model contributes to achieving better results.
+
+
+| Metric      | llama_sft | llama_rlhf |
+|-------------|-----------|------------|
+| Coding      | 1.95      | **1.45**   |
+| Extraction  | 3.80      | **3.95**   |
+| Humanities  | 6.45      | **7.10**   |
+| Math        | 1.80      | **1.75**   |
+| Reasoning   | 3.60      | **2.75**   |
+| Roleplay    | 4.60      | **5.40**   |
+| STEM        | 5.25      | **7.15**   |
+| Writing     | 4.35      | **4.95**   |
+| Avg         | 3.98      | **4.31**   |
+
 
 ## Reference
 
