@@ -74,7 +74,7 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_la
             # Translate destination layer number (0-N for each partition)
             # to source layer number (single-model layer number)
             # e.g. for src model with 8 layers, src_num_stage=4, dst_num_stage=2
-            # for src_model, stage offsets are [0, 2, 4, 6] for dst model, stage offsets are [0, 4]
+            # for src_model, stage offsets are [0, 2, 4, 6]. for dst model, stage offsets are [0, 4]
             # then the start layer_num of src->dst is as follows:
             # stage0 0->0 stage1 0->(2-0) stage2 0->(4-4) stage3 0->(6-4)
             start_layer_num = src_layer_offset - tgt_layer_offset
