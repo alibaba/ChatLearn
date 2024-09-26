@@ -10,3 +10,6 @@ temperature: ${policy_temperature:1.0}
 eval_temperature: 0.01
 eval_top_k: 1
 eval_top_p: 0
+
+tensor_model_parallel_size: ${policy_tp}
+pipeline_model_parallel_size: ${policy_pp}
