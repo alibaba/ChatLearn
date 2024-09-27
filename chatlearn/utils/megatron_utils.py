@@ -66,7 +66,7 @@ def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interv
                 continue
         if src_name.endswith("word_embeddings.weight") \
                 and "language_model" not in src_name \
-                and hasattr(model, "language_model"):
+                and hasattr(unwrap_model(model), "language_model"):
             # See comment in MegatronModule.initialize_word_embeddings()
             if not tgt_last_stage:
                 tgt_name = src_name.replace("word_embeddings.weight", "language_model.embedding.word_embeddings.weight")
