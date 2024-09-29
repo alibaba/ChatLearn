@@ -37,7 +37,7 @@ File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d
     raise ValueError(
  ValueError: Default process group has not been initialized, please make sure to call init_process_group.
 ```
-This issue arises due to the lack of initialization of the default process group, which is a bug introduced in Megatron-LM version core_r0.8.0. There are two possible solutions to address this problem:
+This issue arises due to the lack of initialization of the default process group when converting checkpoints. This issue is introduced in Megatron-LM version core_r0.8.0. There are two possible solutions to address this problem:
 
 
 1. Consider commenting out the problematic line because it only affects the debug-level logging output.

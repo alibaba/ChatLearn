@@ -53,7 +53,7 @@ File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d
  ValueError: Default process group has not been initialized, please make sure to call init_process_group.
 ```
 
-此问题是因为默认进程组未初始化所导致的。它是在 Megatron-LM core_r0.8.0 版本中引入的。我们目前有如下两种可能的方案来解决这个问题：
+此问题是在 Megatron-LM 的 Checkpoint 转换代码中默认进程组未初始化。它是在 Megatron-LM core_r0.8.0 版本中引入的。我们目前有如下两种可能的方案来解决这个问题：
 
 1. 您可以注释掉有问题的那一行，因为这仅影响调试级别的日志输出。
 2. 考虑使用 Megatron-LM 版本 core_r0.9.0 作为后端，因为此版本已经修复了这个 bug。然而，该版本的正确性和性能尚未在 ChatLearn 中得到验证。我们计划在未来升级 Megatron-LM 版本到 core_r0.9.0。
