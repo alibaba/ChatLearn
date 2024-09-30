@@ -180,8 +180,8 @@ class ParameterSyncGroup:
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.actor2rank[dst_actor] = dst_rank
 
-        src_gpu = future.get(src_actor.get_visible_gpus.remote())
-        dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
+        src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
+        dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
         src_tp_rank = self.get_actor_tp_rank(src_actor)
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
