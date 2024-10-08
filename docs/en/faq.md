@@ -25,6 +25,27 @@ python chatlearn/tools/megatron_checkpoint_utils.py --model-type ${model_type} -
     --target-tensor-parallel-size ${target_tp} --target-pipeline-parallel-size ${target_pp}
 ```
 Note that this script has only been validated on official Megatron-LM scripts.
+## Failure when converting checkpoint
+Using Megatron-LM version core_r0.8.0 as the backend to convert checkpoints may cause the following error:
+
+```bash
+...
+File "/root/Megatron-LM/megatron/training/checkpointing.py", line 426, in save_checkpoint
+    logger.debug(f"rank: {torch.distributed.get_rank()}, takes {end_misc - start_misc} to finalize ckpt save ")
+File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d.py", line 1779, in get_rank
+    default_pg = _get_default_group()
+File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d.py", line 1001, in _get_default_group
+    raise ValueError(
+ ValueError: Default process group has not been initialized, please make sure to call init_process_group.
+```
+
+This issue arises due to the lack of initialization of the default process group when converting checkpoints. It is introduced in Megatron-LM version core_r0.8.0. There are two possible solutions to address this problem:
+
+
+1. Consider commenting out the problematic line because it only affects the debug-level logging output.
+
+2. Alternatively, consider using Megatron-LM version core_r0.9.0 as the backend, as the bug has been fixed in this version. However, the correctness and performance of this version have not been validated for ChatLearn yet. We plan to upgrade our supported version of Megatron-LM to core_r0.9.0 in the future.
+
 ## Applying for custom_port
 In the DLC environment, the current RLHF training has already allocated 50 ports to meet all usage scenarios. It is recommended to set the advanced configuration as follows:
 ```
