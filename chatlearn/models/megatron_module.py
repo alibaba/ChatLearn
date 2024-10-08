@@ -312,5 +312,5 @@ class MegatronModule(TorchModule):
 
     def get_pipeline_stage_layer_offset(self):
         assert self.stage2offset is not None and \
-            self.stage2offset[self.pipeline_parallel_rank()] is not None   
+            self.stage2offset[self.pipeline_parallel_rank()] is not None
         return self.stage2offset[self.pipeline_parallel_rank()]
