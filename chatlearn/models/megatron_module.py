@@ -298,6 +298,7 @@ class MegatronModule(TorchModule):
             self._memory_manager.build_grad_buffers()
 
     def get_pipeline_stage_layer_num(self):
+        assert self.stage2layer_num is not None
         if self.stage2layer_num[self.pipeline_parallel_rank()] is not None:
             return self.stage2layer_num[self.pipeline_parallel_rank()]
         layer_re = re.compile(r'layers\.([0-9]+)')
@@ -310,4 +311,6 @@ class MegatronModule(TorchModule):
         return stage_layer_num
 
     def get_pipeline_stage_layer_offset(self):
+        assert self.stage2offset is not None and \
+            self.stage2offset[self.pipeline_parallel_rank()] is not None   
         return self.stage2offset[self.pipeline_parallel_rank()]
