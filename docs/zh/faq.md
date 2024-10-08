@@ -39,6 +39,25 @@ python chatlearn/tools/megatron_checkpoint_utils.py --model-type ${model_type} -
 
 注意这个脚本只在官方Megatron-LM脚本上验证过。
 
+## 转换 Checkpoint 失败
+使用 Megatron-LM 版本 core_r0.8.0 作为后端来转换 Checkpoint 可能会导致以下错误：
+
+```bash
+...
+File "/root/Megatron-LM/megatron/training/checkpointing.py", line 426, in save_checkpoint
+    logger.debug(f"rank: {torch.distributed.get_rank()}, takes {end_misc - start_misc} to finalize ckpt save ")
+File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d.py", line 1779, in get_rank
+    default_pg = _get_default_group()
+File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d.py", line 1001, in _get_default_group
+    raise ValueError(
+ ValueError: Default process group has not been initialized, please make sure to call init_process_group.
+```
+
+此问题是在 Megatron-LM 的 Checkpoint 转换代码中默认进程组未初始化。它是在 Megatron-LM core_r0.8.0 版本中引入的。我们目前有如下两种可能的方案来解决这个问题：
+
+1. 您可以注释掉有问题的那一行，因为这仅影响调试级别的日志输出。
+2. 考虑使用 Megatron-LM 版本 core_r0.9.0 作为后端，因为此版本已经修复了这个 bug。然而，该版本的正确性和性能尚未在 ChatLearn 中得到验证。我们计划在未来升级 Megatron-LM 版本到 core_r0.9.0。
+
 ## 申请 custom_port
 
 在 DLC 环境中，当前RLHF训练申请50个port已经满足所有使用场景。建议设置高级配置如下：
