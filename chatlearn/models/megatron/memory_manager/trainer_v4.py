@@ -13,25 +13,24 @@
 # limitations under the License.
 # ==============================================================================
 """Trainer Memery manager for Megatron V4"""
-from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, check_megatron_versions
 
-check_megatron_versions([MegatronVersion.V4])
-
-# pylint: disable=wrong-import-position,wrong-import-order,ungrouped-imports
 from typing import List, Optional
 
-import enum
 import torch
-import time
 
 from chatlearn.models.megatron.memory_manager.base_trainer import BaseTrainerMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
 from chatlearn.utils.megatron_import_helper import tensor_parallel
+from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, check_megatron_versions
+
+check_megatron_versions([MegatronVersion.V4])
+
+# pylint: disable=wrong-import-position,wrong-import-order,ungrouped-imports
 from megatron.model.distributed import ParamBufferType
 from megatron.model.distributed import get_param_buffer_type
-
 # pylint: enable=wrong-import-position,wrong-import-order,ungrouped-imports
+
 
 __all__ = ['TrainerMemoryManagerV4']
 
