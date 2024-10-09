@@ -1172,3 +1172,9 @@ class BaseModule:
 
     def get_data_parallel_size(self):
         return self.data_parallel_size
+
+    def get_pipeline_stage_layer_num(self):
+        pass
+
+    def get_pipeline_stage_layer_offset(self):
+        return 0

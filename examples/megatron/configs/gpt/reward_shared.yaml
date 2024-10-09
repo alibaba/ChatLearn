@@ -5,7 +5,7 @@ hidden_size: ${reward_hidden_size}
 num_attention_heads: ${reward_num_attention_heads}
 use_distributed_optimizer: ${reward_use_distributed_optimizer:False}
 tensor_model_parallel_size: ${reward_tp}
-pipeline_model_parallel_size: 1
+pipeline_model_parallel_size: ${reward_pp:1}
 seq_length: ${max_seq_len}
 max_position_embeddings: ${max_seq_len}
 

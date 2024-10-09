@@ -4,6 +4,6 @@ hidden_size: ${policy_hidden_size}
 num_attention_heads: ${policy_num_attention_heads}
 use_distributed_optimizer: ${policy_use_distributed_optimizer:True}
 tensor_model_parallel_size: ${policy_tp}
-pipeline_model_parallel_size: 1
+pipeline_model_parallel_size: ${policy_pp:1}
 
 
