@@ -934,7 +934,6 @@ class BaseModule:
             col.broadcast(param, src_rank, group_name)
 
         self.empty_cache()
-        return self._sync_buffer
 
 
     def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
