@@ -316,6 +316,9 @@ class ParameterSyncGroup:
                     dst_rank = dst_replica_ranks_group[j][offset]
                     self.add_recv_actor(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
+                if pipe_map_interval == 1:
+                    break
+
             # stage 2: comm pairs that broadcast params from first rank to the other ranks for each weight_mapping_group
             # Comm mapping in each weight_mapping_group of inference:
             #   [0'] -> [1']
