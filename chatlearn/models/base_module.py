@@ -651,7 +651,7 @@ class BaseModule:
     def set_to_fix_qkv_ordering_func(self, _to_fix_qkv_ordering_func):
         self._to_fix_qkv_ordering_func = _to_fix_qkv_ordering_func
 
-    def _get_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+    def _get_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None): # pylint: disable=too-many-nested-blocks
         if parameters_to_sync is None:
             parameters_to_sync = defaultdict(list)
         concat = []
