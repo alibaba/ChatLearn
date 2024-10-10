@@ -52,6 +52,11 @@ def create_trainer_memory_manager(
         from chatlearn.models.megatron.memory_manager.trainer_v3 import TrainerMemoryManagerV3
 
         cls = TrainerMemoryManagerV3
+    elif version in [MegatronVersion.V4]:
+        # pylint: disable-next=import-outside-toplevel
+        from chatlearn.models.megatron.memory_manager.trainer_v4 import TrainerMemoryManagerV4
+
+        cls = TrainerMemoryManagerV4
     else:
         raise ValueError(f'Unsupported version of Megatron for trainer memory manager: {version}')
 
