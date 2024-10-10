@@ -80,3 +80,4 @@ runtime:
   data_checkpoint_path: ${data_checkpoint_path}
   output_dir: ${output_dir}
   exp_name: ${exp_name:chatlearn}
+  debug: ${debug:False}
