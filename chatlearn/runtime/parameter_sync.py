@@ -65,9 +65,12 @@ class ParameterSyncGroup:
         self._actor2tp = {}
         self._actor2dp = {}
         self._comm_type = get_args().runtime_args.param_sync_comm_type
-        if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-            # since we reverse the src replica order, we can avoid same GPU sync when the num_replica is even
-            if self.num_src_tensor_parallel % 2 == 1 and self.dst_model.num_replica % 2 == 1:
+        if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST \
+            and self.num_src_tensor_parallel == self.num_dst_tensor_parallel \
+            and self.num_src_tensor_parallel % 2 == 1:
+            if self.num_src_pipeline_stage > 1 or self.src_model.num_replica % 2 == 1:
+                # since we reverse the src replica order, we can avoid same GPU sync when the num_replica is even
+                # TODO: we need to refine the src-dst mappings when TP is odd and PP > 1
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
         self.setup_collective_group()
