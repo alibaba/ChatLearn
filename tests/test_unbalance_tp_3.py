@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Test when trainer_tp < inference_tp but trainer_tp can divide inference_tp."""
+"""Test when trainer_tp < inference_tp but trainer_tp can divide inference_tp.
+Test case: (dst_tp, src_pp, src_tp) = (8, 1, 2), and validate results of sync params."""
 
 import os
 import ray
@@ -86,9 +87,7 @@ class PPOPolicy(TestTorchModule):
     @property
     def data_parallel_rank(self):
         return self._get_rank() // self.tensor_model_parallel_size()
-        # if self._get_rank() < 4:
-        #     return 0
-        # return 1
+
 
 # tuples: (dst_tp, src_pp, src_tp)
 tuples = (8, 1, 2)

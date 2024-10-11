@@ -12,7 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Test when trainer_tp < inference_tp but trainer_tp can divide inference_tp."""
+"""Test when trainer_tp < inference_tp but trainer_tp can divide inference_tp.
+Test case: (dst_tp, src_pp, src_tp) = (8, 4, 2), and validate results of sync params."""
 
 import os
 import ray
