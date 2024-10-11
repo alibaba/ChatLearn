@@ -13,11 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Trainer Memery manager for Megatron V1 and V2"""
-from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, check_megatron_versions
-
-check_megatron_versions([MegatronVersion.V1, MegatronVersion.V2])
-
-# pylint: disable=wrong-import-position,wrong-import-order,ungrouped-imports
 from typing import List, Optional
 
 import torch
@@ -26,8 +21,10 @@ from chatlearn.models.megatron.memory_manager.base_trainer import BaseTrainerMem
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
 from chatlearn.utils.megatron_import_helper import tensor_parallel
+from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, check_megatron_versions
 
-# pylint: enable=wrong-import-position,wrong-import-order,ungrouped-imports
+check_megatron_versions([MegatronVersion.V1, MegatronVersion.V2])
+
 
 __all__ = ['TrainerMemoryManagerV1V2']
 

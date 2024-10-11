@@ -16,6 +16,8 @@
 Version compatibility utilities for Megatron memory management of gradients and parameter weights.
 Base on how Megatron uses buffers to manage memory, we support 3 different versions.
 """
+import os
+
 from enum import Enum, auto
 from typing import List
 
@@ -30,9 +32,14 @@ class MegatronVersion(Enum):
     V1 = auto()  # use `MemoryBuffer` to manage gradients
     V2 = auto()  # use `GradBuffer` to manage gradients
     V3 = auto()  # use `ParamAndGradBuffer` to manage parameter weights and gradients
+    V4 = auto()  # for compatibility with temporary version for Qwen-MoE
 
 
 def get_megatron_version():
+    #  for compatibility with temporary version for Qwen-MoE
+    if os.environ.get("QWEN_VERSION", '') == 'qwen_moe_v1':
+        return MegatronVersion.V4
+
     try:
         # pylint: disable-next=import-outside-toplevel, unused-import
         from megatron.core.distributed import ParamAndGradBuffer
