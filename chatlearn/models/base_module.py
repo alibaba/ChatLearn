@@ -621,106 +621,120 @@ class BaseModule:
     def set_to_fix_qkv_ordering_func(self, _to_fix_qkv_ordering_func):
         self._to_fix_qkv_ordering_func = _to_fix_qkv_ordering_func
 
+    def _get_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+        # pylint: disable=too-many-nested-blocks
+        if parameters_to_sync is None:
+            parameters_to_sync = defaultdict(list)
+        concat = []
+        set_sync_param_flag = False
+
+        if self.concat_params_dict is not None:
+            if isinstance(self.concat_params_dict, dict):
+                assert "modules" in self.concat_params_dict
+                assert "dim" in self.concat_params_dict
+                assert isinstance(self.concat_params_dict["modules"], list)
+                concat_modules_list = self.concat_params_dict["modules"]
+                concat_dim = self.concat_params_dict["dim"]
+            else:
+                raise RuntimeError(
+                    f"Expect concat_params_dict in {self} to be a dict or None, while {self.concat_params_dict}.")
+
+        if self.to_fix_act_ordering_dict is not None:
+            if isinstance(self.to_fix_act_ordering_dict, dict):
+                assert "modules" in self.to_fix_act_ordering_dict
+                assert "dim" in self.to_fix_act_ordering_dict
+                assert isinstance(self.to_fix_act_ordering_dict["modules"], list)
+                to_fix_act_ordering_list = self.to_fix_act_ordering_dict["modules"]
+                fix_dim = self.to_fix_act_ordering_dict["dim"]
+            else:
+                raise RuntimeError(
+                    f"Expect to_fix_act_ordering_dict in {self} to be a dict or None, while {self.to_fix_act_ordering_dict}.")
+
+        if self.to_fix_qkv_ordering_dict is not None:
+            if isinstance(self.to_fix_qkv_ordering_dict, dict):
+                assert "modules" in self.to_fix_qkv_ordering_dict
+                assert "layer_re" in self.to_fix_qkv_ordering_dict
+                assert isinstance(self.to_fix_qkv_ordering_dict["modules"], list)
+                to_fix_modules_list = self.to_fix_qkv_ordering_dict["modules"]
+                layer_re = self.to_fix_qkv_ordering_dict["layer_re"]
+            else:
+                raise RuntimeError(
+                    f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {self.to_fix_qkv_ordering_dict}.")
+
+        for name in trainable_param_names:
+            if self.concat_params_dict is None and self.to_fix_act_ordering_dict is None:
+                set_sync_param_flag = True
+                _params_to_sync = self.named_parameters[name]
+            else:
+                need_concat_or_fix = False
+                if self.concat_params_dict is not None:
+                    if any([ele in name for ele in concat_modules_list]):  # pylint: disable=use-a-generator
+                        concat.append(self.named_parameters[name])
+                        need_concat_or_fix = True
+                        if len(concat) == len(concat_modules_list):
+                            set_sync_param_flag = True
+                            _params_to_sync = torch.cat(concat, dim=concat_dim)
+
+                if self.to_fix_act_ordering_dict is not None:
+                    if any([ele in name for ele in to_fix_act_ordering_list]):  # pylint: disable=use-a-generator
+                        val = self.named_parameters[name]
+                        offset = val.shape[0] // 2
+                        w1 = val[:offset, :]
+                        w2 = val[offset:, :]
+                        need_concat_or_fix = True
+                        set_sync_param_flag = True
+                        _params_to_sync = torch.cat([w2, w1], dim=fix_dim)
+
+                if not need_concat_or_fix:
+                    set_sync_param_flag = True
+                    _params_to_sync = self.named_parameters[name]
+
+            if not set_sync_param_flag:
+                continue
+            if self.to_fix_qkv_ordering_dict is not None:
+                from chatlearn.utils.vllm_utils import split_attn_state  # pylint: disable=import-outside-toplevel
+                m = layer_re.match(name)
+                if m is not None:
+                    op_name = m.group(2)
+                    if op_name in to_fix_modules_list:
+                        checkpoint_version = 3.0
+                        tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
+                        heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+                        hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict[
+                            "num_attention_heads"]
+                        if self._to_fix_qkv_ordering_func is split_attn_state:
+                            _num_query_groups = self.module_args.args_dict["num_query_groups"] // tp_size \
+                                if self.module_args.args_dict["group_query_attention"] else heads
+                            _params_to_sync = self._to_fix_qkv_ordering_func(
+                                _params_to_sync, heads, _num_query_groups, hidden_size_per_head,
+                                self.module_args.args_dict["hidden_size"])
+                        else:
+                            input_shape = _params_to_sync.size()
+                            shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
+                            division = reduce(operator.mul, shape, 1)
+                            num_elements = _params_to_sync.numel()
+                            if num_elements == division:
+                                # model with gqa dont need to fix qkv ordering.
+                                weight_or_bias = m.group(3)
+                                _params_to_sync = self._to_fix_qkv_ordering_func(
+                                    _params_to_sync, checkpoint_version, 3, heads, hidden_size_per_head
+                                )
+                                if weight_or_bias == "weight":
+                                    _params_to_sync = _params_to_sync.contiguous()
+            concat = []
+            set_sync_param_flag = False
+            parameters_to_sync[pipe_stage].append(_params_to_sync)
+        return parameters_to_sync
+
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0):
         """
         :meta private:
         """
         if pipe_stage not in self._parameters_to_sync or len(self._parameters_to_sync[pipe_stage]) == 0: # pylint: disable=too-many-nested-blocks
-            concat = []
-            set_sync_param_flag = False
+            self._get_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
 
-            if self.concat_params_dict is not None:
-                if isinstance(self.concat_params_dict, dict):
-                    assert "modules" in self.concat_params_dict
-                    assert "dim" in self.concat_params_dict
-                    assert isinstance(self.concat_params_dict["modules"], list)
-                    concat_modules_list = self.concat_params_dict["modules"]
-                    concat_dim = self.concat_params_dict["dim"]
-                else:
-                    raise RuntimeError(f"Expect concat_params_dict in {self} to be a dict or None, while {self.concat_params_dict}.")
-
-            if self.to_fix_act_ordering_dict is not None:
-                if isinstance(self.to_fix_act_ordering_dict, dict):
-                    assert "modules" in self.to_fix_act_ordering_dict
-                    assert "dim" in self.to_fix_act_ordering_dict
-                    assert isinstance(self.to_fix_act_ordering_dict["modules"], list)
-                    to_fix_act_ordering_list = self.to_fix_act_ordering_dict["modules"]
-                    fix_dim = self.to_fix_act_ordering_dict["dim"]
-                else:
-                    raise RuntimeError(f"Expect to_fix_act_ordering_dict in {self} to be a dict or None, while {self.to_fix_act_ordering_dict}.")
-
-            if self.to_fix_qkv_ordering_dict is not None:
-                if isinstance(self.to_fix_qkv_ordering_dict, dict):
-                    assert "modules" in self.to_fix_qkv_ordering_dict
-                    assert "layer_re" in self.to_fix_qkv_ordering_dict
-                    assert isinstance(self.to_fix_qkv_ordering_dict["modules"], list)
-                    to_fix_modules_list = self.to_fix_qkv_ordering_dict["modules"]
-                    layer_re = self.to_fix_qkv_ordering_dict["layer_re"]
-                else:
-                    raise RuntimeError(f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {self.to_fix_qkv_ordering_dict}.")
-
-            for name in trainable_param_names:
-                if self.concat_params_dict is None and self.to_fix_act_ordering_dict is None:
-                    set_sync_param_flag = True
-                    _params_to_sync = self.named_parameters[name]
-                else:
-                    need_concat_or_fix = False
-                    if self.concat_params_dict is not None:
-                        if any([ele in name for ele in concat_modules_list]): # pylint: disable=use-a-generator
-                            concat.append(self.named_parameters[name])
-                            need_concat_or_fix = True
-                            if len(concat) == len(concat_modules_list):
-                                set_sync_param_flag = True
-                                _params_to_sync = torch.cat(concat, dim=concat_dim)
-
-                    if self.to_fix_act_ordering_dict is not None:
-                        if any([ele in name for ele in to_fix_act_ordering_list]): # pylint: disable=use-a-generator
-                            val = self.named_parameters[name]
-                            offset = val.shape[0] // 2
-                            w1 = val[:offset,:]
-                            w2 = val[offset:,:]
-                            need_concat_or_fix = True
-                            set_sync_param_flag = True
-                            _params_to_sync = torch.cat([w2, w1], dim=fix_dim)
-
-                    if not need_concat_or_fix:
-                        set_sync_param_flag = True
-                        _params_to_sync = self.named_parameters[name]
-
-                if not set_sync_param_flag:
-                    continue
-                if self.to_fix_qkv_ordering_dict is not None:
-                    from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
-                    m = layer_re.match(name)
-                    if m is not None:
-                        op_name = m.group(2)
-                        if op_name in to_fix_modules_list:
-                            checkpoint_version = 3.0
-                            tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
-                            heads = self.module_args.args_dict["num_attention_heads"] // tp_size
-                            hidden_size_per_head =  self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-                            if self._to_fix_qkv_ordering_func is split_attn_state:
-                                _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
-                                    if self.module_args.args_dict["group_query_attention"] else heads
-                                _params_to_sync = self._to_fix_qkv_ordering_func(
-                                    _params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"])
-                            else:
-                                input_shape = _params_to_sync.size()
-                                shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
-                                division = reduce(operator.mul, shape, 1)
-                                num_elements = _params_to_sync.numel()
-                                if num_elements == division:
-                                    # model with gqa dont need to fix qkv ordering.
-                                    weight_or_bias = m.group(3)
-                                    _params_to_sync = self._to_fix_qkv_ordering_func(
-                                        _params_to_sync, checkpoint_version, 3, heads, hidden_size_per_head
-                                    )
-                                    if weight_or_bias == "weight":
-                                        _params_to_sync = _params_to_sync.contiguous()
-                concat = []
-                set_sync_param_flag = False
-                self._parameters_to_sync[pipe_stage].append(_params_to_sync)
-
+    def reset_sync_parameters(self, trainable_param_names, pipe_stage=0):
+        self._parameters_to_sync = self._get_sync_parameters(trainable_param_names, pipe_stage)
 
     def get_parameter_names(self, requires_grad=True):
         """
@@ -739,6 +753,11 @@ class BaseModule:
         if name not in self.named_parameters:
             raise Exception(f"parameter {name} not exits")
         return self.named_parameters[name]
+
+    def get_parameter_to_sync(self, name, pipe_stage):
+        for name0, param in self._parameters_to_sync[pipe_stage]:
+            if name0 == name:
+                return param
 
     def exist_parameter(self, name):
         """
