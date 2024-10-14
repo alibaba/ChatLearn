@@ -761,7 +761,7 @@ class BaseModule:
             self._get_sync_parameters(trainable_param_names, pipe_stage, parameters_to_sync)
 
     def reset_sync_parameters(self, trainable_param_names, pipe_stage=0):
-        self._parameters_to_sync = self._get_sync_parameters(trainable_param_names, pipe_stage)
+        self._parameters_to_sync = self._get_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
 
     def set_send_parameters(self, trainable_param_names, pipe_stage=0):
         """
@@ -805,6 +805,7 @@ class BaseModule:
         return self.named_parameters[name]
 
     def get_parameter_to_sync(self, name, pipe_stage):
+        assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
                 return param

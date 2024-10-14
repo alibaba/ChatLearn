@@ -42,12 +42,12 @@ export data_checkpoint_path=${output_dir}/data_checkpoint
 
 
 if [[ "$model_size" == "llama2-7B" ]]; then
-    export policy_tp=4
-    export policy_pp=1
-    export ppo_policy_tp=4
-    export ppo_policy_pp=1
-    export reward_tp=4
-    export ppo_value_pp=1
+    [ -z "$policy_tp" ] && export policy_tp=4
+    [ -z "$policy_pp" ] && export policy_pp=1
+    [ -z "$ppo_policy_tp" ] && export ppo_policy_tp=4
+    [ -z "$ppo_policy_pp" ] && export ppo_policy_pp=1
+    [ -z "$reward_tp" ] && export reward_tp=4
+    [ -z "$ppo_value_pp" ] && export ppo_value_pp=1
     export train_global_batch_size=128
     if [[ "$backend" == "megatron" ]]; then
         export generation_batch_size=256
@@ -60,10 +60,10 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     export train_micro_batch_size=16
     export max_num_batched_tokens=65536
     export gpu_memory_utilization=0.9
-    export num_gpu_ref=4
-    export num_gpu_value=4
-    export num_gpu_ppo_policy=4
-    export num_gpu_ppo_value=4
+    [ -z "$num_gpu_ref" ] && export num_gpu_ref=4
+    [ -z "$num_gpu_value" ] && export num_gpu_value=4
+    [ -z "$num_gpu_ppo_policy" ] && export num_gpu_ppo_policy=4
+    [ -z "$num_gpu_ppo_value" ] && export num_gpu_ppo_value=4
     export free_memory_reward=True
     export free_memory_ppo_policy=True
     export free_memory_ppo_value=True

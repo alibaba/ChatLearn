@@ -99,7 +99,7 @@ class ParameterSyncGroup:
     def get_or_cache(self, actor, func_name, *args, **kwargs):
         def inner_func(*args, **kwargs):
             return future.get(getattr(getattr(actor, func_name), 'remote')(*args, **kwargs))
-        cached_name = "_actor2" + func_name
+        cached_name = str(actor) + "_" + func_name
         if hasattr(self, cached_name):
             cached = getattr(self, cached_name)
         else:
@@ -538,6 +538,12 @@ class ParameterSyncGroup:
                 self._send_recv_param_names[key] = dst_names
             else:
                 self._send_recv_param_names[key] += dst_names
+        if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
+            pipe_stage = self.get_actor_pipe_rank(send_actor)
+            refs = []
+            refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
+            refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
+            future.get(refs)
         return src_names, dst_names
 
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None):
@@ -549,9 +555,6 @@ class ParameterSyncGroup:
             refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
             refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
             future.get(refs)
-        else:
-            self.get_or_cache(send_actor, "set_sync_parameters", src_names, pipe_stage)
-            self.get_or_cache(recv_actor, "set_sync_parameters", dst_names, pipe_stage)
         return src_names, dst_names
 
     def create_broadcast_group(self, send_actor, recv_actors, group_name=None):
