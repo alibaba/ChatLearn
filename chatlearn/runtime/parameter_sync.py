@@ -429,8 +429,10 @@ class ParameterSyncGroup:
                 future.get([send_ref, recv_ref])
             logger.debug(f"sync all parameters from {send_actor} to {recv_actor}")
         else:
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=requires_grad))
+            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
             for send_name, dst_name in zip(src_names, dst_names):
-                dst_name = self._get_dst_name(send_name)
+                dst_name = self._get_dst_name(send_name, src_prefix, dst_prefix)
                 recv_tensor_exist = future.get(recv_actor.exist_parameter.remote(dst_name))
                 if not recv_tensor_exist:
                     logger.info(f"recv tensor {dst_name} not exists")
