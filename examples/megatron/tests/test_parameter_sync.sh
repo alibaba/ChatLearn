@@ -4,6 +4,11 @@ set -x
 
 [ -z "$model_size" ] && export model_size=gpt-345M
 
+backend=${1:-megatron}
+if [[ "$backend" != "megatron" ]] && [[ "$backend" != "vllm" ]]; then
+  echo "ERROR: expect megatron or vllm backend, while "$backend
+  exit 1
+fi
 
 source scripts/base_env.sh
 
@@ -34,11 +39,31 @@ export train_micro_batch_size=2
 
 config_dir=${CHATLEARN}/examples/megatron/configs/
 
-num_episode=0 \
+if [[ $model_size == "gpt"* ]]; then
+  if [[ "$backend" != "megatron" ]]; then
+    echo "ERROR: gpt model support megatron backend for now."
+    exit 1
+  fi
+  config_name=${config_dir}/gpt/rlhf.yaml
+  export vocab_file=${DATA_DIR}/gpt2-vocab.json
+  export merge_file=${DATA_DIR}/gpt2-merges.txt
+elif [[ $model_size == "llama2"* ]]; then
+  if [[ "$backend" == "megatron" ]]; then
+    config_name=${config_dir}/llama2/rlhf.yaml
+  else
+    export ENABLE_VLLM=True
+    config_name=${config_dir}/llama2/vllm_rlhf.yaml
+  fi
+  export tokenizer_model=$VOCAB_FILE/tokenizer.model
+  export tokenizer_load=$VOCAB_FILE
+else
+  echo "unexpected model_type $model_size."
+  exit 1
+fi
+
+num_episode=2 \
 data_path=${DATASET_PATH} \
-vocab_file=${DATA_DIR}/gpt2-vocab.json \
-merge_file=${DATA_DIR}/gpt2-merges.txt \
 enable_lora_value=${lora} \
 enable_lora_policy=${lora} \
 tensorboard_dir=${TENSORBOARD_DIR} \
-python tests/test_parameter_sync.py -c ${config_dir}/gpt/rlhf.yaml 2>&1 | tee ${output_dir}/log_${RANK}.log ; exit ${PIPESTATUS[0]}
+python tests/test_parameter_sync.py -c ${config_name} 2>&1 | tee ${output_dir}/log_${RANK}.log ; exit ${PIPESTATUS[0]}

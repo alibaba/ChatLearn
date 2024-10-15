@@ -621,7 +621,7 @@ class BaseModule:
     def set_to_fix_qkv_ordering_func(self, _to_fix_qkv_ordering_func):
         self._to_fix_qkv_ordering_func = _to_fix_qkv_ordering_func
 
-    def _get_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+    def _set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
         # pylint: disable=too-many-nested-blocks
         if parameters_to_sync is None:
             parameters_to_sync = defaultdict(list)
@@ -731,10 +731,11 @@ class BaseModule:
         :meta private:
         """
         if pipe_stage not in self._parameters_to_sync or len(self._parameters_to_sync[pipe_stage]) == 0: # pylint: disable=too-many-nested-blocks
-            self._get_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
+            self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
 
     def reset_sync_parameters(self, trainable_param_names, pipe_stage=0):
-        self._parameters_to_sync = self._get_sync_parameters(trainable_param_names, pipe_stage)
+        self._parameters_to_sync[pipe_stage] = []
+        self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
 
     def get_parameter_names(self, requires_grad=True):
         """
