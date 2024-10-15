@@ -145,14 +145,18 @@ def to_device(device, args):
     return args
 
 
-def get_or_cache(cache, key, func):
+def get_or_cache(cache, key, func, *args, **kwargs):
     """
     get results if cached
     otherwise call the func to get the results, and cache the results
     """
+    if args is None:
+        args = []
+    if kwargs is None:
+        kwargs = {}
     if key in cache:
         return cache[key]
-    res = func()
+    res = func(*args, **kwargs)
     cache[key] = res
     return res
 

@@ -42,28 +42,28 @@ export data_checkpoint_path=${output_dir}/data_checkpoint
 
 
 if [[ "$model_size" == "llama2-7B" ]]; then
-    export policy_tp=4
+    export policy_tp=8
     export policy_pp=1
-    export ppo_policy_tp=4
+    export ppo_policy_tp=8
     export ppo_policy_pp=1
-    export reward_tp=4
+    export reward_tp=8
     export ppo_value_pp=1
     export train_global_batch_size=128
     if [[ "$backend" == "megatron" ]]; then
         export generation_batch_size=256
     elif [[ "$backend" == "vllm" ]]; then
-        export generation_batch_size=512
+        export generation_batch_size=256
     fi
     export ref_generation_batch_size=64
     export value_generation_batch_size=64
     export reward_generation_batch_size=64
-    export train_micro_batch_size=16
+    export train_micro_batch_size=2
     export max_num_batched_tokens=65536
     export gpu_memory_utilization=0.9
-    export num_gpu_ref=4
-    export num_gpu_value=4
-    export num_gpu_ppo_policy=4
-    export num_gpu_ppo_value=4
+    # export num_gpu_ref=4
+    # export num_gpu_value=4
+    # export num_gpu_ppo_policy=4
+    # export num_gpu_ppo_value=4
     export free_memory_reward=True
     export free_memory_ppo_policy=True
     export free_memory_ppo_value=True
