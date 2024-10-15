@@ -132,6 +132,7 @@ class VLLMPolicyInference(VLLMModule):
         prompt_sizes = torch.tensor([len(q) for q in no_padded_query_ids], device=all_tokens.device)
         loss_mask = get_loss_mask(all_tokens, self.tokenizer.tokenizer.eos_token_id, prompt_sizes)
         loss_mask = loss_mask.to("cpu")
+        print(f"str_outputs: {str_outputs}")
         return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts,
             "no_padded_query_ids": no_padded_query_ids, "logprobs": logprobs,
             "loss_mask": loss_mask}

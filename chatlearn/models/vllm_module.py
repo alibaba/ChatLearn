@@ -331,10 +331,11 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     ele = None
                 self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
 
-            for c_e in self.worker.cache_engine:
-                c_e.cpu_cache = None
-                c_e.gpu_cache = None
-            self.worker.cache_engine = None
+            if hasattr(self.worker, "cache_engine") and self.worker.cache_engine is not None:
+                for c_e in self.worker.cache_engine:
+                    c_e.cpu_cache = None
+                    c_e.gpu_cache = None
+                self.worker.cache_engine = None
 
         self.clear_cache()
 

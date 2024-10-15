@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Test when trainer_tp < inference_tp but trainer_tp can divide inference_tp.
-Test case: (dst_tp, src_pp, src_tp) = (8, 1, 2), and validate results of sync params."""
+Test case: (dst_tp, dst_pp, src_tp, src_pp) = (8, 1, 2, 1), and validate results of sync params."""
 
 import os
 import ray
@@ -89,15 +89,17 @@ class PPOPolicy(TestTorchModule):
         return self._get_rank() // self.tensor_model_parallel_size()
 
 
-# tuples: (dst_tp, src_pp, src_tp)
-tuples = (8, 1, 2)
+# tuples: (dst_tp, dst_pp, src_tp, src_pp)
+tuples = (8, 1, 2, 1)
 
 chatlearn.init()
 for _, model_config in chatlearn.get_args().models.items():
     model_config.num_gpu = 8
 chatlearn.get_args().models['policy'].tensor_model_parallel_size = tuples[0]
-chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[1]
+chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[1]
+chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[3]
 chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[2]
+
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
 
@@ -125,6 +127,6 @@ for src, dsts in param_sync_group.send_recv_actor_mappings_stage2.items():
         comm_pair_stage_2.append((actor2rank[src], actor2rank[dst]))
 
 assert comm_pair_stage_2 == \
-    [(8, 9), (8, 10), (8, 11), (9, 8), (9, 10), (9, 11), (10, 8), (10, 9), (10, 11), (11, 8), (11, 9), (11, 10), (12, 13), (12, 14), (12, 15), (13, 12), (13, 14), (13, 15), (14, 12), (14, 13), (14, 15), (15, 12), (15, 13), (15, 14)]
+    [(8, 9), (8, 10), (8, 11), (12, 13), (12, 14), (12, 15)]
 
 print(f"pass test_case (dst_tp, src_pp, src_tp): {tuples}")

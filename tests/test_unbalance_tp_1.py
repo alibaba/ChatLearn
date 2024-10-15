@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Test when trainer_tp < inference_tp but trainer_tp can divide inference_tp.
-Test case: (dst_tp, src_pp, src_tp) = (8, 4, 2), and validate results of sync params."""
+Test case: (dst_tp, dst_pp, src_tp, src_pp) = (8, 1, 2, 4), and validate results of sync params."""
 
 import os
 import ray
@@ -80,14 +80,15 @@ class PPOPolicy(TestTorchModule):
         return int(os.environ["RANK"])
 
 
-# tuples: (dst_tp, src_pp, src_tp)
-tuples = (8, 4, 2)
+# tuples: (dst_tp, dst_pp, src_tp, src_pp)
+tuples = (8, 1, 2, 4)
 
 chatlearn.init()
 for _, model_config in chatlearn.get_args().models.items():
     model_config.num_gpu = 8
 chatlearn.get_args().models['policy'].tensor_model_parallel_size = tuples[0]
-chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[1]
+chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[1]
+chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[3]
 chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[2]
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
