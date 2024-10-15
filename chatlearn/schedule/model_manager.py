@@ -187,7 +187,7 @@ class ModelManager:
         # public user function
         # TODO: use decorator to annotate
         for func_name in ["save_checkpoint", "model_setup", "onload", "offload", "build_dataset",
-                          "_build_dataloader", "generate_vllm"] + model.call_funcs:
+                          "_build_dataloader", "generate_vllm", "init"] + model.call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 

@@ -132,7 +132,6 @@ class BaseModule:
         self._tp_division = {}
         self._num_mapping = 1
         self._sync_buffer = defaultdict(list)
-        self.parameter_sync_time = 0
 
     def get_sync_buffer(self):
         return self._sync_buffer
@@ -652,9 +651,11 @@ class BaseModule:
     def set_to_fix_qkv_ordering_func(self, _to_fix_qkv_ordering_func):
         self._to_fix_qkv_ordering_func = _to_fix_qkv_ordering_func
 
-    def _get_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+    def _set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+        # pylint: disable=too-many-nested-blocks
         if parameters_to_sync is None:
             parameters_to_sync = defaultdict(list)
+        assert pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage])==0
         concat = []
         set_sync_param_flag = False
 
@@ -689,7 +690,6 @@ class BaseModule:
                 raise RuntimeError(f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {self.to_fix_qkv_ordering_dict}.")
 
         for name in trainable_param_names:
-            assert isinstance(name, str), type(name)
             if self.concat_params_dict is None and self.to_fix_act_ordering_dict is None:
                 set_sync_param_flag = True
                 _params_to_sync = self.named_parameters[name]
@@ -758,42 +758,12 @@ class BaseModule:
         """
         if parameters_to_sync is None:
             parameters_to_sync = self._parameters_to_sync
-        if pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage]) == 0: # pylint: disable=too-many-nested-blocks
-            self._get_sync_parameters(trainable_param_names, pipe_stage, parameters_to_sync)
+        if pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage]) == 0:
+            self._set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_sync)
 
     def reset_sync_parameters(self, trainable_param_names, pipe_stage=0):
-        self._parameters_to_sync = self._get_sync_parameters(trainable_param_names, pipe_stage)
-
-    def fix_qkv_ordering(self, layer_re, to_fix_modules_list, _params_to_sync):
-        if self.to_fix_qkv_ordering_dict is not None:
-            from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
-            m = layer_re.match(name)
-            if m is not None:
-                op_name = m.group(2)
-                if op_name in to_fix_modules_list:
-                    checkpoint_version = 3.0
-                    tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
-                    heads = self.module_args.args_dict["num_attention_heads"] // tp_size
-                    hidden_size_per_head =  self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-                    if self._to_fix_qkv_ordering_func is split_attn_state:
-                        _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
-                            if self.module_args.args_dict["group_query_attention"] else heads
-                        _params_to_sync = self._to_fix_qkv_ordering_func(
-                            _params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"])
-                    else:
-                        input_shape = _params_to_sync.size()
-                        shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
-                        division = reduce(operator.mul, shape, 1)
-                        num_elements = _params_to_sync.numel()
-                        if num_elements == division:
-                            # model with gqa dont need to fix qkv ordering.
-                            weight_or_bias = m.group(3)
-                            _params_to_sync = self._to_fix_qkv_ordering_func(
-                                _params_to_sync, checkpoint_version, 3, heads, hidden_size_per_head
-                            )
-                            if weight_or_bias == "weight":
-                                _params_to_sync = _params_to_sync.contiguous()
-        return _params_to_sync
+        self._parameters_to_sync[pipe_stage] = []
+        self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
 
     def set_send_parameters(self, trainable_param_names, pipe_stage=0):
         """
@@ -837,6 +807,7 @@ class BaseModule:
         return self.named_parameters[name]
 
     def get_parameter_to_sync(self, name, pipe_stage):
+        assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
                 return param
@@ -981,7 +952,6 @@ class BaseModule:
             col.broadcast(param, src_rank, group_name)
 
         self.empty_cache()
-        # return self._sync_buffer
 
 
     def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
