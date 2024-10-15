@@ -806,11 +806,13 @@ class BaseModule:
             raise Exception(f"parameter {name} not exits")
         return self.named_parameters[name]
 
-    def get_parameter_to_sync(self, name, pipe_stage):
+    def get_parameter_to_sync(self, name, pipe_stage, to_cpu=False):
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
-                return param.cpu()
+                if to_cpu:
+                    param = param.cpu()
+                return param
 
     def exist_parameter(self, name):
         """
