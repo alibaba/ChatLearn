@@ -536,16 +536,17 @@ class ParameterSyncGroup:
                 dst_names0 = self._send_recv_param_names[key][0]
                 dst_names0 += dst_names
                 self._send_recv_param_names[key] = (dst_names0, dst_names0)
-        pipe_stage = self.get_actor_pipe_rank(send_actor)
-        refs = []
-        refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
-        refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
-        future.get(refs)
+        if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
+            pipe_stage = self.get_actor_pipe_rank(send_actor)
+            refs = []
+            refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
+            refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
+            future.get(refs)
         return src_names, dst_names
 
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
-                                                  lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad))
+            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad))
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
             refs = []

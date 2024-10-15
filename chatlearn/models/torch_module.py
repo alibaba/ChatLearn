@@ -118,7 +118,6 @@ class TorchModule(BaseModule):
             if not self.exist_parameter(name):
                 not_exists.append(name)
         if not_exists:
-            breakpoint()
             log_rank_0(f"parameters not exists: {not_exists} in model {self.name}", self._logger)
             return False
         return True
