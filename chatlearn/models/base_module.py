@@ -810,7 +810,7 @@ class BaseModule:
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
-                return param
+                return param.cpu()
 
     def exist_parameter(self, name):
         """
