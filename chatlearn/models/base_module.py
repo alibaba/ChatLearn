@@ -723,7 +723,7 @@ class BaseModule:
                                     _params_to_sync = _params_to_sync.contiguous()
             concat = []
             set_sync_param_flag = False
-            parameters_to_sync[pipe_stage].append(_params_to_sync)
+            parameters_to_sync[pipe_stage].append((name, _params_to_sync))
         return parameters_to_sync
 
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0):
@@ -758,7 +758,7 @@ class BaseModule:
     def get_parameter_to_sync(self, name, pipe_stage):
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
-                return param
+                return param.cpu()
 
     def exist_parameter(self, name):
         """
@@ -778,7 +778,7 @@ class BaseModule:
         """
         if self.runtime_args.coalesce_param:
             assert name is None
-            tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+            tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
             debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
             for bucket in dense_buckets:
@@ -794,7 +794,7 @@ class BaseModule:
         """
         :meta private:
         """
-        tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+        tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
         assert len(tensors) > 0
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
         debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
@@ -826,7 +826,7 @@ class BaseModule:
         name2ref = {}
         if self.runtime_args.coalesce_param:
             assert name is None
-            tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+            tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
             debug_rank_0(f"{self.name} Put dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
             for bucket_id, bucket in enumerate(dense_buckets):
@@ -848,7 +848,7 @@ class BaseModule:
         """
         if self.runtime_args.coalesce_param:
             assert name is None
-            tensors = [param.data for param in self._parameters_to_sync[pipe_stage]]
+            tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
             dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
             debug_rank_0(f"{self.name} Get dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
             for bucket_id, bucket in enumerate(dense_buckets):
