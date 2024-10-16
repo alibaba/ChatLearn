@@ -292,7 +292,7 @@ class Engine(BaseEngine):
                                                self.runtime_args.max_relay_episode,
                                                self.runtime_args.relay_episode_offset)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
-        self.model_manager.sync_parameters(requires_grad=False)
+        self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('After first param sync'))
         self._data_loader = data_loader
         for episode_id in range(self._start_episode, self.runtime_args.num_episode):
@@ -312,6 +312,8 @@ class Engine(BaseEngine):
                                                       self.runtime_args.sample_per_episode)
             future.wait(refs)
             if self.trainer is not None:
+                # validate parameter sync in the first two episodes
+                validate = self.runtime_args.validate_param_sync and episode_id < 2
                 self.timers("set_train_dataset").stop()
                 self.trainer.set_data_loader(data_loader)
                 logger.info("set dataloader for trainer done")
@@ -322,7 +324,7 @@ class Engine(BaseEngine):
                 logger.info(get_full_proc_memory_info(f'After train {episode_id}'))
                 logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
-                self.model_manager.sync_parameters(episode_id + 1)
+                self.model_manager.sync_parameters(episode_id + 1, validate=validate)
                 self.timers("sync_parameters").stop()
                 logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             self.after_episode()

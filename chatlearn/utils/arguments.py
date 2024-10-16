@@ -329,6 +329,8 @@ class RuntimeConfig(BaseConfig):
     exp_name: str = "CHATLEARN"
     #: output dir
     output_dir: str = "./"
+    #: validate param sync
+    validate_param_sync: bool = False
 
     def __init__(self):
         super().__init__()
@@ -410,6 +412,7 @@ class Config(BaseConfig):
         self.initialized = False
         if param_dict:
             self._parse_params(param_dict)
+            self._set_param_from_env()
             self._validate_params()
         # remove later, just for compatibility
         self.rlhf_args = self.runtime_args
@@ -491,6 +494,14 @@ class Config(BaseConfig):
                 raise ValueError("%s type error, expected: %s." \
                                  % (key, type(default_value)))
             return value
+
+    def _set_param_from_env(self):
+        # TODO: do we need to set other params from env?
+        param_names = ['validate_param_sync']
+        for param_name in param_names:
+            env_name = param_name.upper()
+            if env_name in os.environ:
+                setattr(self.runtime_args, param_name, convert_type(os.environ[env_name]))
 
     def _validate_params(self):
         if self.runtime_args.train_global_batch_size is None:
