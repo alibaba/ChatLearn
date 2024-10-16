@@ -56,6 +56,8 @@ class ParameterSyncGroup:
         self._debug = get_args().runtime_args.debug
         self._num_src_pipeline_stage = None
         self._num_dst_pipeline_stage = None
+        self._num_src_expert_parallel = None
+        self._num_dst_expert_parallel = None
         self._num_src_tensor_parallel = None
         self._num_dst_tensor_parallel = None
         self._dst_prefix = None
@@ -63,10 +65,13 @@ class ParameterSyncGroup:
         self._send_recv_param_names = {}
         self._actor2pipe = {}
         self._actor2tp = {}
+        self._actor2ep = {}
         self._actor2dp = {}
         self._comm_type = get_args().runtime_args.param_sync_comm_type
-        if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-            if self.num_src_tensor_parallel % 2 == 1:
+        if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST \
+            and self.num_src_tensor_parallel == self.num_dst_tensor_parallel \
+            and self.num_src_tensor_parallel % 2 == 1:
+            if self.num_src_pipeline_stage > 1 or self.src_model.num_replica % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
         self.setup_collective_group()
@@ -138,6 +143,18 @@ class ParameterSyncGroup:
             self._num_dst_tensor_parallel = future.get(self.dst_model.replicas[0].all_actors[0].tensor_model_parallel_size.remote())
         return self._num_dst_tensor_parallel
 
+    @property
+    def num_src_expert_parallel(self):
+        if self._num_src_expert_parallel is None:
+            self._num_src_expert_parallel = future.get(self.src_model.replicas[0].all_actors[0].expert_model_parallel_size.remote())
+        return self._num_src_expert_parallel
+
+    @property
+    def num_dst_expert_parallel(self):
+        if self._num_dst_expert_parallel is None:
+            self._num_dst_expert_parallel = future.get(self.dst_model.replicas[0].all_actors[0].expert_model_parallel_size.remote())
+        return self._num_dst_expert_parallel
+
     def setup_collective_group(self):
         refs = []
         # we put src_model first, so we don't need to change the rank of training model
@@ -178,9 +195,12 @@ class ParameterSyncGroup:
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
         dst_pp_rank = self.get_actor_pipe_rank(dst_actor)
-        logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " + \
-                     f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " + \
-                     f"from tp rank {src_tp_rank} to {dst_tp_rank}")
+        src_ep_rank = self.get_actor_ep_rank(src_actor)
+        dst_ep_rank = self.get_actor_ep_rank(dst_actor)
+        logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " +
+                     f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " +
+                     f"from tp rank {src_tp_rank} to {dst_tp_rank}, " +
+                     f"from ep rank {src_ep_rank} to {dst_ep_rank}.")
         self.send_recv_actor_mappings[src_actor].append(dst_actor)
         self.recv_send_actor_mappings[dst_actor].append(src_actor)
 
@@ -206,41 +226,49 @@ class ParameterSyncGroup:
     def build_rank_mapping(self):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
-        dst_ranks = self.dst_model.all_ranks
+        dst_dp_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
-        if local_src_ranks[0] is None or dst_ranks is None:
+        if local_src_ranks[0] is None or dst_dp_ranks is None:
             if self._debug:
                 logger.warning(
-                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
+                    f"DEBUG MODE! src_dp_ranks {local_src_ranks} or dst_dp_ranks: {dst_dp_ranks} is None, "
+                    "make sure they have values in real application.")
                 return
             else:
-                raise Exception(f"src_ranks {local_src_ranks} or dst_ranks {dst_ranks} should not be None")
+                raise Exception(f"src_dp_ranks {local_src_ranks} or dst_dp_ranks {dst_dp_ranks} should not be None")
         dp_rank_to_ranks = defaultdict(list)
         for local_ranks, dp_rank in local_src_ranks:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
-        src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+        src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
-        assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
-            f"src training model ranks should be times of dst ranks, but got {len(src_ranks[0])} and {len(dst_ranks[0])}"
+        assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
+            f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
-            replica_rank_iter = cycle(reversed(src_ranks))
+            replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
-            replica_rank_iter = cycle(iter(src_ranks))
-        logger.debug(f"src_ranks: {src_ranks}")
-        logger.debug(f"dst_ranks: {dst_ranks}")
+            replica_rank_iter = cycle(iter(src_dp_ranks))
+        logger.debug(f"src_dp_ranks: {src_dp_ranks}")
+        logger.debug(f"dst_dp_ranks: {dst_dp_ranks}")
         assert self.num_src_tensor_parallel == self.num_dst_tensor_parallel, \
             "currently we require the tensor_model_parallel_size to be the same between " + \
-            f"src model {self.src_model.name}(TP={self.num_src_tensor_parallel}) and " + \
-            f"dst model {self.dst_model.name}(TP={self.num_dst_tensor_parallel})"
+            f"src model {self.src_model.name} (TP={self.num_src_tensor_parallel}) and " + \
+            f"dst model {self.dst_model.name} (TP={self.num_dst_tensor_parallel})"
+        assert self.num_src_expert_parallel == self.num_dst_expert_parallel, \
+             "currently we require the expert_model_parallel_size to be the same between " + \
+            f"src model {self.src_model.name} (EP={self.num_src_expert_parallel}) and " + \
+            f"dst model {self.dst_model.name} (EP={self.num_dst_expert_parallel})"
         assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
 
-        def split_ranks_by_tp_size(ranks, tp_size):
-            return [ranks[i:i + tp_size] for i in range(0, len(ranks), tp_size)]
+        def split_ranks_by_tp_and_ep_size(ranks,
+                                          tp_size : int = 1,
+                                          ep_size : int = 1):
+            tp_size_mul_ep_size = tp_size * ep_size
+            return [ranks[i:i + tp_size_mul_ep_size] for i in range(0, len(ranks), tp_size_mul_ep_size)]
 
-        for dst_replica_ranks in dst_ranks:
+        for dst_replica_ranks in dst_dp_ranks:
             src_replica_ranks = next(replica_rank_iter)
-            src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
-            dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_src_tensor_parallel)
+            src_replica_ranks_group = split_ranks_by_tp_and_ep_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
+            dst_replica_ranks_group = split_ranks_by_tp_and_ep_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
@@ -315,6 +343,8 @@ class ParameterSyncGroup:
                     dst_rank = dst_replica_ranks_group[j][offset]
                     self.add_recv_actor(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
+                if pipe_map_interval == 1:
+                    break
             # stage 2: comm pairs that broadcast params from first rank to the other ranks for each weight_mapping_group
             # Comm mapping in each weight_mapping_group of inference:
             #   [0'] -> [1']
@@ -488,6 +518,11 @@ class ParameterSyncGroup:
             return future.get(actor.tensor_parallel_rank.remote())
         return utils.get_or_cache(self._actor2tp, actor, inner_func)
 
+    def get_actor_ep_rank(self, actor):
+        def inner_func():
+            return future.get(actor.expert_parallel_rank.remote())
+        return utils.get_or_cache(self._actor2ep, actor, inner_func)
+
     def get_actor_dp_rank(self, actor):
         def inner_func():
             return future.get(actor.get_data_parallel_rank.remote())
@@ -563,8 +598,9 @@ class ParameterSyncGroup:
         dp = self.get_actor_dp_rank(send_actor)
         pp = self.get_actor_pipe_rank(send_actor)
         tp = self.get_actor_tp_rank(send_actor)
+        ep = self.get_actor_ep_rank(send_actor)
         group_name = self.group_name if group_name is None else group_name
-        group_name = f"{group_name}_dp{dp}_pp{pp}_tp{tp}"
+        group_name = f"{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
         if group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):

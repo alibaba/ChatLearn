@@ -71,7 +71,12 @@ class BaseModule:
         self._is_colocate = False
 
         if self.total_gpu > 0:
-            self._num_gpu_per_replica = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.zero_size
+            self._num_gpu_per_replica = (
+                args.tensor_model_parallel_size
+                * args.pipeline_model_parallel_size
+                * args.expert_model_parallel_size
+                * args.zero_size
+            )
             assert self._num_gpu_per_replica <= self.total_gpu
             assert self.total_gpu % self._num_gpu_per_replica == 0
             if not self.trainable:
@@ -1025,6 +1030,12 @@ class BaseModule:
         :meta private:
         """
         return self.module_args.tensor_model_parallel_size
+
+    def expert_model_parallel_size(self):
+        """
+        :meta private:
+        """
+        return self.module_args.expert_model_parallel_size
 
     def num_layers(self):
         """
