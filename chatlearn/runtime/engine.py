@@ -81,8 +81,10 @@ class BaseEngine:
             future.wait(ref_set_src)
         # include compile in init, compile dependencies need to be called serially
         logger.info(get_full_proc_memory_info('Before model init'))
+        ref_init = []
         for model in self.remote_models:
-            model.init()
+            ref_init += model.init()
+        future.wait(ref_init)
         logger.info(get_full_proc_memory_info('After model init'))
         # do not include compile dependencies in setup
         # if the program hang in setup, may try to set concurrent_setup to False.
