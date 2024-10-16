@@ -360,7 +360,7 @@ class ParameterSyncGroup:
             logger.info("Validation passed!")
 
     def set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad):
-        send_names = self.set_sync_param_names(send_actor, send_actor, requires_grad)[0]
+        send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
         refs.append(recv_actor.set_recv_parameters.remote(rank, send_names, self.get_actor_pipe_rank(recv_actor)))
