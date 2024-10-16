@@ -58,8 +58,6 @@ class ParameterSyncGroup:
         self._num_dst_pipeline_stage = None
         self._num_src_tensor_parallel = None
         self._num_dst_tensor_parallel = None
-        self._dst_prefix = None
-        self._src_prefix = None
         self._send_recv_param_names = {}
         self._actor2pipe = {}
         self._actor2tp = {}
@@ -264,9 +262,6 @@ class ParameterSyncGroup:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
         src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
-        assert len(src_ranks[0]) % len(dst_ranks[0]) == 0, \
-            f"src training model ranks should be times of dst ranks, but got {len(src_ranks[0])} and {len(dst_ranks[0])}"
-
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
             replica_rank_iter = cycle(reversed(src_ranks))
         else:
@@ -334,11 +329,11 @@ class ParameterSyncGroup:
         logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
         logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
 
-    def _get_dst_name(self, src_name):
-        if self._src_prefix:
-            dst_name = src_name[len(self._src_prefix):]
+    def _get_dst_name(self, src_name, src_prefix, dst_prefix):
+        if src_prefix:
+            dst_name = src_name[len(src_prefix):]
         else:
-            dst_name = self._dst_prefix + src_name
+            dst_name = dst_prefix + src_name
         return dst_name
 
     def validate_sync_results(self, send_actor, recv_actor, requires_grad):
@@ -365,7 +360,7 @@ class ParameterSyncGroup:
             logger.info("Validation passed!")
 
     def set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad):
-        send_names = self.set_sync_param_names(send_actor, send_actor, requires_grad)
+        send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
         refs.append(recv_actor.set_recv_parameters.remote(rank, send_names, self.get_actor_pipe_rank(recv_actor)))
@@ -434,8 +429,10 @@ class ParameterSyncGroup:
                 future.get([send_ref, recv_ref])
             logger.debug(f"sync all parameters from {send_actor} to {recv_actor}")
         else:
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=requires_grad))
+            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
             for send_name, dst_name in zip(src_names, dst_names):
-                dst_name = self._get_dst_name(send_name)
+                dst_name = self._get_dst_name(send_name, src_prefix, dst_prefix)
                 recv_tensor_exist = future.get(recv_actor.exist_parameter.remote(dst_name))
                 if not recv_tensor_exist:
                     logger.info(f"recv tensor {dst_name} not exists")
@@ -456,18 +453,21 @@ class ParameterSyncGroup:
             future.get(self.error_signal.set.remote(traceback.format_exc()))
 
     def set_model_prefix(self, src_names, dst_names):
+        dst_prefix = None
+        src_prefix = None
         for sname in src_names:
             for dname in dst_names:
                 if sname in dname:
                     prefix = dname[:dname.index(sname)]
-                    self._dst_prefix = prefix
-                    return
+                    dst_prefix = prefix
+                    return src_prefix, dst_prefix
                 elif dname in sname:
                     prefix = sname[:sname.index(dname)]
-                    self._src_prefix = prefix
-                    return
-        if self._dst_prefix is None and self._src_prefix is None:
+                    src_prefix = prefix
+                    return src_prefix, dst_prefix
+        if dst_prefix is None and src_prefix is None:
             raise RuntimeError("Cannot find prefix")
+        return src_prefix, dst_prefix
 
     def check_param_names(self, send_actor, recv_actor, src_names, dst_names):
         ref0 = send_actor.check_param_exists.remote(src_names)
@@ -526,18 +526,18 @@ class ParameterSyncGroup:
             to_fix_qkv_ordering_func = future.get(recv_actor.get_to_fix_qkv_ordering_func.remote())
             future.get(send_actor.set_to_fix_qkv_ordering_func.remote(to_fix_qkv_ordering_func))
         else:
-            if self._dst_prefix is None and self._src_prefix is None:
-                dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
-                self.set_model_prefix(src_names, dst_names_ref)
-
-            dst_names = [self._get_dst_name(name) for name in dst_names]
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
+            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
+            dst_names = [self._get_dst_name(name, src_prefix, dst_prefix) for name in dst_names]
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         if self.num_mapping > 1:
             key = (recv_actor, recv_actor)
             if key not in self._send_recv_param_names:
-                self._send_recv_param_names[key] = dst_names
+                self._send_recv_param_names[key] = (dst_names, dst_names)
             else:
-                self._send_recv_param_names[key] += dst_names
+                dst_names0 = self._send_recv_param_names[key][0]
+                dst_names0 += dst_names
+                self._send_recv_param_names[key] = (dst_names0, dst_names0)
         if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             refs = []
