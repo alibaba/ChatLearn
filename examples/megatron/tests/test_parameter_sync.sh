@@ -35,7 +35,7 @@ export lora=False
 [ -z "$ppo_policy_pp" ] && export ppo_policy_pp=1
 [ -z "$reward_tp" ] && export reward_tp=8
 [ -z "$ppo_value_pp" ] && export ppo_value_pp=1
-export policy_generation_batch_size=32
+[ -z "$policy_generation_batch_size" ] && export policy_generation_batch_size=32
 export train_micro_batch_size=2
 
 config_dir=${CHATLEARN}/examples/megatron/configs/

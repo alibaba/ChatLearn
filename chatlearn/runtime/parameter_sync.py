@@ -351,8 +351,8 @@ class ParameterSyncGroup:
             future.wait([send_actor.reset_sync_parameters.remote(src_names, pipe_stage),
                          recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage)])
             for src_name, dst_name in tqdm(names):
-                src_tensor, dst_tensor = future.get([send_actor.get_parameter_to_sync.remote(src_name, pipe_stage),
-                                                     recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage)])
+                src_tensor, dst_tensor = future.get([send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True),
+                                                     recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True)])
                 assert src_tensor.shape == dst_tensor.shape, \
                     f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match"
                 assert (src_tensor == dst_tensor).all(), \
