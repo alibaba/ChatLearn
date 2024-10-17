@@ -16,6 +16,9 @@
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
+from typing import List, TypedDict
+from typing_extensions import NotRequired
+
 # pylint: disable=unused-import,import-outside-toplevel,wrong-import-position,wrong-import-order
 if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
     # imports for vllm-030
@@ -26,8 +29,8 @@ if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
     from vllm.model_executor.parallel_utils.parallel_state import initialize_model_parallel
     from vllm.model_executor.weight_utils import initialize_dummy_weights
 
-elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
-    # imports for vllm-051
+elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
+    # imports for vllm-051 and vllm-061
     from vllm.core.interfaces import BlockSpaceManager
     from vllm.distributed import parallel_state
     from vllm.distributed.communication_op import tensor_model_parallel_all_gather
@@ -37,11 +40,11 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
     from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
     from vllm.engine.output_processor.stop_checker import StopChecker
     from vllm.inputs import INPUT_REGISTRY
-    from vllm.inputs import TextTokensPrompt
     from vllm.model_executor.model_loader.utils import set_default_torch_dtype as _set_default_torch_dtype
     from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
     from vllm.sequence import ExecuteModelRequest
     from vllm.transformers_utils.detokenizer import Detokenizer
+
 
 from vllm.core.scheduler import Scheduler
 from vllm.engine.arg_utils import EngineArgs
@@ -53,6 +56,24 @@ from vllm.model_executor.models.qwen2 import Qwen2ForCausalLM
 from vllm.sampling_params import SamplingParams
 from vllm.utils import Counter
 from vllm.worker.worker import Worker
+
+
+class TextTokensPrompt(TypedDict):
+    """It is assumed that :attr:`prompt` is consistent with
+    :attr:`prompt_token_ids`. This is currently used in
+    :class:`AsyncLLMEngine` for logging both the text and token IDs."""
+
+    prompt: str
+    """The prompt text."""
+
+    prompt_token_ids: List[int]
+    """The token IDs of the prompt."""
+
+    multi_modal_data: NotRequired["MultiModalDataDict"]
+    """
+    Optional multi-modal data to pass to the model,
+    if the model supports it.
+    """
 
 
 def get_block_manager_cls(version):
