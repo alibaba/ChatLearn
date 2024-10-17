@@ -16,14 +16,15 @@
 
 import operator
 from functools import reduce
-from .base import BaseSync
-from chatlearn.utils import future
+import torch
 from transformers import AutoConfig
+from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
-
 from chatlearn.utils.vllm_utils import Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
+from .base import BaseSync
 
 class MegatronVllmSync(BaseSync):
+    """Megatron to vllm sync"""
 
     def __init__(self, src_model, dst_model):
         super().__init__(src_model, dst_model)
@@ -37,10 +38,11 @@ class MegatronVllmSync(BaseSync):
         """
         :meta private:
         """
+        # pylint: disable=import-outside-toplevel
         layer_offset = src_pipe_layer_offset
         if self.model_class_name == "QWenLMHeadModel":
             sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
+            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering
             self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
             sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
         elif self.model_class_name == "Qwen2ForCausalLM":
@@ -51,16 +53,16 @@ class MegatronVllmSync(BaseSync):
         elif self.model_class_name == "LlamaForCausalLM":
             use_legacy_models = get_use_legacy_models(self.src_model.module_args.args_dict)
             sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
-            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
+            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering
             self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
             sync_map = sync_map_cls(src_names, layer_offset)
         else:
             raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
         self.sync_map = sync_map
-        self._validate(sync_map)
+        self._validate()
         return sync_map.src_names, sync_map.dst_names
 
-    def _validate(self, sync_map):
+    def _validate(self):
         if self.sync_map.concat_params_dict is not None:
             if isinstance(self.sync_map.concat_params_dict, dict):
                 assert "modules" in self.sync_map.concat_params_dict
@@ -74,7 +76,6 @@ class MegatronVllmSync(BaseSync):
                 assert "modules" in self.sync_map.to_fix_act_ordering_dict
                 assert "dim" in self.sync_map.to_fix_act_ordering_dict
                 assert isinstance(self.sync_map.to_fix_act_ordering_dict["modules"], list)
-                fix_dim = self.sync_map.to_fix_act_ordering_dict["dim"]
             else:
                 raise RuntimeError(f"Expect to_fix_act_ordering_dict in {self} to be a dict or None, while {self.sync_map.to_fix_act_ordering_dict}.")
 
@@ -151,8 +152,9 @@ class MegatronVllmSync(BaseSync):
     def fix_act_ordering(self, params_to_sync_list):
         if self.sync_map.to_fix_act_ordering_dict is None:
             return params_to_sync_list
+        fix_dim = self.sync_map.to_fix_act_ordering_dict["dim"]
+        to_fix_act_ordering_list = self.sync_map.to_fix_act_ordering_dict["modules"]
         for i, (name, params_to_sync) in enumerate(params_to_sync_list):
-            to_fix_act_ordering_list = self.sync_map.to_fix_act_ordering_dict["modules"]
             if any([ele in name for ele in to_fix_act_ordering_list]): # pylint: disable=use-a-generator
                 val = params_to_sync
                 offset = val.shape[0] // 2
@@ -170,5 +172,3 @@ class MegatronVllmSync(BaseSync):
         params_to_sync_list = self.fix_act_ordering(params_to_sync_list)
         params_to_sync_list = self.fix_qkv_ordering(params_to_sync_list)
         return params_to_sync_list
-
-            

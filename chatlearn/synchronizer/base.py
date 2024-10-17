@@ -19,6 +19,8 @@ from chatlearn.utils import future
 from chatlearn.utils import utils
 
 class BaseSync:
+    """Base synchronizer"""
+
     def __init__(self, src_model, dst_model):
         self.src_model = src_model
         self.dst_model = dst_model

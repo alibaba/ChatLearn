@@ -18,6 +18,7 @@ from chatlearn.utils import future
 from .base import BaseSync
 
 class MegatronMegatronSync(BaseSync):
+    """megatron to megatron synchronizer"""
 
     def __init__(self, src_model, dst_model):
         super().__init__(src_model, dst_model)
