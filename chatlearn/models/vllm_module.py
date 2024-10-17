@@ -504,51 +504,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             )
             self.offload()
 
-    # def get_pipeline_layer_offset(self, num_src_pipeline_stage, src_pipe_stage):
-    #     """
-    #     get layer_idx offset from src model to tgt model
-    #     Args:
-    #         num_src_pipeline_stage: number of pipeline stage in src model
-    #         src_pipe_stage: src model pipeline rank
-    #     :meta private:
-    #     """
-    #     src_layers_per_stage = self.num_layers() // num_src_pipeline_stage
-    #     dst_layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
-    #     assert dst_layers_per_stage % src_layers_per_stage == 0, \
-    #         "We assume pipeline stage of target model is not smaller than src model, and is divisible by src model"
-    #     mapping_interval = dst_layers_per_stage // src_layers_per_stage
-    #     rank = src_pipe_stage % mapping_interval
-    #     layer_offset = rank * src_layers_per_stage
-    #     return layer_offset
-
-    # def map_src_to_dst(self, src_names, num_src_pipeline_stage, src_pipe_stage):
-    #     """
-    #     :meta private:
-    #     """
-    #     layer_offset = self.get_pipeline_layer_offset(num_src_pipeline_stage, src_pipe_stage)
-    #     if isinstance(self.model.model, QWenLMHeadModel):
-    #         sync_map_cls = Megatron2QWenSyncMap
-    #         from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
-    #         self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-    #         sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
-    #     elif isinstance(self.model.model, Qwen2ForCausalLM):
-    #         sync_map_cls = Megatron2QWenSyncMap
-    #         from chatlearn.utils.vllm_utils import split_attn_state
-    #         self._to_fix_qkv_ordering_func = split_attn_state
-    #         sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
-    #     elif isinstance(self.model.model, LlamaForCausalLM):
-    #         use_legacy_models = get_use_legacy_models(self.model_args)
-    #         sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
-    #         from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
-    #         self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-    #         sync_map = sync_map_cls(src_names, layer_offset)
-    #     else:
-    #         raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
-    #     self._concat_params_dict = sync_map.concat_params_dict
-    #     self._to_fix_act_ordering_dict = sync_map.to_fix_act_ordering_dict
-    #     self._to_fix_qkv_ordering_dict = sync_map.to_fix_qkv_ordering_dict
-    #     return sync_map.src_names, sync_map.dst_names
-
     def pipeline_model_parallel_size(self):
         """
         get pipeline_model_parallel_size

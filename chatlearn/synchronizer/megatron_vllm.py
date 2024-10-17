@@ -37,7 +37,7 @@ class MegatronVllmSync(BaseSync):
         """
         :meta private:
         """
-        layer_offset = src_pipe_layer_offset #self.get_pipeline_layer_offset(num_src_pipeline_stage, src_pipe_stage)
+        layer_offset = src_pipe_layer_offset
         if self.model_class_name == "QWenLMHeadModel":
             sync_map_cls = Megatron2QWenSyncMap
             from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
@@ -58,9 +58,6 @@ class MegatronVllmSync(BaseSync):
             raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
         self.sync_map = sync_map
         self._validate(sync_map)
-        # self._concat_params_dict = sync_map.concat_params_dict
-        # self._to_fix_act_ordering_dict = sync_map.to_fix_act_ordering_dict
-        # self._to_fix_qkv_ordering_dict = sync_map.to_fix_qkv_ordering_dict
         return sync_map.src_names, sync_map.dst_names
 
     def _validate(self, sync_map):
@@ -86,23 +83,12 @@ class MegatronVllmSync(BaseSync):
                 assert "modules" in self.sync_map.to_fix_qkv_ordering_dict
                 assert "layer_re" in self.sync_map.to_fix_qkv_ordering_dict
                 assert isinstance(self.sync_map.to_fix_qkv_ordering_dict["modules"], list)
-                # to_fix_modules_list = self.sync_map.to_fix_qkv_ordering_dict["modules"]
-                #layer_re = self.sync_map.to_fix_qkv_ordering_dict["layer_re"]
             else:
                 raise RuntimeError(f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {self.sync_map.to_fix_qkv_ordering_dict}.")
 
     def map_name_from_src_to_dst(self, send_actor, recv_actor, src_names, dst_names):
         src_pipe_layer_offset = self.get_or_cache(send_actor, "get_pipeline_stage_layer_offset")
         src_names, dst_names = self.map_src_to_dst(src_names, src_pipe_layer_offset)
-        # src_names, dst_names = future.get(recv_actor.map_src_to_dst.remote(src_names, src_pipe_layer_offset))
-        # concat_params_dict = future.get(recv_actor.get_concat_params_dict.remote())
-        # future.get(send_actor.set_concat_params_dict.remote(self.sync_map.concat_params_dict))
-        # to_fix_act_ordering_dict = future.get(recv_actor.get_to_fix_act_ordering_dict.remote())
-        # future.get(send_actor.set_to_fix_act_ordering_dict.remote(self.sync_map.to_fix_act_ordering_dict))
-        # to_fix_qkv_ordering_dict = future.get(recv_actor.get_to_fix_qkv_ordering_dict.remote())
-        # future.get(send_actor.set_to_fix_qkv_ordering_dict.remote(self.sync_map.to_fix_qkv_ordering_dict))
-        # to_fix_qkv_ordering_func = future.get(recv_actor.get_to_fix_qkv_ordering_func.remote())
-        # future.get(send_actor.set_to_fix_qkv_ordering_func.remote(self._to_fix_qkv_ordering_func))
         return src_names, dst_names
 
     def concat_params(self, params_to_sync_list):
