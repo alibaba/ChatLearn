@@ -14,82 +14,61 @@
 # ==============================================================================
 """megatron to vllm synchronizer"""
 
+from abc import abstractmethod
 import operator
 from functools import reduce
-from .base import BaseSync
-from chatlearn.utils import future
-from transformers import AutoConfig
+import torch
+from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
-
+from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering
+from chatlearn.utils.vllm_utils import split_attn_state
 from chatlearn.utils.vllm_utils import Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
+from .base import BaseSync
 
 class MegatronVllmSync(BaseSync):
+    """Megatron to vllm sync"""
 
     def __init__(self, src_model, dst_model):
         super().__init__(src_model, dst_model)
-        config_dir = dst_model.module_args.args_dict["tokenizer"]
-        config =  AutoConfig.from_pretrained(config_dir)
-        self.model_class_name = config.architectures[0]
         self.src_module_args = src_model.module_args
         self.is_parameter_changed = True
 
+    @abstractmethod
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):
         """
         :meta private:
         """
-        layer_offset = src_pipe_layer_offset
-        if self.model_class_name == "QWenLMHeadModel":
-            sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
-            self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
-        elif self.model_class_name == "Qwen2ForCausalLM":
-            sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.vllm_utils import split_attn_state
-            self._to_fix_qkv_ordering_func = split_attn_state
-            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
-        elif self.model_class_name == "LlamaForCausalLM":
-            use_legacy_models = get_use_legacy_models(self.src_model.module_args.args_dict)
-            sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
-            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
-            self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-            sync_map = sync_map_cls(src_names, layer_offset)
-        else:
-            raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
-        self.sync_map = sync_map
-        self._validate(sync_map)
-        return sync_map.src_names, sync_map.dst_names
 
     def _validate(self, sync_map):
-        if self.sync_map.concat_params_dict is not None:
-            if isinstance(self.sync_map.concat_params_dict, dict):
-                assert "modules" in self.sync_map.concat_params_dict
-                assert "dim" in self.sync_map.concat_params_dict
-                assert isinstance(self.sync_map.concat_params_dict["modules"], list)
+        if sync_map.concat_params_dict is not None:
+            if isinstance(sync_map.concat_params_dict, dict):
+                assert "modules" in sync_map.concat_params_dict
+                assert "dim" in sync_map.concat_params_dict
+                assert isinstance(sync_map.concat_params_dict["modules"], list)
             else:
-                raise RuntimeError(f"Expect concat_params_dict in {self} to be a dict or None, while {self.sync_map.concat_params_dict}.")
+                raise RuntimeError(f"Expect concat_params_dict in {self} to be a dict or None, while {sync_map.concat_params_dict}.")
 
-        if self.sync_map.to_fix_act_ordering_dict is not None:
-            if isinstance(self.sync_map.to_fix_act_ordering_dict, dict):
-                assert "modules" in self.sync_map.to_fix_act_ordering_dict
-                assert "dim" in self.sync_map.to_fix_act_ordering_dict
-                assert isinstance(self.sync_map.to_fix_act_ordering_dict["modules"], list)
-                fix_dim = self.sync_map.to_fix_act_ordering_dict["dim"]
+        if sync_map.to_fix_act_ordering_dict is not None:
+            if isinstance(sync_map.to_fix_act_ordering_dict, dict):
+                assert "modules" in sync_map.to_fix_act_ordering_dict
+                assert "dim" in sync_map.to_fix_act_ordering_dict
+                assert isinstance(sync_map.to_fix_act_ordering_dict["modules"], list)
             else:
-                raise RuntimeError(f"Expect to_fix_act_ordering_dict in {self} to be a dict or None, while {self.sync_map.to_fix_act_ordering_dict}.")
+                raise RuntimeError(f"Expect to_fix_act_ordering_dict in {self} to be a dict or None, while {sync_map.to_fix_act_ordering_dict}.")
 
-        if self.sync_map.to_fix_qkv_ordering_dict is not None:
-            if isinstance(self.sync_map.to_fix_qkv_ordering_dict, dict):
-                assert "modules" in self.sync_map.to_fix_qkv_ordering_dict
-                assert "layer_re" in self.sync_map.to_fix_qkv_ordering_dict
-                assert isinstance(self.sync_map.to_fix_qkv_ordering_dict["modules"], list)
+        if sync_map.to_fix_qkv_ordering_dict is not None:
+            if isinstance(sync_map.to_fix_qkv_ordering_dict, dict):
+                assert "modules" in sync_map.to_fix_qkv_ordering_dict
+                assert "layer_re" in sync_map.to_fix_qkv_ordering_dict
+                assert isinstance(sync_map.to_fix_qkv_ordering_dict["modules"], list)
             else:
-                raise RuntimeError(f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {self.sync_map.to_fix_qkv_ordering_dict}.")
+                raise RuntimeError(f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {sync_map.to_fix_qkv_ordering_dict}.")
 
     def map_name_from_src_to_dst(self, send_actor, recv_actor, src_names, dst_names):
         src_pipe_layer_offset = self.get_or_cache(send_actor, "get_pipeline_stage_layer_offset")
-        src_names, dst_names = self.map_src_to_dst(src_names, src_pipe_layer_offset)
-        return src_names, dst_names
+        self.sync_map = self.map_src_to_dst(src_names, src_pipe_layer_offset)
+        self._validate(self.sync_map)
+        return self.sync_map.src_names, self.sync_map.dst_names
 
     def concat_params(self, params_to_sync_list):
         if self.sync_map.concat_params_dict is None:
@@ -116,7 +95,6 @@ class MegatronVllmSync(BaseSync):
             return params_to_sync_list
         to_fix_modules_list = to_fix_qkv_ordering_dict["modules"]
         for i, (name, params_to_sync) in enumerate(params_to_sync_list):
-            from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
             m = layer_re.match(name)
             if m is None:
                 continue
@@ -151,8 +129,9 @@ class MegatronVllmSync(BaseSync):
     def fix_act_ordering(self, params_to_sync_list):
         if self.sync_map.to_fix_act_ordering_dict is None:
             return params_to_sync_list
+        fix_dim = self.sync_map.to_fix_act_ordering_dict["dim"]
+        to_fix_act_ordering_list = self.sync_map.to_fix_act_ordering_dict["modules"]
         for i, (name, params_to_sync) in enumerate(params_to_sync_list):
-            to_fix_act_ordering_list = self.sync_map.to_fix_act_ordering_dict["modules"]
             if any([ele in name for ele in to_fix_act_ordering_list]): # pylint: disable=use-a-generator
                 val = params_to_sync
                 offset = val.shape[0] // 2
@@ -171,4 +150,30 @@ class MegatronVllmSync(BaseSync):
         params_to_sync_list = self.fix_qkv_ordering(params_to_sync_list)
         return params_to_sync_list
 
-            
+class MegatronVllmQWenSync(MegatronVllmSync):
+    """qwen"""
+
+    def map_src_to_dst(self, src_names, src_pipe_layer_offset):
+        """
+        :meta private:
+        """
+        self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
+        return Megatron2QWenSyncMap(src_names, src_pipe_layer_offset, QwenVersion.v_1.value)
+
+
+class MegatronVllmQWen2Sync(MegatronVllmSync):
+    """qwen2"""
+
+    def map_src_to_dst(self, src_names, src_pipe_layer_offset):
+        self._to_fix_qkv_ordering_func = split_attn_state
+        return Megatron2QWenSyncMap(src_names, src_pipe_layer_offset, QwenVersion.v_2.value)
+
+
+class MegatronVllmLlamaSync(MegatronVllmSync):
+    """llama"""
+
+    def map_src_to_dst(self, src_names, src_pipe_layer_offset):
+        use_legacy_models = get_use_legacy_models(self.src_model.module_args.args_dict)
+        sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
+        self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
+        return sync_map_cls(src_names, src_pipe_layer_offset)

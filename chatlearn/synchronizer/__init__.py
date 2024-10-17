@@ -14,11 +14,13 @@
 # ==============================================================================
 """synchronizer"""
 
+from transformers import AutoConfig
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.dist_actor import DistModel
+from .base import BaseSync
 from .megatron_megatron import MegatronMegatronSync
-from .megatron_vllm import MegatronVllmSync
+from .megatron_vllm import MegatronVllmQWenSync, MegatronVllmQWen2Sync, MegatronVllmLlamaSync
 
 def get_synchronizer(src_model, dst_model):
     assert isinstance(src_model, DistModel)
@@ -28,6 +30,16 @@ def get_synchronizer(src_model, dst_model):
     if isinstance(src_model, MegatronModule) and isinstance(dst_model, MegatronModule):
         return MegatronMegatronSync(src_model, dst_model)
     elif isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule):
-        return MegatronVllmSync(src_model, dst_model)
+        config_dir = dst_model.module_args.args_dict["tokenizer"]
+        config =  AutoConfig.from_pretrained(config_dir)
+        model_class_name = config.architectures[0]
+        if model_class_name == "QWenLMHeadModel":
+            return MegatronVllmQWenSync(src_model, dst_model)
+        elif model_class_name == "Qwen2ForCausalLM":
+            return MegatronVllmQWen2Sync(src_model, dst_model)
+        elif model_class_name == "LlamaForCausalLM":
+            return MegatronVllmLlamaSync(src_model, dst_model)
+        else:
+            raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
     else:
-        raise RuntimeError(f"None supported backend mapping {src_model} {dst_model}")
+        return BaseSync(src_model, dst_model)
