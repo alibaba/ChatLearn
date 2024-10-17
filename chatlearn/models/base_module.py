@@ -814,6 +814,9 @@ class BaseModule:
                     param = param.cpu()
                 return param
 
+    def get_parameter_to_sync_names(self, pipe_stage):
+        return [items[0] for items in self._parameters_to_sync[pipe_stage]]
+
     def exist_parameter(self, name):
         """
         :meta private:

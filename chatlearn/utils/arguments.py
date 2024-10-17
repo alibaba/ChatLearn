@@ -329,6 +329,8 @@ class RuntimeConfig(BaseConfig):
     exp_name: str = "CHATLEARN"
     #: output dir
     output_dir: str = "./"
+    #: validate param sync
+    validate_param_sync: bool = False
 
     def __init__(self):
         super().__init__()
