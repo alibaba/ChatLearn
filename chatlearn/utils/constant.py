@@ -29,10 +29,11 @@ if importlib.util.find_spec("vllm"):
     import vllm
     CURRENT_VLLM_VERSION = vllm.__version__
 
-class VLLMVersion(Enum):
+class VLLMVersion(str, Enum):
     """support versions of vLLM."""
     v_0_3_0 = "0.3.0"
     v_0_5_1 = "0.5.1"
+    v_0_6_1 = "0.6.1"
 
 
 class QwenVersion(Enum):
