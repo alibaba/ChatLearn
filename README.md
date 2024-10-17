@@ -21,6 +21,7 @@ A flexible and efficient training framework for large-scale alignment
 
 *Latest News* 🔥
 - [2024/8] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md).
+- [ongoing] We are continuously hiring and welcome you to contact us or submit your resume to wanglin.zj@alibaba-inc.com.
 
 ---
 
@@ -72,5 +73,4 @@ The upcoming features for ChatLearn include:
 - [ ] Support for more alignment algorithms
 
 <br><br>
-We welcome community partners to collaborate and contribute to the development, and welcome to join the DingTalk group: 98090003312 to participate in the discussion. We are hiring on an ongoing basis, and welcome to contact us.
-
+We welcome community partners to collaborate and contribute to the development, and welcome to join the DingTalk group: 98090003312 to participate in the discussion.
