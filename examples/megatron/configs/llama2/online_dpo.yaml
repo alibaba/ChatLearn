@@ -60,3 +60,4 @@ runtime:
   output_dir: ${output_dir}
   free_sync_collective_group: ${free_sync_collective_group:False}
   exp_name: ${exp_name:chatlearn}
+  validate_param_sync: ${validate_param_sync:False}
