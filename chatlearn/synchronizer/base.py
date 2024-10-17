@@ -40,6 +40,7 @@ class BaseSync:
         """
         map layer name from src model to dst model
         """
+        return src_names, dst_names
 
     def transform_parameters(self, params_to_sync_list):
         """
