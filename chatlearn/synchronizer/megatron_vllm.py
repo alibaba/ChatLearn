@@ -16,9 +16,12 @@
 
 import operator
 from functools import reduce
+import torch
+
 from .base import BaseSync
 from chatlearn.utils import future
 from transformers import AutoConfig
+from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
 
 from chatlearn.utils.vllm_utils import Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
