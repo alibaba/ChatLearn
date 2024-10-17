@@ -17,6 +17,7 @@
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.dist_actor import DistModel
+from .base import BaseSync
 from .megatron_megatron import MegatronMegatronSync
 from .megatron_vllm import MegatronVllmSync
 
@@ -30,4 +31,5 @@ def get_synchronizer(src_model, dst_model):
     elif isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule):
         return MegatronVllmSync(src_model, dst_model)
     else:
-        raise RuntimeError(f"None supported backend mapping {src_model} {dst_model}")
+        return BaseSync(src_model, dst_model)
+
