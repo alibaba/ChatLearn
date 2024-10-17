@@ -265,10 +265,7 @@ class ParameterSyncGroup:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
         src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
-        if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
-            replica_rank_iter = cycle(reversed(src_ranks))
-        else:
-            replica_rank_iter = cycle(iter(src_ranks))
+        replica_rank_iter = cycle(iter(src_ranks))
 
         print(f"src_ranks: {src_ranks}")
         print(f"dst_ranks: {dst_ranks}")
