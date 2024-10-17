@@ -36,6 +36,7 @@ else:
 
 
 class CustomEngine(Engine):
+    """Custom engine for param sync from ppo_policy to policy."""
     def __init__(self,
                  policy: BaseModule,
                  policy_trainer: BaseModule):
@@ -55,10 +56,10 @@ class CustomEngine(Engine):
 if __name__ == "__main__":
     chatlearn.init()
     args = chatlearn.get_args()
-    policy_trainer = PolicyTrainer("ppo_policy")
+    ppo_policy = PolicyTrainer("ppo_policy")
     policy_model = PolicyModel("policy")
 
-    engine = CustomEngine(policy_model, policy_trainer)
+    engine = CustomEngine(policy_model, ppo_policy)
     train_prompts = get_prompts(args.runtime_args.data_path, num_limit=args.runtime_args._args_dict['training_data_num_limit'])
     engine.set_dataset(train_prompts)
     engine.learn()
