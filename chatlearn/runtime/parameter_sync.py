@@ -311,13 +311,11 @@ class ParameterSyncGroup:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
         src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
-        if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
-            replica_rank_iter = cycle(reversed(src_ranks))
-        else:
-            replica_rank_iter = cycle(iter(src_ranks))
+        replica_rank_iter = cycle(iter(src_ranks))
 
-        logger.debug(f"src_ranks: {src_ranks}")
-        logger.debug(f"dst_ranks: {dst_ranks}")
+        print(f"src_ranks: {src_ranks}")
+        print(f"dst_ranks: {dst_ranks}")
+
         assert self.num_dst_tensor_parallel % self.num_src_tensor_parallel == 0, \
             "currently we require mod value equals to zero for tensor_model_parallel_size of dst_model and that of src_model while " + \
             f"src model {self.src_model.name}(TP={self.num_src_tensor_parallel}) and " + \
@@ -329,13 +327,16 @@ class ParameterSyncGroup:
 
         pair_list = []
         p2p_list = []
-        for dst_replica_ranks in dst_ranks:
+        for d_i, dst_replica_ranks in enumerate(dst_ranks):
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel)
-            logger.debug(f"src_replica_ranks_group: {src_replica_ranks_group}")
-            logger.debug(f"dst_replica_ranks_group: {dst_replica_ranks_group}")
+            print(f"src_replica_ranks_group: {src_replica_ranks_group}")
+            print(f"dst_replica_ranks_group: {dst_replica_ranks_group}")
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
+
+            assert pipe_map_interval >= 1, \
+                f"dst_pp expected to divide src_pp, while src_pp {self.num_src_pipeline_stage} and dst_pp {self.num_dst_pipeline_stage}"
 
             # stage 1: comm pairs that broadcast params from trainer to inference model
             # Each rank in trainer holds weights for num_mapping ranks in inference model.
@@ -352,7 +353,7 @@ class ParameterSyncGroup:
                 if self.tp_num_mapping == 1:
                     start =  0
                 else:
-                    mod_i = i % self.tp_num_mapping
+                    mod_i = (i + d_i) % self.tp_num_mapping
                     start = mod_i if i < self.tp_num_mapping else (self.tp_num_mapping - mod_i - 1) % self.tp_num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
                     offset = s_idx * self.tp_num_mapping + start
@@ -365,20 +366,22 @@ class ParameterSyncGroup:
             # Comm mapping in each weight_mapping_group of inference:
             #   [0'] -> [1']
             #   [2'] -> [3']
+            recv_ranks = [pair[1] for pair in pair_list]
             def p2p_pair_grouping(tuples):
                 for s_idx, src_rank in enumerate(tuples):
                     for d_idx, dst_rank in enumerate(tuples):
-                        if s_idx == d_idx:
+                        if s_idx == d_idx or src_rank not in recv_ranks:
                             continue
-                        add_recv_actor_stage2_fn(src_rank, dst_rank)
+                        self.add_recv_actor_stage2(src_rank, dst_rank)
                         p2p_list.append((src_rank, dst_rank))
+  
             for dst_tp_group in dst_replica_ranks_group:
                 dst_tp_group = split_ranks_by_tp_size(dst_tp_group, self.tp_num_mapping)
                 for tuples in dst_tp_group:
                     p2p_pair_grouping(tuples)
 
-        logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
-        logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
+        print(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
+        print(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
 
     def _get_dst_name(self, src_name, src_prefix, dst_prefix):
         if src_prefix:
@@ -456,11 +459,11 @@ class ParameterSyncGroup:
             future.get(refs)
         return src_names, dst_names
 
-    def set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad, filter_fn=None):
+    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad, filter_fn=None):
         send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad, filter_fn)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
-        refs.append(recv_actor.set_recv_parameters.remote(rank, send_names, self.get_actor_pipe_rank(recv_actor)))
+        refs.append(recv_actor.set_recv_parameters.remote(to_rank, send_names, self.get_actor_pipe_rank(recv_actor)))
         future.get(refs)
         return send_names, send_names
 
@@ -493,7 +496,7 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                src_names, dst_names = self.set_sync_param_names_stage2(send_actor, recv_actor, rank + 1, requires_grad, filter_fn)
+                src_names, dst_names = self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn)
             else:
                 src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn)
                 shape_refs = []
@@ -517,8 +520,12 @@ class ParameterSyncGroup:
         refs = []
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         send_rank = 0
+        if stage2:
+            assert len(actors) == 2, f"expect only 2 actors for stage2. \
+                sync params of relative rank to other slices of inference model. while {len(actors)}"
         for rank, actor in enumerate(actors):
-            ref = actor.broadcast_parameter_two_stage.remote(self.actor2rank[actor], rank, send_rank, group_name, pipe_stage, stage2)
+            sync_buffer_rank = self.actor2rank[actors[1]] if rank == 0 and stage2 else 0
+            ref = actor.broadcast_parameter_two_stage.remote(self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
             refs.append(ref)
         rets = future.wait(refs, return_output=True)
         return rets
@@ -659,21 +666,32 @@ class ParameterSyncGroup:
         return sorted_send_actors
 
     def sync_broadcast_multi_threads(self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad, group_name=None, stage2=False, filter_fn=None):
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for send_actor in sorted_send_actors:
-                recv_actors = send_recv_actor_mappings[send_actor]
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
-                    futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2, filter_fn))
+        for send_actor in sorted_send_actors:
+            recv_actors = send_recv_actor_mappings[send_actor]
+            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                if stage2:
+                    for recv_actor in recv_actors:
+                        actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name)
+                        self.sync_broadcast_two_stage(actor_groups, group_name, requires_grad, stage2, filter_fn)
                 else:
-                    raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
+                    self.sync_broadcast_two_stage(actor_groups, group_name, requires_grad, stage2, filter_fn)
+            print(f"success to send params from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]}")
+        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        #     futures = []
+        #     for send_actor in sorted_send_actors:
+        #         recv_actors = send_recv_actor_mappings[send_actor]
+        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+        #             actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
+        #             futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2, filter_fn))
+        #         else:
+        #             raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+        #     for _future in concurrent.futures.as_completed(futures):
+        #         try:
+        #             _future.result()
+        #         except Exception as e:
+        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+        #     concurrent.futures.wait(futures)
 
     def sync(self, requires_grad=None):
         if not self._is_collective_group_created:
@@ -1037,8 +1055,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def sync(self, requires_grad=None):
         # First, synchronize routed experts. 
-        self._synchronize_non_routed_experts(requires_grad=None) 
         self._synchronize_routed_experts(requires_grad=None)  
-
+        self._synchronize_non_routed_experts(requires_grad=None) 
         # Then, synchronize non-routed experts.
         

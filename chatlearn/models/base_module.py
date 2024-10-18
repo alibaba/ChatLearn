@@ -774,15 +774,18 @@ class BaseModule:
         """
         :meta private:
         """
+        self._parameters_to_send[pipe_stage] = []
         return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_send)
 
-    def set_recv_parameters(self, rank, trainable_param_names, pipe_stage=0):
+    def set_recv_parameters(self, dst_rank, trainable_param_names, pipe_stage=0):
         """
         :meta private:
         """
-        parameters_to_recv = defaultdict(list)
-        self._parameters_to_recv[rank] = parameters_to_recv
-        return self.set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_recv)
+        if dst_rank in self._parameters_to_recv:
+            self._parameters_to_recv[dst_rank][pipe_stage] = []
+        else:
+            self._parameters_to_recv[dst_rank] = defaultdict(list)
+        return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_recv[dst_rank])
 
     def get_parameter_names(self, requires_grad=True):
         """
@@ -865,7 +868,7 @@ class BaseModule:
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
 
-    def broadcast_parameter_two_stage(self, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
+    def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         """
         :meta private:
         """
@@ -873,7 +876,7 @@ class BaseModule:
 
         if stage2:
             if tensor_changed:
-                parameters_to_sync = self._parameters_to_recv[rank]
+                parameters_to_sync = self._parameters_to_recv[to_rank]
             else:
                 parameters_to_sync = self._parameters_to_send
         else:
@@ -886,10 +889,10 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                tensors.append(self._sync_buffer[(to_rank + 1) % self.num_mapping][idx])
+                tensors.append(self._sync_buffer[buffer_rank % self.num_mapping][idx])
                 buffer_num.append(1)
                 idx += 1
-            del self._sync_buffer[(to_rank + 1) % self.num_mapping]
+            del self._sync_buffer[buffer_rank % self.num_mapping]
         else:
             for name, param in parameters_to_sync[pipe_stage]:
                 param_data = param.data
@@ -900,22 +903,49 @@ class BaseModule:
                 elif stage2:
                     buffer_num.append(1)
                 else:
-                    if "attention.query_key_value" in name or "self_attention.query_key_value" in name:
+                    if self.to_fix_qkv_ordering_dict is not None and \
+                            any(ele in name for ele in self.to_fix_qkv_ordering_dict["modules"]):
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
                         heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                         hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                        param_data = param_data.view(param_shape)
-                        param_data_list = []
-                        head_offset = heads // self._tp_division[name]
-                        for idx in range(self._tp_division[name]):
-                            start = idx * head_offset
-                            end = start + head_offset
-                            param_data_list.append(param_data[:,start:end])
-                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                        del param_data_list
+                        if self.module_args.args_dict["group_query_attention"]:
+                            _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                                if self.module_args.args_dict["group_query_attention"] else heads
+                            if len(param_data_shape) == 1:
+                                param_data = param.view((_num_query_groups, \
+                                    hidden_size_per_head*heads//_num_query_groups+hidden_size_per_head*2, 1))
+                            else:
+                                param_data = param.view((_num_query_groups, \
+                                    hidden_size_per_head*heads//_num_query_groups+hidden_size_per_head*2, \
+                                    self.module_args.args_dict["hidden_size"]))
+                            param_data_list = []
+                            head_offset = heads // self._tp_division[name]
+                            kv_cache = param_data[:,hidden_size_per_head*heads//_num_query_groups:]
+                            for idx in range(self._tp_division[name]):
+                                start = idx * head_offset
+                                end = start + head_offset
+                                start = start * hidden_size_per_head // _num_query_groups
+                                end = end * hidden_size_per_head // _num_query_groups
+                                param_data_slice = torch.cat([param_data[:,start:end], kv_cache], dim=1)
+                                param_data_list.append(param_data_slice)
+                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                            del param_data_list
+                        else:
+                            param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+                            division = reduce(operator.mul, param_shape, 1)
+                            num_elements = param_data.numel()
+                            if num_elements == division:
+                                param_data = param_data.view(param_shape)
+                                param_data_list = []
+                                head_offset = heads // self._tp_division[name]
+                                for idx in range(self._tp_division[name]):
+                                    start = idx * head_offset
+                                    end = start + head_offset
+                                    param_data_list.append(param_data[:,start:end])
+                                param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                                del param_data_list
 
-                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name:
+                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name or "mlp.shared_experts.dense_4h_to_h" in name:
                         param_data_list = []
                         col_offset = param_data_shape[1] // self._tp_division[name]
                         for idx in range(self._tp_division[name]):
@@ -924,7 +954,8 @@ class BaseModule:
                             param_data_list.append(param_data[:,start:end])
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
-                    if "mlp.dense_h_to_4h" in name:
+
+                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or "mlp.shared_experts.dense_h_to_4h" in name:
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):
@@ -943,7 +974,7 @@ class BaseModule:
         dense_buckets, sparse_bucket = bucket_tensors_two_stage(
             tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
             buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
 
         for bucket in dense_buckets:
             index = 0 if stage2 else (to_rank % self.num_mapping)
