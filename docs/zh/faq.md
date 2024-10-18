@@ -58,6 +58,33 @@ File "/usr/local/lib/python3.10/dist-packages/torch/distributed/distributed_c10d
 1. 您可以注释掉有问题的那一行，因为这仅影响调试级别的日志输出。
 2. 考虑使用 Megatron-LM 版本 core_r0.9.0 作为后端，因为此版本已经修复了这个 bug。然而，该版本的正确性和性能尚未在 ChatLearn 中得到验证。我们计划在未来升级 Megatron-LM 版本到 core_r0.9.0。
 
+## Alignment 训练开启流水线并行时存在非 contiguous 的张量
+
+若使用 Megatron-LM 作为后端进行 alignment 训练并开启流水线并行，可能会导致如下错误：
+
+```bash
+Traceback (most recent call last):
+  File "/root/ChatLearn/chatlearn/runtime/decorator.py", line 166, in inner
+    return func(self, *args, **kwargs)
+    ret = func(self, *args, **kwargs)
+  File "/root/ChatLearn/examples/megatron/models/old_policy_inference.py", line 408, in forward_step
+    return self._forward_step(data, iteration, eval_mode=False)
+  File "/usr/local/lib/python3.10/dist-packages/ray/util/tracing/tracing_helper.py", line 467, in _resume_span
+    return method(self, *_args, **_kwargs)
+  File "/root/ChatLearn/examples/megatron/models/old_policy_inference.py", line 362, in _forward_step
+    tokens, all_log_probs = self.generate(
+  File "/root/ChatLearn/examples/megatron/models/old_policy_inference.py", line 290, in generate
+    res = generate_tokens_probs_and_return_on_first_stage(
+  File "<string>", line 205, in generate_tokens_probs_and_return_on_first_stage 
+  File "/root/Megatron-LM/megatron/inference/text_generation/communication.py", line 95, in broadcast_from_last_to_first_pipeline_stage
+    _is_cuda_contiguous(tensor)
+  File "/root/Megatron-LM/megatron/inference/text_generation/communication.py", line 55, in _is_cuda_contiguous
+    assert tensor.is_contiguous()
+AssertionError
+```
+
+这是因为 Megatron-LM 未把 `output_log_probs` 设置为 contiguous 的张量。您可以参考 [NVIDIA/Megatron-LM#570](https://github.com/NVIDIA/Megatron-LM/pull/570) 进行修复。
+
 ## 申请 custom_port
 
 在 DLC 环境中，当前RLHF训练申请50个port已经满足所有使用场景。建议设置高级配置如下：
