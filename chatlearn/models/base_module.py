@@ -787,6 +787,17 @@ class BaseModule:
             self._parameters_to_recv[dst_rank] = defaultdict(list)
         return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_recv[dst_rank])
 
+    def clear_sync_parameters(self):
+        self._parameters_to_sync = defaultdict(list)
+
+    def clear_send_recv_parameters(self):
+        self._parameters_to_send = defaultdict(list)
+        self._parameters_to_recv = defaultdict(list)
+
+    def clear_sync_send_recv_parameters(self):
+        self.clear_sync_parameters()
+        self.clear_send_recv_parameters()
+
     def get_parameter_names(self, requires_grad=True):
         """
         :meta private:
@@ -945,7 +956,7 @@ class BaseModule:
                                 param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                                 del param_data_list
 
-                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name or "mlp.shared_experts.dense_4h_to_h" in name:
+                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name:
                         param_data_list = []
                         col_offset = param_data_shape[1] // self._tp_division[name]
                         for idx in range(self._tp_division[name]):
@@ -955,7 +966,7 @@ class BaseModule:
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
 
-                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or "mlp.shared_experts.dense_h_to_4h" in name:
+                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name:
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):
