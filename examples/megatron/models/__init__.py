@@ -24,4 +24,5 @@ from .reference import PolicyReference
 try:
     from .vllm_policy_inference import VLLMPolicyInference
 except ImportError:
+    print("Cannot import VLLMPolicyInference")
     VLLMPolicyInference = None
