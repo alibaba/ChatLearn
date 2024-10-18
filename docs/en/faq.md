@@ -46,6 +46,34 @@ This issue arises due to the lack of initialization of the default process group
 
 2. Alternatively, consider using Megatron-LM version core_r0.9.0 as the backend, as the bug has been fixed in this version. However, the correctness and performance of this version have not been validated for ChatLearn yet. We plan to upgrade our supported version of Megatron-LM to core_r0.9.0 in the future.
 
+## Alignment training with pipeline parallelism may encounter non-contiguous tensors
+
+If you are using Megatron-LM as the backend for alignment training and enable pipeline parallelism, you may encounter the following issue:
+
+```bash
+Traceback (most recent call last):
+  File "/root/ChatLearn/chatlearn/runtime/decorator.py", line 166, in inner
+    return func(self, *args, **kwargs)
+    ret = func(self, *args, **kwargs)
+  File "/root/ChatLearn/examples/megatron/models/old_policy_inference.py", line 408, in forward_step
+    return self._forward_step(data, iteration, eval_mode=False)
+  File "/usr/local/lib/python3.10/dist-packages/ray/util/tracing/tracing_helper.py", line 467, in _resume_span
+    return method(self, *_args, **_kwargs)
+  File "/root/ChatLearn/examples/megatron/models/old_policy_inference.py", line 362, in _forward_step
+    tokens, all_log_probs = self.generate(
+  File "/root/ChatLearn/examples/megatron/models/old_policy_inference.py", line 290, in generate
+    res = generate_tokens_probs_and_return_on_first_stage(
+  File "<string>", line 205, in generate_tokens_probs_and_return_on_first_stage 
+  File "/root/Megatron-LM/megatron/inference/text_generation/communication.py", line 95, in broadcast_from_last_to_first_pipeline_stage
+    _is_cuda_contiguous(tensor)
+  File "/root/Megatron-LM/megatron/inference/text_generation/communication.py", line 55, in _is_cuda_contiguous
+    assert tensor.is_contiguous()
+AssertionError
+```
+
+This is because Megatron-LM does not set `output_log_probs` to a contiguous tensor when pipeline parallelism is enabled. You can refer to [NVIDIA/Megatron-LM#570](https://github.com/NVIDIA/Megatron-LM/pull/570) for a quick fix.
+
+
 ## Applying for custom_port
 In the DLC environment, the current RLHF training has already allocated 50 ports to meet all usage scenarios. It is recommended to set the advanced configuration as follows:
 ```
