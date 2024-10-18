@@ -25,4 +25,4 @@ git checkout core_r0.8.0
 ```
 
 > [!NOTE]
-> If you are using Megatron-LM version `core_r0.8.0`, you may encounter an error when converting checkpoints: `ValueError: Default process group has not been initialized, please make sure to call init_process_group`. You can refer to the solution in the [FAQ:Failure when converting checkpoint](faq.md#failure-when-converting-checkpoint).
+> If you are using Megatron-LM version `core_r0.8.0`, you may encounter an issue in converting checkpoints: `ValueError: Default process group has not been initialized, please make sure to call init_process_group`. Please refer to the solution in the [FAQ: Failure when converting checkpoint](faq.md#failure-when-converting-checkpoint).
