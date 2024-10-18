@@ -27,10 +27,11 @@ from chatlearn.models.torch_module import TorchModule
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistModel
-from chatlearn.runtime.parameter_sync import ParameterSyncGroup
+from chatlearn.runtime.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
+from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
 from .port_manager import PortManager
 from ..utils import future
 
@@ -116,11 +117,26 @@ class ModelManager:
 
     def build_parameter_group(self):
         # set ParameterSyncGroup
+        megatron_version = get_megatron_version()
         for src_model, dst_model in self._parameter_sync_model_pair:
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
-            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name],
-                                            group_name, sync_frequency, self.error_signal)
+            if megatron_version == MegatronVersion.V4:
+                sync_group = ParameterSyncGroupwithHEP(
+                    self._name2distmodel[src_model.name],
+                    self._name2distmodel[dst_model.name],
+                    group_name,
+                    sync_frequency,
+                    self.error_signal
+                )
+            else:
+                sync_group = ParameterSyncGroup(
+                    self._name2distmodel[src_model.name],
+                    self._name2distmodel[dst_model.name],
+                    group_name,
+                    sync_frequency,
+                    self.error_signal
+                )
             self.parameter_sync_groups[group_name] = sync_group
 
     def start_error_monitor(self):
