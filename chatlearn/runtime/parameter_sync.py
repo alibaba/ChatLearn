@@ -1022,7 +1022,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 assert state, "Check fuse lora layer fail."
 
         if self.concurrent_comm:
-            sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings, self.sorted_send_actors)
+            # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings, self.sorted_send_actors)
+            sorted_send_actors = list(self.send_recv_actor_mappings.keys())
             max_workers = get_args().runtime_args.param_sync_max_workers
             if max_workers is None:
                 max_workers = max(self.src_model.total_gpu // 8, 1)
@@ -1038,7 +1039,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad, stage2=False, filter_fn=self.non_routed_experts_filter
                 )
                 # stage 2
-                sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
+                # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
+                sorted_send_actors = list(self.send_recv_actor_mappings_stage2.keys())
                 max_workers = get_args().runtime_args.param_sync_max_workers
                 if max_workers is None:
                     max_workers = max(self.dst_model.total_gpu // 8, 1)
