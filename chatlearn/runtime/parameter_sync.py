@@ -319,10 +319,10 @@ class ParameterSyncGroup:
             #   [0'] -> [1']
             #   [2'] -> [3']
             recv_ranks = [pair[1] for pair in pair_list]
-            def p2p_pair_grouping(tuples):# pylint: disable=cell-var-from-loop
+            def p2p_pair_grouping(tuples):
                 for s_idx, src_rank in enumerate(tuples):
                     for d_idx, dst_rank in enumerate(tuples):
-                        if s_idx == d_idx or src_rank not in recv_ranks:
+                        if s_idx == d_idx or src_rank not in recv_ranks:# pylint: disable=cell-var-from-loop
                             continue
                         self.add_recv_actor_stage2(src_rank, dst_rank)
                         p2p_list.append((src_rank, dst_rank))
@@ -366,7 +366,7 @@ class ParameterSyncGroup:
         validate()
         logger.info("Validation passed!")
 
-    def set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad):
+    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad):
         send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))

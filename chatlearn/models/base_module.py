@@ -896,7 +896,7 @@ class BaseModule:
 
         tensors = []
         buffer_num = []
-        if stage2 and not tensor_changed and self._sync_buffer:
+        if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
                 tensors.append(self._sync_buffer[buffer_rank % self.num_mapping][idx])
@@ -914,7 +914,6 @@ class BaseModule:
                     buffer_num.append(1)
                 else:
                     # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
-                    # pylint: disable=too-many-nested-blocks
                     if self.to_fix_qkv_ordering_dict is not None and \
                             ("attention.query_key_value" in name or \
                             "self_attention.query_key_value" in name or \
