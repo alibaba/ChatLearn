@@ -794,8 +794,20 @@ class BaseModule:
         :meta private:
         """
         parameters_shape = []
+        concat_params_list = self.concat_params_dict["modules"] if self.concat_params_dict is not None else None
+        ignore_w1_or_w2 = True
         for name in param_names:
-            parameters_shape.append((name, self.named_parameters[name].shape))
+            param_shape = self.named_parameters[name].shape
+            if concat_params_list and any(ele in name for ele in concat_params_list):
+                if ignore_w1_or_w2:
+                    ignore_w1_or_w2 = False
+                    continue
+                else:
+                    param_shape = list(param_shape)
+                    param_shape[0] *= 2
+                    param_shape = torch.Size(param_shape)
+                    ignore_w1_or_w2 = True
+            parameters_shape.append((name, param_shape))
         return parameters_shape
 
     def get_parameter(self, name):
@@ -874,12 +886,18 @@ class BaseModule:
             pipe_stage: pipeline stage. default 0.
             stage2: bool. whether stage2 or not. default False.
         Example: trainer_tp = 4, inference_tp = 8. pipeline_size = 1
-            stage1: [(from_rank, to_rank)] = [(0, 8), (1, 10), (2, 12), (3, 14)]
-            stage2: [(from_rank, to_rank)] = [(8, 9), (10, 11), (12, 13), (14, 15)]
+            stage1: [(from_rank, to_rank), ...] = [(0, 8), (1, 10), (2, 12), (3, 14)]
+            stage2: [(from_rank, to_rank), ...] = [(8, 9), (10, 11), (12, 13), (14, 15)]
 
-            For stage1 pair (0, 8), call broadcast func: (0 -> 0) + (0 -> 8), src_rank equals to 0 always, rank 0 or 1.
+            For stage1 pair (0, 8):
+                1. call broadcast func: (0 -> 0). src_rank: 0, rank: 0.
+                2. call broadcast func: (0 -> 8). src_rank: 0, rank: 1.
+
                 After (0, 8), to_rank 8 received tensor slices of 8 and 9.
-            For stage2 pair (8, 9), call broadcast func: (8 -> 8) + (8 -> 9), src_rank equals to 0 always, rank 0 or 1.
+
+            For stage2 pair (8, 9):
+                1. call broadcast func: (8 -> 8). src_rank: 0, rank: 0.
+                2. call broadcast func: (8 -> 9). src_rank: 0, rank: 1.
                 In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
@@ -928,27 +946,36 @@ class BaseModule:
                             _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
                                 if self.module_args.args_dict["group_query_attention"] else heads
                             if len(param_data_shape) == 1:
-                                param_data = param.view((_num_query_groups, \
-                                    hidden_size_per_head*heads//_num_query_groups+hidden_size_per_head*2, 1))
+                                param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
                             else:
-                                param_data = param.view((_num_query_groups, \
-                                    hidden_size_per_head*heads//_num_query_groups+hidden_size_per_head*2, \
-                                    self.module_args.args_dict["hidden_size"]))
+                                param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
                             param_data_list = []
                             head_offset = heads // self._tp_division[name]
-                            kv_cache = param_data[:,hidden_size_per_head*heads//_num_query_groups:]
                             for idx in range(self._tp_division[name]):
-                                start = idx * head_offset
-                                end = start + head_offset
-                                start = start * hidden_size_per_head // _num_query_groups
-                                end = end * hidden_size_per_head // _num_query_groups
-                                param_data_slice = torch.cat([param_data[:,start:end], kv_cache], dim=1)
-                                param_data_list.append(param_data_slice)
+                                q_start = idx * head_offset
+                                q_end = q_start + head_offset
+                                k_start = heads + idx
+                                k_end = k_start + 1
+                                v_start = heads + 2 + idx
+                                v_end = v_start + 1
+
+                                q_proj = param_data[q_start:q_end].contiguous()
+                                k_proj = param_data[k_start:k_end].contiguous()
+                                v_proj = param_data[v_start:v_end].contiguous()
+
+                                qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
+
+                                if len(param_data_shape) == 1:
+                                    qkv_proj = qkv_proj.reshape(-1).contiguous()
+                                else:
+                                    qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
+
+                                param_data_list.append(qkv_proj)
                             param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                             del param_data_list
                         else:
                             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                            division = reduce(operator.mul, param_shape, 1)
+                            division = reduce(operator.mul, shape, 1)
                             num_elements = param_data.numel()
                             if num_elements == division:
                                 param_data = param_data.view(param_shape)
@@ -1001,7 +1028,7 @@ class BaseModule:
         dense_buckets, sparse_bucket = bucket_tensors_two_stage(
             tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
             buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
 
         for bucket in dense_buckets:
             index = 0 if stage2 else (to_rank % self.num_mapping)
