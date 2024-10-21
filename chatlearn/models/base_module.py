@@ -975,7 +975,7 @@ class BaseModule:
                             del param_data_list
                         else:
                             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                            division = reduce(operator.mul, shape, 1)
+                            division = reduce(operator.mul, param_shape, 1)
                             num_elements = param_data.numel()
                             if num_elements == division:
                                 param_data = param_data.view(param_shape)
