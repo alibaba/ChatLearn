@@ -124,7 +124,6 @@ class ModelManager:
             self.parameter_sync_groups[group_name] = sync_group
 
     def start_error_monitor(self):
-        #group_names = [_ for _ in self.parameter_sync_groups.keys()]
         group_names = list(self.parameter_sync_groups.keys())
         self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
@@ -146,7 +145,7 @@ class ModelManager:
             logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
             self._parameter_sync_model_pair.append((src_model, tgt_model))
 
-    def sync_parameters(self, episode_offset=0, requires_grad=None):
+    def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False):
         """
         if requires_grad is False, all parameters will be syncronized,
         this happends when broadcast parameters in the beginning of training,
@@ -163,7 +162,7 @@ class ModelManager:
                 refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
 
-                sync_group.sync(requires_grad)
+                sync_group.sync(requires_grad, validate)
 
                 refs = src_model.offload()
                 future.wait(refs)
@@ -187,7 +186,7 @@ class ModelManager:
         # public user function
         # TODO: use decorator to annotate
         for func_name in ["save_checkpoint", "model_setup", "onload", "offload", "build_dataset",
-                          "_build_dataloader", "generate_vllm"] + model.call_funcs:
+                          "_build_dataloader", "generate_vllm", "init"] + model.call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 
