@@ -31,10 +31,13 @@ jobs:
       id: check_changes
       run: |
         git diff --name-only ${{ github.event.before }} ${{ github.sha }} > file_changes.txt
+        cat file_changes.txt
         if grep -E '^docs/|\.md$' file_changes.txt; then
           echo "has_docs_or_md=true" >> $GITHUB_ENV
+          echo "has_docs_or_md=true"
         else
           echo "has_docs_or_md=false" >> $GITHUB_ENV
+          echo "has_docs_or_md=false"
         fi
     - name: Run if docs or markdown files changed
       if: env.has_docs_or_md == 'true'
