@@ -757,18 +757,15 @@ class BaseModule:
         """
         :meta private:
         """
-        self._parameters_to_send[pipe_stage] = []
         return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_send)
 
-    def set_recv_parameters(self, dst_rank, trainable_param_names, pipe_stage=0):
+    def set_recv_parameters(self, to_rank, trainable_param_names, pipe_stage=0):
         """
         :meta private:
         """
-        if dst_rank in self._parameters_to_recv:
-            self._parameters_to_recv[dst_rank][pipe_stage] = []
-        else:
-            self._parameters_to_recv[dst_rank] = defaultdict(list)
-        return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_recv[dst_rank])
+        parameters_to_recv = defaultdict(list)
+        self._parameters_to_recv[to_rank] = parameters_to_recv
+        return self.set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_recv)
 
     def get_parameter_names(self, requires_grad=True):
         """
@@ -845,7 +842,14 @@ class BaseModule:
 
     def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         """
-        :meta private:
+        Arguments:
+            to_rank: receive rank in mapping from trainer to inference model.
+            buffer_rank: index which tensors of sync buffer to be sended in stage2.
+            rank: destination rank in communication group which enumerate receive ranks.
+            src_rank: source rank in communication group. always 0.
+            group_name: communication group name.
+            pipe_stage: pipeline stage.
+            stage2: bool. whether stage2 or not.
         """
         tensor_changed = rank != src_rank
 
@@ -879,12 +883,14 @@ class BaseModule:
                     buffer_num.append(1)
                 else:
                     if self.to_fix_qkv_ordering_dict is not None and \
-                            any(ele in name for ele in self.to_fix_qkv_ordering_dict["modules"]):
+                            ("attention.query_key_value" in name or "self_attention.query_key_value" in name or "self_attention.linear_qkv" in name):
+                        from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
+
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
                         heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                         hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
 
-                        if self.module_args.args_dict["group_query_attention"]:
+                        if self._to_fix_qkv_ordering_func is split_attn_state:
                             _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
                                 if self.module_args.args_dict["group_query_attention"] else heads
                             if len(param_data_shape) == 1:
@@ -908,7 +914,7 @@ class BaseModule:
                             del param_data_list
                         else:
                             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                            division = reduce(operator.mul, param_shape, 1)
+                            division = reduce(operator.mul, shape, 1)
                             num_elements = param_data.numel()
                             if num_elements == division:
                                 param_data = param_data.view(param_shape)
@@ -949,7 +955,7 @@ class BaseModule:
         dense_buckets, sparse_bucket = bucket_tensors_two_stage(
             tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
             buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
 
         for bucket in dense_buckets:
             index = 0 if stage2 else (to_rank % self.num_mapping)
