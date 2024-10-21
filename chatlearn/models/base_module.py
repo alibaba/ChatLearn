@@ -848,8 +848,16 @@ class BaseModule:
             rank: destination rank in communication group which enumerate receive ranks.
             src_rank: source rank in communication group. always 0.
             group_name: communication group name.
-            pipe_stage: pipeline stage.
-            stage2: bool. whether stage2 or not.
+            pipe_stage: pipeline stage. default 0.
+            stage2: bool. whether stage2 or not. default False.
+        Example: trainer_tp = 4, inference_tp = 8. pipeline_size = 1
+            stage1: [(from_rank, to_rank)] = [(0, 8), (1, 10), (2, 12), (3, 14)]
+            stage2: [(from_rank, to_rank)] = [(8, 9), (10, 11), (12, 13), (14, 15)]
+
+            For stage1 pair (0, 8), call broadcast func: (0 -> 0) + (0 -> 8), src_rank equals to 0 always, rank 0 or 1.
+                After (0, 8), to_rank 8 received tensor slices of 8 and 9.
+            For stage2 pair (8, 9), call broadcast func: (8 -> 8) + (8 -> 9), src_rank equals to 0 always, rank 0 or 1.
+                In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
 
@@ -882,9 +890,12 @@ class BaseModule:
                 elif stage2:
                     buffer_num.append(1)
                 else:
+                    # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
                     # pylint: disable=too-many-nested-blocks
                     if self.to_fix_qkv_ordering_dict is not None and \
-                            ("attention.query_key_value" in name or "self_attention.query_key_value" in name or "self_attention.linear_qkv" in name):
+                            ("attention.query_key_value" in name or \
+                            "self_attention.query_key_value" in name or \
+                            "self_attention.linear_qkv" in name):
                         from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
 
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]

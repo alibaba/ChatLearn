@@ -96,8 +96,8 @@ for _, model_config in chatlearn.get_args().models.items():
     model_config.num_gpu = 8
 chatlearn.get_args().models['policy'].tensor_model_parallel_size = tuples[0]
 chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[1]
-chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[3]
 chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[2]
+chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[3]
 
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
