@@ -882,6 +882,7 @@ class BaseModule:
                 elif stage2:
                     buffer_num.append(1)
                 else:
+                    # pylint: disable=too-many-nested-blocks
                     if self.to_fix_qkv_ordering_dict is not None and \
                             ("attention.query_key_value" in name or "self_attention.query_key_value" in name or "self_attention.linear_qkv" in name):
                         from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
@@ -927,6 +928,17 @@ class BaseModule:
                                 param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                                 del param_data_list
 
+                    # Regroup these tensors into different tp slices.
+                    # Output: [tp_slice_0, tp_slice_1, ...]
+                    # Comment:
+                    #   src -> dst: [w, h * tp_size] -> tp_size * [w, h]
+                    #       'self_attention.dense' in QWen and LLama2 legacy
+                    #       'mlp.dense_4h_to_h' in QWen and LLama2 legacy model
+                    #       'mlp.linear_fc2' in LLama2 mcore model
+                    #   src -> dst: [w * tp_size, h] -> tp_size * [w, h]
+                    #       'mlp.dense_h_to_4h' in QWen and LLama2 legacy
+                    #       'mlp.linear_fc1' in LLama2 mcore model
+                    #       'mlp.w1' in QWen model only for vLLM backend
                     if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name:
                         param_data_list = []
                         col_offset = param_data_shape[1] // self._tp_division[name]
@@ -936,7 +948,8 @@ class BaseModule:
                             param_data_list.append(param_data[:,start:end])
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
-                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name:
+                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or \
+                            ("mlp.w1" in name and self.concat_params_dict is not None):
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):

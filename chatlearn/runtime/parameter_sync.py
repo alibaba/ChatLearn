@@ -322,7 +322,7 @@ class ParameterSyncGroup:
             #   [0'] -> [1']
             #   [2'] -> [3']
             recv_ranks = [pair[1] for pair in pair_list]
-            def p2p_pair_grouping(tuples):
+            def p2p_pair_grouping(tuples):# pylint: disable=cell-var-from-loop
                 for s_idx, src_rank in enumerate(tuples):
                     for d_idx, dst_rank in enumerate(tuples):
                         if s_idx == d_idx or src_rank not in recv_ranks:
@@ -403,7 +403,8 @@ class ParameterSyncGroup:
                 sync params of relative rank to other slices of inference model. while {len(actors)}"
         for rank, actor in enumerate(actors):
             sync_buffer_rank = self.actor2rank[actors[1]] if rank == 0 and stage2 else 0
-            ref = actor.broadcast_parameter_two_stage.remote(self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
+            ref = actor.broadcast_parameter_two_stage.remote(
+                self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
             refs.append(ref)
         rets = future.wait(refs, return_output=True)
         return rets
