@@ -1,19 +1,31 @@
 # Common Issues
+
 ## ECC Error
+
 ECC Error is a machine failure. It is recommended to use [Continued Training and Fault Tolerance](tutorial/continue_train.md) to automatically blacklist faulty machines and restart the job.
+
 ## How to build a custom training flow for multiple reward models
 The provided examples are for training a single reward model. If you need to customize the training flow for multiple reward models, please refer to [Custom Inference and Training Workflow](tutorial/custom_model_flow.md).
+
 ## RuntimeError: Error(s) in loading state_dict for VocabParallelEmbedding
+
 ```
 RuntimeError: Error(s) in loading state_dict for VocabParallelEmbedding:
    size mismatch for weight: copying a param with shape torch.Size([xxx, xxx]) from checkpoint, the shape in the current model is torch.Size([[xxx, xxx]]).
 ```
+
 This is generally caused by changes in the TP and requires adjusting the parameter `make_vocab_size_divisible_by` to align the shape of the padded embedding parameters.
+
 ## YAML Configuration
+
 Refer to [Configuration File](config_yaml.md).
+
 ## How to enable 'Efficient memory sharing' to reduce memory usage
+
 Refer to the documentation on [Efficient memory sharing](tutorial/ems.md).
+
 ## Megatron Model Conversion and Parallel Strategy
+
 ```bash
 cd $CHATLEARN
 model_type=GPT # for reward model, set model_type to REWARD
@@ -24,8 +36,11 @@ target_pp=xxx
 python chatlearn/tools/megatron_checkpoint_utils.py --model-type ${model_type} --load-dir ${load_dir} --save-dir ${save_dir} \
     --target-tensor-parallel-size ${target_tp} --target-pipeline-parallel-size ${target_pp}
 ```
+
 Note that this script has only been validated on official Megatron-LM scripts.
+
 ## Failure when converting checkpoint
+
 Using Megatron-LM version core_r0.8.0 as the backend to convert checkpoints may cause the following error:
 
 ```bash
