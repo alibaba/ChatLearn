@@ -612,8 +612,13 @@ class ParameterSyncGroup:
             for send_actor in sorted_send_actors:
                 recv_actors = send_recv_actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
-                    futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
+                    if stage2:
+                        for recv_actor in recv_actors:
+                            actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name)
+                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
+                    else:
+                        actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
+                        futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
             for _future in concurrent.futures.as_completed(futures):
