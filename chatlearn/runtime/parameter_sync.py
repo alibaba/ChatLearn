@@ -608,6 +608,7 @@ class ParameterSyncGroup:
 
     def sync_broadcast_multi_threads(self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad, group_name=None, stage2=False):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
             for send_actor in sorted_send_actors:
                 recv_actors = send_recv_actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
