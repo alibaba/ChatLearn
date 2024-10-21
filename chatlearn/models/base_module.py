@@ -802,11 +802,10 @@ class BaseModule:
                 if ignore_w1_or_w2:
                     ignore_w1_or_w2 = False
                     continue
-                else:
-                    param_shape = list(param_shape)
-                    param_shape[0] *= 2
-                    param_shape = torch.Size(param_shape)
-                    ignore_w1_or_w2 = True
+                param_shape = list(param_shape)
+                param_shape[0] *= 2
+                param_shape = torch.Size(param_shape)
+                ignore_w1_or_w2 = True
             parameters_shape.append((name, param_shape))
         return parameters_shape
 
@@ -948,7 +947,8 @@ class BaseModule:
                             if len(param_data_shape) == 1:
                                 param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
                             else:
-                                param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
+                                param_data = param.view(
+                                    (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
                             param_data_list = []
                             head_offset = heads // self._tp_division[name]
                             for idx in range(self._tp_division[name]):
