@@ -254,7 +254,7 @@ class BucketizedFlatTensors:
         total_size = 0
         for t in tensors:
             size = t.numel() * t.element_size()
-            if total_size + size > size_limit:
+            if total_size + size > size_limit and len(bucket) > 0:
                 self._flat_tensors.append(
                     FlatTensors(bucket, primary_store_device, primary_store_shard_group)
                 )

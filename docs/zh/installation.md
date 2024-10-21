@@ -23,3 +23,6 @@ git clone https://github.com/alibaba/ChatLearn.git
 git clone https://github.com/NVIDIA/Megatron-LM.git
 git checkout core_r0.8.0
 ```
+
+> [!NOTE]
+> 若使用 Megatron-LM core_r0.8.0，您可能在转换 checkpoint 时遇到错误：`ValueError: Default process group has not been initialized, please make sure to call init_process_group.`，您可以参考 [FAQ：转换 Checkpoint 失败](faq.md#转换-checkpoint-失败) 中的解决方案。
