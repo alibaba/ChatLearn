@@ -1,4 +1,5 @@
 # Common Issues
+
 ## ECC Error
 ECC Error is a machine failure. It is recommended to use [Continued Training and Fault Tolerance](tutorial/continue_train.md) to automatically blacklist faulty machines and restart the job.
 ## How to build a custom training flow for multiple reward models
