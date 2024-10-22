@@ -831,8 +831,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def setup_rank_mapping(self):
         self.tp_num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
-        self.ep_num_mapping = self.num_dst_expert_parallel // self.num_src_expert_parallel
-        self.hep_num_mapping = self.num_dst_hyper_expert_parallel // self.num_src_hyper_expert_parallel
+        self.ep_num_mapping = self.num_dst_expert_parallel / self.num_src_expert_parallel
+        self.hep_num_mapping = self.num_dst_hyper_expert_parallel / self.num_src_hyper_expert_parallel
         assert self.tp_num_mapping >= 1, (
             f"Currently, tensor parallel world size for training ({self.num_src_tensor_parallel}) should be"
             f"less or equal to tensor parallel world size for inference ({self.num_dst_tensor_parallel}) with HEP enabled."
@@ -1110,11 +1110,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def sync(self, requires_grad=None):
         # First, synchronize routed experts. 
-        self._synchronize_routed_experts(requires_grad=None)  
+        self._synchronize_routed_experts(requires_grad=requires_grad)  
 
         self.clear_cache(rank_mapping_list=[self.send_recv_actor_mappings_for_routed_experts])
 
         # Then, synchronize non-routed experts.
-        self._synchronize_non_routed_experts(requires_grad=None) 
+        self._synchronize_non_routed_experts(requires_grad=requires_grad) 
 
         self.clear_cache()   
