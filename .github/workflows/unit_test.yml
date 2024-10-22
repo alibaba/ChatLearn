@@ -27,25 +27,19 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v3
 
-    - name: Check for docs or markdown changes
-      id: check_changes
-      run: |
-        git diff --name-only ${{ github.event.before }} ${{ github.sha }} > file_changes.txt
-        cat file_changes.txt
-        if grep -E '^docs/|\.md$' file_changes.txt; then
-          echo "has_docs_or_md=true" >> $GITHUB_ENV
-          echo "has_docs_or_md=true"
-        else
-          echo "has_docs_or_md=false" >> $GITHUB_ENV
-          echo "has_docs_or_md=false"
-        fi
-    - name: Run if docs or markdown files changed
-      if: env.has_docs_or_md == 'true'
-      run: |
-        echo "Changes in docs or .md files detected."
+    - name: Determine if specific files were changed
+        id: changes
+        run: |
+          if git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep -E '^(chatlearn|tests)/'; then
+            echo "CHANGES_DETECTED=true"
+            echo "CHANGES_DETECTED=true" >> $GITHUB_ENV
+          else
+            echo "CHANGES_DETECTED=false"
+            echo "CHANGES_DETECTED=false" >> $GITHUB_ENV
+          fi
 
     - name: Run unit test
-      if: env.has_docs_or_md == 'false'
+      if: env.CHANGES_DETECTED == 'true'
       run: |
         containers=$(docker ps -aqf "name=^chatlearn_ut_")
         if [[ -n "$containers" ]]; then
