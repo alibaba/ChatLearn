@@ -263,20 +263,29 @@ class CheckpointUtilsImporter:
 
 if __name__ == '__main__':
     if exist_checkpoint_util():
-        sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.util', \
-            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron'))
-        from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
-        from tools.checkpoint import util
-        util.main()
+        packages = ['tools.checkpoint.util', \
+            'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron']
     else:
-        sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.convert', \
+        packages = ['tools.checkpoint.convert', \
             'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron', \
             'tools.checkpoint.loader_mcore', 'tools.checkpoint.saver_mcore', \
-            'tools.checkpoint.utils', 'tools.checkpoint.loader_llama_mistral'))
-        from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
-        from tools.checkpoint import utils # pylint: disable=unused-import
-        from tools.checkpoint import loader_mcore, saver_mcore # pylint: disable=unused-import
-        from tools.checkpoint import loader_llama_mistral # pylint: disable=unused-import
-        from tools.checkpoint import convert
-        convert.main()
+            'tools.checkpoint.utils', 'tools.checkpoint.loader_llama_mistral']
+
+    try:
+        checkpoint_utils_import = CheckpointUtilsImporter(*packages)
+        sys.meta_path.insert(0, checkpoint_utils_import)
+
+        if exist_checkpoint_util():
+            from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
+            from tools.checkpoint import util
+            util.main()
+        else:
+            from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
+            from tools.checkpoint import utils # pylint: disable=unused-import
+            from tools.checkpoint import loader_mcore, saver_mcore # pylint: disable=unused-import
+            from tools.checkpoint import loader_llama_mistral # pylint: disable=unused-import
+            from tools.checkpoint import convert
+            convert.main()
+    finally:
+        sys.meta_path.remove(checkpoint_utils_import)
 # pylint: enable=wildcard-import,exec-used
