@@ -946,35 +946,36 @@ class BaseModule:
                         else:
                             _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
                                 if self.module_args.args_dict["group_query_attention"] else heads
-                            if len(param_data_shape) == 1:
-                                param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
-                            else:
-                                param_data = param.view(
-                                    (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
-                            param_data_list = []
-                            head_offset = heads // self._tp_division[name]
-                            for idx in range(self._tp_division[name]):
-                                q_start = idx * head_offset
-                                q_end = q_start + head_offset
-                                k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
-                                k_end = k_start + 1
-                                v_start = k_start + _num_query_groups
-                                v_end = v_start + 1
-
-                                q_proj = param_data[q_start:q_end].contiguous()
-                                k_proj = param_data[k_start:k_end].contiguous()
-                                v_proj = param_data[v_start:v_end].contiguous()
-
-                                qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
-
+                            if self.to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
                                 if len(param_data_shape) == 1:
-                                    qkv_proj = qkv_proj.reshape(-1).contiguous()
+                                    param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
                                 else:
-                                    qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
+                                    param_data = param.view(
+                                        (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
+                                param_data_list = []
+                                head_offset = heads // self._tp_division[name]
+                                for idx in range(self._tp_division[name]):
+                                    q_start = idx * head_offset
+                                    q_end = q_start + head_offset
+                                    k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
+                                    k_end = k_start + 1
+                                    v_start = k_start + _num_query_groups
+                                    v_end = v_start + 1
 
-                                param_data_list.append(qkv_proj)
-                            param_data = torch.concat(param_data_list, dim=0)
-                            del param_data_list
+                                    q_proj = param_data[q_start:q_end].contiguous()
+                                    k_proj = param_data[k_start:k_end].contiguous()
+                                    v_proj = param_data[v_start:v_end].contiguous()
+
+                                    qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
+
+                                    if len(param_data_shape) == 1:
+                                        qkv_proj = qkv_proj.reshape(-1).contiguous()
+                                    else:
+                                        qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
+
+                                    param_data_list.append(qkv_proj)
+                                param_data = torch.concat(param_data_list, dim=0)
+                                del param_data_list
 
                     # Regroup these tensors into different tp slices.
                     # Output: [tp_slice_0, tp_slice_1, ...]
