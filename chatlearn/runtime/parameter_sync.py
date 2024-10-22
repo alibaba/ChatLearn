@@ -819,12 +819,13 @@ class ParameterSyncGroup:
 
 
 class ParameterSyncGroupwithHEP(ParameterSyncGroup):
-    """ParameterSyncGroup for Hyper Expert Parallel.
+    """ParameterSyncGroup for Hyper Expert Parallel (HEP).
     
        Note that in HEP, EP size for routed experts is not equivalent to that for shared experts.
        For routed experts, the new EP size (we call it HEP size for clarification) = mpu.ep_size x mpu.tp_size.
-       For shared experts, the new EP size remains the same with mpu.ep_size. Moreover, the definition is identical to that in Megatron-LM.
-       Therefore, we need to manage two seperate parameter sync groups for these two kinds of EP weights. 
+       For shared experts, the EP size remains 1 because they cannot be parallelized in expert dimension.
+       In this case, shared experts in HEP shares the same parallel dimension with other non-expert weights.
+       Therefore, we manage only two seperate parameter sync groups for routed expert weigts and other weights.
     """
 
     def __init__(self, src_model, dst_model, group_name, frequency, error_signal):
@@ -853,7 +854,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         if self.hep_num_mapping == 1:
             self.build_rank_mapping_for_routed_experts()
-            self.build_rank_mapping_for_non_routed_experts()
+            self.build_rank_mapping_for_params_except_routed_expert()
         else:
             raise NotImplementedError(
                 "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled. "
@@ -905,7 +906,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     def build_rank_mapping_for_routed_experts(self):
         self.build_rank_mapping(add_recv_actor_fn=self.add_recv_actor_for_routed_experts)
 
-    def build_rank_mapping_for_non_routed_experts(self):
+    def build_rank_mapping_for_params_except_routed_expert(self):
         self.build_rank_mapping_two_stage(add_recv_actor_fn=None)
 
     def routed_experts_filter(self, name_list: List[str]):
@@ -915,7 +916,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 filted_names.append(name)
         return filted_names
 
-    def non_routed_experts_filter(self, name_list: List[str]):
+    def params_except_routed_expert_filter(self, name_list: List[str]):
         filted_names = []
         for name in name_list:
             if 'mlp.experts' not in name:
@@ -1016,7 +1017,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.collective_groups = []
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
-    def _synchronize_non_routed_experts(self, requires_grad=None, validate=False):
+    def _synchronize_params_except_routed_expert(self, requires_grad=None, validate=False):
         if not self._is_collective_group_created:
             # Re-create collective group only when it is destroyed before.
             assert self._free_sync_collective_group
@@ -1044,7 +1045,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 # stage 1
                 self.sync_broadcast_multi_threads(
                     sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad,
-                    stage2=False, filter_fn=self.non_routed_experts_filter
+                    stage2=False, filter_fn=self.params_except_routed_expert_filter
                 )
                 # stage 2
                 # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
@@ -1064,7 +1065,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     requires_grad,
                     group_name="intra_comm",
                     stage2=True,
-                    filter_fn=self.non_routed_experts_filter
+                    filter_fn=self.params_except_routed_expert_filter
                 )
             else:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1074,12 +1075,12 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                             actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
                             futures.append(executor.submit(
-                                self.sync_broadcast, actor_groups, group_name, requires_grad, self.non_routed_experts_filter
+                                self.sync_broadcast, actor_groups, group_name, requires_grad, self.params_except_routed_expert_filter
                             ))
                         else:
                             for recv_actor in recv_actors:
                                 futures.append(executor.submit(
-                                    self.sync_send_recv, send_actor, recv_actor, requires_grad, self.non_routed_experts_filter
+                                    self.sync_send_recv, send_actor, recv_actor, requires_grad, self.params_except_routed_expert_filter
                                 ))
                     for _future in concurrent.futures.as_completed(futures):
                         try:
@@ -1091,10 +1092,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             for send_actor, recv_actors in self.send_recv_actor_mappings.items():
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
-                    self.sync_broadcast(actor_groups, group_name, requires_grad, self.non_routed_experts_filter)
+                    self.sync_broadcast(actor_groups, group_name, requires_grad, self.params_except_routed_expert_filter)
                 else:
                     for recv_actor in recv_actors:
-                        self.sync_send_recv(send_actor, recv_actor, requires_grad, self.non_routed_experts_filter)
+                        self.sync_send_recv(send_actor, recv_actor, requires_grad, self.params_except_routed_expert_filter)
 
         for send_actor in self.send_recv_actor_mappings:
             if self._enable_lora:
@@ -1106,7 +1107,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             args = []
             for send_actor, recv_actors in self.send_recv_actor_mappings.items():
                 for recv_actor in recv_actors:
-                    args.append((send_actor, recv_actor, requires_grad, self.non_routed_experts_filter))
+                    args.append((send_actor, recv_actor, requires_grad, self.params_except_routed_expert_filter))
             execute_in_parallel(self.validate_sync_results, args)
 
         if self._free_sync_collective_group:
@@ -1123,6 +1124,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self.clear_cache(rank_mapping_list=[self.send_recv_actor_mappings_for_routed_experts])
 
         # Then, synchronize non-routed experts.
-        self._synchronize_non_routed_experts(requires_grad=requires_grad, validate=validate)
+        self._synchronize_params_except_routed_expert(requires_grad=requires_grad, validate=validate)
 
         self.clear_cache()
