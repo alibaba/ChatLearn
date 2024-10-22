@@ -174,7 +174,7 @@ class MegatronModule(TorchModule):
 
     def tensor_and_expert_model_parallel_size(self):
         """
-        get expert_model_parallel_size
+        get tensor_and_expert_model_parallel_size
         :meta private:
         """
         return self.megatron_args.tensor_model_parallel_size * self.expert_model_parallel_size()

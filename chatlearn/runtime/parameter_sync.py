@@ -393,83 +393,6 @@ class ParameterSyncGroup:
             dst_name = dst_prefix + src_name
         return dst_name
 
-    def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
-        if requires_grad is None:
-            requires_grad = True
-        if self._enable_lora:
-            # TODO(jiangle.jl): support freeze layer.
-            requires_grad = False
-
-        if self.num_src_pipeline_stage > 1:
-            dst_pipe_rank = self.get_actor_pipe_rank(recv_actor)
-            dst_layer_offset = self.get_or_cache(recv_actor, "get_pipeline_stage_layer_offset")
-            dst_src_mappings = future.get(send_actor.build_pipeline_layer_name_mapping.remote(
-                                          self.num_dst_pipeline_stage, dst_pipe_rank, dst_layer_offset,
-                                          requires_grad=requires_grad))
-            dst_names = list(dst_src_mappings.keys())
-            src_names = list(dst_src_mappings.values())
-        else:
-            src_names = dst_names = future.get(send_actor.get_parameter_names.remote(requires_grad=requires_grad))
-
-        if self._enable_lora:
-            src_names = [ele for ele in src_names if LORA_WEIGHT_PREFIX not in ele]
-            dst_names = [ele for ele in dst_names if LORA_WEIGHT_PREFIX not in ele]
-
-        if filter_fn is not None:
-            src_names = filter_fn(src_names)
-            dst_names = filter_fn(dst_names)
-
-        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
-            src_pipe_stage = self.get_actor_pipe_rank(send_actor)
-            src_names, dst_names = future.get(recv_actor.map_src_to_dst.remote(src_names, self.num_src_pipeline_stage, src_pipe_stage))
-            concat_params_dict = future.get(recv_actor.get_concat_params_dict.remote())
-            future.get(send_actor.set_concat_params_dict.remote(concat_params_dict))
-            to_fix_act_ordering_dict = future.get(recv_actor.get_to_fix_act_ordering_dict.remote())
-            future.get(send_actor.set_to_fix_act_ordering_dict.remote(to_fix_act_ordering_dict))
-            to_fix_qkv_ordering_dict = future.get(recv_actor.get_to_fix_qkv_ordering_dict.remote())
-            future.get(send_actor.set_to_fix_qkv_ordering_dict.remote(to_fix_qkv_ordering_dict))
-            to_fix_qkv_ordering_func = future.get(recv_actor.get_to_fix_qkv_ordering_func.remote())
-            future.get(send_actor.set_to_fix_qkv_ordering_func.remote(to_fix_qkv_ordering_func))
-        else:
-            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
-            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
-            dst_names = [self._get_dst_name(name, src_prefix, dst_prefix) for name in dst_names]
-        self.check_param_names(send_actor, recv_actor, src_names, dst_names)
-        if self.tp_num_mapping > 1:
-            key = (recv_actor, recv_actor)
-            if key not in self._send_recv_param_names:
-                self._send_recv_param_names[key] = (dst_names, dst_names)
-            else:
-                dst_names0 = self._send_recv_param_names[key][0]
-                dst_names0 += dst_names
-                self._send_recv_param_names[key] = (dst_names0, dst_names0)
-        if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
-            pipe_stage = self.get_actor_pipe_rank(send_actor)
-            refs = []
-            refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
-            refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
-            future.get(refs)
-        return src_names, dst_names
-
-    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
-        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
-            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn))
-        pipe_stage = self.get_actor_pipe_rank(send_actor)
-        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
-            refs = []
-            refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
-            refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
-            future.get(refs)
-        return src_names, dst_names
-
-    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad, filter_fn=None):
-        send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad, filter_fn)
-        refs = []
-        refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
-        refs.append(recv_actor.set_recv_parameters.remote(to_rank, send_names, self.get_actor_pipe_rank(recv_actor)))
-        future.get(refs)
-        return send_names, send_names
-
     def _clear_sync_send_recv_parameters(self, rank_mappings:List):
         refs = []
         flagged_actors = set()
@@ -528,6 +451,14 @@ class ParameterSyncGroup:
         logger.info("Going to validate transmitted tensors...")
         validate()
         logger.info("Validation passed!")
+
+    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad, filter_fn=None):
+        send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad, filter_fn)
+        refs = []
+        refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
+        refs.append(recv_actor.set_recv_parameters.remote(to_rank, send_names, self.get_actor_pipe_rank(recv_actor)))
+        future.get(refs)
+        return send_names, send_names
 
     def sync_broadcast_two_stage(self, actors, group_name, requires_grad=None, stage2=False, filter_fn=None):
         send_actor = actors[0]
@@ -664,6 +595,75 @@ class ParameterSyncGroup:
         def inner_func():
             return future.get(actor.get_data_parallel_rank.remote())
         return utils.get_or_cache(self._actor2dp, actor, inner_func)
+
+    def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
+        if requires_grad is None:
+            requires_grad = True
+        if self._enable_lora:
+            # TODO(jiangle.jl): support freeze layer.
+            requires_grad = False
+
+        if self.num_src_pipeline_stage > 1:
+            dst_pipe_rank = self.get_actor_pipe_rank(recv_actor)
+            dst_layer_offset = self.get_or_cache(recv_actor, "get_pipeline_stage_layer_offset")
+            dst_src_mappings = future.get(send_actor.build_pipeline_layer_name_mapping.remote(
+                                          self.num_dst_pipeline_stage, dst_pipe_rank, dst_layer_offset,
+                                          requires_grad=requires_grad))
+            dst_names = list(dst_src_mappings.keys())
+            src_names = list(dst_src_mappings.values())
+        else:
+            src_names = dst_names = future.get(send_actor.get_parameter_names.remote(requires_grad=requires_grad))
+
+        if self._enable_lora:
+            src_names = [ele for ele in src_names if LORA_WEIGHT_PREFIX not in ele]
+            dst_names = [ele for ele in dst_names if LORA_WEIGHT_PREFIX not in ele]
+
+        if filter_fn is not None:
+            src_names = filter_fn(src_names)
+            dst_names = filter_fn(dst_names)
+
+        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
+            src_pipe_stage = self.get_actor_pipe_rank(send_actor)
+            src_names, dst_names = future.get(recv_actor.map_src_to_dst.remote(src_names, self.num_src_pipeline_stage, src_pipe_stage))
+            concat_params_dict = future.get(recv_actor.get_concat_params_dict.remote())
+            future.get(send_actor.set_concat_params_dict.remote(concat_params_dict))
+            to_fix_act_ordering_dict = future.get(recv_actor.get_to_fix_act_ordering_dict.remote())
+            future.get(send_actor.set_to_fix_act_ordering_dict.remote(to_fix_act_ordering_dict))
+            to_fix_qkv_ordering_dict = future.get(recv_actor.get_to_fix_qkv_ordering_dict.remote())
+            future.get(send_actor.set_to_fix_qkv_ordering_dict.remote(to_fix_qkv_ordering_dict))
+            to_fix_qkv_ordering_func = future.get(recv_actor.get_to_fix_qkv_ordering_func.remote())
+            future.get(send_actor.set_to_fix_qkv_ordering_func.remote(to_fix_qkv_ordering_func))
+        else:
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
+            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
+            dst_names = [self._get_dst_name(name, src_prefix, dst_prefix) for name in dst_names]
+        self.check_param_names(send_actor, recv_actor, src_names, dst_names)
+        if self.tp_num_mapping > 1:
+            key = (recv_actor, recv_actor)
+            if key not in self._send_recv_param_names:
+                self._send_recv_param_names[key] = (dst_names, dst_names)
+            else:
+                dst_names0 = self._send_recv_param_names[key][0]
+                dst_names0 += dst_names
+                self._send_recv_param_names[key] = (dst_names0, dst_names0)
+        if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
+            pipe_stage = self.get_actor_pipe_rank(send_actor)
+            refs = []
+            refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
+            refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
+            future.get(refs)
+        return src_names, dst_names
+
+    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
+        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
+            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn))
+        pipe_stage = self.get_actor_pipe_rank(send_actor)
+        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
+            refs = []
+            refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
+            refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
+            future.get(refs)
+        return src_names, dst_names
 
     def create_broadcast_group(self, send_actor, recv_actors, group_name=None):
         actor_groups = [send_actor]
