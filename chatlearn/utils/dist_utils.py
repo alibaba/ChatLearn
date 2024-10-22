@@ -70,7 +70,7 @@ def bucket_tensors_two_stage(tensors, bucket_size_mb, buffer_num=None, tensor_ch
     dense_buckets = []
     sparse_bucket = []
     for idx, tensor in enumerate(tensors):
-        buffer_multiple =  1 if buffer_num is None else buffer_num[idx]
+        buffer_multiple = 1 if buffer_num is None else buffer_num[idx]
         if tensor.is_sparse:
             sparse_bucket.append(tensor)
             continue

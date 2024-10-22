@@ -789,24 +789,15 @@ class BaseModule:
         else:
             return [param_to_name[param] for param in self.parameters]
 
-    def get_parameter_shape(self, param_names):
+    def get_parameter_shape(self, pipe_stage=0, parameters_to_sync=None):
         """
         :meta private:
         """
+        if parameters_to_sync is None:
+            parameters_to_sync = self._parameters_to_sync
         parameters_shape = []
-        concat_params_list = self.concat_params_dict["modules"] if self.concat_params_dict is not None else None
-        ignore_w1_or_w2 = True
-        for name in param_names:
-            param_shape = self.named_parameters[name].shape
-            if concat_params_list and any(ele in name for ele in concat_params_list):
-                if ignore_w1_or_w2:
-                    ignore_w1_or_w2 = False
-                    continue
-                param_shape = list(param_shape)
-                param_shape[0] *= 2
-                param_shape = torch.Size(param_shape)
-                ignore_w1_or_w2 = True
-            parameters_shape.append((name, param_shape))
+        for name, param in parameters_to_sync[pipe_stage]:
+            parameters_shape.append((name, param.shape))
         return parameters_shape
 
     def get_parameter(self, name):
@@ -931,17 +922,30 @@ class BaseModule:
                     buffer_num.append(1)
                 else:
                     # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
-                    if self.to_fix_qkv_ordering_dict is not None and \
-                            ("attention.query_key_value" in name or \
+                    if "attention.query_key_value" in name or \
                             "self_attention.query_key_value" in name or \
-                            "self_attention.linear_qkv" in name):
+                            "self_attention.linear_qkv" in name:
                         from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
 
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
                         heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                         hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
 
-                        if self._to_fix_qkv_ordering_func is split_attn_state:
+                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+                        division = reduce(operator.mul, param_shape, 1)
+                        num_elements = param_data.numel()
+                        if num_elements == division:#self._to_fix_qkv_ordering_func is split_attn_state:
+                            if self.to_fix_qkv_ordering_dict is not None:
+                                param_data = param_data.view(param_shape)
+                                param_data_list = []
+                                head_offset = heads // self._tp_division[name]
+                                for idx in range(self._tp_division[name]):
+                                    start = idx * head_offset
+                                    end = start + head_offset
+                                    param_data_list.append(param_data[:,start:end])
+                                param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                                del param_data_list
+                        else:
                             _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
                                 if self.module_args.args_dict["group_query_attention"] else heads
                             if len(param_data_shape) == 1:
@@ -954,9 +958,9 @@ class BaseModule:
                             for idx in range(self._tp_division[name]):
                                 q_start = idx * head_offset
                                 q_end = q_start + head_offset
-                                k_start = heads + idx
+                                k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
                                 k_end = k_start + 1
-                                v_start = heads + 2 + idx
+                                v_start = k_start + _num_query_groups
                                 v_end = v_start + 1
 
                                 q_proj = param_data[q_start:q_end].contiguous()
@@ -971,22 +975,8 @@ class BaseModule:
                                     qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
 
                                 param_data_list.append(qkv_proj)
-                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                            param_data = torch.concat(param_data_list, dim=0)
                             del param_data_list
-                        else:
-                            param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                            division = reduce(operator.mul, param_shape, 1)
-                            num_elements = param_data.numel()
-                            if num_elements == division:
-                                param_data = param_data.view(param_shape)
-                                param_data_list = []
-                                head_offset = heads // self._tp_division[name]
-                                for idx in range(self._tp_division[name]):
-                                    start = idx * head_offset
-                                    end = start + head_offset
-                                    param_data_list.append(param_data[:,start:end])
-                                param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                                del param_data_list
 
                     # Regroup these tensors into different tp slices.
                     # Output: [tp_slice_0, tp_slice_1, ...]

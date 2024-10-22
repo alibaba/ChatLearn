@@ -64,12 +64,12 @@ class ParameterSyncGroup:
         self._actor2dp = {}
         self._comm_type = get_args().runtime_args.param_sync_comm_type
         if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-            if self.num_src_tensor_parallel % 2 == 1:
+            if self.num_src_tensor_parallel % 2 == 1 and self.num_dst_tensor_parallel % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
         self.setup_collective_group()
         self.num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
-        if self.num_mapping  == 1:
+        if self.num_mapping == 1:
             self.build_rank_mapping()
         else:
             self.build_rank_mapping_two_stage()
@@ -378,19 +378,25 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                src_names, dst_names = self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad)
+                self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad)
             else:
-                src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
+                self.set_sync_param_names(send_actor, recv_actor, requires_grad)
+                pipe_stage = self.get_actor_pipe_rank(send_actor)
+
                 shape_refs = []
-                shape_refs.append(send_actor.get_parameter_shape.remote(src_names))
-                shape_refs.append(recv_actor.get_parameter_shape.remote(dst_names))
+                shape_refs.append(send_actor.get_parameter_shape.remote(pipe_stage))
+                shape_refs.append(recv_actor.get_parameter_shape.remote(pipe_stage))
                 send_shape_list, recv_shape_list = future.get(shape_refs)
 
                 buffer_num = {}
                 tp_division = {}
                 for send_name_and_shape, recv_name_and_shape in zip(send_shape_list, recv_shape_list):
-                    buffer_num[recv_name_and_shape[0]] = send_name_and_shape[1].numel() // recv_name_and_shape[1].numel()
-                    tp_division[send_name_and_shape[0]] = buffer_num[recv_name_and_shape[0]]
+                    send_param_num = send_name_and_shape[1].numel()
+                    recv_param_num = recv_name_and_shape[1].numel()
+                    # for group query attention, tensor might consist of tp part and dp part.
+                    ele_buffer_num = 1 if send_param_num == recv_param_num else self.num_mapping
+                    buffer_num[recv_name_and_shape[0]] = ele_buffer_num
+                    tp_division[send_name_and_shape[0]] = ele_buffer_num
                 refs = []
                 refs.append(recv_actor.set_num_mapping.remote(self.num_mapping))
                 refs.append(recv_actor.set_buffer_num.remote(buffer_num))
@@ -614,8 +620,8 @@ class ParameterSyncGroup:
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     if stage2:
                         for idx, recv_actor in enumerate(recv_actors):
-                            group_name = f"{group_name}_{idx}"
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name)
+                            group_name_ = f"{group_name}_{idx}"
+                            actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name_)
                             futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
                     else:
                         actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
