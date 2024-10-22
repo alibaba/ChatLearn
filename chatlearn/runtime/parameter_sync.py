@@ -665,7 +665,7 @@ class ParameterSyncGroup:
             future.get(refs)
         return src_names, dst_names
 
-    def create_broadcast_group(self, send_actor, recv_actors, group_name=None):
+    def create_broadcast_group(self, send_actor, recv_actors, group_name=None, prefix="default"):
         actor_groups = [send_actor]
         actor_groups.extend(recv_actors)
         dp = self.get_actor_dp_rank(send_actor)
@@ -673,7 +673,7 @@ class ParameterSyncGroup:
         tp = self.get_actor_tp_rank(send_actor)
         ep = self.get_actor_ep_rank(send_actor)
         group_name = self.group_name if group_name is None else group_name
-        group_name = f"{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
+        group_name = f"{prefix}:{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
         if group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -705,17 +705,17 @@ class ParameterSyncGroup:
 
     def sync_broadcast_multi_threads(
         self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad,
-        group_name=None, stage2=False, filter_fn=None
+        group_name=None, stage2=False, filter_fn=None, prefix="default"
     ):
         for send_actor in sorted_send_actors:
             recv_actors = send_recv_actor_mappings[send_actor]
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 if stage2:
                     for recv_actor in recv_actors:
-                        actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name)
+                        actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name, prefix=prefix)
                         self.sync_broadcast_two_stage(actor_groups, group_name, requires_grad, stage2, filter_fn)
                 else:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name, prefix=prefix)
                     self.sync_broadcast_two_stage(actor_groups, group_name, requires_grad, stage2, filter_fn)
             print(f"success to send params from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]}")
         # with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -974,7 +974,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 for send_actor in sorted_send_actors:
                     recv_actors = self.send_recv_actor_mappings_for_routed_experts[send_actor]
                     if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                        actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
+                        actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="routed")
                         futures.append(executor.submit(
                             self.sync_broadcast, actor_groups, group_name, requires_grad, self.routed_experts_filter
                         ))
@@ -992,7 +992,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         else:
             for send_actor, recv_actors in self.send_recv_actor_mappings_for_routed_experts.items():
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="routed")
                     self.sync_broadcast(actor_groups, group_name, requires_grad, self.routed_experts_filter)
                 else:
                     for recv_actor in recv_actors:
@@ -1045,7 +1045,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 # stage 1
                 self.sync_broadcast_multi_threads(
                     sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad,
-                    stage2=False, filter_fn=self.params_except_routed_expert_filter
+                    stage2=False, filter_fn=self.params_except_routed_expert_filter, prefix="except_routed"
                 )
                 # stage 2
                 # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
@@ -1065,7 +1065,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     requires_grad,
                     group_name="intra_comm",
                     stage2=True,
-                    filter_fn=self.params_except_routed_expert_filter
+                    filter_fn=self.params_except_routed_expert_filter,
+                    prefix="except_routed"
                 )
             else:
                 with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1073,7 +1074,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     for send_actor in sorted_send_actors:
                         recv_actors = self.send_recv_actor_mappings[send_actor]
                         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
+                            actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="except_routed")
                             futures.append(executor.submit(
                                 self.sync_broadcast, actor_groups, group_name, requires_grad, self.params_except_routed_expert_filter
                             ))
@@ -1091,7 +1092,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         else:
             for send_actor, recv_actors in self.send_recv_actor_mappings.items():
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="except_routed")
                     self.sync_broadcast(actor_groups, group_name, requires_grad, self.params_except_routed_expert_filter)
                 else:
                     for recv_actor in recv_actors:
