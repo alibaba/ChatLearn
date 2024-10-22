@@ -753,9 +753,9 @@ class ParameterSyncGroup:
                 max_workers = max(self.src_model.total_gpu // 8, 1)
             if max_workers == -1:
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    max_workers = len(send_actors)
+                    max_workers = len(sorted_send_actors)
                 else:
-                    max_workers = len(send_actors) * len(self.send_recv_actor_mappings[send_actors[0]])
+                    max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings[sorted_send_actors[0]])
 
             if self.tp_num_mapping > 1:
                 # stage 1
@@ -940,7 +940,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
-    def _synchronize_routed_experts(self, requires_grad=None):
+    def _synchronize_routed_experts(self, requires_grad=None, validate=False):
         assert self.hep_num_mapping == 1, (
             "Currently, _synchronize_routed_experts requires EP x TP for src model is equal to that for dst model"
         )
@@ -964,9 +964,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 max_workers = max(self.src_model.total_gpu // 8, 1)
             if max_workers == -1:
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    max_workers = len(send_actors)
+                    max_workers = len(sorted_send_actors)
                 else:
-                    max_workers = len(send_actors) * len(self.send_recv_actor_mappings_for_routed_experts[send_actors[0]])
+                    max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_for_routed_experts[sorted_send_actors[0]])
 
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = []
@@ -1003,7 +1003,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
-        if self._debug:
+        if self._debug or validate:
             args = []
             for send_actor, recv_actors in self.send_recv_actor_mappings_for_routed_experts.items():
                 for recv_actor in recv_actors:
@@ -1016,7 +1016,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.collective_groups = []
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
-    def _synchronize_non_routed_experts(self, requires_grad=None):
+    def _synchronize_non_routed_experts(self, requires_grad=None, validate=False):
         if not self._is_collective_group_created:
             # Re-create collective group only when it is destroyed before.
             assert self._free_sync_collective_group
@@ -1036,9 +1036,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 max_workers = max(self.src_model.total_gpu // 8, 1)
             if max_workers == -1:
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    max_workers = len(send_actors)
+                    max_workers = len(sorted_send_actors)
                 else:
-                    max_workers = len(send_actors) * len(self.send_recv_actor_mappings[send_actors[0]])
+                    max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings[sorted_send_actors[0]])
 
             if self.tp_num_mapping > 1:
                 # stage 1
@@ -1102,7 +1102,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
-        if self._debug:
+        if self._debug or validate:
             args = []
             for send_actor, recv_actors in self.send_recv_actor_mappings.items():
                 for recv_actor in recv_actors:
@@ -1116,13 +1116,13 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
 
-    def sync(self, requires_grad=None):
+    def sync(self, requires_grad=None, validate=False):
         # First, synchronize routed experts.
-        self._synchronize_routed_experts(requires_grad=requires_grad)
+        self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
 
         self.clear_cache(rank_mapping_list=[self.send_recv_actor_mappings_for_routed_experts])
 
         # Then, synchronize non-routed experts.
-        self._synchronize_non_routed_experts(requires_grad=requires_grad)
+        self._synchronize_non_routed_experts(requires_grad=requires_grad, validate=validate)
 
         self.clear_cache()
