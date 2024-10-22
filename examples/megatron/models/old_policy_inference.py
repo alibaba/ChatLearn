@@ -399,6 +399,7 @@ class PolicyInference(MegatronModule):
                                                       f"_all_tokens_max_len: {_all_tokens_max_len}"
 
         loss_mask = get_loss_mask(tokens, get_eos_id(get_tokenizer()), prompt_sizes)
+
         return {"all_tokens": tokens, "str_samples": str_samples,
                 "str_prompts": str_prompts, "str_outputs": str_outputs, "logprobs": all_log_probs,
                 "no_padded_query_ids": no_padded_query_ids, "loss_mask": loss_mask}
