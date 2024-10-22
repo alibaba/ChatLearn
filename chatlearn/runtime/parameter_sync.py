@@ -181,13 +181,15 @@ class ParameterSyncGroup:
 
     def setup_rank_mapping(self):
         self.tp_num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
-        self.ep_num_mapping = self.num_dst_expert_parallel // self.num_src_expert_parallel
-        if self.tp_num_mapping == 1 and self.ep_num_mapping == 1:
+        if self.tp_num_mapping == 1:
             self.build_rank_mapping()
-        if self.tp_num_mapping > 1:
+        elif self.tp_num_mapping > 1:
             self.build_rank_mapping_two_stage()
-        if self.ep_num_mapping < 1:
-            self.build_rank_mapping_for_ep()
+        else:
+            raise RuntimeError(
+                f"Currently, ChatLearn doesn't allow synchronize from larger TP size ({self.num_src_tensor_parallel}) "
+                f"to smaller TP size ({self.num_dst_tensor_parallel})."
+            )
 
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -278,8 +280,9 @@ class ParameterSyncGroup:
                 for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[j]):
                     add_recv_actor_fn(src_rank, dst_rank)
 
+    # pylint: disable=unused-argument
     def build_rank_mapping_for_ep(self, add_recv_actor_fn=None):
-        raise NotImplemented("ChatLearn does not support synchronize Megatron weights for different EP sizes currently.")
+        # Currently, we do nothing for ep
         pass
 
     def build_rank_mapping_two_stage(self, add_recv_actor_fn=None):
@@ -370,11 +373,11 @@ class ParameterSyncGroup:
             def p2p_pair_grouping(tuples):
                 for s_idx, src_rank in enumerate(tuples):
                     for d_idx, dst_rank in enumerate(tuples):
-                        if s_idx == d_idx or src_rank not in recv_ranks:
+                        if s_idx == d_idx or src_rank not in recv_ranks: # pylint: disable=cell-var-from-loop
                             continue
                         add_recv_actor_stage2_fn(src_rank, dst_rank)
                         p2p_list.append((src_rank, dst_rank))
-  
+
             for dst_tp_group in dst_replica_ranks_group:
                 dst_tp_group = split_ranks_by_tp_size(dst_tp_group, self.tp_num_mapping)
                 for tuples in dst_tp_group:
@@ -559,7 +562,8 @@ class ParameterSyncGroup:
                 sync params of relative rank to other slices of inference model. while {len(actors)}"
         for rank, actor in enumerate(actors):
             sync_buffer_rank = self.actor2rank[actors[1]] if rank == 0 and stage2 else 0
-            ref = actor.broadcast_parameter_two_stage.remote(self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
+            ref = actor.broadcast_parameter_two_stage.remote(
+                self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
             refs.append(ref)
         rets = future.wait(refs, return_output=True)
         return rets
@@ -699,7 +703,10 @@ class ParameterSyncGroup:
         assert len(send_recv_actor_mappings) == len(sorted_send_actors)
         return sorted_send_actors
 
-    def sync_broadcast_multi_threads(self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad, group_name=None, stage2=False, filter_fn=None):
+    def sync_broadcast_multi_threads(
+        self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad,
+        group_name=None, stage2=False, filter_fn=None
+    ):
         for send_actor in sorted_send_actors:
             recv_actors = send_recv_actor_mappings[send_actor]
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
@@ -848,7 +855,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.build_rank_mapping_for_routed_experts()
             self.build_rank_mapping_for_non_routed_experts()
         else:
-            raise NotImplemented(
+            raise NotImplementedError(
                 "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled. "
                 f"Your current setting is training: EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel}, "
                 f"inference: EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel}"
@@ -1036,7 +1043,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             if self.tp_num_mapping > 1:
                 # stage 1
                 self.sync_broadcast_multi_threads(
-                    sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad, stage2=False, filter_fn=self.non_routed_experts_filter
+                    sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad,
+                    stage2=False, filter_fn=self.non_routed_experts_filter
                 )
                 # stage 2
                 # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
@@ -1052,10 +1060,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 self.sync_broadcast_multi_threads(
                     sorted_send_actors,
                     self.send_recv_actor_mappings_stage2,
-                    max_workers, 
-                    requires_grad, 
+                    max_workers,
+                    requires_grad,
                     group_name="intra_comm",
-                    stage2=True, 
+                    stage2=True,
                     filter_fn=self.non_routed_experts_filter
                 )
             else:
@@ -1109,12 +1117,12 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
 
     def sync(self, requires_grad=None):
-        # First, synchronize routed experts. 
-        self._synchronize_routed_experts(requires_grad=requires_grad)  
+        # First, synchronize routed experts.
+        self._synchronize_routed_experts(requires_grad=requires_grad)
 
         self.clear_cache(rank_mapping_list=[self.send_recv_actor_mappings_for_routed_experts])
 
         # Then, synchronize non-routed experts.
-        self._synchronize_non_routed_experts(requires_grad=requires_grad) 
+        self._synchronize_non_routed_experts(requires_grad=requires_grad)
 
-        self.clear_cache()   
+        self.clear_cache()

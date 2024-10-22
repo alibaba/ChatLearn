@@ -897,6 +897,7 @@ class BaseModule:
 
         tensors = []
         buffer_num = []
+        # pylint: disable=too-many-nested-blocks
         if stage2 and not tensor_changed and self._sync_buffer:
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
@@ -956,7 +957,12 @@ class BaseModule:
                                 param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                                 del param_data_list
 
-                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name or "mlp.shared_experts.dense_4h_to_h" in name:
+                    if (
+                        "self_attention.dense" in name
+                        or "mlp.dense_4h_to_h" in name
+                        or "mlp.linear_fc2" in name
+                        or "mlp.shared_experts.dense_4h_to_h" in name
+                    ):
                         param_data_list = []
                         col_offset = param_data_shape[1] // self._tp_division[name]
                         for idx in range(self._tp_division[name]):
@@ -966,7 +972,11 @@ class BaseModule:
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
 
-                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or "mlp.shared_experts.dense_h_to_4h" in name:
+                    if (
+                        "mlp.dense_h_to_4h" in name
+                        or "mlp.linear_fc1" in name
+                        or "mlp.shared_experts.dense_h_to_4h" in name
+                    ):
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):
