@@ -60,10 +60,10 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     export train_micro_batch_size=16
     export max_num_batched_tokens=65536
     export gpu_memory_utilization=0.9
-    [ -z "$num_gpu_ref" ] && export num_gpu_ref=4
-    [ -z "$num_gpu_value" ] && export num_gpu_value=4
-    [ -z "$num_gpu_ppo_policy" ] && export num_gpu_ppo_policy=4
-    [ -z "$num_gpu_ppo_value" ] && export num_gpu_ppo_value=4
+    export num_gpu_ref=4
+    export num_gpu_value=4
+    export num_gpu_ppo_policy=4
+    export num_gpu_ppo_value=4
     export free_memory_reward=True
     export free_memory_ppo_policy=True
     export free_memory_ppo_value=True

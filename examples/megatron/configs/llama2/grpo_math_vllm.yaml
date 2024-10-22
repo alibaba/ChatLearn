@@ -65,3 +65,4 @@ runtime:
   output_dir: ${output_dir}
   max_relay_episode: 1
   exp_name: ${exp_name:chatlearn}
+  validate_param_sync: ${validate_param_sync:False}

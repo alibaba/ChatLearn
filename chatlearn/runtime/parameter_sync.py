@@ -505,16 +505,17 @@ class ParameterSyncGroup:
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
     def validate_sync_results(self, send_actor, recv_actor, requires_grad, filter_fn=None):
-        src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn)
 
         def validate():
+            src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn)
             # check the value of src model and tgt model
-            names = list(zip(src_names, dst_names))
-            if filter_fn is not None:
-                names = filter_fn(names)
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             future.wait([send_actor.reset_sync_parameters.remote(src_names, pipe_stage),
                          recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage)])
+            src_names, dst_names = future.get([send_actor.get_parameter_to_sync_names.remote(pipe_stage),
+                                               recv_actor.get_parameter_to_sync_names.remote(pipe_stage)])
+            assert len(src_names) == len(dst_names)
+            names = list(zip(src_names, dst_names))
             for src_name, dst_name in tqdm(names):
                 src_tensor, dst_tensor = future.get([send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True),
                                                      recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True)])
@@ -524,10 +525,9 @@ class ParameterSyncGroup:
                     f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
             return True
 
-        if self._debug:
-            logger.info("Going to validate transmitted tensors...")
-            validate()
-            logger.info("Validation passed!")
+        logger.info("Going to validate transmitted tensors...")
+        validate()
+        logger.info("Validation passed!")
 
     def sync_broadcast_two_stage(self, actors, group_name, requires_grad=None, stage2=False, filter_fn=None):
         send_actor = actors[0]
@@ -734,7 +734,7 @@ class ParameterSyncGroup:
         #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
         #     concurrent.futures.wait(futures)
 
-    def sync(self, requires_grad=None):
+    def sync(self, requires_grad=None, validate=False):
         if not self._is_collective_group_created:
             # Re-create collective group only when it is destroyed before.
             assert self._free_sync_collective_group
@@ -804,7 +804,7 @@ class ParameterSyncGroup:
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
-        if self._debug:
+        if self._debug or validate:
             args = []
             for send_actor, recv_actors in self.send_recv_actor_mappings.items():
                 for recv_actor in recv_actors:
