@@ -209,8 +209,6 @@ class ModelConfig(BaseConfig):
     pipeline_model_parallel_size: int = None
     #: [optional] expert model parallel size for Megatron-Core
     expert_model_parallel_size: int = None
-    #: [optional] expert model parallel size for QWen-MoE
-    moe_expert_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
     #: [optional] config file for model
@@ -546,7 +544,6 @@ class Config(BaseConfig):
                 finalized_ep_size = 1
             assert finalized_ep_size >= 1
             setattr(model_args, "expert_model_parallel_size", finalized_ep_size)
-            setattr(model_args, "moe_expert_model_parallel_size", finalized_ep_size)
 
             if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1 or model_args.expert_model_parallel_size > 1:
                 assert model_args.zero_size == 1 or model_args.zero_size is None

@@ -173,9 +173,6 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
-        if replica is None:
-            replica = self._get_model(model)
-
         def get_next_data():
             if isinstance(in_queue, list):
                 # this should happen for inference models, will trigger bug for training models
@@ -224,8 +221,9 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
-        # output is a list of tuple, each tuple is (remote_refs, mb)
         replica = self._get_model(model)
+
+        # output is a list of tuple, each tuple is (remote_refs, mb)
         output = self.generate_step_one_model_internal(model, in_queue, step_num, replica, func_name, to_empty_cache,
                                                        is_eval, to_onload, to_offload)
 
