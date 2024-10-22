@@ -925,8 +925,6 @@ class BaseModule:
                     if "attention.query_key_value" in name or \
                             "self_attention.query_key_value" in name or \
                             "self_attention.linear_qkv" in name:
-                        from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
-
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
                         heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                         hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
@@ -934,7 +932,7 @@ class BaseModule:
                         param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
                         division = reduce(operator.mul, param_shape, 1)
                         num_elements = param_data.numel()
-                        if num_elements == division:#self._to_fix_qkv_ordering_func is split_attn_state:
+                        if num_elements == division:
                             if self.to_fix_qkv_ordering_dict is not None:
                                 param_data = param_data.view(param_shape)
                                 param_data_list = []
