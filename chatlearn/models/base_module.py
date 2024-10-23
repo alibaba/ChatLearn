@@ -135,18 +135,18 @@ class BaseModule:
         self.profiler = None
         self._buffer_num = {}
         self._tp_division = {}
-        self._num_mapping = 1
+        self._tp_num_mapping = 1
         self._sync_buffer = defaultdict(list)
 
     def get_sync_buffer(self):
         return self._sync_buffer
 
-    def set_num_mapping(self, _num_mapping):
-        self._num_mapping = _num_mapping
+    def set_tp_num_mapping(self, _tp_num_mapping):
+        self._tp_num_mapping = _tp_num_mapping
 
     @property
-    def num_mapping(self):
-        return self._num_mapping
+    def tp_num_mapping(self):
+        return self._tp_num_mapping
 
     def set_buffer_num(self, buffer_num):
         self._buffer_num.update(buffer_num)
@@ -924,10 +924,10 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                tensors.append(self._sync_buffer[buffer_rank % self.num_mapping][idx])
+                tensors.append(self._sync_buffer[buffer_rank % self.tp_num_mapping][idx])
                 buffer_num.append(1)
                 idx += 1
-            del self._sync_buffer[buffer_rank % self.num_mapping]
+            del self._sync_buffer[buffer_rank % self.tp_num_mapping]
         else:
             for name, param in parameters_to_sync[pipe_stage]:
                 param_data = param.data
@@ -1046,7 +1046,7 @@ class BaseModule:
         debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
 
         for bucket in dense_buckets:
-            index = 0 if stage2 else (to_rank % self.num_mapping)
+            index = 0 if stage2 else (to_rank % self.tp_num_mapping)
             all_buffers = coalesced_comm_dense_two_stage(
                 bucket, col.broadcast, rank,
                 extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
