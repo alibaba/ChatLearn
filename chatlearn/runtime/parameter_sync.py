@@ -674,6 +674,8 @@ class ParameterSyncGroup:
         ep = self.get_actor_ep_rank(send_actor)
         group_name = self.group_name if group_name is None else group_name
         group_name = f"{prefix}:{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
+        logger.info(f"group_name is {group_name}")
+        logger.info(f"current collevtive_groups is {self.collective_groups}")
         if group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -707,15 +709,17 @@ class ParameterSyncGroup:
         self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad,
         group_name=None, stage2=False, filter_fn=None, prefix="default"
     ):
+        group_name_base = group_name
         for send_actor in sorted_send_actors:
             recv_actors = send_recv_actor_mappings[send_actor]
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 if stage2:
-                    for recv_actor in recv_actors:
+                    for index, recv_actor in enumerate(recv_actors):
+                        group_name = f"{group_name_base}_{index}"
                         actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name, prefix=prefix)
                         self.sync_broadcast_two_stage(actor_groups, group_name, requires_grad, stage2, filter_fn)
                 else:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name, prefix=prefix)
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name_base, prefix=prefix)
                     self.sync_broadcast_two_stage(actor_groups, group_name, requires_grad, stage2, filter_fn)
             print(f"success to send params from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]}")
         # with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -857,9 +861,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.build_rank_mapping_for_params_except_routed_expert()
         else:
             raise NotImplementedError(
-                "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled. "
-                f"Your current setting is training: EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel}, "
-                f"inference: EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel}"
+                "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled now. "
+                f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training and "
+                f"EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference."
             )
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
@@ -910,17 +914,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self.build_rank_mapping_two_stage(add_recv_actor_fn=None)
 
     def routed_experts_filter(self, name_list: List[str]):
-        filted_names = []
-        for name in name_list:
-            if 'mlp.experts' in name:
-                filted_names.append(name)
+        filted_names = [name for name in name_list if 'mlp.experts' in name]
         return filted_names
 
     def params_except_routed_expert_filter(self, name_list: List[str]):
-        filted_names = []
-        for name in name_list:
-            if 'mlp.experts' not in name:
-                filted_names.append(name)
+        filted_names = [name for name in name_list if 'mlp.experts' not in name]
         return filted_names
 
     def clear_cache(self, rank_mapping_list=None, sorted_send_actors_list=None):
