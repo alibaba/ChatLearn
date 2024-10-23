@@ -777,15 +777,13 @@ class BaseModule:
         self._parameters_to_send[pipe_stage] = []
         return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_send)
 
-    def set_recv_parameters(self, dst_rank, trainable_param_names, pipe_stage=0):
+    def set_recv_parameters(self, to_rank, trainable_param_names, pipe_stage=0):
         """
         :meta private:
         """
-        if dst_rank in self._parameters_to_recv:
-            self._parameters_to_recv[dst_rank][pipe_stage] = []
-        else:
-            self._parameters_to_recv[dst_rank] = defaultdict(list)
-        return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_recv[dst_rank])
+        parameters_to_recv = defaultdict(list)
+        self._parameters_to_recv[to_rank] = parameters_to_recv
+        return self.set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_recv)
 
     def clear_sync_parameters(self):
         self._parameters_to_sync = defaultdict(list)
@@ -808,13 +806,15 @@ class BaseModule:
         else:
             return [param_to_name[param] for param in self.parameters]
 
-    def get_parameter_shape(self, param_names):
+    def get_parameter_shape(self, pipe_stage=0, parameters_to_sync=None):
         """
         :meta private:
         """
+        if parameters_to_sync is None:
+            parameters_to_sync = self._parameters_to_sync
         parameters_shape = []
-        for name in param_names:
-            parameters_shape.append((name, self.named_parameters[name].shape))
+        for name, param in parameters_to_sync[pipe_stage]:
+            parameters_shape.append((name, param.shape))
         return parameters_shape
 
     def get_parameter(self, name):
@@ -884,7 +884,28 @@ class BaseModule:
 
     def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         """
-        :meta private:
+        Arguments:
+            to_rank: receive rank in mapping from trainer to inference model.
+            buffer_rank: index which tensors of sync buffer to be sended in stage2.
+            rank: destination rank in communication group which enumerate receive ranks.
+            src_rank: source rank in communication group. always 0.
+            group_name: communication group name.
+            pipe_stage: pipeline stage. default 0.
+            stage2: bool. whether stage2 or not. default False.
+        Example: trainer_tp = 4, inference_tp = 8. pipeline_size = 1
+            stage1: [(from_rank, to_rank), ...] = [(0, 8), (1, 10), (2, 12), (3, 14)]
+            stage2: [(from_rank, to_rank), ...] = [(8, 9), (10, 11), (12, 13), (14, 15)]
+
+            For stage1 pair (0, 8):
+                1. call broadcast func: (0 -> 0). src_rank: 0, rank: 0.
+                2. call broadcast func: (0 -> 8). src_rank: 0, rank: 1.
+
+                After (0, 8), to_rank 8 received tensor slices of 8 and 9.
+
+            For stage2 pair (8, 9):
+                1. call broadcast func: (8 -> 8). src_rank: 0, rank: 0.
+                2. call broadcast func: (8 -> 9). src_rank: 0, rank: 1.
+                In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
 
@@ -900,8 +921,7 @@ class BaseModule:
 
         tensors = []
         buffer_num = []
-        # pylint: disable=too-many-nested-blocks
-        if stage2 and not tensor_changed and self._sync_buffer:
+        if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
                 tensors.append(self._sync_buffer[buffer_rank % self.num_mapping][idx])
@@ -918,38 +938,19 @@ class BaseModule:
                 elif stage2:
                     buffer_num.append(1)
                 else:
-                    if self.to_fix_qkv_ordering_dict is not None and \
-                            any(ele in name for ele in self.to_fix_qkv_ordering_dict["modules"]):
+                    # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
+                    if "attention.query_key_value" in name or \
+                            "self_attention.query_key_value" in name or \
+                            "self_attention.linear_qkv" in name:
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
                         heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                         hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-                        if self.module_args.args_dict["group_query_attention"]:
-                            _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
-                                if self.module_args.args_dict["group_query_attention"] else heads
-                            if len(param_data_shape) == 1:
-                                param_data = param.view((_num_query_groups, \
-                                    hidden_size_per_head*heads//_num_query_groups+hidden_size_per_head*2, 1))
-                            else:
-                                param_data = param.view((_num_query_groups, \
-                                    hidden_size_per_head*heads//_num_query_groups+hidden_size_per_head*2, \
-                                    self.module_args.args_dict["hidden_size"]))
-                            param_data_list = []
-                            head_offset = heads // self._tp_division[name]
-                            kv_cache = param_data[:,hidden_size_per_head*heads//_num_query_groups:]
-                            for idx in range(self._tp_division[name]):
-                                start = idx * head_offset
-                                end = start + head_offset
-                                start = start * hidden_size_per_head // _num_query_groups
-                                end = end * hidden_size_per_head // _num_query_groups
-                                param_data_slice = torch.cat([param_data[:,start:end], kv_cache], dim=1)
-                                param_data_list.append(param_data_slice)
-                            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                            del param_data_list
-                        else:
-                            param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                            division = reduce(operator.mul, param_shape, 1)
-                            num_elements = param_data.numel()
-                            if num_elements == division:
+
+                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+                        division = reduce(operator.mul, param_shape, 1)
+                        num_elements = param_data.numel()
+                        if num_elements == division:
+                            if self.to_fix_qkv_ordering_dict is not None:
                                 param_data = param_data.view(param_shape)
                                 param_data_list = []
                                 head_offset = heads // self._tp_division[name]
@@ -959,7 +960,53 @@ class BaseModule:
                                     param_data_list.append(param_data[:,start:end])
                                 param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                                 del param_data_list
+                        else:
+                            _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                                if self.module_args.args_dict["group_query_attention"] else heads
+                            if self.to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
+                                if len(param_data_shape) == 1:
+                                    param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
+                                else:
+                                    param_data = param.view(
+                                        (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
+                                param_data_list = []
+                                head_offset = heads // self._tp_division[name]
+                                for idx in range(self._tp_division[name]):
+                                    q_start = idx * head_offset
+                                    q_end = q_start + head_offset
+                                    k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
+                                    k_end = k_start + 1
+                                    v_start = k_start + _num_query_groups
+                                    v_end = v_start + 1
 
+                                    q_proj = param_data[q_start:q_end].contiguous()
+                                    k_proj = param_data[k_start:k_end].contiguous()
+                                    v_proj = param_data[v_start:v_end].contiguous()
+
+                                    qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
+
+                                    if len(param_data_shape) == 1:
+                                        qkv_proj = qkv_proj.reshape(-1).contiguous()
+                                    else:
+                                        qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
+
+                                    param_data_list.append(qkv_proj)
+                                param_data = torch.concat(param_data_list, dim=0)
+                                del param_data_list
+
+                    # Regroup these tensors into different tp slices.
+                    # Output: [tp_slice_0, tp_slice_1, ...]
+                    # Comment:
+                    #   src -> dst: [w, h * tp_size] -> tp_size * [w, h]
+                    #       'self_attention.dense' in QWen and LLama2 legacy
+                    #       'mlp.dense_4h_to_h' in QWen and LLama2 legacy model
+                    #       'mlp.linear_fc2' in LLama2 mcore model
+                    #       'mlp.shared_experts.dense_4h_to_h in QWen-MoE model
+                    #   src -> dst: [w * tp_size, h] -> tp_size * [w, h]
+                    #       'mlp.dense_h_to_4h' in QWen and LLama2 legacy
+                    #       'mlp.linear_fc1' in LLama2 mcore model
+                    #       'mlp.w1' in QWen model only for vLLM backend
+                    #       'mlp.shared_experts.dense_h_to_4h in QWen-MoE model
                     if (
                         "self_attention.dense" in name
                         or "mlp.dense_4h_to_h" in name
@@ -974,12 +1021,10 @@ class BaseModule:
                             param_data_list.append(param_data[:,start:end])
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
-
-                    if (
-                        "mlp.dense_h_to_4h" in name
+                    if ("mlp.dense_h_to_4h" in name
                         or "mlp.linear_fc1" in name
-                        or "mlp.shared_experts.dense_h_to_4h" in name
-                    ):
+                        or ("mlp.w1" in name and self.concat_params_dict is not None)
+                        or "mlp.shared_experts.dense_h_to_4h" in name):
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):
@@ -1014,7 +1059,6 @@ class BaseModule:
             col.broadcast(param, src_rank, group_name)
 
         self.empty_cache()
-
 
     def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
         """
