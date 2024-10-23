@@ -337,8 +337,8 @@ class ParameterSyncGroup:
                 f"dst_pp expected to divide src_pp, while src_pp {self.num_src_pipeline_stage} and dst_pp {self.num_dst_pipeline_stage}"
 
             # stage 1: comm pairs that broadcast params from trainer to inference model
-            # Each rank in trainer holds weights for num_mapping ranks in inference model.
-            # For example: trainer_tp = 2, inference_tp = 4 => num_mapping = inference_tp // trainer_tp = 2
+            # Each rank in trainer holds weights for tp_num_mapping ranks in inference model.
+            # For example: trainer_tp = 2, inference_tp = 4 => tp_num_mapping = inference_tp // trainer_tp = 2
             # Weight mapping from training to inference:
             #   [0] -> [0', 1']
             #   [1] -> [2', 3']
@@ -476,7 +476,7 @@ class ParameterSyncGroup:
                     send_param_num = send_name_and_shape[1].numel()
                     recv_param_num = recv_name_and_shape[1].numel()
                     # for group query attention, tensor might consist of tp part and dp part.
-                    ele_buffer_num = 1 if send_param_num == recv_param_num else self.num_mapping
+                    ele_buffer_num = 1 if send_param_num == recv_param_num else self.tp_num_mapping
                     buffer_num[recv_name_and_shape[0]] = ele_buffer_num
                     tp_division[send_name_and_shape[0]] = ele_buffer_num
                 refs = []
@@ -732,87 +732,148 @@ class ParameterSyncGroup:
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
-    def sync(self, requires_grad=None, validate=False):
+    def check_and_setup_collective_group(self):
         if not self._is_collective_group_created:
             # Re-create collective group only when it is destroyed before.
             assert self._free_sync_collective_group
             self.setup_collective_group()
 
-        for send_actor in self.send_recv_actor_mappings:
-            if self._enable_lora:
+    def check_and_destroy_collective_group(self):
+        if self._free_sync_collective_group:
+            self.destroy_collective_group()
+            self._is_collective_group_created = False
+            self.collective_groups = []
+
+    def check_and_fuse_lora(self, enable_lora, actor_mapping):
+        for send_actor in actor_mapping:
+            if enable_lora:
                 ref = send_actor.fuse_lora_layer.remote()
                 state = future.get([ref])
                 assert state, "Check fuse lora layer fail."
-
-        if self.concurrent_comm:
-            sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings, self.sorted_send_actors)
-            max_workers = get_args().runtime_args.param_sync_max_workers
-            if max_workers is None:
-                max_workers = max(self.src_model.total_gpu // 8, 1)
-            if max_workers == -1:
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    max_workers = len(sorted_send_actors)
-                else:
-                    max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings[sorted_send_actors[0]])
-
-            if self.tp_num_mapping > 1:
-                # stage 1
-                self.sync_broadcast_multi_threads(sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad, stage2=False)
-                # stage 2
-                sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
-                max_workers = get_args().runtime_args.param_sync_max_workers
-                if max_workers is None:
-                    max_workers = max(self.dst_model.total_gpu // 8, 1)
-                if max_workers == -1:
-                    if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                        max_workers = len(sorted_send_actors)
-                    else:
-                        max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_stage2[sorted_send_actors[0]])
-                self.sync_broadcast_multi_threads(
-                    sorted_send_actors, self.send_recv_actor_mappings_stage2, max_workers, requires_grad, group_name="intra_comm", stage2=True)
-            else:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
-                    for send_actor in sorted_send_actors:
-                        recv_actors = self.send_recv_actor_mappings[send_actor]
-                        if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
-                            futures.append(executor.submit(self.sync_broadcast, actor_groups, group_name, requires_grad))
-                        else:
-                            for recv_actor in recv_actors:
-                                futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad))
-                    for _future in concurrent.futures.as_completed(futures):
-                        try:
-                            _future.result()
-                        except Exception as e:
-                            raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-                    concurrent.futures.wait(futures)
-        else:
-            for send_actor, recv_actors in self.send_recv_actor_mappings.items():
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors)
-                    self.sync_broadcast(actor_groups, group_name, requires_grad)
-                else:
-                    for recv_actor in recv_actors:
-                        self.sync_send_recv(send_actor, recv_actor, requires_grad)
-
-        for send_actor in self.send_recv_actor_mappings:
+    
+    def check_and_unfuse_lora(self, enable_lora, actor_mapping):
+        for send_actor in self._actor_mapping:
             if self._enable_lora:
                 ref = send_actor.unfuse_lora_layer.remote()
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
+    def validate_sync_results_parallel(self, actor_mapping, validate)
         if self._debug or validate:
             args = []
-            for send_actor, recv_actors in self.send_recv_actor_mappings.items():
+            for send_actor, recv_actors in actor_mapping.items():
                 for recv_actor in recv_actors:
                     args.append((send_actor, recv_actor, requires_grad))
             execute_in_parallel(self.validate_sync_results, args)
 
-        if self._free_sync_collective_group:
-            self.destroy_collective_group()
-            self._is_collective_group_created = False
-            self.collective_groups = []
+    def _calculate_max_workers(self, actor_mapping, sorted_send_actors):
+        max_workers = get_args().runtime_args.param_sync_max_workers
+        if max_workers is None:
+            max_workers = max(self.src_model.total_gpu // 8, 1)
+        if max_workers == -1:
+            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                max_workers = len(sorted_send_actors)
+            else:
+                max_workers = len(sorted_send_actors) * len(actor_mappings[sorted_send_actors[0]])
+
+    def _multi_thread_sync_for_tp_nmapping_gt_1(
+        self,
+        send_actors:List,
+        actor_mappings:List,
+        requires_grad=None,
+        filter_fn=None,
+        prefix="default"
+    ):
+        assert len(send_actors) == 2, (
+            f"Expect the length of send_actors being 2 for TP num mapping greater than 1, but got {len(send_actors)}."
+        )
+        send_actors_stage1 = send_actors[0]
+        send_actors_stage2 = send_actors[1]
+
+        assert len(actor_mappings) == 2, (
+            f"Expect the length of actor_mappings being 2 for TP num mapping greater than 1, but got {len(actor_mappings)}."
+        )
+        actor_mappings_stage1 = actor_mappings[0]
+        actor_mappings_stage2 = actor_mappings[1]
+
+        # stage 1
+        sorted_send_actors_stage1 = self.sort_send_actors(send_actors_stage1, actor_mappings_stage1)
+        max_workers = self._calculate_max_workers(sorted_send_actors_stage1, actor_mappings_stage1)
+        self.sync_broadcast_multi_threads(
+            sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
+            stage2=False, filter_fn=filter_fn, prefix=prefix
+        )
+        # stage 2
+        sorted_send_actors = self.sort_send_actors(send_actors_stage2, actor_mappings_stage2)
+        max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
+        self.sync_broadcast_multi_threads(
+            sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
+            group_name="intra_comm", stage2=True, filter_fn=filter_fn, prefix=prefix)
+    
+    def _multi_thread_sync_for_tp_nmapping_eq_1(
+        self, send_actors, actor_mappings,
+        requires_grad=None, filter_fn=None, prefix="default"
+    ):
+        sorted_send_actors = self.sort_send_actors(send_actors, actor_mappings)
+        max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for send_actor in sorted_send_actors:
+                recv_actors = actor_mappings[send_actor]
+                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
+                    futures.append(executor.submit(self.sync_broadcast, actor_groups, group_name, requires_grad, filter_fn))
+                else:
+                    for recv_actor in recv_actors:
+                        futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
+
+    def _single_thread_sync(self, actor_mappings, requires_grad=None, filter_fn=None, prefix="default"):
+        for send_actor, recv_actors in actor_mappings.items():
+            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
+                self.sync_broadcast(actor_groups, group_name, requires_grad, filter_fn=filter_fn)
+            else:
+                for recv_actor in recv_actors:
+                    self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn)
+
+    def sync(self, requires_grad=None, validate=False):
+        self.check_and_setup_collective_group()
+
+        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+
+        if self.concurrent_comm:
+            if self.tp_num_mapping > 1:
+                send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+                actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                self._multi_thread_sync_for_tp_nmapping_gt_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad
+                )
+            else:
+                self._multi_thread_sync_for_tp_nmapping_eq_1(
+                    self.sorted_send_actors,
+                    self.send_recv_actor_mappings,
+                    requires_grad=requires_grad
+                )
+        else:
+            self._single_thread_sync(
+                self.send_recv_actor_mappings,
+                requires_grad=requires_grad
+            )
+
+        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+
+        self.validate_sync_results_parallel(self.send_recv_actor_mappings, validate)
+
+        self.check_and_destroy_collective_group()
+
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
 
@@ -937,176 +998,73 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         assert self.hep_num_mapping == 1, (
             "Currently, _synchronize_routed_experts requires EP x TP for src model is equal to that for dst model"
         )
-        if not self._is_collective_group_created:
-            # Re-create collective group only when it is destroyed before.
-            assert self._free_sync_collective_group
-            self.setup_collective_group()
 
-        for send_actor in self.send_recv_actor_mappings_for_routed_experts:
-            if self._enable_lora:
-                ref = send_actor.fuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check fuse lora layer fail."
+        self.check_and_setup_collective_group()
+
+        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
 
         if self.concurrent_comm:
-            sorted_send_actors = self.sort_send_actors(
-                self.send_recv_actor_mappings_for_routed_experts, self.sorted_send_actors_for_routed_experts
+            self._multi_thread_sync_for_tp_nmapping_eq_1(
+                self.sorted_send_actors_for_routed_experts,
+                self.send_recv_actor_mappings_for_routed_experts,
+                requires_grad=requires_grad,
+                filter_fn=self.routed_experts_filter,
+                prefix="routed",
             )
-            max_workers = get_args().runtime_args.param_sync_max_workers
-            if max_workers is None:
-                max_workers = max(self.src_model.total_gpu // 8, 1)
-            if max_workers == -1:
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    max_workers = len(sorted_send_actors)
-                else:
-                    max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_for_routed_experts[sorted_send_actors[0]])
-
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                futures = []
-                for send_actor in sorted_send_actors:
-                    recv_actors = self.send_recv_actor_mappings_for_routed_experts[send_actor]
-                    if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                        actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="routed")
-                        futures.append(executor.submit(
-                            self.sync_broadcast, actor_groups, group_name, requires_grad, self.routed_experts_filter
-                        ))
-                    else:
-                        for recv_actor in recv_actors:
-                            futures.append(executor.submit(
-                                self.sync_send_recv, send_actor, recv_actor, requires_grad, self.routed_experts_filter
-                            ))
-                for _future in concurrent.futures.as_completed(futures):
-                    try:
-                        _future.result()
-                    except Exception as e:
-                        raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-                concurrent.futures.wait(futures)
         else:
-            for send_actor, recv_actors in self.send_recv_actor_mappings_for_routed_experts.items():
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="routed")
-                    self.sync_broadcast(actor_groups, group_name, requires_grad, self.routed_experts_filter)
-                else:
-                    for recv_actor in recv_actors:
-                        self.sync_send_recv(send_actor, recv_actor, requires_grad, self.routed_experts_filter)
+            self._single_thread_sync(
+                self.send_recv_actor_mappings_for_routed_experts,
+                requires_grad=requires_grad,
+                filter_fn=self.routed_experts_filter,
+                prefix="routed",
+            )
 
-        for send_actor in self.send_recv_actor_mappings_for_routed_experts:
-            if self._enable_lora:
-                ref = send_actor.unfuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check unfuse lora layer fail."
+        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
 
-        if self._debug or validate:
-            args = []
-            for send_actor, recv_actors in self.send_recv_actor_mappings_for_routed_experts.items():
-                for recv_actor in recv_actors:
-                    args.append((send_actor, recv_actor, requires_grad, self.routed_experts_filter))
-            execute_in_parallel(self.validate_sync_results, args)
+        self.validate_sync_results_parallel(self.send_recv_actor_mappings_for_routed_experts, validate)
 
-        if self._free_sync_collective_group:
-            self.destroy_collective_group()
-            self._is_collective_group_created = False
-            self.collective_groups = []
+        self.check_and_destroy_collective_group()
+
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def _synchronize_params_except_routed_expert(self, requires_grad=None, validate=False):
-        if not self._is_collective_group_created:
-            # Re-create collective group only when it is destroyed before.
-            assert self._free_sync_collective_group
-            self.setup_collective_group()
+        self.check_and_setup_collective_group()
 
-        for send_actor in self.send_recv_actor_mappings:
-            if self._enable_lora:
-                ref = send_actor.fuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check fuse lora layer fail."
+        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
         if self.concurrent_comm:
-            # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings, self.sorted_send_actors)
-            sorted_send_actors = list(self.send_recv_actor_mappings.keys())
-            max_workers = get_args().runtime_args.param_sync_max_workers
-            if max_workers is None:
-                max_workers = max(self.src_model.total_gpu // 8, 1)
-            if max_workers == -1:
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    max_workers = len(sorted_send_actors)
-                else:
-                    max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings[sorted_send_actors[0]])
-
             if self.tp_num_mapping > 1:
-                # stage 1
-                self.sync_broadcast_multi_threads(
-                    sorted_send_actors, self.send_recv_actor_mappings, max_workers, requires_grad,
-                    stage2=False, filter_fn=self.params_except_routed_expert_filter, prefix="except_routed"
-                )
-                # stage 2
-                # sorted_send_actors = self.sort_send_actors(self.send_recv_actor_mappings_stage2, self.sorted_send_actors_stage2)
-                sorted_send_actors = list(self.send_recv_actor_mappings_stage2.keys())
-                max_workers = get_args().runtime_args.param_sync_max_workers
-                if max_workers is None:
-                    max_workers = max(self.dst_model.total_gpu // 8, 1)
-                if max_workers == -1:
-                    if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                        max_workers = len(sorted_send_actors)
-                    else:
-                        max_workers = len(sorted_send_actors) * len(self.send_recv_actor_mappings_stage2[sorted_send_actors[0]])
-                self.sync_broadcast_multi_threads(
-                    sorted_send_actors,
-                    self.send_recv_actor_mappings_stage2,
-                    max_workers,
-                    requires_grad,
-                    group_name="intra_comm",
-                    stage2=True,
+                send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+                actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                self._multi_thread_sync_for_tp_nmapping_gt_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
                     filter_fn=self.params_except_routed_expert_filter,
                     prefix="except_routed"
                 )
             else:
-                with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                    futures = []
-                    for send_actor in sorted_send_actors:
-                        recv_actors = self.send_recv_actor_mappings[send_actor]
-                        if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="except_routed")
-                            futures.append(executor.submit(
-                                self.sync_broadcast, actor_groups, group_name, requires_grad, self.params_except_routed_expert_filter
-                            ))
-                        else:
-                            for recv_actor in recv_actors:
-                                futures.append(executor.submit(
-                                    self.sync_send_recv, send_actor, recv_actor, requires_grad, self.params_except_routed_expert_filter
-                                ))
-                    for _future in concurrent.futures.as_completed(futures):
-                        try:
-                            _future.result()
-                        except Exception as e:
-                            raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-                    concurrent.futures.wait(futures)
+                self._multi_thread_sync_for_tp_nmapping_eq_1(
+                    self.sorted_send_actors,
+                    self.send_recv_actor_mappings,
+                    requires_grad=requires_grad,
+                    filter_fn=self.params_except_routed_expert_filter,
+                    prefix="except_routed"
+                )
         else:
-            for send_actor, recv_actors in self.send_recv_actor_mappings.items():
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix="except_routed")
-                    self.sync_broadcast(actor_groups, group_name, requires_grad, self.params_except_routed_expert_filter)
-                else:
-                    for recv_actor in recv_actors:
-                        self.sync_send_recv(send_actor, recv_actor, requires_grad, self.params_except_routed_expert_filter)
+            self._single_thread_sync(
+                self.send_recv_actor_mappings,
+                requires_grad=requires_grad,
+                filter_fn=self.params_except_routed_expert_filter,
+                prefix="except_routed"
+            )
 
-        for send_actor in self.send_recv_actor_mappings:
-            if self._enable_lora:
-                ref = send_actor.unfuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check unfuse lora layer fail."
+        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
-        if self._debug or validate:
-            args = []
-            for send_actor, recv_actors in self.send_recv_actor_mappings.items():
-                for recv_actor in recv_actors:
-                    args.append((send_actor, recv_actor, requires_grad, self.params_except_routed_expert_filter))
-            execute_in_parallel(self.validate_sync_results, args)
+        self.validate_sync_results_parallel(self.send_recv_actor_mappings, validate)
 
-        if self._free_sync_collective_group:
-            self.destroy_collective_group()
-            self._is_collective_group_created = False
-            self.collective_groups = []
+        self.check_and_destroy_collective_group()
+
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
 
