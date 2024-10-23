@@ -480,9 +480,9 @@ class ParameterSyncGroup:
                     buffer_num[recv_name_and_shape[0]] = ele_buffer_num
                     tp_division[send_name_and_shape[0]] = ele_buffer_num
                 refs = []
-                refs.append(recv_actor.set_num_mapping.remote(self.tp_num_mapping))
+                refs.append(recv_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
                 refs.append(recv_actor.set_buffer_num.remote(buffer_num))
-                refs.append(send_actor.set_num_mapping.remote(self.tp_num_mapping))
+                refs.append(send_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
                 refs.append(send_actor.set_tp_division.remote(tp_division))
                 future.get(refs)
 
@@ -752,13 +752,13 @@ class ParameterSyncGroup:
                 assert state, "Check fuse lora layer fail."
     
     def check_and_unfuse_lora(self, enable_lora, actor_mapping):
-        for send_actor in self._actor_mapping:
+        for send_actor in actor_mapping:
             if self._enable_lora:
                 ref = send_actor.unfuse_lora_layer.remote()
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
-    def validate_sync_results_parallel(self, actor_mapping, validate)
+    def validate_sync_results_parallel(self, actor_mapping, validate=False):
         if self._debug or validate:
             args = []
             for send_actor, recv_actors in actor_mapping.items():
@@ -766,7 +766,7 @@ class ParameterSyncGroup:
                     args.append((send_actor, recv_actor, requires_grad))
             execute_in_parallel(self.validate_sync_results, args)
 
-    def _calculate_max_workers(self, actor_mapping, sorted_send_actors):
+    def _calculate_max_workers(self, sorted_send_actors, actor_mapping):
         max_workers = get_args().runtime_args.param_sync_max_workers
         if max_workers is None:
             max_workers = max(self.src_model.total_gpu // 8, 1)
@@ -804,7 +804,7 @@ class ParameterSyncGroup:
             stage2=False, filter_fn=filter_fn, prefix=prefix
         )
         # stage 2
-        sorted_send_actors = self.sort_send_actors(send_actors_stage2, actor_mappings_stage2)
+        sorted_send_actors_stage2 = self.sort_send_actors(send_actors_stage2, actor_mappings_stage2)
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
@@ -822,10 +822,10 @@ class ParameterSyncGroup:
                 recv_actors = actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
-                    futures.append(executor.submit(self.sync_broadcast, actor_groups, group_name, requires_grad, filter_fn))
+                    futures.append(executor.submit(self.sync_broadcast, actor_groups, group_name, requires_grad, filter_fn=filter_fn))
                 else:
                     for recv_actor in recv_actors:
-                        futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn))
+                        futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
@@ -1077,4 +1077,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         # Then, synchronize non-routed experts.
         self._synchronize_params_except_routed_expert(requires_grad=requires_grad, validate=validate)
 
-        self.clear_cache()
+        self.clear_cache(
+            rank_mapping_list = [
+                self.send_recv_actor_mappings,
+                self.send_recv_actor_mappings_stage2
+            ],
+        )
