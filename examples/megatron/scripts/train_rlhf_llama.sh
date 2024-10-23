@@ -116,5 +116,3 @@ data_path=${DATASET_PATH} \
 eval_data_path=${EVAL_DATASET_PATH} \
 sample_per_episode=${sample_per_episode} \
 python entry/train_rlhf.py -c $configs 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
-
-
