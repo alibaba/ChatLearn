@@ -728,8 +728,8 @@ class ParameterSyncGroup:
                                 self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn
                             ))
                     else:
-                        actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name, prefix=prefix)
-                        futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2, filter_fn))
+                        actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name, prefix=prefix)
+                        futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn))
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
             for _future in concurrent.futures.as_completed(futures):
@@ -831,8 +831,8 @@ class ParameterSyncGroup:
             for send_actor in sorted_send_actors:
                 recv_actors = actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
-                    futures.append(executor.submit(self.sync_broadcast, actor_groups, group_name, requires_grad, filter_fn=filter_fn))
+                    actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
+                    futures.append(executor.submit(self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn))
                 else:
                     for recv_actor in recv_actors:
                         futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
@@ -846,8 +846,8 @@ class ParameterSyncGroup:
     def _single_thread_sync(self, actor_mappings, requires_grad=None, filter_fn=None, prefix="default"):
         for send_actor, recv_actors in actor_mappings.items():
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
-                self.sync_broadcast(actor_groups, group_name, requires_grad, filter_fn=filter_fn)
+                actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, prefix=prefix)
+                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn)
             else:
                 for recv_actor in recv_actors:
                     self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn)
@@ -918,10 +918,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             f"Currently, expert parallel world size for training ({self.num_src_expert_parallel}) should be"
             f"greater or equal to expert parallel world size for inference ({self.num_dst_expert_parallel}) with HEP enabled."
         )
-        if self.tp_num_mapping == 1 and self.ep_num_mapping == 1:
+        if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+            # In this special case, all parameters are mapped one by one
             self.build_rank_mapping()
-
-        if self.hep_num_mapping == 1:
+        elif self.hep_num_mapping == 1:
+            # In this case, routed experts are mapped one by one, while params except routed experts are split by TP.
             self.build_rank_mapping_for_routed_experts()
             self.build_rank_mapping_for_params_except_routed_expert()
         else:
@@ -1077,8 +1078,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
-
     def sync(self, requires_grad=None, validate=False):
+        if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+            super().sync(requires_grad, validate)
+            return
+
         # First, synchronize routed experts.
         self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
 
