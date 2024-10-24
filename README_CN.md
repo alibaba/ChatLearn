@@ -19,6 +19,7 @@
 
 *最新进展* 🔥
 - [2024/8] 正式开源 ChatLearn，更多介绍请参考我们的 [文档](docs/zh/chatlearn.md)。
+- [ongoing] 长期招聘中，欢迎有兴趣的同学联系我们或发送简历到 wanglin.zj@alibaba-inc.com。
 
 ---
 

@@ -21,6 +21,7 @@ A flexible and efficient training framework for large-scale alignment
 
 *Latest News* 🔥
 - [2024/8] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md).
+- [ongoing] We are continuously hiring and welcome you to contact us or submit your resume to wanglin.zj@alibaba-inc.com.
 
 ---
 

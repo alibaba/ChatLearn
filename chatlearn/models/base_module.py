@@ -15,8 +15,10 @@
 """base module"""
 
 from collections import defaultdict
+from functools import reduce
 from itertools import cycle
 import math
+import operator
 import os
 import torch
 
@@ -108,6 +110,10 @@ class BaseModule:
         self._parameters_to_send = defaultdict(list)
         self._parameters_to_recv = defaultdict(list)
         self._parameters_shape = []
+        self._concat_params_dict = None
+        self._to_fix_act_ordering_dict = None
+        self._to_fix_qkv_ordering_dict = None
+        self._to_fix_qkv_ordering_func = None
         # current compute iteration
         self._iteration = 0
         self._train_iteration = 0
@@ -117,8 +123,6 @@ class BaseModule:
         self._address = dlc_utils.get_addr() if dlc_utils.in_dlc_env() else get_host_addr()
         self._is_master_node = os.environ.get("RANK", '0') == '0'
         self._logger = setup_logger(model_name=self.name, ip_addr=self._address)
-        self._dummy_output = None
-        self._dummy_inputs = []
         # parameter sync from src_model
         self._src_parameter_model = None
         self.profiler = None
@@ -126,7 +130,6 @@ class BaseModule:
         self._tp_division = {}
         self._num_mapping = 1
         self._sync_buffer = defaultdict(list)
-        self._synchronizer = None
 
     def get_sync_buffer(self):
         return self._sync_buffer
@@ -606,14 +609,145 @@ class BaseModule:
                     self._param_to_name[item[1]] = item[0]
         return self._param_to_name
 
+    @property
+    def concat_params_dict(self):
+        return self._concat_params_dict
+
+    def get_concat_params_dict(self):
+        return self._concat_params_dict
+
+    def set_concat_params_dict(self, _concat_params_dict):
+        self._concat_params_dict = _concat_params_dict
+
+    @property
+    def to_fix_act_ordering_dict(self):
+        return self._to_fix_act_ordering_dict
+
+    def get_to_fix_act_ordering_dict(self):
+        return self._to_fix_act_ordering_dict
+
+    def set_to_fix_act_ordering_dict(self, _to_fix_act_ordering_dict):
+        self._to_fix_act_ordering_dict = _to_fix_act_ordering_dict
+
+    @property
+    def to_fix_qkv_ordering_dict(self):
+        return self._to_fix_qkv_ordering_dict
+
+    def get_to_fix_qkv_ordering_dict(self):
+        return self._to_fix_qkv_ordering_dict
+
+    def set_to_fix_qkv_ordering_dict(self, _to_fix_qkv_ordering_dict):
+        self._to_fix_qkv_ordering_dict = _to_fix_qkv_ordering_dict
+
+    @property
+    def to_fix_qkv_ordering_func(self):
+        return self._to_fix_qkv_ordering_func
+
+    def get_to_fix_qkv_ordering_func(self):
+        return self._to_fix_qkv_ordering_func
+
+    def set_to_fix_qkv_ordering_func(self, _to_fix_qkv_ordering_func):
+        self._to_fix_qkv_ordering_func = _to_fix_qkv_ordering_func
+
     def _set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+        # pylint: disable=too-many-nested-blocks
         if parameters_to_sync is None:
             parameters_to_sync = defaultdict(list)
         assert pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage])==0
-        params_to_sync_list = [(name, self.named_parameters[name]) for name in trainable_param_names]
-        if self._synchronizer is not None:
-            params_to_sync_list = self._synchronizer.transform_parameters(params_to_sync_list)
-        parameters_to_sync[pipe_stage] = params_to_sync_list
+        concat = []
+        set_sync_param_flag = False
+
+        if self.concat_params_dict is not None:
+            if isinstance(self.concat_params_dict, dict):
+                assert "modules" in self.concat_params_dict
+                assert "dim" in self.concat_params_dict
+                assert isinstance(self.concat_params_dict["modules"], list)
+                concat_modules_list = self.concat_params_dict["modules"]
+                concat_dim = self.concat_params_dict["dim"]
+            else:
+                raise RuntimeError(f"Expect concat_params_dict in {self} to be a dict or None, while {self.concat_params_dict}.")
+
+        if self.to_fix_act_ordering_dict is not None:
+            if isinstance(self.to_fix_act_ordering_dict, dict):
+                assert "modules" in self.to_fix_act_ordering_dict
+                assert "dim" in self.to_fix_act_ordering_dict
+                assert isinstance(self.to_fix_act_ordering_dict["modules"], list)
+                to_fix_act_ordering_list = self.to_fix_act_ordering_dict["modules"]
+                fix_dim = self.to_fix_act_ordering_dict["dim"]
+            else:
+                raise RuntimeError(f"Expect to_fix_act_ordering_dict in {self} to be a dict or None, while {self.to_fix_act_ordering_dict}.")
+
+        if self.to_fix_qkv_ordering_dict is not None:
+            if isinstance(self.to_fix_qkv_ordering_dict, dict):
+                assert "modules" in self.to_fix_qkv_ordering_dict
+                assert "layer_re" in self.to_fix_qkv_ordering_dict
+                assert isinstance(self.to_fix_qkv_ordering_dict["modules"], list)
+                to_fix_modules_list = self.to_fix_qkv_ordering_dict["modules"]
+                layer_re = self.to_fix_qkv_ordering_dict["layer_re"]
+            else:
+                raise RuntimeError(f"Expect to_fix_qkv_ordering_dict in {self} to be a dict or None, while {self.to_fix_qkv_ordering_dict}.")
+
+        for name in trainable_param_names:
+            if self.concat_params_dict is None and self.to_fix_act_ordering_dict is None:
+                set_sync_param_flag = True
+                _params_to_sync = self.named_parameters[name]
+            else:
+                need_concat_or_fix = False
+                if self.concat_params_dict is not None:
+                    if any([ele in name for ele in concat_modules_list]): # pylint: disable=use-a-generator
+                        concat.append(self.named_parameters[name])
+                        need_concat_or_fix = True
+                        if len(concat) == len(concat_modules_list):
+                            set_sync_param_flag = True
+                            _params_to_sync = torch.cat(concat, dim=concat_dim)
+
+                if self.to_fix_act_ordering_dict is not None:
+                    if any([ele in name for ele in to_fix_act_ordering_list]): # pylint: disable=use-a-generator
+                        val = self.named_parameters[name]
+                        offset = val.shape[0] // 2
+                        w1 = val[:offset,:]
+                        w2 = val[offset:,:]
+                        need_concat_or_fix = True
+                        set_sync_param_flag = True
+                        _params_to_sync = torch.cat([w2, w1], dim=fix_dim)
+
+                if not need_concat_or_fix:
+                    set_sync_param_flag = True
+                    _params_to_sync = self.named_parameters[name]
+
+            if not set_sync_param_flag:
+                continue
+            if self.to_fix_qkv_ordering_dict is not None:
+                from chatlearn.utils.vllm_utils import split_attn_state # pylint: disable=import-outside-toplevel
+                m = layer_re.match(name)
+                if m is not None:
+                    op_name = m.group(2)
+                    if op_name in to_fix_modules_list:
+                        checkpoint_version = 3.0
+                        tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
+                        heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+                        hidden_size_per_head =  self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
+                        if self._to_fix_qkv_ordering_func is split_attn_state:
+                            _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                                if self.module_args.args_dict["group_query_attention"] else heads
+                            _params_to_sync = self._to_fix_qkv_ordering_func(
+                                _params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"])
+                        else:
+                            input_shape = _params_to_sync.size()
+                            shape = (heads, hidden_size_per_head, 3) + input_shape[1:]
+                            division = reduce(operator.mul, shape, 1)
+                            num_elements = _params_to_sync.numel()
+                            if num_elements == division:
+                                # model with gqa dont need to fix qkv ordering.
+                                weight_or_bias = m.group(3)
+                                _params_to_sync = self._to_fix_qkv_ordering_func(
+                                    _params_to_sync, checkpoint_version, 3, heads, hidden_size_per_head
+                                )
+                                if weight_or_bias == "weight":
+                                    _params_to_sync = _params_to_sync.contiguous()
+            concat = []
+            set_sync_param_flag = False
+            parameters_to_sync[pipe_stage].append((name, _params_to_sync))
         return parameters_to_sync
 
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
@@ -635,12 +769,12 @@ class BaseModule:
         """
         return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_send)
 
-    def set_recv_parameters(self, rank, trainable_param_names, pipe_stage=0):
+    def set_recv_parameters(self, to_rank, trainable_param_names, pipe_stage=0):
         """
         :meta private:
         """
         parameters_to_recv = defaultdict(list)
-        self._parameters_to_recv[rank] = parameters_to_recv
+        self._parameters_to_recv[to_rank] = parameters_to_recv
         return self.set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_recv)
 
     def get_parameter_names(self, requires_grad=True):
@@ -653,13 +787,15 @@ class BaseModule:
         else:
             return [param_to_name[param] for param in self.parameters]
 
-    def get_parameter_shape(self, param_names):
+    def get_parameter_shape(self, pipe_stage=0, parameters_to_sync=None):
         """
         :meta private:
         """
+        if parameters_to_sync is None:
+            parameters_to_sync = self._parameters_to_sync
         parameters_shape = []
-        for name in param_names:
-            parameters_shape.append((name, self.named_parameters[name].shape))
+        for name, param in parameters_to_sync[pipe_stage]:
+            parameters_shape.append((name, param.shape))
         return parameters_shape
 
     def get_parameter(self, name):
@@ -727,15 +863,36 @@ class BaseModule:
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
 
-    def broadcast_parameter_two_stage(self, to_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
+    def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         """
-        :meta private:
+        Arguments:
+            to_rank: receive rank in mapping from trainer to inference model.
+            buffer_rank: index which tensors of sync buffer to be sended in stage2.
+            rank: destination rank in communication group which enumerate receive ranks.
+            src_rank: source rank in communication group. always 0.
+            group_name: communication group name.
+            pipe_stage: pipeline stage. default 0.
+            stage2: bool. whether stage2 or not. default False.
+        Example: trainer_tp = 4, inference_tp = 8. pipeline_size = 1
+            stage1: [(from_rank, to_rank), ...] = [(0, 8), (1, 10), (2, 12), (3, 14)]
+            stage2: [(from_rank, to_rank), ...] = [(8, 9), (10, 11), (12, 13), (14, 15)]
+
+            For stage1 pair (0, 8):
+                1. call broadcast func: (0 -> 0). src_rank: 0, rank: 0.
+                2. call broadcast func: (0 -> 8). src_rank: 0, rank: 1.
+
+                After (0, 8), to_rank 8 received tensor slices of 8 and 9.
+
+            For stage2 pair (8, 9):
+                1. call broadcast func: (8 -> 8). src_rank: 0, rank: 0.
+                2. call broadcast func: (8 -> 9). src_rank: 0, rank: 1.
+                In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
 
         if stage2:
             if tensor_changed:
-                parameters_to_sync = self._parameters_to_recv[rank]
+                parameters_to_sync = self._parameters_to_recv[to_rank]
             else:
                 parameters_to_sync = self._parameters_to_send
         else:
@@ -745,13 +902,13 @@ class BaseModule:
 
         tensors = []
         buffer_num = []
-        if stage2 and not tensor_changed and self._sync_buffer:
+        if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                tensors.append(self._sync_buffer[(to_rank + 1) % self.num_mapping][idx])
+                tensors.append(self._sync_buffer[buffer_rank % self.num_mapping][idx])
                 buffer_num.append(1)
                 idx += 1
-            del self._sync_buffer[(to_rank + 1) % self.num_mapping]
+            del self._sync_buffer[buffer_rank % self.num_mapping]
         else:
             for name, param in parameters_to_sync[pipe_stage]:
                 param_data = param.data
@@ -762,22 +919,74 @@ class BaseModule:
                 elif stage2:
                     buffer_num.append(1)
                 else:
-                    if "attention.query_key_value" in name or "self_attention.query_key_value" in name:
+                    # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
+                    if "attention.query_key_value" in name or \
+                            "self_attention.query_key_value" in name or \
+                            "self_attention.linear_qkv" in name:
                         tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
                         heads = self.module_args.args_dict["num_attention_heads"] // tp_size
                         hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                        param_data = param_data.view(param_shape)
-                        param_data_list = []
-                        head_offset = heads // self._tp_division[name]
-                        for idx in range(self._tp_division[name]):
-                            start = idx * head_offset
-                            end = start + head_offset
-                            param_data_list.append(param_data[:,start:end])
-                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                        del param_data_list
 
-                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name:
+                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+                        division = reduce(operator.mul, param_shape, 1)
+                        num_elements = param_data.numel()
+                        if num_elements == division:
+                            if self.to_fix_qkv_ordering_dict is not None:
+                                param_data = param_data.view(param_shape)
+                                param_data_list = []
+                                head_offset = heads // self._tp_division[name]
+                                for idx in range(self._tp_division[name]):
+                                    start = idx * head_offset
+                                    end = start + head_offset
+                                    param_data_list.append(param_data[:,start:end])
+                                param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                                del param_data_list
+                        else:
+                            _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                                if self.module_args.args_dict["group_query_attention"] else heads
+                            if self.to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
+                                if len(param_data_shape) == 1:
+                                    param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
+                                else:
+                                    param_data = param.view(
+                                        (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
+                                param_data_list = []
+                                head_offset = heads // self._tp_division[name]
+                                for idx in range(self._tp_division[name]):
+                                    q_start = idx * head_offset
+                                    q_end = q_start + head_offset
+                                    k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
+                                    k_end = k_start + 1
+                                    v_start = k_start + _num_query_groups
+                                    v_end = v_start + 1
+
+                                    q_proj = param_data[q_start:q_end].contiguous()
+                                    k_proj = param_data[k_start:k_end].contiguous()
+                                    v_proj = param_data[v_start:v_end].contiguous()
+
+                                    qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
+
+                                    if len(param_data_shape) == 1:
+                                        qkv_proj = qkv_proj.reshape(-1).contiguous()
+                                    else:
+                                        qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
+
+                                    param_data_list.append(qkv_proj)
+                                param_data = torch.concat(param_data_list, dim=0)
+                                del param_data_list
+
+                    # Regroup these tensors into different tp slices.
+                    # Output: [tp_slice_0, tp_slice_1, ...]
+                    # Comment:
+                    #   src -> dst: [w, h * tp_size] -> tp_size * [w, h]
+                    #       'self_attention.dense' in QWen and LLama2 legacy
+                    #       'mlp.dense_4h_to_h' in QWen and LLama2 legacy model
+                    #       'mlp.linear_fc2' in LLama2 mcore model
+                    #   src -> dst: [w * tp_size, h] -> tp_size * [w, h]
+                    #       'mlp.dense_h_to_4h' in QWen and LLama2 legacy
+                    #       'mlp.linear_fc1' in LLama2 mcore model
+                    #       'mlp.w1' in QWen model only for vLLM backend
+                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name:
                         param_data_list = []
                         col_offset = param_data_shape[1] // self._tp_division[name]
                         for idx in range(self._tp_division[name]):
@@ -786,7 +995,8 @@ class BaseModule:
                             param_data_list.append(param_data[:,start:end])
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
-                    if "mlp.dense_h_to_4h" in name:
+                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or \
+                            ("mlp.w1" in name and self.concat_params_dict is not None):
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):
@@ -805,7 +1015,7 @@ class BaseModule:
         dense_buckets, sparse_bucket = bucket_tensors_two_stage(
             tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
             buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
 
         for bucket in dense_buckets:
             index = 0 if stage2 else (to_rank % self.num_mapping)
@@ -821,7 +1031,6 @@ class BaseModule:
             col.broadcast(param, src_rank, group_name)
 
         self.empty_cache()
-
 
     def send_parameter(self, name, dst_rank, group_name, pipe_stage=0):
         """
@@ -1064,6 +1273,3 @@ class BaseModule:
 
     def get_pipeline_stage_layer_offset(self):
         return 0
-
-    def set_synchronizer(self, synchronizer):
-        self._synchronizer = synchronizer

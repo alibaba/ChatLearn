@@ -17,25 +17,27 @@
 from collections import defaultdict, deque
 
 from chatlearn.utils import future
+from chatlearn.utils.global_vars import unwrap_func
 from chatlearn.utils.utils import flatten
-
+from .decorator import decorate_class_func
 
 class DummyData:
     """DummyData to trace ModelGraph"""
 
-    def __init__(self, from_model=None):
-        self.from_model = from_model
-        self.to_models = []
+    def __init__(self, from_node=None):
+        self.from_node = from_node
+        self.to_nodes = []
 
 
 class ModelNode:
     """ModelNode"""
 
-    def __init__(self, model, model_arg_name, func_name):
+    def __init__(self, model, func_name):
         self.model = model
         self.name = model.name
-        self.model_arg_name = model_arg_name
         self.func_name = func_name
+        self._dummy_inputs = []
+        self._dummy_output = None
         self.input_models = []
         self.output_models = []
         self.out_queues = None
@@ -48,6 +50,8 @@ class ModelNode:
         self.remote_objects_to_wait = []
 
     def add_input_node(self, model):
+        if model in self.input_models:
+            raise RuntimeError(f"{model} already added to {self} inputs")
         self.input_models.append(model)
         model.add_output_node(self)
 
@@ -119,14 +123,17 @@ class ModelNode:
         return f'<{self.__class__.__name__}({self.model}) object at {hex(id(self))}>'
 
 
-def fake_compute():
+def fake_compute(fn):
     def inner(self, *args):
+        original_fn = unwrap_func(fn)
+        func_name = original_fn.__name__
+        model_node = ModelNode(self, func_name)
         for data in args:
             if isinstance(data, DummyData):
-                data.to_models.append(self)
-                self._dummy_inputs.append(data)
-        res = DummyData(self)
-        self._dummy_output = res
+                data.to_nodes.append(model_node)
+                model_node._dummy_inputs.append(data)
+        res = DummyData(model_node)
+        model_node._dummy_output = res
         return res
 
     return inner
@@ -138,7 +145,6 @@ class ModelFlow:
     def __init__(self, cls):
         self.model_nodes = []
         self.return_model_nodes = []
-        self.out_to_model_node = {}
         self.cls = cls
         # models that consumes input data
         self.input_consumers = []
@@ -159,37 +165,38 @@ class ModelFlow:
         """
         local_models = [model.replicas[0].model for model in models]
         name2remote_model = {model.name: model for model in models}
-        class_to_old_func = {}
         for model in local_models:
-            func_name = self.cls.model_to_call_func[model]
-            class_to_old_func[(model, func_name)] = getattr(model.__class__, func_name)
-            setattr(model.__class__, func_name, fake_compute())
+            for func_name in self.cls.model_to_call_funcs[model]:
+                decorate_class_func(model.__class__, func_name, fake_compute)
 
         dummy_data = DummyData()
         assert compute_flow is not None
         dummy_output = compute_flow(dummy_data)
         # convert decorator back
         for model in local_models:
-            func_name = self.cls.model_to_call_func[model]
-            setattr(model.__class__, func_name, class_to_old_func[(model, func_name)])
-
-        for model in local_models:
-            remote_model = name2remote_model[model.name]
-            node = ModelNode(remote_model, model.name, self.cls.model_to_call_func[model])
-            if model._dummy_output:
-                self.out_to_model_node[model._dummy_output] = node
-            for dummy_input in model._dummy_inputs:
-                if dummy_input in self.out_to_model_node:
-                    node.add_input_node(self.out_to_model_node[dummy_input])
+            for func_name in self.cls.model_to_call_funcs[model]:
+                setattr(model.__class__, func_name, unwrap_func(getattr(model.__class__, func_name)))
+        stack = [n for n in dummy_data.to_nodes]
+        
+        while stack:
+            node = stack.pop()
+            if node in self.model_nodes:
+                # visited
+                continue
+            stack += node._dummy_output.to_nodes
+            node.model = name2remote_model[node.name]
+            for dummy_input in node._dummy_inputs:
+                if dummy_input.from_node:
+                    node.add_input_node(dummy_input.from_node)
             self.model_nodes.append(node)
         if dummy_output:
             if isinstance(dummy_output, DummyData):
                 dummy_output = [dummy_output]
             for do in dummy_output:
-                self.return_model_nodes.append(self.out_to_model_node[do])
+                self.return_model_nodes.append(do.from_node)
 
         self.name_to_node = {node.model.name: node for node in self.model_nodes}
-        self.input_consumers = [self.name_to_node[model.name] for model in dummy_data.to_models]
+        self.input_consumers = [self.name_to_node[model.name] for model in dummy_data.to_nodes]
         self.flow_topology = self.topological_sort()
         self.model_nodes = flatten(self.flow_topology)
         for i, current_node in enumerate(self.model_nodes):
@@ -200,10 +207,6 @@ class ModelFlow:
                 if current_node.model.colocate_with(next_node.model):
                     current_node.next_colocate_node = next_node
                     break
-        # reset dummy info
-        for model in local_models:
-            model._dummy_inputs = []
-            model._dummy_output = None
 
     def topological_sort(self):
         result = []
@@ -236,5 +239,5 @@ class ModelFlow:
 
         # Check if the graph contains a cycle
         if len(result) != len(self.model_nodes):
-            return None
+            raise RuntimeError("Please check if the graph contains a cycle")
         return [v[1] for v in sorted(level_map.items())]

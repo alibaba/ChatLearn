@@ -171,6 +171,9 @@ class DistActor:
         dp_ranks = future.wait([actor.get_data_parallel_rank.remote() for actor in self.all_actors], return_output=True)
         for actor, dp_rank in zip(self.all_actors, dp_ranks):
             self.dp_rank_to_actors[dp_rank].append(actor)
+    
+    def set_dist_env(self, revert_placement=False):
+        pass
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"

@@ -22,7 +22,7 @@ import ray
 
 from chatlearn.utils import future
 from chatlearn.utils import utils
-from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
+from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 
 
@@ -199,4 +199,6 @@ def decorate_class_func(cls, func_name, decorator, *args, **kwargs):
         # for example, if 'reference' inherits from 'policy', then methods like 'offload_optimizer_states'
         # would be decorated in the base class, eliminating the need for repeated decoration.
         return
-    setattr(cls, func_name, decorator(func, *args, **kwargs))
+    new_func = decorator(func, *args, **kwargs)
+    set_wrap_func(func, new_func)
+    setattr(cls, func_name, new_func)

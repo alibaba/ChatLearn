@@ -14,6 +14,7 @@
 # ==============================================================================
 """Sync parameters"""
 
+import importlib
 import concurrent.futures
 import traceback
 from collections import defaultdict
@@ -23,7 +24,6 @@ from itertools import cycle
 from tqdm import tqdm
 
 from chatlearn.launcher.initialize import patch_ray
-from chatlearn.synchronizer import get_synchronizer
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
@@ -31,6 +31,11 @@ from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
+
+vllm_exist = importlib.util.find_spec("vllm")
+if vllm_exist:
+    from chatlearn.models.vllm_module import VLLMModule
+
 
 patch_ray()
 
@@ -41,7 +46,6 @@ class ParameterSyncGroup:
     def __init__(self, src_model, dst_model, group_name, frequency, error_signal):
         self.src_model = src_model
         self.dst_model = dst_model
-        self.synchronizer = get_synchronizer(src_model, dst_model)
         self.group_name = group_name
         self.error_signal = error_signal
         self.send_recv_actor_mappings = defaultdict(list)
@@ -60,12 +64,12 @@ class ParameterSyncGroup:
         self._actor2dp = {}
         self._comm_type = get_args().runtime_args.param_sync_comm_type
         if src_model.colocate_with(dst_model) and self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-            if self.num_src_tensor_parallel % 2 == 1:
+            if self.num_src_tensor_parallel % 2 == 1 and self.num_dst_tensor_parallel % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
         self.setup_collective_group()
         self.num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
-        if self.num_mapping  == 1:
+        if self.num_mapping == 1:
             self.build_rank_mapping()
         else:
             self.build_rank_mapping_two_stage()
@@ -258,10 +262,7 @@ class ParameterSyncGroup:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
         src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
-        if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
-            replica_rank_iter = cycle(reversed(src_ranks))
-        else:
-            replica_rank_iter = cycle(iter(src_ranks))
+        replica_rank_iter = cycle(iter(src_ranks))
 
         logger.debug(f"src_ranks: {src_ranks}")
         logger.debug(f"dst_ranks: {dst_ranks}")
@@ -276,13 +277,16 @@ class ParameterSyncGroup:
 
         pair_list = []
         p2p_list = []
-        for dst_replica_ranks in dst_ranks:
+        for d_i, dst_replica_ranks in enumerate(dst_ranks):
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel)
             logger.debug(f"src_replica_ranks_group: {src_replica_ranks_group}")
             logger.debug(f"dst_replica_ranks_group: {dst_replica_ranks_group}")
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
+
+            assert pipe_map_interval >= 1, \
+                f"dst_pp expected to divide src_pp, while src_pp {self.num_src_pipeline_stage} and dst_pp {self.num_dst_pipeline_stage}"
 
             # stage 1: comm pairs that broadcast params from trainer to inference model
             # Each rank in trainer holds weights for num_mapping ranks in inference model.
@@ -299,21 +303,26 @@ class ParameterSyncGroup:
                 if self.num_mapping == 1:
                     start =  0
                 else:
-                    mod_i = i % self.num_mapping
+                    mod_i = (i + d_i) % self.num_mapping
                     start = mod_i if i < self.num_mapping else (self.num_mapping - mod_i - 1) % self.num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
                     offset = s_idx * self.num_mapping + start
+
                     dst_rank = dst_replica_ranks_group[j][offset]
                     self.add_recv_actor(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
+                if pipe_map_interval == 1:
+                    break
+
             # stage 2: comm pairs that broadcast params from first rank to the other ranks for each weight_mapping_group
             # Comm mapping in each weight_mapping_group of inference:
             #   [0'] -> [1']
             #   [2'] -> [3']
+            recv_ranks = [pair[1] for pair in pair_list]
             def p2p_pair_grouping(tuples):
                 for s_idx, src_rank in enumerate(tuples):
                     for d_idx, dst_rank in enumerate(tuples):
-                        if s_idx == d_idx:
+                        if s_idx == d_idx or src_rank not in recv_ranks:# pylint: disable=cell-var-from-loop
                             continue
                         self.add_recv_actor_stage2(src_rank, dst_rank)
                         p2p_list.append((src_rank, dst_rank))
@@ -324,6 +333,13 @@ class ParameterSyncGroup:
 
         logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
         logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
+
+    def _get_dst_name(self, src_name, src_prefix, dst_prefix):
+        if src_prefix:
+            dst_name = src_name[len(src_prefix):]
+        else:
+            dst_name = dst_prefix + src_name
+        return dst_name
 
     def validate_sync_results(self, send_actor, recv_actor, requires_grad):
 
@@ -350,11 +366,11 @@ class ParameterSyncGroup:
         validate()
         logger.info("Validation passed!")
 
-    def set_sync_param_names_stage2(self, send_actor, recv_actor, rank, requires_grad):
+    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad):
         send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
-        refs.append(recv_actor.set_recv_parameters.remote(rank, send_names, self.get_actor_pipe_rank(recv_actor)))
+        refs.append(recv_actor.set_recv_parameters.remote(to_rank, send_names, self.get_actor_pipe_rank(recv_actor)))
         future.get(refs)
         return send_names, send_names
 
@@ -362,19 +378,25 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                src_names, dst_names = self.set_sync_param_names_stage2(send_actor, recv_actor, rank + 1, requires_grad)
+                self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad)
             else:
-                src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
+                self.set_sync_param_names(send_actor, recv_actor, requires_grad)
+                pipe_stage = self.get_actor_pipe_rank(send_actor)
+
                 shape_refs = []
-                shape_refs.append(send_actor.get_parameter_shape.remote(src_names))
-                shape_refs.append(recv_actor.get_parameter_shape.remote(dst_names))
+                shape_refs.append(send_actor.get_parameter_shape.remote(pipe_stage))
+                shape_refs.append(recv_actor.get_parameter_shape.remote(pipe_stage))
                 send_shape_list, recv_shape_list = future.get(shape_refs)
 
                 buffer_num = {}
                 tp_division = {}
                 for send_name_and_shape, recv_name_and_shape in zip(send_shape_list, recv_shape_list):
-                    buffer_num[recv_name_and_shape[0]] = send_name_and_shape[1].numel() // recv_name_and_shape[1].numel()
-                    tp_division[send_name_and_shape[0]] = buffer_num[recv_name_and_shape[0]]
+                    send_param_num = send_name_and_shape[1].numel()
+                    recv_param_num = recv_name_and_shape[1].numel()
+                    # for group query attention, tensor might consist of tp part and dp part.
+                    ele_buffer_num = 1 if send_param_num == recv_param_num else self.num_mapping
+                    buffer_num[recv_name_and_shape[0]] = ele_buffer_num
+                    tp_division[send_name_and_shape[0]] = ele_buffer_num
                 refs = []
                 refs.append(recv_actor.set_num_mapping.remote(self.num_mapping))
                 refs.append(recv_actor.set_buffer_num.remote(buffer_num))
@@ -386,8 +408,13 @@ class ParameterSyncGroup:
         refs = []
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         send_rank = 0
+        if stage2:
+            assert len(actors) == 2, f"expect only 2 actors for stage2. \
+                sync params of relative rank to other slices of inference model. while {len(actors)}"
         for rank, actor in enumerate(actors):
-            ref = actor.broadcast_parameter_two_stage.remote(self.actor2rank[actor], rank, send_rank, group_name, pipe_stage, stage2)
+            sync_buffer_rank = self.actor2rank[actors[1]] if rank == 0 and stage2 else 0
+            ref = actor.broadcast_parameter_two_stage.remote(
+                self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
             refs.append(ref)
         rets = future.wait(refs, return_output=True)
         return rets
@@ -405,26 +432,60 @@ class ParameterSyncGroup:
         future.wait(refs, return_output=True)
 
     def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None):
-        self.set_sync_param_names(send_actor, recv_actor, requires_grad)
+        src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
-        assert self.enable_coalesce_param
 
-        if is_the_same_gpu:
-            name2ref = send_actor.ray_put_parameter.remote(None, self.group_name, pipe_stage)
-            recv_ref = recv_actor.ray_get_parameter.remote(None, self.group_name, name2ref, pipe_stage)
-            future.get(recv_ref)
+        if self.enable_coalesce_param:
+            if is_the_same_gpu:
+                name2ref = send_actor.ray_put_parameter.remote(None, self.group_name, pipe_stage)
+                recv_ref = recv_actor.ray_get_parameter.remote(None, self.group_name, name2ref, pipe_stage)
+                future.get(recv_ref)
+            else:
+                send_ref = send_actor.send_parameter.remote(None, self.actor2rank[recv_actor], self.group_name, pipe_stage)
+                recv_ref = recv_actor.recv_parameter.remote(None, self.actor2rank[send_actor], self.group_name, pipe_stage)
+                future.get([send_ref, recv_ref])
+            logger.debug(f"sync all parameters from {send_actor} to {recv_actor}")
         else:
-            send_ref = send_actor.send_parameter.remote(None, self.actor2rank[recv_actor], self.group_name, pipe_stage)
-            recv_ref = recv_actor.recv_parameter.remote(None, self.actor2rank[send_actor], self.group_name, pipe_stage)
-            future.get([send_ref, recv_ref])
-        logger.debug(f"sync all parameters from {send_actor} to {recv_actor}")
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=requires_grad))
+            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
+            for send_name, dst_name in zip(src_names, dst_names):
+                dst_name = self._get_dst_name(send_name, src_prefix, dst_prefix)
+                recv_tensor_exist = future.get(recv_actor.exist_parameter.remote(dst_name))
+                if not recv_tensor_exist:
+                    logger.info(f"recv tensor {dst_name} not exists")
+                    all_dst_layer_names = future.get(recv_actor.get_parameter_names.remote())
+                    raise Exception(
+                        f"recv tensor {dst_name} not exists, while recv model has following layers {all_dst_layer_names}")
+                if is_the_same_gpu:
+                    raise Exception("In the single gpu case, enable_coalesce_param must be True, not False.")
+                send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
+                recv_ref = recv_actor.recv_parameter.remote(dst_name, self.actor2rank[send_actor], self.group_name)
+                future.get([send_ref, recv_ref])
+            logger.debug(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
 
     def sync_send_recv(self, send_actor, recv_actor, requires_grad=None):
         try:
             self._sync_send_recv(send_actor, recv_actor, requires_grad)
         except Exception:
             future.get(self.error_signal.set.remote(traceback.format_exc()))
+
+    def set_model_prefix(self, src_names, dst_names):
+        dst_prefix = None
+        src_prefix = None
+        for sname in src_names:
+            for dname in dst_names:
+                if sname in dname:
+                    prefix = dname[:dname.index(sname)]
+                    dst_prefix = prefix
+                    return src_prefix, dst_prefix
+                elif dname in sname:
+                    prefix = sname[:sname.index(dname)]
+                    src_prefix = prefix
+                    return src_prefix, dst_prefix
+        if dst_prefix is None and src_prefix is None:
+            raise RuntimeError("Cannot find prefix")
+        return src_prefix, dst_prefix
 
     def check_param_names(self, send_actor, recv_actor, src_names, dst_names):
         ref0 = send_actor.check_param_exists.remote(src_names)
@@ -471,9 +532,21 @@ class ParameterSyncGroup:
             src_names = [ele for ele in src_names if LORA_WEIGHT_PREFIX not in ele]
             dst_names = [ele for ele in dst_names if LORA_WEIGHT_PREFIX not in ele]
 
-        src_names, dst_names = self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
-        future.wait(send_actor.set_synchronizer.remote(self.synchronizer))
-
+        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
+            src_pipe_stage = self.get_actor_pipe_rank(send_actor)
+            src_names, dst_names = future.get(recv_actor.map_src_to_dst.remote(src_names, self.num_src_pipeline_stage, src_pipe_stage))
+            concat_params_dict = future.get(recv_actor.get_concat_params_dict.remote())
+            future.get(send_actor.set_concat_params_dict.remote(concat_params_dict))
+            to_fix_act_ordering_dict = future.get(recv_actor.get_to_fix_act_ordering_dict.remote())
+            future.get(send_actor.set_to_fix_act_ordering_dict.remote(to_fix_act_ordering_dict))
+            to_fix_qkv_ordering_dict = future.get(recv_actor.get_to_fix_qkv_ordering_dict.remote())
+            future.get(send_actor.set_to_fix_qkv_ordering_dict.remote(to_fix_qkv_ordering_dict))
+            to_fix_qkv_ordering_func = future.get(recv_actor.get_to_fix_qkv_ordering_func.remote())
+            future.get(send_actor.set_to_fix_qkv_ordering_func.remote(to_fix_qkv_ordering_func))
+        else:
+            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
+            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
+            dst_names = [self._get_dst_name(name, src_prefix, dst_prefix) for name in dst_names]
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         if self.num_mapping > 1:
             key = (recv_actor, recv_actor)
@@ -483,7 +556,7 @@ class ParameterSyncGroup:
                 dst_names0 = self._send_recv_param_names[key][0]
                 dst_names0 += dst_names
                 self._send_recv_param_names[key] = (dst_names0, dst_names0)
-        if not self.synchronizer.is_parameter_changed:
+        if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             refs = []
             refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
@@ -495,7 +568,7 @@ class ParameterSyncGroup:
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad))
         pipe_stage = self.get_actor_pipe_rank(send_actor)
-        if self.synchronizer.is_parameter_changed:
+        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
             refs = []
             refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
             refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
@@ -545,8 +618,14 @@ class ParameterSyncGroup:
             for send_actor in sorted_send_actors:
                 recv_actors = send_recv_actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
-                    futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
+                    if stage2:
+                        for idx, recv_actor in enumerate(recv_actors):
+                            group_name_ = f"{group_name}_{idx}"
+                            actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name_)
+                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
+                    else:
+                        actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
+                        futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
             for _future in concurrent.futures.as_completed(futures):
@@ -555,7 +634,6 @@ class ParameterSyncGroup:
                 except Exception as e:
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
-
 
     def sync(self, requires_grad=None, validate=False):
         if not self._is_collective_group_created:

@@ -72,10 +72,10 @@ class Executor:
             return self
         """
         self._flow = flow
-        self.model_to_call_func = FlowParser().parse(flow)
-        for model, func_name in self.model_to_call_func.items():
-            model.call_funcs.append(func_name)
-        self.models = list(self.model_to_call_func.keys())
+        self.model_to_call_funcs = FlowParser().parse(flow)
+        for model, func_names in self.model_to_call_funcs.items():
+            model.call_funcs += func_names
+        self.models = list(self.model_to_call_funcs.keys())
         return self
 
     @property
