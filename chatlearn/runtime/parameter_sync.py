@@ -20,7 +20,7 @@ import traceback
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
-from typing import List
+from typing import List, Dict
 
 from tqdm import tqdm
 
@@ -675,17 +675,18 @@ class ParameterSyncGroup:
         tp = self.get_actor_tp_rank(send_actor)
         ep = self.get_actor_ep_rank(send_actor)
         group_name = self.group_name if group_name is None else group_name
-        group_name = f"{prefix}:{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
-        logger.info(f"group_name is {group_name}")
+        finalized_group_name = f"{prefix}:{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
+        logger.info(f"finalized_group_name is {finalized_group_name}")
         logger.info(f"current collevtive_groups is {self.collective_groups}")
-        if group_name not in self.collective_groups:
+        logger.info(f"send_actor: {send_actor}, recv_actors: {recv_actors}")
+        if finalized_group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
-                ref = actor.setup_collective_group.remote(rank, len(actor_groups), "nccl", group_name)
+                ref = actor.setup_collective_group.remote(rank, len(actor_groups), "nccl", finalized_group_name)
                 refs.append(ref)
             future.wait(refs)
-            self.collective_groups.append(group_name)
-        return actor_groups, group_name
+            self.collective_groups.append(finalized_group_name)
+        return actor_groups, finalized_group_name
 
     def sort_send_actors(self, send_recv_actor_mappings, sorted_send_actors):
         if sorted_send_actors is not None:
@@ -717,9 +718,13 @@ class ParameterSyncGroup:
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     if stage2:
                         for idx, recv_actor in enumerate(recv_actors):
-                            group_name_ = f"{group_name}_{idx}"
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name_, prefix=prefix)
-                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2, filter_fn))
+                            group_name_with_idx = f"{group_name}_{idx}"
+                            actor_groups, finalized_group_name = self.create_broadcast_group(
+                                send_actor, [recv_actor], group_name=group_name_with_idx, prefix=prefix
+                            )
+                            futures.append(executor.submit(
+                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn
+                            ))
                     else:
                         actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name, prefix=prefix)
                         futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2, filter_fn))
@@ -745,6 +750,7 @@ class ParameterSyncGroup:
             self.collective_groups = []
 
     def check_and_fuse_lora(self, enable_lora, actor_mapping):
+        assert isinstance(actor_mapping, Dict)
         for send_actor in actor_mapping:
             if enable_lora:
                 ref = send_actor.fuse_lora_layer.remote()
@@ -752,6 +758,7 @@ class ParameterSyncGroup:
                 assert state, "Check fuse lora layer fail."
 
     def check_and_unfuse_lora(self, enable_lora, actor_mapping):
+        assert isinstance(actor_mapping, Dict)
         for send_actor in actor_mapping:
             if self._enable_lora:
                 ref = send_actor.unfuse_lora_layer.remote()
