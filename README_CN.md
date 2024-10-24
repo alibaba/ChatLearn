@@ -51,11 +51,19 @@ ChatLearn的特点如下:
 
 注：DeepSpeed-Chat和OpenRLHF性能已经优化过。
 
+# 功能列表
+
+- 支持 RLHF、DPO、OnlineDPO、GRPO 以及用户自定义的 Alignment 训练；
+- 支持 Megatron-LM 作为训练或推理的 backend，支持 vLLM 作为推理的 backend；
+- 支持 各模型独立配置并行策略，并支持模型间高效参数同步，自动进行并行策略转换；
+- 支持 EMS(Efficient Memory Sharing) 功能，支持模型间显存高效共享；
+- 支持模型的资源类型：GPU、CPU，例如定义纯 CPU 的 Math Reward 模型；
+- 支持 Megatron-Core 格式模型；
+
 # Roadmap
 
 ChatLearn 接下来会支持以下特性：
-- [ ] 支持Megatron-Core格式模型；
-- [ ] 支持MoE模型Alignment训练；
+- [ ] 支持 MoE 模型 Alignment 训练；
 - [ ] 接入 DeepSpeed 作为训练 backend；
 - [ ] 支持更多的模型；
 - [ ] 性能优化；
@@ -63,4 +71,3 @@ ChatLearn 接下来会支持以下特性：
 
 <br><br>
 我们欢迎社区小伙伴参与进来合作开发，也欢迎加入钉钉群：98090003312 参与讨论。
-

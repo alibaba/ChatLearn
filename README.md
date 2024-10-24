@@ -54,10 +54,18 @@ We compared the RLHF training throughput of models with different parameter scal
 
 Note: The performance of DeepSpeed-Chat and OpenRLHF has already been optimized.
 
+# Feature List
+
+- Supports RLHF, DPO, OnlineDPO, GRPO, and user-defined Alignment training methods.
+- Supports Megatron-LM as the backend for training or inference, and vLLM as the backend for inference.
+- Supports independent configuration of parallel strategies for different models, and efficient parameter synchronization between models.
+- Supports EMS (Efficient Memory Sharing) functionality, enabling efficient memory sharing between models.
+- Supports resource types for models: GPU, CPU, such as defining a pure CPU-based Math Reward model.
+- Support models with Megatron-Core format.
+
 # Roadmap
 
 The upcoming features for ChatLearn include:
-- [ ] Support models with Megatron-Core format
 - [ ] Support the alignment training for MoE (Mixture of Experts) models
 - [ ] Integration with DeepSpeed as a training backend
 - [ ] Support for more models
@@ -66,4 +74,3 @@ The upcoming features for ChatLearn include:
 
 <br><br>
 We welcome community partners to collaborate and contribute to the development, and welcome to join the DingTalk group: 98090003312 to participate in the discussion.
-
