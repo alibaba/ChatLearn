@@ -176,8 +176,8 @@ class ModelFlow:
         for model in local_models:
             for func_name in self.cls.model_to_call_funcs[model]:
                 setattr(model.__class__, func_name, unwrap_func(getattr(model.__class__, func_name)))
-        stack = [n for n in dummy_data.to_nodes]
-        
+        stack = [n for n in dummy_data.to_nodes] # pylint: disable=unnecessary-comprehension
+
         while stack:
             node = stack.pop()
             if node in self.model_nodes:
