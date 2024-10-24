@@ -544,7 +544,7 @@ def _init_distributed_environment(args):
             world_size=args.world_size, rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes))
 
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
         _WORLD = None
         if _WORLD is None:
             ranks = list(range(torch.distributed.get_world_size()))

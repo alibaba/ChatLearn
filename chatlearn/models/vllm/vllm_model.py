@@ -43,7 +43,7 @@ class VLLMModel(nn.Module):
         self.model_class = get_model_architecture(config)
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
             self.model = self.model_class(config.hf_config)
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             self.model = self.model_class(config.hf_config, cache_config, quant_config, lora_config)
 
     def load_weights(self):

@@ -143,7 +143,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 is_driver_worker=True,
             )
             self._init_tokenizer()
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             engine_args.max_seq_len_to_capture = self.model_args.get("max_context_len_to_capture", 8192)
             engine_config = \
                 engine_args.create_engine_config()
@@ -246,7 +246,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         :meta private:
         """
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             parallel_state.set_custom_all_reduce(not self.parallel_config.disable_custom_all_reduce)
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
@@ -264,7 +264,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     num_gpu_blocks=self.cache_config.num_gpu_blocks,
                     num_cpu_blocks=self.cache_config.num_cpu_blocks,
                     sliding_window=self.cache_config.sliding_window)
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             if self.scheduler is None:
                 self.scheduler = [
                     Scheduler(self.scheduler_config, self.cache_config, None,
@@ -317,7 +317,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
             self.worker.init_cache_engine(cache_config=self.cache_config)
             self.worker.warm_up_model()
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             self.worker.initialize_cache(self.cache_config.num_gpu_blocks, self.cache_config.num_cpu_blocks)
 
     def empty_cache(self):
@@ -325,7 +325,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
             self.worker.cache_engine.cpu_cache = None
             self.worker.cache_engine.gpu_cache = None
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             if self.worker.gpu_cache is not None:
                 for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
                     ele = None
@@ -359,7 +359,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 self.cache_config.swap_space_bytes,
                 self.cache_config.cache_dtype
             )
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             num_gpu_blocks, num_cpu_blocks = self.worker.determine_num_available_blocks()
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
@@ -464,7 +464,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     sampling_params,
                     prompt_token_ids=prompt_token_ids
                 )
-            elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+            elif CURRENT_VLLM_VERSION in \
+                    [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
                 inputs = self.convert_v1_inputs(
                     prompts=[prompt],
                     prompt_token_ids=[prompt_token_ids],
@@ -496,7 +497,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             assert hasattr(self, "model")
             self.model.eval()
         self.worker.model_runner.model = self.model.model
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             self.worker.device = torch.device(f"cuda:{torch.cuda.current_device()}")
             self.worker.init_gpu_memory = torch.cuda.mem_get_info()[0]
 
@@ -651,7 +652,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             "blocks_to_copy" : self.scheduler_outputs.blocks_to_copy
         }
 
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             finished_requests_ids = self.scheduler[0].get_and_reset_finished_requests_ids()
             data.update({
                 "num_lookahead_slots": self.scheduler_outputs.num_lookahead_slots,
@@ -664,7 +665,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
     def process_model_outputs(self, output):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
             step_outputs = self._process_model_outputs(output, self.scheduler_outputs)
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             step_outputs = self._process_model_outputs(
                 output, self.scheduler_outputs.scheduled_seq_groups,
                 self.scheduler_outputs.ignored_seq_groups, self.seq_group_metadata_list)
@@ -696,7 +697,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 data["blocks_to_swap_out"],
                 data["blocks_to_copy"]
             )
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1.value, VLLMVersion.v_0_6_1.value]:
             execute_model_req = ExecuteModelRequest(
                 seq_group_metadata_list=data["seq_group_metadata_list"],
                 blocks_to_swap_in=data["blocks_to_swap_in"],
