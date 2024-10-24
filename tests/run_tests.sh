@@ -63,8 +63,8 @@ function run_test {
 
 function run_all_tests {
   run_test python test_model_flow.py -c "configs/rlhf.yaml"
-  run_test python test_rlhf_data_input.py -c "configs/exp.yaml"
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
+  run_test python test_rlhf_data_input.py -c "configs/exp.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_colocate_forward_train.py -c "configs/rlhf2.yaml"
   run_test python test_evaluator_multi.py -c "configs/test_eval2.yaml"
