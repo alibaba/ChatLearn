@@ -122,6 +122,7 @@ class ModelManager:
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
             if megatron_version == MegatronVersion.V4:
+                logger.info("QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
                 sync_group = ParameterSyncGroupwithHEP(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],

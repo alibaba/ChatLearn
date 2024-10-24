@@ -926,10 +926,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.build_rank_mapping_for_routed_experts()
             self.build_rank_mapping_for_params_except_routed_expert()
         else:
+            # We do not support other cases for HEP. Please note that tp_num_mapping > 1 with ep_num_mapping = 1 is also unsupported.
             raise NotImplementedError(
                 "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled now. "
-                f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training and "
-                f"EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference."
+                f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model {self.src_model.name} and "
+                f"EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model {self.dst_model.name}."
             )
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
