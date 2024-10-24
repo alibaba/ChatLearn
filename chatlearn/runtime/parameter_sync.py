@@ -750,7 +750,7 @@ class ParameterSyncGroup:
                 ref = send_actor.fuse_lora_layer.remote()
                 state = future.get([ref])
                 assert state, "Check fuse lora layer fail."
-    
+
     def check_and_unfuse_lora(self, enable_lora, actor_mapping):
         for send_actor in actor_mapping:
             if self._enable_lora:
@@ -775,6 +775,7 @@ class ParameterSyncGroup:
                 max_workers = len(sorted_send_actors)
             else:
                 max_workers = len(sorted_send_actors) * len(actor_mappings[sorted_send_actors[0]])
+        return max_workers
 
     def _multi_thread_sync_for_tp_nmapping_gt_1(
         self,
@@ -809,7 +810,7 @@ class ParameterSyncGroup:
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
             group_name="intra_comm", stage2=True, filter_fn=filter_fn, prefix=prefix)
-    
+
     def _multi_thread_sync_for_tp_nmapping_eq_1(
         self, send_actors, actor_mappings,
         requires_grad=None, filter_fn=None, prefix="default"
