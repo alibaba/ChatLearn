@@ -162,7 +162,7 @@ class Executor:
         refs = model.offload()
         future.wait(refs)
 
-    def generate_step_one_model_internal(self, model, in_queue, step_num, replica=None, func_name="forward_step", to_empty_cache=None,
+    def generate_step_one_model_internal(self, model, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
                                          is_eval=False, to_onload=None, to_offload=None):
         """
         Args:
@@ -173,9 +173,6 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
-        if replica is None:
-            replica = self._get_model(model)
-
         def get_next_data():
             if isinstance(in_queue, list):
                 # this should happen for inference models, will trigger bug for training models
@@ -224,15 +221,29 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
+        replica = self._get_model(model)
+
         # output is a list of tuple, each tuple is (remote_refs, mb)
-        output = self.generate_step_one_model_internal(model, in_queue, step_num, None, func_name, to_empty_cache,
+        output = self.generate_step_one_model_internal(model, in_queue, step_num, replica, func_name, to_empty_cache,
                                                        is_eval, to_onload, to_offload)
 
-        # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
-        #   length is the number of Actors. In this case, all members in the list
-        #   are the same, and we choose output[-1] to put into out_queue.
         if model.module_args.zero_size == 1:
-            result = [output[-1]]
+            # If (tp > 1 or pp > 1) and ep = 1 for current model, its `output` will be a list whose
+            #   length is the number of Actors. In this case, all members in the list
+            #   are the same, and we choose output[-1] to put into out_queue.
+            # If (tp > 1 or pp > 1) and ep > 1, we choose last output for each dp rank to put into
+            #   out_queue.
+            if model.module_args.expert_model_parallel_size == 1:
+                result = [output[-1]]
+            else:
+                num_dp_rank = len(replica.dp_rank_to_actors)
+                num_output = len(output)
+                assert num_output % num_dp_rank == 0, (
+                    f"The number of outputs ({num_output}) must be divisible by "
+                    f"the number of dp_ranks ({num_dp_rank}) in a replica."
+                )
+                interval = num_output // num_dp_rank
+                result = [output[i] for i in range(interval - 1, num_output, interval)]
         else:
             result = output
         if isinstance(out_queue, list):

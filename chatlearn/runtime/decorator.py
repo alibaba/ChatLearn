@@ -156,7 +156,7 @@ def preprocess_compute(func, is_forward_step, trainable):
                     self._iteration += 1
                     ret = utils.to_device('cpu', ret)
                     results.append(ret)
-                # for model with DP, we need to return results from all ranks
+                # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = concat_along_batch(results)
@@ -167,7 +167,7 @@ def preprocess_compute(func, is_forward_step, trainable):
                 ret = utils.to_device('cpu', ret)
                 self._iteration += 1
                 final_results = None
-                # for model with DP, we need to return results from all ranks
+                # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = ret

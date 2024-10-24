@@ -210,7 +210,7 @@ engine = CustomEngine(policy, ppo_policy)
 engine.setup()
 param_sync_group = engine.model_manager.parameter_sync_groups["ppo_policy2policy"]
 
-assert param_sync_group.num_mapping == tuples[0] // tuples[2]
+assert param_sync_group.tp_num_mapping == tuples[0] // tuples[2]
 
 comm_pair_stage_1 = []
 actor2rank = param_sync_group.actor2rank
