@@ -172,6 +172,9 @@ class DistActor:
         for actor, dp_rank in zip(self.all_actors, dp_ranks):
             self.dp_rank_to_actors[dp_rank].append(actor)
 
+    def set_dist_env(self, revert_placement=False):
+        pass
+
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"
 

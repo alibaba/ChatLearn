@@ -18,6 +18,7 @@ _GLOBAL_ARGS = None
 _EXIT_ACTOR = None
 _EXIT_ACTOR_NAME = "ChatLearnExitActor"
 _DECORATED_MODELS = None
+_DECORATED_OUTER_TO_INNER = {}
 
 
 def _ensure_var_is_initialized(var, name):
@@ -57,3 +58,14 @@ def set_decorated(model_name):
 def is_decorated(model_name):
     _ensure_var_is_initialized(_DECORATED_MODELS, 'decorated_models')
     return bool(model_name in _DECORATED_MODELS)
+
+
+def unwrap_func(func):
+    if func not in _DECORATED_OUTER_TO_INNER:
+        return func
+    return unwrap_func(_DECORATED_OUTER_TO_INNER[func])
+
+
+def set_wrap_func(func, new_func):
+    assert new_func not in _DECORATED_OUTER_TO_INNER
+    _DECORATED_OUTER_TO_INNER[new_func] = func

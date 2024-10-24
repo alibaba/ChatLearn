@@ -17,7 +17,7 @@
 import ast
 import textwrap
 import inspect
-
+from collections import defaultdict
 
 def encode_data(mb, data):
     return {"iter": mb, "data": data}
@@ -51,15 +51,14 @@ class FlowParser:
     """Flow Parser"""
 
     def __init__(self):
-        self.model_to_call_func = {}
+        self.model_to_call_funcs = defaultdict(list)
 
     def visit_func(self, node):
         for line in node.body:
             if isinstance(line, (ast.Assign, ast.Expr)):
                 func_name, model_name, _ = parse_expr(line)
                 model = self.global_models[model_name]
-                assert model not in self.model_to_call_func
-                self.model_to_call_func[model] = func_name
+                self.model_to_call_funcs[model].append(func_name)
 
     def parse(self, func):
         closure_vars = inspect.getclosurevars(func)
@@ -71,4 +70,4 @@ class FlowParser:
         else:
             code = textwrap.dedent(inspect.getsource(func))
         node_iter.visit(ast.parse(code))
-        return self.model_to_call_func
+        return self.model_to_call_funcs
