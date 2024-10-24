@@ -2,8 +2,7 @@ name: Unit Tests
 
 on: 
   workflow_dispatch:
-  pull_request_target:
-    types: [opened, synchronize, reopened]
+  pull_request:
     branches:
       - main
       - dev
@@ -29,6 +28,8 @@ jobs:
 
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+          ref: ${{ github.event.pull_request.head.sha }}
 
     - name: Run unit test
       run: |
@@ -39,4 +40,4 @@ jobs:
         docker pull $UT_IMAGE
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
       env: 
-        UT_IMAGE: ${{ secrets.UT_IMAGE }}
+        UT_IMAGE: registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:2.4.0-gpu-py3.10-cu12.5-ngc24.06-ubuntu22.04
