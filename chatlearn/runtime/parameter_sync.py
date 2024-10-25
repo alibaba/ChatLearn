@@ -17,6 +17,7 @@
 import importlib
 import concurrent.futures
 import traceback
+import torch
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
@@ -358,8 +359,20 @@ class ParameterSyncGroup:
                                                      recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True)])
                 assert src_tensor.shape == dst_tensor.shape, \
                     f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match"
-                assert (src_tensor == dst_tensor).all(), \
-                    f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
+                if not src_tensor.equal(dst_tensor):
+                    if src_tensor.isnan().any() or dst_tensor.isnan().any():
+                        logger.warning(
+                            f"We have detected NaN values in parameter synchronization (from {src_name} to {dst_name}). We will "
+                            "switch to `torch.allclose(input, other, rtol=0, atol=0, equal_nan=True)` to check if the two tensors "
+                            "are equal, since `torch.equal` treats `nan == nan` as False. Nonetheless, NaN values are abnormal, "
+                            "so please double-check your model."
+                        )
+                        # For parameter synchronization, rtol and atol must be 0 to guarantee that the tensors are equal.
+                        assert torch.allclose(src_tensor, dst_tensor, rtol=0, atol=0, equal_nan=True), \
+                            f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
+                    else:
+                        assert False, \
+                            f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
             return True
 
         logger.info("Going to validate transmitted tensors...")
