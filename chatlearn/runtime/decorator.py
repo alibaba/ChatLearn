@@ -22,7 +22,7 @@ import ray
 
 from chatlearn.utils import future
 from chatlearn.utils import utils
-from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
+from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func, unwrap_func
 from chatlearn.utils.utils import execute
 
 

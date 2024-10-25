@@ -256,14 +256,14 @@ class Executor:
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
         in_queue = model_node.get_input_queues()
-        out_queue = model_node.out_queues
+        # out_queue = model_node.out_queues
         results = []
         self.timers(f"{model.name}").start()
         for step in range(num_batch):
             to_empty_cache = step >= last_step_start and model.is_colocate
             to_onload = step < replica_num and model.is_colocate and model.enable_offload
             to_offload = step >= last_step_start and model.is_colocate and model.enable_offload
-            _, data = self.generate_step_one_model(model, in_queue, out_queue, step, func_name, to_empty_cache,
+            _, data = self.generate_step_one_model(model, in_queue, model_node.out_queues, step, func_name, to_empty_cache,
                                                    is_eval=is_eval, to_onload=to_onload, to_offload=to_offload)
             results.append(data)
         self.timers(f"{model.name}").stop()
@@ -282,11 +282,25 @@ class Executor:
 
         return results
 
-    def compute_loop(self, out_queue, num_batch):
-        for model_group in self.model_flow.flow_topology:
-            for model_node in model_group:
-                self.compute_loop_one_model(model_node, num_batch, self.is_eval)
+    def compute_iterative(self, out_queue, max_iteration):
+        for i in range(max_iteration):
+            for model_group in self.model_flow.flow_topology:
+                for model_node in model_group:
+                    model = model_node.model
+                    in_queue = model_node.get_input_queues()
+                    out_queue = model_node.out_queues
+                    # TODO: Need to support multiple func_name in one model
+                    func_name = model_node.func_name
+                    to_empty_cache = False
+                    to_onload = False
+                    to_offload = False
+                    _, data = self.generate_step_one_model(model, in_queue, out_queue, i, func_name, to_empty_cache,
+                                                   is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload)
+                    # TODO: we assume no colocation here
+                    self._models_and_results_to_wait.append((model_node, data))
+        self.postprocess_compute_loop()
 
+    def postprocess_compute_loop(self, out_queue):
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:
             self.timers(f"{model_node.model.name}").start()
@@ -309,6 +323,12 @@ class Executor:
             self._models_and_results_to_wait = []
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)
+
+    def compute_loop(self, out_queue, num_batch):
+        for model_group in self.model_flow.flow_topology:
+            for model_node in model_group:
+                self.compute_loop_one_model(model_node, num_batch, self.is_eval)
+        self.postprocess_compute_loop(out_queue)
 
     def setup_queues(self):
         data_queues = []

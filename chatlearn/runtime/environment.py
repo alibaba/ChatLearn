@@ -134,4 +134,23 @@ class Environment(Executor):
         Generate a collection of experiences for one episode
         """
         return self.execute(is_eval=False)
+
+class MCTSEnv(Environment):
+
+    def __init__(self, model_flow):
+        super().__init__(model_flow)
+        self.max_iteration_per_batch = 100
+
+    def execute(self, is_eval):
+        data_producer_iter = cycle(iter(self.models[0].replicas))
+        # prepare batches for all model replicas
+        for mb in range(self.batch_per_episode):
+            current_data_producer = next(data_producer_iter)
+            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
+            encoded_data = encode_data(mb, query)
+            for data_queue in data_queues:
+                data_queue.put(encoded_data)
+        self.compute_iterative(out_queue, self.max_iteration_per_batch)
+        return out_queue
+
 # pylint: disable=not-callable
