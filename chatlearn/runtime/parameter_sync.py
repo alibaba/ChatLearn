@@ -360,7 +360,7 @@ class ParameterSyncGroup:
                 assert src_tensor.shape == dst_tensor.shape, \
                     f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match"
                 if not src_tensor.equal(dst_tensor):
-                    if src_tensor.isnan().any() or dst_tensor.isnan().any():
+                    if src_tensor.isnan().any() and dst_tensor.isnan().any():
                         logger.warning(
                             f"We have detected NaN values in parameter synchronization (from {src_name} to {dst_name}). We will "
                             "switch to `torch.allclose(input, other, rtol=0, atol=0, equal_nan=True)` to check if the two tensors "
