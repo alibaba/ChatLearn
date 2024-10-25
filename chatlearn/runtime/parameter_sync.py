@@ -364,8 +364,8 @@ class ParameterSyncGroup:
                     dst_tensor_has_nan = dst_tensor.isnan().any()
                     if src_tensor_has_nan and dst_tensor_has_nan:
                         logger.warning(
-                            f"We have detected NaN values in parameter synchronization (from {src_name} to {dst_name}). We will "
-                            "switch to `torch.allclose(input, other, rtol=0, atol=0, equal_nan=True)` to check if the two tensors "
+                            f"We have found NaN values in parameter synchronization (from {src_name} to {dst_name}). Switching "
+                            "to `torch.allclose(input, other, rtol=0, atol=0, equal_nan=True)` to check if the two tensors "
                             "are equal, since `torch.equal` treats `nan == nan` as False. Nonetheless, NaN values are abnormal, "
                             "so please double-check your model and code."
                         )
@@ -378,7 +378,7 @@ class ParameterSyncGroup:
                             )
                         elif dst_tensor_has_nan:
                             logger.warning(
-                                f"{dst_name}: {dst_tensor} has NaN values, while {src_name}: {src_tensor} does not have"
+                                f"{dst_name}: {dst_tensor} has NaN values, while {src_name}: {src_tensor} does not"
                             )
                         assert False, \
                             f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
