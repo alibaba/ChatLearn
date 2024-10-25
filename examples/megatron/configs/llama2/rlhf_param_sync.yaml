@@ -9,7 +9,7 @@ runtime_env:
 
 models:
   policy:
-    model_config_file: vllm_policy_inference.yaml
+    model_config_file: old_policy_inference.yaml
     num_gpu: ${num_gpu_policy:16}
     trainable: False
     batch_generation:
@@ -47,3 +47,5 @@ runtime:
   data_checkpoint_path: ${data_checkpoint_path}
   output_dir: ${output_dir}
   exp_name: ${exp_name:chatlearn}
+  debug: ${debug:False}
+  validate_param_sync: ${validate_param_sync:False}

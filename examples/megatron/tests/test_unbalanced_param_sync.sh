@@ -19,7 +19,7 @@ mkdir -p $output_dir
 
 export max_seq_len=$(( max_new_tokens*2 ))
 
-config_dir=${CHATLEARN}/examples/megatron/tests/configs/
+config_dir=${CHATLEARN}/examples/megatron/configs/
 
 
 if [[ "$model_size" == "llama2-7B" ]]; then
