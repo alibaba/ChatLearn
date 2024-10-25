@@ -17,11 +17,11 @@
 import importlib
 import concurrent.futures
 import traceback
-import torch
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
 
+import torch
 from tqdm import tqdm
 
 from chatlearn.launcher.initialize import patch_ray
@@ -367,7 +367,6 @@ class ParameterSyncGroup:
                             "are equal, since `torch.equal` treats `nan == nan` as False. Nonetheless, NaN values are abnormal, "
                             "so please double-check your model."
                         )
-                        # For parameter synchronization, rtol and atol must be 0 to guarantee that the tensors are equal.
                         assert torch.allclose(src_tensor, dst_tensor, rtol=0, atol=0, equal_nan=True), \
                             f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
                     else:
