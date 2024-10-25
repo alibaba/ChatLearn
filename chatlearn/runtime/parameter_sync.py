@@ -392,6 +392,8 @@ class ParameterSyncGroup:
         return dst_name
 
     def _clear_sync_send_recv_parameters(self, rank_mappings:List):
+        if len(rank_mappings) == 0:
+            return
         refs = []
         flagged_actors = set()
         for rank_mapping in rank_mappings:
@@ -411,15 +413,17 @@ class ParameterSyncGroup:
         self._send_recv_param_names = {}
 
     def _clear_sorted_send_actors(self, sorted_send_actors_list:List):
+        if len(sorted_send_actors_list) == 0:
+            return
         for sorted_send_actors in sorted_send_actors_list:
             if sorted_send_actors is not None:
                 sorted_send_actors = None
 
-    def clear_cache(self, rank_mapping_list=None, sorted_send_actors_list=None):
-        if rank_mapping_list is None:
-            rank_mapping_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+    def clear_cache(self, sorted_send_actors_list=None, rank_mapping_list=None):
         if sorted_send_actors_list is None:
             sorted_send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+        if rank_mapping_list is None:
+            rank_mapping_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
 
         self._clear_sync_send_recv_parameters(rank_mapping_list)
         self._clear_send_recv_param_names()
@@ -807,14 +811,14 @@ class ParameterSyncGroup:
         actor_mappings_stage2 = actor_mappings[1]
 
         # stage 1
-        sorted_send_actors_stage1 = self.sort_send_actors(send_actors_stage1, actor_mappings_stage1)
+        sorted_send_actors_stage1 = list(actor_mappings_stage1.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage1, actor_mappings_stage1)
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
             stage2=False, filter_fn=filter_fn, prefix=prefix
         )
         # stage 2
-        sorted_send_actors_stage2 = self.sort_send_actors(send_actors_stage2, actor_mappings_stage2)
+        sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
@@ -824,7 +828,7 @@ class ParameterSyncGroup:
         self, send_actors, actor_mappings,
         requires_grad=None, filter_fn=None, prefix="default"
     ):
-        sorted_send_actors = self.sort_send_actors(send_actors, actor_mappings)
+        sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
@@ -988,19 +992,19 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         filted_names = [name for name in name_list if 'mlp.experts' not in name]
         return filted_names
 
-    def clear_cache(self, rank_mapping_list=None, sorted_send_actors_list=None):
-        if rank_mapping_list is None:
-            rank_mapping_list = [
-                self.send_recv_actor_mappings,
-                self.send_recv_actor_mappings_stage2,
-                self.send_recv_actor_mappings_for_routed_experts
-            ]
+    def clear_cache(self, sorted_send_actors_list=None, rank_mapping_list=None):
         if sorted_send_actors_list is None:
             sorted_send_actors_list = [
             self.sorted_send_actors,
             self.sorted_send_actors_stage2,
             self.sorted_send_actors_for_routed_experts
         ]
+        if rank_mapping_list is None:
+            rank_mapping_list = [
+                self.send_recv_actor_mappings,
+                self.send_recv_actor_mappings_stage2,
+                self.send_recv_actor_mappings_for_routed_experts
+            ]
 
         self._clear_sync_send_recv_parameters(rank_mapping_list)
         self._clear_send_recv_param_names()
@@ -1087,14 +1091,25 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         # First, synchronize routed experts.
         self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
 
-        self.clear_cache(rank_mapping_list=[self.send_recv_actor_mappings_for_routed_experts])
+        self.clear_cache(
+            sorted_send_actors_list = [
+                self.sorted_send_actors_for_routed_experts
+            ],
+            rank_mapping_list=[
+                self.send_recv_actor_mappings_for_routed_experts
+            ]
+        )
 
         # Then, synchronize non-routed experts.
         self._synchronize_params_except_routed_expert(requires_grad=requires_grad, validate=validate)
 
         self.clear_cache(
+            sorted_send_actors_list = [
+                self.sorted_send_actors,
+                self.sorted_send_actors_stage2,
+            ],
             rank_mapping_list = [
                 self.send_recv_actor_mappings,
                 self.send_recv_actor_mappings_stage2
-            ],
+            ]
         )
