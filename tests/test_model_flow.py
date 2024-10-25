@@ -119,7 +119,6 @@ for model in models:
 
 model_flow.trace(mock_dist_models, env_compute_flow)
 
-import pdb; pdb.set_trace()
 assert model_flow.model_nodes[0].name == 'policy'
 assert model_flow.model_nodes[0].func_name == "forward_step"
 assert model_flow.model_nodes[1].name in ['reference', "value"]
