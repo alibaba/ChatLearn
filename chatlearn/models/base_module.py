@@ -899,9 +899,9 @@ class BaseModule:
                     if self.module_args.args_dict["group_query_attention"] else heads
                 if self.to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
                     if len(param_data_shape) == 1:
-                        param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
+                        param_data = param_data.view((heads + 2 * _num_query_groups, hidden_size_per_head))
                     else:
-                        param_data = param.view(
+                        param_data = param_data.view(
                             (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
                     param_data_list = []
                     head_offset = heads // self._tp_division[name]
