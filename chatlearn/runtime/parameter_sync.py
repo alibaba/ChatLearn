@@ -680,14 +680,15 @@ class ParameterSyncGroup:
         pp = self.get_actor_pipe_rank(send_actor)
         tp = self.get_actor_tp_rank(send_actor)
         ep = self.get_actor_ep_rank(send_actor)
+        # Always include self.group_name to ensure the name is unique.
         if group_name is None:
             group_name = self.group_name
         elif not group_name.startswith(self.group_name + "_"):
             group_name = self.group_name + "_" + group_name
         finalized_group_name = f"{group_name}_{param_group}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
-        logger.info(f"finalized_group_name is {finalized_group_name}")
-        logger.info(f"current collevtive_groups is {self.collective_groups}")
-        logger.info(f"send_actor: {send_actor}, recv_actors: {recv_actors}")
+        logger.debug(f"finalized_group_name is {finalized_group_name}")
+        logger.debug(f"current collevtive_groups is {self.collective_groups}")
+        logger.debug(f"send_actor: {send_actor}, recv_actors: {recv_actors}")
         if finalized_group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -735,8 +736,12 @@ class ParameterSyncGroup:
                                 self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn
                             ))
                     else:
-                        actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name, param_group=param_group)
-                        futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn))
+                        actor_groups, finalized_group_name = self.create_broadcast_group(
+                            send_actor, recv_actors, group_name=group_name, param_group=param_group
+                        )
+                        futures.append(executor.submit(
+                            self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn
+                        ))
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
             for _future in concurrent.futures.as_completed(futures):
@@ -804,8 +809,8 @@ class ParameterSyncGroup:
         assert len(send_actors) == 2, (
             f"Expect the length of send_actors being 2 for TP num mapping greater than 1, but got {len(send_actors)}."
         )
-        send_actors_stage1 = send_actors[0]
-        send_actors_stage2 = send_actors[1]
+        send_actors_stage1 = send_actors[0] # pylint: disable=unused-variable
+        send_actors_stage2 = send_actors[1] # pylint: disable=unused-variable
 
         assert len(actor_mappings) == 2, (
             f"Expect the length of actor_mappings being 2 for TP num mapping greater than 1, but got {len(actor_mappings)}."
@@ -816,17 +821,18 @@ class ParameterSyncGroup:
         # stage 1
         sorted_send_actors_stage1 = list(actor_mappings_stage1.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage1, actor_mappings_stage1)
+        group_name = self.group_name + "_inter_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
-            stage2=False, filter_fn=filter_fn, param_group=param_group
+            group_name=group_name, stage2=False, filter_fn=filter_fn, param_group=param_group
         )
         # stage 2
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
-        finalized_group_name = self.group_name + "_intra_comm"
+        group_name = self.group_name + "_intra_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
-            group_name=finalized_group_name, stage2=True, filter_fn=filter_fn, param_group=param_group)
+            group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group)
 
     def _multi_thread_sync_for_tp_nmapping_eq_1(
         self, send_actors, actor_mappings,
@@ -937,8 +943,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             # We do not support other cases for HEP. Please note that tp_num_mapping > 1 with ep_num_mapping = 1 is also unsupported.
             raise NotImplementedError(
                 "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled now. "
-                f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model {self.src_model.name} and "
-                f"EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model {self.dst_model.name}."
+                f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model {self.src_model.name} "
+                f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model {self.dst_model.name}."
             )
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
