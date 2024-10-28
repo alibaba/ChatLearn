@@ -682,9 +682,9 @@ class ParameterSyncGroup:
         ep = self.get_actor_ep_rank(send_actor)
         group_name = self.group_name if group_name is None else group_name
         finalized_group_name = f"{prefix}:{group_name}_dp{dp}_pp{pp}_tp{tp}_ep{ep}"
-        logger.info(f"finalized_group_name is {finalized_group_name}")
-        logger.info(f"current collevtive_groups is {self.collective_groups}")
-        logger.info(f"send_actor: {send_actor}, recv_actors: {recv_actors}")
+        logger.debug(f"finalized_group_name is {finalized_group_name}")
+        logger.debug(f"current collevtive_groups is {self.collective_groups}")
+        logger.debug(f"send_actor: {send_actor}, recv_actors: {recv_actors}")
         if finalized_group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -820,9 +820,10 @@ class ParameterSyncGroup:
         # stage 2
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
+        finalized_group_name = self.group_name + "_intra_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
-            group_name="intra_comm", stage2=True, filter_fn=filter_fn, prefix=prefix)
+            group_name=finalized_group_name, stage2=True, filter_fn=filter_fn, prefix=prefix)
 
     def _multi_thread_sync_for_tp_nmapping_eq_1(
         self, send_actors, actor_mappings,
