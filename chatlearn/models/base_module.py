@@ -774,7 +774,6 @@ class BaseModule:
         """
         :meta private:
         """
-        self._parameters_to_send[pipe_stage] = []
         return self.set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_send)
 
     def set_recv_parameters(self, to_rank, trainable_param_names, pipe_stage=0):
@@ -1021,10 +1020,12 @@ class BaseModule:
                             param_data_list.append(param_data[:,start:end])
                         param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                         del param_data_list
-                    if ("mlp.dense_h_to_4h" in name
+                    if (
+                        "mlp.dense_h_to_4h" in name
                         or "mlp.linear_fc1" in name
                         or ("mlp.w1" in name and self.concat_params_dict is not None)
-                        or "mlp.shared_experts.dense_h_to_4h" in name):
+                        or "mlp.shared_experts.dense_h_to_4h" in name
+                    ):
                         param_data_list = []
                         row_offset = param_data_shape[0] // self._tp_division[name] // 2
                         for idx in range(self._tp_division[name]):
