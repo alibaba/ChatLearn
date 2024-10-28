@@ -374,7 +374,8 @@ class ParameterSyncGroup:
                         if src_tensor.shape == dst_tensor.shape:
                             src_tensor_slice = src_tensor
                         else:
-                            assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and src_tensor.shape[0] // dst_tensor.shape[0] == self.num_mapping, \
+                            assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and \
+                                src_tensor.shape[0] // dst_tensor.shape[0] == self.num_mapping, \
                                 f"num of elements in src_tensor must be divided by that of dst_tensor. \
                                 while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
                             start = dst_tensor.shape[0] * tp_slice
