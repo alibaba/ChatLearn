@@ -356,9 +356,13 @@ class ParameterSyncGroup:
             names = list(zip(src_names, dst_names))
             for src_name, dst_name in tqdm(names):
                 src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.num_mapping > 1))
+                if src_tensor.isnan().any():
+                    raise RuntimeError(f"weight {src_name} from send actor is nan, please check checkpoint or training process.")
                 src_tensor_shape = src_tensor.shape
                 for recv_actor in recv_actors:
                     dst_tensor = future.get(recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True))
+                    if dst_tensor.isnan().any():
+                        raise RuntimeError(f"weight {dst_name} in recv actor is nan, please check param sync.")
                     if self.num_mapping == 1:
                         # for trainer_tp == inference_tp
                         assert src_tensor.shape == dst_tensor.shape, \

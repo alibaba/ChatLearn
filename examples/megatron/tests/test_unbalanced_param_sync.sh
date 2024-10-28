@@ -46,6 +46,7 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     export free_memory_ppo_policy=True
 fi
 
+validate_param_sync=True \
 policy_inference_load=${POLICY_LOAD} \
 reward_load_iteration=${REWARD_LOAD_ITERATION} \
 reward_load=${REWARD_LOAD} \
