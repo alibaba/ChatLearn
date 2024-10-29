@@ -19,7 +19,10 @@ import importlib
 if importlib.util.find_spec("vllm"):
     import vllm
     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         from chatlearn.models.vllm.hooks import sampler
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
-        from chatlearn.models.vllm.hooks import llm_engine, logits_processor, worker
+    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+        from chatlearn.models.vllm.hooks import llm_engine, logits_processor
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
+            from chatlearn.models.vllm.hooks import worker
+
