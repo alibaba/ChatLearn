@@ -469,7 +469,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     prompt_token_ids = prompt_token_ids[:seq_len-1]
                 max_tokens = seq_len - len(prompt_token_ids)
 
-            if CURRENT_VLLM_VERSION in [VLLM_VERSION.v_0_3_0, VLLM_VERSION.v_0_5_1]:
+            if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_3_0, VLLMVersion.v_0_5_1]:
                 sampling_params = SamplingParams(
                     n=self.model_args.get("n"),
                     presence_penalty=presence_penalty,
@@ -688,7 +688,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
         scheduler = self.scheduler[0] if isinstance(self.scheduler, list) else self.scheduler
 
-        if CURRENT_VLLM_VERSION == VLLM_VERSION.v_0_6_3:
+        if CURRENT_VLLM_VERSION == VLLMVERSION.v_0_6_3:
             self.seq_group_metadata_list, self.scheduler_outputs, _ = scheduler.schedule()
         else:
             self.seq_group_metadata_list, self.scheduler_outputs = scheduler.schedule()
