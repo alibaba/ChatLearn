@@ -174,8 +174,8 @@ class MCTSEngine(Engine):
             playout_reward = reward.forward_step(policy_playout)
             # backpropagation
             with ControlDependencies(playout_reward):
-                back_res = mcts.backpropagation()
-            return back_res, policy_playout, playout_reward
+                mcts.backpropagation()
+            return policy_playout, playout_reward
 
         env = MCTSEnv(mcts_flow, mcts)
         super().__init__(env, name='MCTS')

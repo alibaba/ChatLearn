@@ -128,3 +128,24 @@ assert model_flow.model_nodes[2].func_name == "forward_step"
 assert model_flow.model_nodes[3].name == 'reward'
 assert model_flow.model_nodes[3].func_name == "forward_step"
 
+def env_compute_flow(batch):
+    policy_out = policy.forward_step(batch)
+    ref_out = reference.forward_step(batch)
+    return policy_out, ref_out
+
+env = Executor(env_compute_flow)
+model_flow = ModelFlow(env)
+models = [policy, reference]
+mock_dist_models = []
+
+for model in models:
+    dist_model = DistModel()
+    dist_model.add_replica(MockDistActor(model))
+    mock_dist_models.append(dist_model)
+
+model_flow.trace(mock_dist_models, env_compute_flow)
+
+assert model_flow.model_nodes[0].name in ['policy', 'reference']
+assert model_flow.model_nodes[0].func_name == "forward_step"
+assert model_flow.model_nodes[1].name in ['policy', 'reference']
+assert model_flow.model_nodes[1].func_name == "forward_step"

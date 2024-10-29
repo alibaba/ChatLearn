@@ -233,7 +233,7 @@ class DistModel:
         self.register_serial_func()
         self.register_func()
         self._is_colocate = False
-        self._colocate_models = None
+        self._colocate_models = []
 
     def add_replica(self, replica):
         self.replicas.append(replica)

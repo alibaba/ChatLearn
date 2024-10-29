@@ -141,28 +141,6 @@ class ModelNode:
         return f'<{self.__class__.__name__}({self.model}) {self.func_name} object at {hex(id(self))}>'
 
 
-def fake_compute(fn):
-    def inner(self, *args):
-        original_fn = unwrap_func(fn)
-        func_name = original_fn.__name__
-        model_node = ModelNode(self, func_name)
-        for data in args:
-            if isinstance(data, DummyData):
-                data.to_nodes.append(model_node)
-                if data.from_node:
-                    model_node.add_input_node(data.from_node)
-        dependencies = get_dependencies()
-        if dependencies is not None:
-            for dep in dependencies:
-                model_node.dependent_input_nodes.append(dep.from_node)
-                dep.from_node.dependent_output_nodes.append(model_node)
-        res = DummyData(model_node)
-        # model_node._dummy_output = res
-        return res
-
-    return inner
-
-
 class ModelFlow:
     """ModelFlow"""
 
@@ -172,6 +150,28 @@ class ModelFlow:
         self.cls = cls
         # models that consumes input data
         self.input_consumers = []
+
+    def fake_compute(self, fn):
+        def inner(*args):
+            original_fn = unwrap_func(fn)
+            func_name = original_fn.__name__
+            model_node = ModelNode(args[0], func_name)
+            model_node.model = self.name2remote_model[model_node.name]
+            self.model_nodes.append(model_node)
+            for data in args[1:]:
+                if isinstance(data, DummyData):
+                    data.to_nodes.append(model_node)
+                    if data.from_node:
+                        model_node.add_input_node(data.from_node)
+            dependencies = get_dependencies()
+            if dependencies is not None:
+                for dep in dependencies:
+                    model_node.dependent_input_nodes.append(dep.from_node)
+                    dep.from_node.dependent_output_nodes.append(model_node)
+            res = DummyData(model_node)
+            return res
+
+        return inner
 
     def trace(self, models, compute_flow):
         """
@@ -185,10 +185,10 @@ class ModelFlow:
             compute_flow function
         """
         local_models = [model.replicas[0].model for model in models]
-        name2remote_model = {model.name: model for model in models}
+        self.name2remote_model = {model.name: model for model in models}
         for model in local_models:
             for func_name in self.cls.model_to_call_funcs[model]:
-                decorate_class_func(model.__class__, func_name, fake_compute)
+                decorate_class_func(model.__class__, func_name, self.fake_compute)
 
         dummy_data = DummyData()
         assert compute_flow is not None
@@ -203,17 +203,6 @@ class ModelFlow:
                 dummy_output = [dummy_output]
             for do in dummy_output:
                 self.return_model_nodes.append(do.from_node)
-
-        stack = [n for n in self.return_model_nodes] # pylint: disable=unnecessary-comprehension
-        while stack:
-            node = stack.pop()
-            if node in self.model_nodes:
-                # visited
-                continue
-            stack += node.input_nodes
-            stack += node.dependent_input_nodes
-            node.model = name2remote_model[node.name]
-            self.model_nodes.append(node)
 
         self.input_consumers = dummy_data.to_nodes
         self.flow_topology = self.topological_sort()
