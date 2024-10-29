@@ -357,13 +357,13 @@ class ParameterSyncGroup:
                 if j == self.num_dst_pipeline_stage:
                     src_replica_offset = i
                     break
-                if self.num_mapping == 1:
+                if self.tp_num_mapping == 1:
                     start =  0
                 else:
-                    mod_i = (i - src_replica_offset) % self.num_mapping
-                    start = mod_i if (i - src_replica_offset) < self.num_mapping else (self.num_mapping - mod_i - 1) % self.num_mapping
+                    mod_i = (i - src_replica_offset) % self.tp_num_mapping
+                    start = mod_i if (i - src_replica_offset) < self.tp_num_mapping else (self.tp_num_mapping - mod_i - 1) % self.tp_num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
-                    offset = s_idx * self.num_mapping + start
+                    offset = s_idx * self.tp_num_mapping + start
                     dst_rank = dst_replica_ranks_group[j][offset]
                     add_recv_actor_stage1_fn(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
@@ -450,7 +450,7 @@ class ParameterSyncGroup:
             assert len(src_names) == len(dst_names)
             names = list(zip(src_names, dst_names))
             for src_name, dst_name in tqdm(names):
-                src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.num_mapping > 1))
+                src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.tp_num_mapping > 1))
                 if src_tensor.isnan().any():
                     raise RuntimeError(f"weight {src_name} from send actor is nan, please check checkpoint or training process.")
                 src_tensor_shape = src_tensor.shape
@@ -458,7 +458,7 @@ class ParameterSyncGroup:
                     dst_tensor = future.get(recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True))
                     if dst_tensor.isnan().any():
                         raise RuntimeError(f"weight {dst_name} in recv actor is nan, please check param sync.")
-                    if self.num_mapping == 1:
+                    if self.tp_num_mapping == 1:
                         # for trainer_tp == inference_tp
                         assert src_tensor.shape == dst_tensor.shape, \
                             f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
@@ -469,12 +469,12 @@ class ParameterSyncGroup:
                         dst_tensor_shape = dst_tensor.shape
                         src_tensor = src_tensor.reshape(-1)
                         dst_tensor = dst_tensor.reshape(-1)
-                        tp_slice = self.actor2rank[recv_actor] % self.num_mapping
+                        tp_slice = self.actor2rank[recv_actor] % self.tp_num_mapping
                         if src_tensor.shape == dst_tensor.shape:
                             src_tensor_slice = src_tensor
                         else:
                             assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and \
-                                src_tensor.shape[0] // dst_tensor.shape[0] == self.num_mapping, \
+                                src_tensor.shape[0] // dst_tensor.shape[0] == self.tp_num_mapping, \
                                 f"num of elements in src_tensor must be divided by that of dst_tensor. \
                                 while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
                             start = dst_tensor.shape[0] * tp_slice
