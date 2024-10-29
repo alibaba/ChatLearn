@@ -26,7 +26,6 @@ from examples.megatron.models.utils import get_eos_id
 
 from chatlearn.utils.utils import multi_thread_data_processing
 
-
 def zero_pad_sequences(sequences, side: str = "right", value=0, pad_to_seq_length=False):
     assert side in ("left", "right")
     if pad_to_seq_length: # pad to args.seq_length

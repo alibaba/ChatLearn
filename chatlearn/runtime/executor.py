@@ -268,7 +268,6 @@ class Executor:
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
         in_queue = model_node.get_input_queues()
-        # out_queue = model_node.out_queues
         results = []
         self.timers(f"{model.name}").start()
         for step in range(num_batch):
