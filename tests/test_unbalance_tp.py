@@ -94,15 +94,6 @@ class PolicyModel(TestTorchModule):
     def get_parameter_names(self, requires_grad=True):
         return list(ParamsToSync_Inference.keys())
 
-    @property
-    def named_parameters(self):
-        """
-        :meta private:
-        """
-        if self._named_parameters is None:
-            self._named_parameters = inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
-        return self._named_parameters
-
     def get_parameter(self, name):
         return inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
 
@@ -121,6 +112,15 @@ class PolicyModel(TestTorchModule):
         start = key * 2
         end = start + 2
         parameters_to_sync[pipe_stage] = all_params[start:end]
+
+    @property
+    def named_parameters(self):
+        """
+        :meta private:
+        """
+        if self._named_parameters is None:
+            self._named_parameters = inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
+        return self._named_parameters
 
     def set_recv_parameters(self, rank, trainable_param_names, pipe_stage=0):
         """
@@ -171,6 +171,7 @@ class PPOPolicy(TestTorchModule):
         if self._named_parameters is None:
             self._named_parameters = trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
         return self._named_parameters
+
     def get_parameter(self, name):
         return trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
 
@@ -182,6 +183,7 @@ class PPOPolicy(TestTorchModule):
             tensor = torch.rand(shape).cuda()
             tmp[name] = tensor
             parameters_to_sync[pipe_stage].append((name, tensor))
+
         global trainer_params
         trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
 
@@ -236,9 +238,9 @@ assert comm_pair_stage_2 == [(8, 9), (9, 8), (10, 11), (11, 10), (12, 13), (13, 
 print(f"pass test_case (dst_tp, src_pp, src_tp): {tuples}")
 
 engine.model_manager.sync_parameters(requires_grad=False)
-# for _, sync_group in engine.model_manager.parameter_sync_groups.items():
-#     args = []
-#     for send_actor, recv_actors in sync_group.send_recv_actor_mappings.items():
-#         for recv_actor in recv_actors:
-#             recv_actors_stage2 = sync_group.send_recv_actor_mappings_stage2[recv_actor]
-#             sync_group.validate_sync_results(send_actor, [recv_actor] + recv_actors_stage2, False)
+for _, sync_group in engine.model_manager.parameter_sync_groups.items():
+    args = []
+    for send_actor, recv_actors in sync_group.send_recv_actor_mappings.items():
+        for recv_actor in recv_actors:
+            recv_actors_stage2 = sync_group.send_recv_actor_mappings_stage2[recv_actor]
+            sync_group.validate_sync_results(send_actor, [recv_actor] + recv_actors_stage2, False)
