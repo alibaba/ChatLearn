@@ -64,7 +64,6 @@ class ModelNode:
         self.models_to_wait = []
         # remote objects to wait before the execution of current model
         self.remote_objects_to_wait = []
-        self.dependent_input_nodes = []
         self.dependent_output_nodes = []
 
     def add_input_node(self, node):
@@ -166,7 +165,6 @@ class ModelFlow:
             dependencies = get_dependencies()
             if dependencies is not None:
                 for dep in dependencies:
-                    model_node.dependent_input_nodes.append(dep.from_node)
                     dep.from_node.dependent_output_nodes.append(model_node)
             res = DummyData(model_node)
             return res
