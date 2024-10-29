@@ -25,4 +25,3 @@ if importlib.util.find_spec("vllm"):
         from chatlearn.models.vllm.hooks import llm_engine, logits_processor
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
             from chatlearn.models.vllm.hooks import worker
-

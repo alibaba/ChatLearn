@@ -14,10 +14,9 @@
 # ==============================================================================
 """"Version compatibility for vLLM"""
 
-from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-
 from typing import List, TypedDict
 from typing_extensions import NotRequired
+from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
 # pylint: disable=unused-import,import-outside-toplevel,wrong-import-position,wrong-import-order
 if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
