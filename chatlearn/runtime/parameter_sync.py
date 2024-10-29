@@ -1058,7 +1058,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
-    def _synchronize_params_except_routed_expert(self, requires_grad=None, validate=False):
+    def _synchronize_params_except_routed_experts(self, requires_grad=None, validate=False):
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
@@ -1115,8 +1115,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             ]
         )
 
-        # Then, synchronize non-routed experts.
-        self._synchronize_params_except_routed_expert(requires_grad=requires_grad, validate=validate)
+        # Then, synchronize parameters except routed experts
+        self._synchronize_params_except_routed_experts(requires_grad=requires_grad, validate=validate)
 
         self.clear_cache(
             sorted_send_actors_list = [
