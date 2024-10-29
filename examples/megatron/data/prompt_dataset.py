@@ -22,12 +22,10 @@ import torch
 from megatron.training import get_args
 from torch.utils.data import Dataset
 import torch.nn.functional as F
+from examples.megatron.models.utils import get_eos_id
 
 from chatlearn.utils.utils import multi_thread_data_processing
 
-
-def get_eos_id(tokenizer):
-    return tokenizer.eos_id if hasattr(tokenizer, 'eos_id') else tokenizer.eod_id
 
 def zero_pad_sequences(sequences, side: str = "right", value=0, pad_to_seq_length=False):
     assert side in ("left", "right")
