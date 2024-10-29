@@ -43,7 +43,8 @@ engine.env.setup()
 engine.evaluator.setup()
 
 def check_output_models(model_name, expected_models):
-    assert [node.model.name for node in engine.env.model_flow.get(model_name).output_models] == expected_models
+    model_node = [node for node in engine.env.model_flow.model_nodes if node.name == model_name][0]
+    assert [node.model.name for node in model_node.output_nodes] == expected_models
 
 check_output_models("policy", ['reference', 'value', 'reward'])
 check_output_models("reference", ['reward'])
@@ -51,7 +52,8 @@ check_output_models("value", ['reward'])
 check_output_models("reward", [])
 
 def check_colocate_models(model_name, expected_models):
-    assert [model.name for model in engine.env.model_flow.get(model_name).model.colocate_models] == expected_models
+    model_node = [node for node in engine.env.model_flow.model_nodes if node.name == model_name][0]
+    assert [model.name for model in model_node.model.colocate_models] == expected_models
 
 check_colocate_models("policy", ['reference', 'value', 'reward', 'ppo_policy', 'ppo_value'])
 check_colocate_models("reference", ['policy', 'reward', 'ppo_policy', 'ppo_value'])
@@ -59,7 +61,8 @@ check_colocate_models("value", ['policy', 'reward', 'ppo_policy', 'ppo_value'])
 check_colocate_models("reward", ['policy', 'reference', 'value', 'ppo_policy', 'ppo_value'])
 
 def check_next_colocate_model(model_name, expected_model):
-    assert engine.env.model_flow.get(model_name).next_colocate_node.name == expected_model
+    model_node = [node for node in engine.env.model_flow.model_nodes if node.name == model_name][0]
+    assert model_node.next_colocate_node.name == expected_model
 
 check_next_colocate_model("policy", "reference")
 check_next_colocate_model("reference", "reward")
