@@ -27,8 +27,12 @@ QKV_LAYER_NAME = ["query_key_value"]
 CURRENT_VLLM_VERSION = None
 if importlib.util.find_spec("vllm"):
     import vllm
-    version_tuple = vllm.__version_tuple__
-    CURRENT_VLLM_VERSION = ".".join([str(ele) for ele in version_tuple[:3]])
+    if hasattr(vllm, "__version_tuple__"):
+        version_tuple = vllm.__version_tuple__
+        CURRENT_VLLM_VERSION = ".".join([str(ele) for ele in version_tuple[:3]])
+    else:
+        CURRENT_VLLM_VERSION = vllm.__version__
+
 
 class VLLMVersion(str, Enum):
     """support versions of vLLM."""
