@@ -21,6 +21,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
 
+import torch
 from tqdm import tqdm
 
 from chatlearn.launcher.initialize import patch_ray
@@ -277,7 +278,8 @@ class ParameterSyncGroup:
 
         pair_list = []
         p2p_list = []
-        for d_i, dst_replica_ranks in enumerate(dst_ranks):
+        src_replica_offset = 0
+        for dst_replica_ranks in dst_ranks:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel)
@@ -299,20 +301,22 @@ class ParameterSyncGroup:
             #   [0] -> [0']
             #   [1] -> [2']
             for i, src_tp_group in enumerate(src_replica_ranks_group):
-                j = i // pipe_map_interval
+                if i < src_replica_offset:
+                    continue
+                j = (i - src_replica_offset) // pipe_map_interval
+                if j == self.num_dst_pipeline_stage:
+                    src_replica_offset = i
+                    break
                 if self.num_mapping == 1:
                     start =  0
                 else:
-                    mod_i = (i + d_i) % self.num_mapping
-                    start = mod_i if i < self.num_mapping else (self.num_mapping - mod_i - 1) % self.num_mapping
+                    mod_i = (i - src_replica_offset) % self.num_mapping
+                    start = mod_i if (i - src_replica_offset) < self.num_mapping else (self.num_mapping - mod_i - 1) % self.num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
                     offset = s_idx * self.num_mapping + start
-
                     dst_rank = dst_replica_ranks_group[j][offset]
                     self.add_recv_actor(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
-                if pipe_map_interval == 1:
-                    break
 
             # stage 2: comm pairs that broadcast params from first rank to the other ranks for each weight_mapping_group
             # Comm mapping in each weight_mapping_group of inference:
@@ -341,27 +345,54 @@ class ParameterSyncGroup:
             dst_name = dst_prefix + src_name
         return dst_name
 
-    def validate_sync_results(self, send_actor, recv_actor, requires_grad):
-
+    def validate_sync_results(self, send_actor, recv_actors, requires_grad):
         def validate():
-            # check the value of src model and tgt model
-            src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad)
+            src_names, dst_names = self.set_sync_param_names(send_actor, recv_actors[0], requires_grad)
             pipe_stage = self.get_actor_pipe_rank(send_actor)
-            future.wait([send_actor.reset_sync_parameters.remote(src_names, pipe_stage),
-                         recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage)])
+            res = [send_actor.reset_sync_parameters.remote(src_names, pipe_stage)]
+            for recv_actor in recv_actors:
+                res.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
+            future.wait(res)
             src_names, dst_names = future.get([send_actor.get_parameter_to_sync_names.remote(pipe_stage),
-                                               recv_actor.get_parameter_to_sync_names.remote(pipe_stage)])
+                                               recv_actors[0].get_parameter_to_sync_names.remote(pipe_stage)])
+            # check the value of src model and tgt model
             assert len(src_names) == len(dst_names)
             names = list(zip(src_names, dst_names))
             for src_name, dst_name in tqdm(names):
-                src_tensor, dst_tensor = future.get([send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True),
-                                                     recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True)])
-                assert src_tensor.shape == dst_tensor.shape, \
-                    f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match"
-                assert (src_tensor == dst_tensor).all(), \
-                    f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match"
+                src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.num_mapping > 1))
+                if src_tensor.isnan().any():
+                    raise RuntimeError(f"weight {src_name} from send actor is nan, please check checkpoint or training process.")
+                src_tensor_shape = src_tensor.shape
+                for recv_actor in recv_actors:
+                    dst_tensor = future.get(recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True))
+                    if dst_tensor.isnan().any():
+                        raise RuntimeError(f"weight {dst_name} in recv actor is nan, please check param sync.")
+                    if self.num_mapping == 1:
+                        # for trainer_tp == inference_tp
+                        assert src_tensor.shape == dst_tensor.shape, \
+                            f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
+                        assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), \
+                            f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match."
+                    else:
+                        # for inference_tp % trainer_tp == 0 and inference_tp > trainer_tp
+                        dst_tensor_shape = dst_tensor.shape
+                        src_tensor = src_tensor.reshape(-1)
+                        dst_tensor = dst_tensor.reshape(-1)
+                        tp_slice = self.actor2rank[recv_actor] % self.num_mapping
+                        if src_tensor.shape == dst_tensor.shape:
+                            src_tensor_slice = src_tensor
+                        else:
+                            assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and \
+                                src_tensor.shape[0] // dst_tensor.shape[0] == self.num_mapping, \
+                                f"num of elements in src_tensor must be divided by that of dst_tensor. \
+                                while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
+                            start = dst_tensor.shape[0] * tp_slice
+                            end = start + dst_tensor.shape[0]
+                            src_tensor_slice = src_tensor[start:end]
+                        assert torch.allclose(src_tensor_slice, dst_tensor, atol=1e-06), \
+                            f"after weight sync {src_name}_{tp_slice}: \
+                            {src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
             return True
-
         logger.info("Going to validate transmitted tensors...")
         validate()
         logger.info("Validation passed!")
@@ -621,8 +652,8 @@ class ParameterSyncGroup:
                     if stage2:
                         for idx, recv_actor in enumerate(recv_actors):
                             group_name_ = f"{group_name}_{idx}"
-                            actor_groups, group_name = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name_)
-                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
+                            actor_groups, group_name_ = self.create_broadcast_group(send_actor, [recv_actor], group_name=group_name_)
+                            futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name_, requires_grad, stage2))
                     else:
                         actor_groups, group_name = self.create_broadcast_group(send_actor, recv_actors, group_name=group_name)
                         futures.append(executor.submit(self.sync_broadcast_two_stage, actor_groups, group_name, requires_grad, stage2))
@@ -709,7 +740,8 @@ class ParameterSyncGroup:
             args = []
             for send_actor, recv_actors in self.send_recv_actor_mappings.items():
                 for recv_actor in recv_actors:
-                    args.append((send_actor, recv_actor, requires_grad))
+                    recv_actors_stage2 = self.send_recv_actor_mappings_stage2.get(recv_actor, [])
+                    args.append((send_actor, [recv_actor] + recv_actors_stage2, requires_grad))
             execute_in_parallel(self.validate_sync_results, args)
 
         if self._free_sync_collective_group:

@@ -808,10 +808,12 @@ class BaseModule:
             raise Exception(f"parameter {name} not exits")
         return self.named_parameters[name]
 
-    def get_parameter_to_sync(self, name, pipe_stage, to_cpu=False):
+    def get_parameter_to_sync(self, name, pipe_stage, to_cpu=False, regroup=False):
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
+                if regroup:
+                    param = self.regroup_params_to_sync(name, param.data)
                 if to_cpu:
                     param = param.cpu()
                 return param
@@ -865,6 +867,102 @@ class BaseModule:
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
 
+    def regroup_params_to_sync(self, name, param_data):
+        """
+        :meta private:
+        """
+        param_data_shape = param_data.shape
+        # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
+        if "attention.query_key_value" in name or \
+                "self_attention.query_key_value" in name or \
+                "self_attention.linear_qkv" in name:
+            tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
+            heads = self.module_args.args_dict["num_attention_heads"] // tp_size
+            hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
+
+            param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
+            division = reduce(operator.mul, param_shape, 1)
+            num_elements = param_data.numel()
+            if num_elements == division:
+                if self.to_fix_qkv_ordering_dict is not None:
+                    param_data = param_data.view(param_shape)
+                    param_data_list = []
+                    head_offset = heads // self._tp_division[name]
+                    for idx in range(self._tp_division[name]):
+                        start = idx * head_offset
+                        end = start + head_offset
+                        param_data_list.append(param_data[:,start:end])
+                    param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+                    del param_data_list
+            else:
+                _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
+                    if self.module_args.args_dict["group_query_attention"] else heads
+                if self.to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
+                    if len(param_data_shape) == 1:
+                        param_data = param_data.view((heads + 2 * _num_query_groups, hidden_size_per_head))
+                    else:
+                        param_data = param_data.view(
+                            (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
+                    param_data_list = []
+                    head_offset = heads // self._tp_division[name]
+                    for idx in range(self._tp_division[name]):
+                        q_start = idx * head_offset
+                        q_end = q_start + head_offset
+                        k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
+                        k_end = k_start + 1
+                        v_start = k_start + _num_query_groups
+                        v_end = v_start + 1
+
+                        q_proj = param_data[q_start:q_end].contiguous()
+                        k_proj = param_data[k_start:k_end].contiguous()
+                        v_proj = param_data[v_start:v_end].contiguous()
+
+                        qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
+
+                        if len(param_data_shape) == 1:
+                            qkv_proj = qkv_proj.reshape(-1).contiguous()
+                        else:
+                            qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
+
+                        param_data_list.append(qkv_proj)
+                    param_data = torch.concat(param_data_list, dim=0)
+                    del param_data_list
+        # Regroup these tensors into different tp slices.
+        # Output: [tp_slice_0, tp_slice_1, ...]
+        # Comment:
+        #   src -> dst: [w, h * tp_size] -> tp_size * [w, h]
+        #       'self_attention.dense' in QWen and LLama2 legacy
+        #       'mlp.dense_4h_to_h' in QWen and LLama2 legacy model
+        #       'mlp.linear_fc2' in LLama2 mcore model
+        #   src -> dst: [w * tp_size, h] -> tp_size * [w, h]
+        #       'mlp.dense_h_to_4h' in QWen and LLama2 legacy
+        #       'mlp.linear_fc1' in LLama2 mcore model
+        #       'mlp.w1' in QWen model only for vLLM backend
+        if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name:
+            param_data_list = []
+            col_offset = param_data_shape[1] // self._tp_division[name]
+            for idx in range(self._tp_division[name]):
+                start = idx * col_offset
+                end =  start + col_offset
+                param_data_list.append(param_data[:,start:end])
+            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+            del param_data_list
+        if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or \
+                ("mlp.w1" in name and self.concat_params_dict is not None):
+            param_data_list = []
+            row_offset = param_data_shape[0] // self._tp_division[name] // 2
+            for idx in range(self._tp_division[name]):
+                w1_start = idx * row_offset
+                w1_end = w1_start + row_offset
+                w2_start = (idx + self._tp_division[name]) * row_offset
+                w2_end = w2_start + row_offset
+                param_data_list.append(
+                    torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
+            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+            del param_data_list
+
+        return param_data
+
     def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         """
         Arguments:
@@ -914,102 +1012,14 @@ class BaseModule:
         else:
             for name, param in parameters_to_sync[pipe_stage]:
                 param_data = param.data
-                param_data_shape = param_data.shape
                 if rank and self._buffer_num and not stage2:
                     assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
                     buffer_num.append(self._buffer_num[name])
                 elif stage2:
                     buffer_num.append(1)
                 else:
-                    # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
-                    if "attention.query_key_value" in name or \
-                            "self_attention.query_key_value" in name or \
-                            "self_attention.linear_qkv" in name:
-                        tp_size = self.module_args.args_dict["tensor_model_parallel_size"]
-                        heads = self.module_args.args_dict["num_attention_heads"] // tp_size
-                        hidden_size_per_head = self.module_args.args_dict["hidden_size"] // self.module_args.args_dict["num_attention_heads"]
-
-                        param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
-                        division = reduce(operator.mul, param_shape, 1)
-                        num_elements = param_data.numel()
-                        if num_elements == division:
-                            if self.to_fix_qkv_ordering_dict is not None:
-                                param_data = param_data.view(param_shape)
-                                param_data_list = []
-                                head_offset = heads // self._tp_division[name]
-                                for idx in range(self._tp_division[name]):
-                                    start = idx * head_offset
-                                    end = start + head_offset
-                                    param_data_list.append(param_data[:,start:end])
-                                param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                                del param_data_list
-                        else:
-                            _num_query_groups = self.module_args.args_dict["num_query_groups"]//tp_size  \
-                                if self.module_args.args_dict["group_query_attention"] else heads
-                            if self.to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
-                                if len(param_data_shape) == 1:
-                                    param_data = param.view((heads + 2 * _num_query_groups, hidden_size_per_head))
-                                else:
-                                    param_data = param.view(
-                                        (heads + 2 * _num_query_groups, hidden_size_per_head, self.module_args.args_dict["hidden_size"]))
-                                param_data_list = []
-                                head_offset = heads // self._tp_division[name]
-                                for idx in range(self._tp_division[name]):
-                                    q_start = idx * head_offset
-                                    q_end = q_start + head_offset
-                                    k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
-                                    k_end = k_start + 1
-                                    v_start = k_start + _num_query_groups
-                                    v_end = v_start + 1
-
-                                    q_proj = param_data[q_start:q_end].contiguous()
-                                    k_proj = param_data[k_start:k_end].contiguous()
-                                    v_proj = param_data[v_start:v_end].contiguous()
-
-                                    qkv_proj = torch.cat([q_proj, k_proj, v_proj], dim=0)
-
-                                    if len(param_data_shape) == 1:
-                                        qkv_proj = qkv_proj.reshape(-1).contiguous()
-                                    else:
-                                        qkv_proj = qkv_proj.reshape(-1, self.module_args.args_dict["hidden_size"]).contiguous()
-
-                                    param_data_list.append(qkv_proj)
-                                param_data = torch.concat(param_data_list, dim=0)
-                                del param_data_list
-
-                    # Regroup these tensors into different tp slices.
-                    # Output: [tp_slice_0, tp_slice_1, ...]
-                    # Comment:
-                    #   src -> dst: [w, h * tp_size] -> tp_size * [w, h]
-                    #       'self_attention.dense' in QWen and LLama2 legacy
-                    #       'mlp.dense_4h_to_h' in QWen and LLama2 legacy model
-                    #       'mlp.linear_fc2' in LLama2 mcore model
-                    #   src -> dst: [w * tp_size, h] -> tp_size * [w, h]
-                    #       'mlp.dense_h_to_4h' in QWen and LLama2 legacy
-                    #       'mlp.linear_fc1' in LLama2 mcore model
-                    #       'mlp.w1' in QWen model only for vLLM backend
-                    if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name:
-                        param_data_list = []
-                        col_offset = param_data_shape[1] // self._tp_division[name]
-                        for idx in range(self._tp_division[name]):
-                            start = idx * col_offset
-                            end =  start + col_offset
-                            param_data_list.append(param_data[:,start:end])
-                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                        del param_data_list
-                    if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or \
-                            ("mlp.w1" in name and self.concat_params_dict is not None):
-                        param_data_list = []
-                        row_offset = param_data_shape[0] // self._tp_division[name] // 2
-                        for idx in range(self._tp_division[name]):
-                            w1_start = idx * row_offset
-                            w1_end = w1_start + row_offset
-                            w2_start = (idx + self._tp_division[name]) * row_offset
-                            w2_end = w2_start + row_offset
-                            param_data_list.append(
-                                torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
-                        param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
-                        del param_data_list
+                    # regroup src_tensor by tp_rank.
+                    param_data = self.regroup_params_to_sync(name, param_data)
                     buffer_num.append(1)
                 tensors.append(param_data)
 
