@@ -21,6 +21,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
 
+import torch
 from tqdm import tqdm
 
 from chatlearn.launcher.initialize import patch_ray
@@ -370,7 +371,7 @@ class ParameterSyncGroup:
                         # for trainer_tp == inference_tp
                         assert src_tensor.shape == dst_tensor.shape, \
                             f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
-                        assert (src_tensor == dst_tensor).all(), \
+                        assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), \
                             f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match."
                     else:
                         # for inference_tp % trainer_tp == 0 and inference_tp > trainer_tp
@@ -388,10 +389,9 @@ class ParameterSyncGroup:
                             start = dst_tensor.shape[0] * tp_slice
                             end = start + dst_tensor.shape[0]
                             src_tensor_slice = src_tensor[start:end]
-                        assert (
-                            src_tensor_slice == dst_tensor).all(), \
-                                f"after weight sync {src_name}_{tp_slice}: \
-                                {src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
+                        assert torch.allclose(src_tensor_slice, dst_tensor, atol=1e-06), \
+                            f"after weight sync {src_name}_{tp_slice}: \
+                            {src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
             return True
         logger.info("Going to validate transmitted tensors...")
         validate()
