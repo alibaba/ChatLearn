@@ -22,7 +22,7 @@ import ray
 
 from chatlearn.utils import future
 from chatlearn.utils import utils
-from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func, unwrap_func
+from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 
 
@@ -140,11 +140,14 @@ def preprocess_compute(func, is_forward_step, trainable):
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
             input_batch = 0
-            for value in args[0].values():
-                input_batch = len(value)
-                break
-            input_data = args[0]
-            if input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
+            if len(args) > 0:
+                for value in args[0].values():
+                    input_batch = len(value)
+                    break
+                input_data = args[0]
+            else:
+                input_data = None
+            if input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []

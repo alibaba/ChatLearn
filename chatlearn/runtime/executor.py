@@ -45,6 +45,8 @@ class Executor:
         self._batch_per_episode = -1
         self.is_eval = False
         self._timers = None
+        self.model2iter = {}
+        self.model2cur_replica = {}
 
     def set_timers(self, _timers):
         self._timers = _timers
@@ -104,12 +106,19 @@ class Executor:
         self.model_flow.trace(self.models, self._flow)
         self.models = [model_node.model for model_node in self.model_flow.model_nodes]
 
-    def _get_model(self, model):
+    def _next_model(self, model):
         if len(model.replicas) == 1:
-            return model.replicas[0]
+            cur = model.replicas[0]
+            self.model2cur_replica[model.name] = cur
+            return cur
         if model not in self.model2iter:
             self.model2iter[model] = cycle(iter(model.replicas))
-        return next(self.model2iter[model])
+        cur = next(self.model2iter[model])
+        self.model2cur_replica[model.name] = cur
+        return cur
+
+    def _get_current_model(self, model):
+        return self.model2cur_replica[model.name]
 
     def get_merged_data(self, queues, encode=True):
         queue0 = queues[0]
@@ -163,7 +172,7 @@ class Executor:
         future.wait(refs)
 
     def generate_step_one_model_internal(self, model, in_queue, step_num, replica=None, func_name="forward_step", to_empty_cache=None,
-                                         is_eval=False, to_onload=None, to_offload=None):
+                                         is_eval=False, to_onload=None, to_offload=None, micro_batch_num=None):
         """
         Args:
             model: DistModel
@@ -174,7 +183,7 @@ class Executor:
             to_empty_cache: None or boolean
         """
         if replica is None:
-            replica = self._get_model(model)
+            replica = self._next_model(model)
 
         def get_next_data():
             if isinstance(in_queue, list):
@@ -183,8 +192,11 @@ class Executor:
                 # behavior for models accept multiple inputs
                 # we need to deal with it later
                 assert not model.trainable
-                data = self.get_merged_data(in_queue)
-                mb, query = decode_data(data)
+                if len(in_queue) > 0:
+                    data = self.get_merged_data(in_queue)
+                    mb, query = decode_data(data)
+                else:
+                    mb, query = micro_batch_num, []
             else:
                 data = in_queue.get()
                 mb, query = decode_data(data)
@@ -214,7 +226,7 @@ class Executor:
         return output
 
     def generate_step_one_model(self, model, in_queue, out_queue, step_num, func_name="forward_step",
-                                to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None):
+                                to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_num=None):
         """
         Args:
             model: DistModel
@@ -226,7 +238,7 @@ class Executor:
         """
         # output is a list of tuple, each tuple is (remote_refs, mb)
         output = self.generate_step_one_model_internal(model, in_queue, step_num, None, func_name, to_empty_cache,
-                                                       is_eval, to_onload, to_offload)
+                                                       is_eval, to_onload, to_offload, micro_batch_num)
 
         # If tp > 1 or pp > 1 for current model, its `output` will be a list whose
         #   length is the number of Actors. In this case, all members in the list
@@ -282,25 +294,10 @@ class Executor:
 
         return results
 
-    def compute_iterative(self, out_queue, max_iteration):
-        for i in range(max_iteration):
-            for model_group in self.model_flow.flow_topology:
-                for model_node in model_group:
-                    model = model_node.model
-                    in_queue = model_node.get_input_queues()
-                    out_queue = model_node.out_queues
-                    # TODO: Need to support multiple func_name in one model
-                    func_name = model_node.func_name
-                    to_empty_cache = False
-                    to_onload = False
-                    to_offload = False
-                    _, data = self.generate_step_one_model(model, in_queue, out_queue, i, func_name, to_empty_cache,
-                                                   is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload)
-                    # TODO: we assume no colocation here
-                    self._models_and_results_to_wait.append((model_node, data))
-        self.postprocess_compute_loop()
-
-    def postprocess_compute_loop(self, out_queue):
+    def compute_loop(self, out_queue, num_batch):
+        for model_group in self.model_flow.flow_topology:
+            for model_node in model_group:
+                self.compute_loop_one_model(model_node, num_batch, self.is_eval)
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:
             self.timers(f"{model_node.model.name}").start()
@@ -324,12 +321,6 @@ class Executor:
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)
 
-    def compute_loop(self, out_queue, num_batch):
-        for model_group in self.model_flow.flow_topology:
-            for model_node in model_group:
-                self.compute_loop_one_model(model_node, num_batch, self.is_eval)
-        self.postprocess_compute_loop(out_queue)
-
     def setup_queues(self):
         data_queues = []
         out_queue = Queue()
@@ -338,7 +329,7 @@ class Executor:
             data_queues.append(data_queue)
             model_node.set_input_queue(data_queue)
         for model_node in self.model_flow.model_nodes:
-            num_out_queue = len(model_node.output_models)
+            num_out_queue = len(model_node.output_nodes)
             if model_node in self.model_flow.return_model_nodes:
                 num_out_queue += 1
             model_node.set_out_queues([Queue() for _ in range(num_out_queue)])

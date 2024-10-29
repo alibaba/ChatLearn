@@ -32,6 +32,7 @@ from chatlearn.runtime.engine import GRPOMathEngine
 from chatlearn.runtime.engine import RLHFEngine
 from chatlearn.runtime.engine import Trainer
 from chatlearn.runtime.evaluator import Evaluator
+from chatlearn.runtime.model_flow import ControlDependencies
 from chatlearn.utils.future import get
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger

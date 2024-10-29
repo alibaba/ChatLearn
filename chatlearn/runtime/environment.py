@@ -43,7 +43,6 @@ class Environment(Executor):
         self.data_iter = None
         self._padding_config = {}
         self.merged_buffer = {}
-        self.model2iter = {}
 
     def set_dataset(self, dataset):
         self._dataset = dataset
@@ -136,21 +135,44 @@ class Environment(Executor):
         return self.execute(is_eval=False)
 
 class MCTSEnv(Environment):
+    """MCTS Env"""
 
-    def __init__(self, model_flow):
+    def __init__(self, model_flow, mcts):
         super().__init__(model_flow)
-        self.max_iteration_per_batch = 100
+        self.max_iteration_per_batch = self.args.max_iteration_per_batch
+        self.mcts = mcts
 
     def execute(self, is_eval):
+        data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
-        # prepare batches for all model replicas
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
-            for data_queue in data_queues:
-                data_queue.put(encoded_data)
-        self.compute_iterative(out_queue, self.max_iteration_per_batch)
+            for i in range(self.max_iteration_per_batch):
+                for data_queue in data_queues:
+                    data_queue.put(encoded_data)
+                for model_group in self.model_flow.flow_topology:
+                    for model_node in model_group:
+                        model = model_node.model
+                        in_queue = model_node.get_input_queues()
+                        func_name = model_node.func_name
+                        to_empty_cache = False
+                        to_onload = False
+                        to_offload = False
+                        _, data = self.generate_step_one_model(model, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
+                                                    is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_num=mb)
+                should_stop = future.get(self._get_current_model(self.mcts).should_stop())
+                assert len(should_stop) == 1
+                if should_stop[0]:
+                    break
+        data = [None] * len(self.model_flow.return_model_nodes)
+        for model_node in self.model_flow.model_nodes:
+            if model_node in self.model_flow.return_model_nodes:
+                # let the results order follow model_node order
+                data[self.model_flow.return_model_nodes.index(model_node)] = model_node.out_queues[-1]
+        if data:
+            self.get_all_merged_data(data, out_queue, encode=False)
         return out_queue
 
 # pylint: disable=not-callable

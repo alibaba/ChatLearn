@@ -19,6 +19,7 @@ _EXIT_ACTOR = None
 _EXIT_ACTOR_NAME = "ChatLearnExitActor"
 _DECORATED_MODELS = None
 _DECORATED_OUTER_TO_INNER = {}
+_DEPENDENCIES = None
 
 
 def _ensure_var_is_initialized(var, name):
@@ -69,3 +70,16 @@ def unwrap_func(func):
 def set_wrap_func(func, new_func):
     assert new_func not in _DECORATED_OUTER_TO_INNER
     _DECORATED_OUTER_TO_INNER[new_func] = func
+
+
+def set_dependencies(dependencies):
+    global _DEPENDENCIES
+    assert _DEPENDENCIES is None
+    _DEPENDENCIES = dependencies
+
+def reset_dependencies():
+    global _DEPENDENCIES
+    _DEPENDENCIES = None
+
+def get_dependencies():
+    return _DEPENDENCIES
