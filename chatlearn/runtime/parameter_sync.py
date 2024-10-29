@@ -277,6 +277,7 @@ class ParameterSyncGroup:
 
         pair_list = []
         p2p_list = []
+        src_replica_offset = 0
         for d_i, dst_replica_ranks in enumerate(dst_ranks):
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
@@ -299,20 +300,22 @@ class ParameterSyncGroup:
             #   [0] -> [0']
             #   [1] -> [2']
             for i, src_tp_group in enumerate(src_replica_ranks_group):
-                j = i // pipe_map_interval
+                if i < src_replica_offset:
+                    continue
+                j = (i - src_replica_offset) // pipe_map_interval
+                if j == self.num_dst_pipeline_stage:
+                    src_replica_offset = i
+                    break
                 if self.num_mapping == 1:
                     start =  0
                 else:
-                    mod_i = (i + d_i) % self.num_mapping
-                    start = mod_i if i < self.num_mapping else (self.num_mapping - mod_i - 1) % self.num_mapping
+                    mod_i = (i - src_replica_offset) % self.num_mapping
+                    start = mod_i if (i - src_replica_offset) < self.num_mapping else (self.num_mapping - mod_i - 1) % self.num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
                     offset = s_idx * self.num_mapping + start
-
                     dst_rank = dst_replica_ranks_group[j][offset]
                     self.add_recv_actor(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
-                if pipe_map_interval == 1:
-                    break
 
             # stage 2: comm pairs that broadcast params from first rank to the other ranks for each weight_mapping_group
             # Comm mapping in each weight_mapping_group of inference:
