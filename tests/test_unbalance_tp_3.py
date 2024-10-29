@@ -37,6 +37,9 @@ class TestTorchModule(TorchModule):
     def tensor_parallel_rank(self):
         return int(os.environ["RANK"])
 
+    def expert_parallel_rank(self):
+        return 0
+
     def pipeline_parallel_rank(self):
         return self.tensor_parallel_rank() // self.tensor_model_parallel_size()
 

@@ -60,6 +60,9 @@ class TestTorchModule(TorchModule):
     def tensor_parallel_rank(self):
         return int(os.environ["RANK"])
 
+    def expert_parallel_rank(self):
+        return 0
+
     def pipeline_parallel_rank(self):
         return self.tensor_parallel_rank() // self.tensor_model_parallel_size()
 
@@ -91,12 +94,14 @@ class PolicyModel(TestTorchModule):
     def get_parameter_names(self, requires_grad=True):
         return list(ParamsToSync_Inference.keys())
 
-    def get_parameter_shape(self, names):
-        key = 0 if self.tensor_parallel_rank() < 4 else 1
-        shape = []
-        for name in names:
-            shape.append((name, torch.Size(ParamsToSync_Inference[name])))
-        return shape
+    @property
+    def named_parameters(self):
+        """
+        :meta private:
+        """
+        if self._named_parameters is None:
+            self._named_parameters = inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
+        return self._named_parameters
 
     def get_parameter(self, name):
         return inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
@@ -158,12 +163,14 @@ class PPOPolicy(TestTorchModule):
             dst_src_mappings[key] = value
         return dst_src_mappings
 
-    def get_parameter_shape(self, names):
-        shape = []
-        for name in names:
-            shape.append((name, torch.Size(ParamsToSync_Trainer[self.pipeline_parallel_rank()][name])))
-        return shape
-
+    @property
+    def named_parameters(self):
+        """
+        :meta private:
+        """
+        if self._named_parameters is None:
+            self._named_parameters = trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
+        return self._named_parameters
     def get_parameter(self, name):
         return trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
 
@@ -229,3 +236,9 @@ assert comm_pair_stage_2 == [(8, 9), (9, 8), (10, 11), (11, 10), (12, 13), (13, 
 print(f"pass test_case (dst_tp, src_pp, src_tp): {tuples}")
 
 engine.model_manager.sync_parameters(requires_grad=False)
+# for _, sync_group in engine.model_manager.parameter_sync_groups.items():
+#     args = []
+#     for send_actor, recv_actors in sync_group.send_recv_actor_mappings.items():
+#         for recv_actor in recv_actors:
+#             recv_actors_stage2 = sync_group.send_recv_actor_mappings_stage2[recv_actor]
+#             sync_group.validate_sync_results(send_actor, [recv_actor] + recv_actors_stage2, False)
