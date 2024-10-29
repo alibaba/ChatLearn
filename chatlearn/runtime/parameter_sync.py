@@ -278,7 +278,7 @@ class ParameterSyncGroup:
         pair_list = []
         p2p_list = []
         src_replica_offset = 0
-        for d_i, dst_replica_ranks in enumerate(dst_ranks):
+        for dst_replica_ranks in dst_ranks:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel)
