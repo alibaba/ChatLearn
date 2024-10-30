@@ -313,11 +313,17 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     self.process_request_outputs_callback = None
                     self.tracer = None
             else:
-                version = "v1"
-                if self.scheduler_config.use_v2_block_manager:
-                    version = "v2"
-                if self.scheduler_config.embedding_mode:
-                    version = "embedding"
+                if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+                    version = "selfattn"
+                    if (self.scheduler_config.embedding_mode
+                            or self.cache_config.is_attention_free):
+                        version = "placeholder"
+                else:
+                    version = "v1"
+                    if self.scheduler_config.use_v2_block_manager:
+                        version = "v2"
+                    if self.scheduler_config.embedding_mode:
+                        version = "embedding"
 
                 BlockSpaceManagerImpl = get_block_manager_cls(version)
                 num_gpu_blocks = self.cache_config.num_gpu_blocks
@@ -486,7 +492,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     prompt_logprobs=self.model_args.get("prompt_logprobs", None),
                     skip_special_tokens=False
                 )
-            else:
+            elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
                 sampling_params = SamplingParams(
                     n=self.model_args.get("n"),
                     presence_penalty=presence_penalty,
@@ -502,6 +508,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     prompt_logprobs=self.model_args.get("prompt_logprobs", None),
                     skip_special_tokens=False
                 )
+            else:
+                raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
 
 
             if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
