@@ -699,6 +699,7 @@ class ParameterSyncGroup:
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn))
+        logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
             refs = []

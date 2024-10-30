@@ -1032,12 +1032,14 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
+                self._logger.debug(f"Adding {name} to sync for if branch from src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
                 tensors.append(self._sync_buffer[buffer_rank % self.tp_num_mapping][idx])
                 buffer_num.append(1)
                 idx += 1
             del self._sync_buffer[buffer_rank % self.tp_num_mapping]
         else:
             for name, param in parameters_to_sync[pipe_stage]:
+                self._logger.debug(f"Adding {name} to sync for else branch from src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
                 param_data = param.data
                 if rank and self._buffer_num and not stage2:
                     assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
