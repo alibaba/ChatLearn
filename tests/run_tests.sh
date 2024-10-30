@@ -179,7 +179,7 @@ elif [ "$1" == "test_evaluator" ]; then
 elif [ "$1" == "test_indivisible_batchsz" ]; then
   enable_indivisible_batch_size=True run_test python test_indivisible_batchsz.py -c "configs/rlhf.yaml"
 else
-  echo -e "\033[31m$(date "+%Y-%m-%d %T.%N") [ERROR]: Unrecognized test name '$1'!\033[0m"
+  echo -e "\033[31m$(date '+%Y-%m-%d %T.%N') [ERROR]: Unrecognized test name '$1'!\033[0m"
   exit -1
 fi
 
