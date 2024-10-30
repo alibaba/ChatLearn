@@ -696,7 +696,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
         scheduler = self.scheduler[0] if isinstance(self.scheduler, list) else self.scheduler
 
-        if CURRENT_VLLM_VERSION == VLLMVERSION.v_0_6_3:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             self.seq_group_metadata_list, self.scheduler_outputs, _ = scheduler.schedule()
         else:
             self.seq_group_metadata_list, self.scheduler_outputs = scheduler.schedule()
