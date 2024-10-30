@@ -323,16 +323,26 @@ class ParameterSyncGroup:
             f"dst model {self.dst_model.name}(TP={self.num_dst_tensor_parallel})"
         assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
 
-        def split_ranks_by_tp_size(ranks, tp_size):
-            return [ranks[i:i + tp_size] for i in range(0, len(ranks), tp_size)]
+        def split_ranks_by_tp_and_ep_size(ranks, tp_size, ep_size):
+            if ep_size > 1:
+                sort_ranks_by_ep = []
+                index = 0
+                for count in range(len(ranks)):
+                    sort_ranks_by_ep.append(index)
+                    index += ep_size
+                    if index >= len(ranks):
+                        index = (index + 1) % len(ranks)
+            else:
+                sort_ranks_by_ep = ranks
+            return [sort_ranks_by_ep[i:i + tp_size] for i in range(0, len(sort_ranks_by_ep), tp_size)]
 
         pair_list = []
         p2p_list = []
         src_replica_offset = 0
         for dst_replica_ranks in dst_ranks:
             src_replica_ranks = next(replica_rank_iter)
-            src_replica_ranks_group = split_ranks_by_tp_size(src_replica_ranks, self.num_src_tensor_parallel)
-            dst_replica_ranks_group = split_ranks_by_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel)
+            src_replica_ranks_group = split_ranks_by_tp_and_ep_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
+            dst_replica_ranks_group = split_ranks_by_tp_and_ep_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
             logger.debug(f"src_replica_ranks_group: {src_replica_ranks_group}")
             logger.debug(f"dst_replica_ranks_group: {dst_replica_ranks_group}")
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
@@ -382,7 +392,7 @@ class ParameterSyncGroup:
                         p2p_list.append((src_rank, dst_rank))
 
             for dst_tp_group in dst_replica_ranks_group:
-                dst_tp_group = split_ranks_by_tp_size(dst_tp_group, self.tp_num_mapping)
+                dst_tp_group = split_ranks_by_tp_and_ep_size(dst_tp_group, self.tp_num_mapping, 1)
                 for tuples in dst_tp_group:
                     p2p_pair_grouping(tuples)
 
