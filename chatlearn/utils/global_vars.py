@@ -61,10 +61,19 @@ def is_decorated(model_name):
     return bool(model_name in _DECORATED_MODELS)
 
 
-def unwrap_func(func):
+def unwrap_func(func, level=None):
+    """
+    func: func to unwrap
+    level: unwrap level, if level is None, unwrap to the original func
+    """
     if func not in _DECORATED_OUTER_TO_INNER:
         return func
-    return unwrap_func(_DECORATED_OUTER_TO_INNER[func])
+    if level is not None:
+        if level > 0:
+            level -= 1
+        else:
+            return func
+    return unwrap_func(_DECORATED_OUTER_TO_INNER[func], level)
 
 
 def set_wrap_func(func, new_func):

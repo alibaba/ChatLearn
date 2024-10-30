@@ -194,7 +194,7 @@ class ModelFlow:
         # convert decorator back
         for model in local_models:
             for func_name in self.cls.model_to_call_funcs[model]:
-                setattr(model.__class__, func_name, unwrap_func(getattr(model.__class__, func_name)))
+                setattr(model.__class__, func_name, unwrap_func(getattr(model.__class__, func_name), level=1))
 
         if dummy_output:
             if isinstance(dummy_output, DummyData):
