@@ -328,7 +328,7 @@ class ParameterSyncGroup:
                 sort_ranks_on_grouped_tp = []
                 index = 0
                 tp_index = 0
-                for count in range(len(ranks)):
+                for _ in range(len(ranks)):
                     sort_ranks_on_grouped_tp.append(index)
                     if tp_index < tp_size - 1:
                         index += 1
