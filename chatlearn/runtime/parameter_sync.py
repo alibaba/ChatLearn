@@ -325,16 +325,23 @@ class ParameterSyncGroup:
 
         def split_ranks_by_tp_and_ep_size(ranks, tp_size, ep_size):
             if ep_size > 1:
-                sort_ranks_by_ep = []
+                sort_ranks_on_grouped_tp = []
                 index = 0
+                tp_index = 0
                 for count in range(len(ranks)):
-                    sort_ranks_by_ep.append(index)
-                    index += ep_size
+                    sort_ranks_on_grouped_tp.append(index)
+                    if tp_index < tp_size - 1:
+                        index += 1
+                        tp_index += 1
+                    else:
+                        start_index = index + 1 - tp_size
+                        index = start_index + (ep_size * tp_size)
+                        tp_index = 0
                     if index >= len(ranks):
-                        index = (index + 1) % len(ranks)
+                        index = (index + tp_size) % len(ranks)
             else:
-                sort_ranks_by_ep = ranks
-            return [sort_ranks_by_ep[i:i + tp_size] for i in range(0, len(sort_ranks_by_ep), tp_size)]
+                sort_ranks_on_grouped_tp = ranks
+            return [sort_ranks_on_grouped_tp[i:i + tp_size] for i in range(0, len(sort_ranks_on_grouped_tp), tp_size)]
 
         pair_list = []
         p2p_list = []

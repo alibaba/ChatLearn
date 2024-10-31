@@ -269,7 +269,9 @@ for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings_stage2.item
 
 # The replica iter for routed experts will be reversed because num_src_tensor_parallel == 1 
 # and src_model is colocated with dst_model (Please see parameter_sync.py#L257-260).
-assert comm_pair_routed_experts == [(4, 8), (5, 9), (6, 10), (7, 11), (0, 12), (1, 13), (2, 14), (3, 15)]
+assert comm_pair_routed_experts == [
+    (4, 8), (5, 9), (6, 10), (7, 11), (0, 12), (1, 13), (2, 14), (3, 15)
+]
 assert comm_pair_stage_1 == [(0, 8), (1, 12)]
 assert comm_pair_stage_2 == [(8, 9), (8, 10), (8, 11), (12, 13), (12, 14), (12, 15)]
 

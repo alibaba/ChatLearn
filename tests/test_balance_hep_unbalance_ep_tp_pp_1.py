@@ -65,10 +65,15 @@ class TestTorchModule(TorchModule):
         return int(os.environ["RANK"])
 
     def get_local_param_ranks(self):
-        return [self._get_rank()], 0
+        global_rank = self._get_rank()
+        data_modulo_expert_parallel_ranks = [global_rank]
+        return data_modulo_expert_parallel_ranks, 0
 
     def check_param_exists(self, names):
         return True
+
+    def tensor_and_expert_model_parallel_size(self):
+        return 4
 
 
 class CustomEngine(Engine):
@@ -148,11 +153,11 @@ class PolicyModel(TestTorchModule):
 
     @property
     def data_parallel_size(self):
-        return 8 // (self.tensor_model_parallel_size() * self.pipeline_model_parallel_size())
+        return 2
 
     @property
     def data_parallel_rank(self):
-        return self.tensor_parallel_rank() // (self.tensor_model_parallel_size() * self.pipeline_model_parallel_size())
+        return int(self._get_rank() // 4)
 
     def tensor_parallel_rank(self):
         return int(self._get_rank() % 4)
@@ -162,7 +167,6 @@ class PolicyModel(TestTorchModule):
 
     def pipeline_parallel_rank(self):
         return 0
-
 
 class PPOPolicy(TestTorchModule):
 
@@ -197,11 +201,11 @@ class PPOPolicy(TestTorchModule):
 
     @property
     def data_parallel_size(self):
-        return 8 // (self.tensor_model_parallel_size() * self.pipeline_model_parallel_size())
+        return 4
 
     @property
     def data_parallel_rank(self):
-        return self._get_rank() // (self.tensor_model_parallel_size() * self.pipeline_model_parallel_size())
+        return int(self._get_rank() % 4)
 
     def tensor_parallel_rank(self):
         return 0
@@ -210,12 +214,14 @@ class PPOPolicy(TestTorchModule):
         return int(self._get_rank() % 4)
 
     def pipeline_parallel_rank(self):
-        return int(self._get_rank() % 2)
+        if self._get_rank() < 4:
+            return 0
+        return 1
 
 
 # tuples: (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp)
 tuples = (1, 4, 1,
-          4, 1, 1)
+          4, 1, 2)
 
 chatlearn.init()
 for _, model_config in chatlearn.get_args().models.items():
@@ -244,27 +250,37 @@ assert param_sync_group.hep_num_mapping == 1
 
 actor2rank = param_sync_group.actor2rank
 
-breakpoint()
-# Judge routed experts
+# Judge routed experts and parameters except routed experts
 comm_pair_routed_experts = []
-for src, dst in param_sync_group.send_recv_actor_mappings_for_routed_experts.items():
-    comm_pair_routed_experts.append((actor2rank[src], actor2rank[dst[0]]))
-assert comm_pair_routed_experts == [(0, 8), (1, 9), (2, 10), (3, 11), (4, 12), (5, 13), (6, 14), (7, 15)]
-
-breakpoint()
-# Judge parameters except routed experts
 comm_pair_stage_1 = []
-for src, dst in param_sync_group.send_recv_actor_mappings.items():
-    comm_pair_stage_1.append((actor2rank[src], actor2rank[dst[0]]))
-
-# assert comm_pair_stage_1 == [(0, 8), (1, 9)]
-breakpoint()
 comm_pair_stage_2 = []
-for src, dst in param_sync_group.send_recv_actor_mappings_stage2.items():
-    comm_pair_stage_2.append((actor2rank[src], actor2rank[dst[0]]))
-breakpoint()
-# assert comm_pair_stage_2 == [(8, 9), (9, 8), (10, 11), (11, 10), (12, 13), (13, 12), (14, 15), (15, 14)]
 
-print(f"pass test_case (dst_tp, src_pp, src_tp): {tuples}")
+for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings_for_routed_experts.items():
+    for dst_rank in dst_ranks:
+        comm_pair_routed_experts.append((actor2rank[src_rank], actor2rank[dst_rank]))
 
-engine.model_manager.sync_parameters(requires_grad=False)
+for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings.items():
+    for dst_rank in dst_ranks:
+        comm_pair_stage_1.append((actor2rank[src_rank], actor2rank[dst_rank]))
+
+for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings_stage2.items():
+    for dst_rank in dst_ranks:
+        comm_pair_stage_2.append((actor2rank[src_rank], actor2rank[dst_rank]))
+
+# The replica iter for routed experts will be reversed because num_src_tensor_parallel == 1 
+# and src_model is colocated with dst_model (Please see parameter_sync.py#L257-260).
+assert comm_pair_routed_experts == [
+    (0, 8), (0, 12), (1, 9), (1, 13),
+    (2, 10), (2, 14), (3, 11), (3, 15),
+    (4, 8), (4, 12), (5, 9), (5, 13),
+    (6, 10), (6, 14), (7, 11), (7, 15)
+]
+assert comm_pair_stage_1 == [(0, 8), (4, 9), (1, 12), (5, 13)]
+assert comm_pair_stage_2 == [
+    (8, 9), (8, 10), (8, 11),
+    (9, 8), (9, 10), (9, 11),
+    (12, 13), (12, 14), (12, 15),
+    (13, 12), (13, 14), (13, 15)
+]
+
+print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
