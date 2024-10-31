@@ -42,21 +42,30 @@ trainer_params = {}
 inference_params = {}
 
 ParamsToSync_Inference = {
-    "weight_1" : [8, 8],
-    "bias_1" : [8],
-    "weight_2" : [8, 10],
-    "bias_2": [10]
+    "mlp.experts.weight_1" : [8, 8],
+    "mlp.experts.weight_2" : [8, 8],
+    "mlp.experts.weight_3" : [8, 8],
+    "mlp.experts.weight_4" : [8, 8],
+    "mlp.shared_experts.weight" : [4, 8]   
 }
 
 ParamsToSync_Trainer = {
     0 : {
-        "weight_1" : [16, 8],
-        "bias_1" : [8],
+        "mlp.experts.weight_1" : [8, 8],
+        "mlp.shared_experts.weight" : [16, 8]
     },
     1 : {
-        "weight_2" : [16, 10],
-        "bias_2": [10]
-    } 
+        "mlp.experts.weight_2" : [8, 8],
+        "mlp.shared_experts.weight" : [16, 8]
+    },
+    2 : {
+        "mlp.experts.weight_3" : [8, 8],
+        "mlp.shared_experts.weight" : [16, 8]
+    },
+    3 : {
+        "mlp.experts.weight_4" : [8, 8],
+        "mlp.shared_experts.weight" : [16, 8]
+    }
 }
 
 class TestTorchModule(TorchModule):
@@ -107,11 +116,11 @@ class PolicyModel(TestTorchModule):
         :meta private:
         """
         if self._named_parameters is None:
-            self._named_parameters = inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
+            self._named_parameters = inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
         return self._named_parameters
 
     def get_parameter(self, name):
-        return inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
+        return inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
 
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
         if parameters_to_sync is None:
@@ -123,11 +132,8 @@ class PolicyModel(TestTorchModule):
             tmp[name] = tensor
             all_params.append((name, tensor))
         global inference_params
-        inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
-        key = self.tensor_parallel_rank() % 2
-        start = key * 2
-        end = start + 2
-        parameters_to_sync[pipe_stage] = all_params[start:end]
+        inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
+        parameters_to_sync[pipe_stage] = all_params
 
     def set_recv_parameters(self, rank, trainable_param_names, pipe_stage=0):
         """
@@ -136,13 +142,10 @@ class PolicyModel(TestTorchModule):
         all_params = []
         global inference_params
         for name, shape in ParamsToSync_Inference.items():
-            tensor = inference_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
+            tensor = inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
             all_params.append((name, tensor))
-        key = (self.tensor_parallel_rank() + 1) % 2
-        start = key * 2
-        end = start + 2
         parameters_to_recv = defaultdict(list)
-        parameters_to_recv[pipe_stage] = all_params[start:end]
+        parameters_to_recv[pipe_stage] = all_params
         self._parameters_to_recv[rank] = parameters_to_recv
 
     def forward_step(self, data, iteration):
@@ -172,8 +175,11 @@ class PolicyModel(TestTorchModule):
 
 class PPOPolicy(TestTorchModule):
 
+    def get_parameter_names(self, requires_grad=True):
+        return list(ParamsToSync_Trainer[self.expert_parallel_rank()].keys())
+
     def build_pipeline_layer_name_mapping(self, num_target_pipe_stage, target_pipe_rank, tgt_layer_offset, requires_grad=True):
-        src_names = ParamsToSync_Trainer[self.pipeline_parallel_rank()].keys()
+        src_names = ParamsToSync_Trainer[self.expert_parallel_rank()].keys()
         dst_src_mappings = {}
         for key, value in zip(src_names, src_names):
             dst_src_mappings[key] = value
@@ -185,21 +191,21 @@ class PPOPolicy(TestTorchModule):
         :meta private:
         """
         if self._named_parameters is None:
-            self._named_parameters = trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
+            self._named_parameters = trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
         return self._named_parameters
     def get_parameter(self, name):
-        return trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
+        return trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
 
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
         if parameters_to_sync is None:
             parameters_to_sync = self._parameters_to_sync
         tmp = {}
-        for name, shape in ParamsToSync_Trainer[self.pipeline_parallel_rank()].items():
+        for name, shape in ParamsToSync_Trainer[self.expert_parallel_rank()].items():
             tensor = torch.rand(shape).cuda()
             tmp[name] = tensor
             parameters_to_sync[pipe_stage].append((name, tensor))
         global trainer_params
-        trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
+        trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
 
     @property
     def data_parallel_size(self):
@@ -232,6 +238,7 @@ chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[2]
 chatlearn.get_args().models['ppo_policy'].expert_model_parallel_size = tuples[3]
 chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[4]
 chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[5]
+chatlearn.get_args().runtime_args.debug = True
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
 
@@ -276,3 +283,8 @@ assert comm_pair_stage_1 == [(0, 8), (1, 12)]
 assert comm_pair_stage_2 == [(8, 9), (8, 10), (8, 11), (12, 13), (12, 14), (12, 15)]
 
 print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
+
+
+engine.model_manager.sync_parameters(requires_grad=False)
+breakpoint()
+print(f"pass parameter sync validation for hyper expert parallel.")

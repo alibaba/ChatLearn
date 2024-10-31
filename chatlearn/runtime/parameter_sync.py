@@ -446,7 +446,10 @@ class ParameterSyncGroup:
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
-    def validate_sync_results(self, send_actor, recv_actors, requires_grad, filter_fn=None):
+    def validate_sync_results(self, send_actor, recv_actors, requires_grad, filter_fn=None, param_group="default"):
+        assert param_group in ("default", "routed", "except_routed"), (
+            f"param_group must be one of 'default', 'routed', or 'except_routed', got {param_group}."
+        )
 
         def validate():
             src_names, dst_names = self.set_sync_param_names(send_actor, recv_actors[0], requires_grad, filter_fn)
@@ -456,10 +459,12 @@ class ParameterSyncGroup:
             for recv_actor in recv_actors:
                 res.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
             future.wait(res)
+
             src_names, dst_names = future.get([send_actor.get_parameter_to_sync_names.remote(pipe_stage),
                                                recv_actors[0].get_parameter_to_sync_names.remote(pipe_stage)])
-            # check the value of src model and tgt model
             assert len(src_names) == len(dst_names)
+
+            # check the value of src model and tgt model
             names = list(zip(src_names, dst_names))
             for src_name, dst_name in tqdm(names):
                 src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.tp_num_mapping > 1))
@@ -470,31 +475,38 @@ class ParameterSyncGroup:
                     dst_tensor = future.get(recv_actor.get_parameter_to_sync.remote(dst_name, pipe_stage, True))
                     if dst_tensor.isnan().any():
                         raise RuntimeError(f"weight {dst_name} in recv actor is nan, please check param sync.")
-                    if self.tp_num_mapping == 1:
-                        # for trainer_tp == inference_tp
+                    if param_group in ("default", "except_routed"):
+                        if self.tp_num_mapping == 1:
+                            # for trainer_tp == inference_tp
+                            assert src_tensor.shape == dst_tensor.shape, \
+                                f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
+                            assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), \
+                                f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match."
+                        else:
+                            # for inference_tp % trainer_tp == 0 and inference_tp > trainer_tp
+                            dst_tensor_shape = dst_tensor.shape
+                            src_tensor = src_tensor.reshape(-1)
+                            dst_tensor = dst_tensor.reshape(-1)
+                            tp_slice = self.actor2rank[recv_actor] % self.tp_num_mapping
+                            if src_tensor.shape == dst_tensor.shape:
+                                src_tensor_slice = src_tensor
+                            else:
+                                assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and \
+                                    src_tensor.shape[0] // dst_tensor.shape[0] == self.tp_num_mapping, \
+                                    f"num of elements in src_tensor must be divided by that of dst_tensor. \
+                                    while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
+                                start = dst_tensor.shape[0] * tp_slice
+                                end = start + dst_tensor.shape[0]
+                                src_tensor_slice = src_tensor[start:end]
+                            assert torch.allclose(src_tensor_slice, dst_tensor, atol=1e-06), \
+                                f"after weight sync {src_name}_{tp_slice}: \
+                                {src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
+                    elif param_group == "routed":
+                        assert self.hep_num_mapping == 1
                         assert src_tensor.shape == dst_tensor.shape, \
                             f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
                         assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), \
                             f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match."
-                    else:
-                        # for inference_tp % trainer_tp == 0 and inference_tp > trainer_tp
-                        dst_tensor_shape = dst_tensor.shape
-                        src_tensor = src_tensor.reshape(-1)
-                        dst_tensor = dst_tensor.reshape(-1)
-                        tp_slice = self.actor2rank[recv_actor] % self.tp_num_mapping
-                        if src_tensor.shape == dst_tensor.shape:
-                            src_tensor_slice = src_tensor
-                        else:
-                            assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and \
-                                src_tensor.shape[0] // dst_tensor.shape[0] == self.tp_num_mapping, \
-                                f"num of elements in src_tensor must be divided by that of dst_tensor. \
-                                while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
-                            start = dst_tensor.shape[0] * tp_slice
-                            end = start + dst_tensor.shape[0]
-                            src_tensor_slice = src_tensor[start:end]
-                        assert torch.allclose(src_tensor_slice, dst_tensor, atol=1e-06), \
-                            f"after weight sync {src_name}_{tp_slice}: \
-                            {src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
             return True
         logger.info("Going to validate transmitted tensors...")
         validate()
@@ -825,13 +837,17 @@ class ParameterSyncGroup:
                 state = future.get([ref])
                 assert state, "Check unfuse lora layer fail."
 
-    def validate_sync_results_parallel(self, actor_mapping, validate=False):
+    def validate_sync_results_parallel(self, actor_mappings_list:List, requires_grad=None, validate=False, filter_fn=None, param_group="default"):
         if self._debug or validate:
+            assert len(actor_mappings_list) in (1, 2), f"The length of actor mapping list should be 1 or 2, but got {len(actor_mappings_list)}."
             args = []
-            for send_actor, recv_actors in actor_mapping.items():
+            for send_actor, recv_actors in actor_mappings_list[0].items():
                 for recv_actor in recv_actors:
-                    recv_actors_stage2 = self.send_recv_actor_mappings_stage2.get(recv_actor, [])
-                    args.append((send_actor, [recv_actor] + recv_actors_stage2, requires_grad))
+                    if len(actor_mappings_list) == 1:
+                        args.append((send_actor, [recv_actor], requires_grad, filter_fn, param_group))
+                    elif len(actor_mappings_list) == 2:
+                        recv_actors_stage2 = actor_mappings_list[1].get(recv_actor, [])
+                        args.append((send_actor, [recv_actor] + recv_actors_stage2, requires_grad, filter_fn, param_group))
             execute_in_parallel(self.validate_sync_results, args)
 
     def _calculate_max_workers(self, sorted_send_actors, actor_mapping):
@@ -882,29 +898,45 @@ class ParameterSyncGroup:
             group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group)
 
     def _multi_thread_sync_for_tp_nmapping_eq_1(
-        self, send_actors, actor_mappings,
+        self, send_actors_list:List, actor_mappings_list:List,
         requires_grad=None, filter_fn=None, param_group="default"
     ):
+        assert len(send_actors_list) == 1 and len(actor_mappings_list) == 1
+        send_actors = send_actors_list[0]
+        actor_mappings = actor_mappings_list[0]
+
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for send_actor in sorted_send_actors:
-                recv_actors = actor_mappings[send_actor]
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                    futures.append(executor.submit(self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn))
-                else:
-                    for recv_actor in recv_actors:
-                        futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+        for send_actor in sorted_send_actors:
+            recv_actors = actor_mappings[send_actor]
+            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
+                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn)
+            else:
+                for recv_actor in recv_actors:
+                    self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn)
 
-    def _single_thread_sync(self, actor_mappings, requires_grad=None, filter_fn=None, param_group="default"):
+        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        #     futures = []
+        #     for send_actor in sorted_send_actors:
+        #         recv_actors = actor_mappings[send_actor]
+        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+        #             actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
+        #             futures.append(executor.submit(self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn))
+        #         else:
+        #             for recv_actor in recv_actors:
+        #                 futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
+        #     for _future in concurrent.futures.as_completed(futures):
+        #         try:
+        #             _future.result()
+        #         except Exception as e:
+        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+        #     concurrent.futures.wait(futures)
+
+    def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
+        assert len(actor_mappings_list) == 1
+        actor_mappings = actor_mappings_list[0]
+
         for send_actor, recv_actors in actor_mappings.items():
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
@@ -918,6 +950,8 @@ class ParameterSyncGroup:
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
+        send_actors_list : List = []
+        actor_mappings_list : List = []
         if self.concurrent_comm:
             if self.tp_num_mapping > 1:
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
@@ -928,20 +962,25 @@ class ParameterSyncGroup:
                     requires_grad=requires_grad
                 )
             else:
+                send_actors_list = [self.sorted_send_actors]
+                actor_mappings_list = [self.send_recv_actor_mappings]
                 self._multi_thread_sync_for_tp_nmapping_eq_1(
-                    self.sorted_send_actors,
-                    self.send_recv_actor_mappings,
+                    send_actors_list,
+                    actor_mappings_list,
                     requires_grad=requires_grad
                 )
         else:
+            actor_mappings_list = [self.send_recv_actor_mappings]
             self._single_thread_sync(
-                self.send_recv_actor_mappings,
+                actor_mappings_list,
                 requires_grad=requires_grad
             )
 
+        assert len(actor_mappings_list) >= 1
+
         self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
-        self.validate_sync_results_parallel(self.send_recv_actor_mappings, validate)
+        self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
 
         self.check_and_destroy_collective_group()
 
@@ -1075,16 +1114,20 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
-
+        send_actors_list : List = []
+        actor_mappings_list : List = []
         if self.concurrent_comm:
+            send_actors_list = [self.sorted_send_actors_for_routed_experts]
+            actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
             self._multi_thread_sync_for_tp_nmapping_eq_1(
-                self.sorted_send_actors_for_routed_experts,
-                self.send_recv_actor_mappings_for_routed_experts,
+                send_actors_list,
+                actor_mappings_list,
                 requires_grad=requires_grad,
                 filter_fn=self.routed_experts_filter,
                 param_group="routed",
             )
         else:
+            actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
             self._single_thread_sync(
                 self.send_recv_actor_mappings_for_routed_experts,
                 requires_grad=requires_grad,
@@ -1092,9 +1135,17 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 param_group="routed",
             )
 
+        assert len(actor_mappings_list) >= 1
+
         self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
 
-        self.validate_sync_results_parallel(self.send_recv_actor_mappings_for_routed_experts, validate)
+        self.validate_sync_results_parallel(
+            actor_mappings_list,
+            requires_grad,
+            validate,
+            filter_fn=self.routed_experts_filter,
+            param_group="routed"
+        )
 
         self.check_and_destroy_collective_group()
 
@@ -1105,6 +1156,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
+        send_actors_list : List = []
+        actor_mappings_list : List = []
         if self.concurrent_comm:
             if self.tp_num_mapping > 1:
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
@@ -1117,16 +1170,19 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     param_group="except_routed"
                 )
             else:
+                send_actors_list = [self.sorted_send_actors]
+                actor_mappings_list = [self.send_recv_actor_mappings]
                 self._multi_thread_sync_for_tp_nmapping_eq_1(
-                    self.sorted_send_actors,
-                    self.send_recv_actor_mappings,
+                    send_actors_list,
+                    actor_mappings_list,
                     requires_grad=requires_grad,
                     filter_fn=self.params_except_routed_expert_filter,
                     param_group="except_routed"
                 )
         else:
+            actor_mappings_list = [self.send_recv_actor_mappings]
             self._single_thread_sync(
-                self.send_recv_actor_mappings,
+                actor_mappings_list,
                 requires_grad=requires_grad,
                 filter_fn=self.params_except_routed_expert_filter,
                 param_group="except_routed"
@@ -1134,7 +1190,13 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
-        self.validate_sync_results_parallel(self.send_recv_actor_mappings, validate)
+        self.validate_sync_results_parallel(
+            actor_mappings_list,
+            requires_grad,
+            validate,
+            filter_fn=self.params_except_routed_expert_filter,
+            param_group="except_routed"
+        )
 
         self.check_and_destroy_collective_group()
 
