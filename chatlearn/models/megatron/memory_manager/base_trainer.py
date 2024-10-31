@@ -117,7 +117,9 @@ class BaseTrainerMemoryManager(ABC):
         for tensors in state_dict['state'].values():
             keys = list(tensors.keys())
             for key in keys:
-                tensors[key] = tensors[key].to(device=device, non_blocking=True)
+                # compatible with transformer_engine v1.10, state['master_param']=None
+                if tensors[key] is not None:
+                    tensors[key] = tensors[key].to(device=device, non_blocking=True)
         # make sure the loading is finished before returning
         torch.cuda.synchronize()
 
