@@ -182,13 +182,8 @@ class ParameterSyncGroup:
         self.tp_num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
         if self.tp_num_mapping == 1:
             self.build_rank_mapping()
-        elif self.tp_num_mapping > 1:
-            self.build_rank_mapping_two_stage()
         else:
-            raise RuntimeError(
-                f"Currently, ChatLearn doesn't allow synchronize from larger TP size ({self.num_src_tensor_parallel}) "
-                f"to smaller TP size ({self.num_dst_tensor_parallel})."
-            )
+            self.build_rank_mapping_two_stage()
 
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
