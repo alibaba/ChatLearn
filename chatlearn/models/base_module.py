@@ -767,7 +767,7 @@ class BaseModule:
             self._set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_sync)
 
     def reset_sync_parameters(self, trainable_param_names, pipe_stage=0):
-        self.clear_sync_parameters()
+        self._parameters_to_sync[pipe_stage] = []
         self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
 
     def set_send_parameters(self, trainable_param_names, pipe_stage=0):
