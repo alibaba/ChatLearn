@@ -4,6 +4,7 @@ set -x
 [ -z "$MEGATRON" ] && export MEGATRON=path-to-megatron
 [ -z "$CHATLEARN" ] && export CHATLEARN=path-to-chatlearn
 [ -z "$TP" ] && export TP=4
+[ -z "$PP" ] && export PP=1
 [ -z "$VOCAB_FILE" ] && export VOCAB_FILE=path-to-tokenizer
 [ -z "$LOAD" ] && export LOAD=path-to-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
@@ -57,6 +58,7 @@ export batch_generation_min_prompt_length=32
 generation_batch_size=64 \
 num_gpu=${num_gpu:-8} \
 policy_tp=$TP \
+policy_pp=$PP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \
 python tests/test_policy_generation.py -c $configs 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}
