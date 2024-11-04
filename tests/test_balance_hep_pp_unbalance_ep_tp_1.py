@@ -45,19 +45,19 @@ inference_params = {}
 ParamsToSync_Inference = {
     0 : {
         "mlp.experts.weight_1" : [8, 8],
-        "mlp.shared_experts.weight" : [4, 8]  
+        "mlp.shared_experts.weight" : [4, 8]
     },
     1 : {
         "mlp.experts.weight_2" : [8, 8],
-        "mlp.shared_experts.weight" : [4, 8]  
+        "mlp.shared_experts.weight" : [4, 8]
     },
     2 : {
         "mlp.experts.weight_3" : [8, 8],
-        "mlp.shared_experts.weight" : [4, 8] 
+        "mlp.shared_experts.weight" : [4, 8]
     },
     3 : {
         "mlp.experts.weight_4" : [8, 8],
-        "mlp.shared_experts.weight" : [4, 8] 
+        "mlp.shared_experts.weight" : [4, 8]
     }
 }
 
@@ -198,7 +198,7 @@ class PPOPolicy(TestTorchModule):
         src_ep_names = ParamsToSync_Trainer["ep"][self.expert_parallel_rank()].keys()
         for key, value in zip(src_ep_names, src_ep_names):
             dst_src_mappings[key] = value
-    
+
         src_dp_names = ParamsToSync_Trainer["dp"].keys()
         for key, value in zip(src_dp_names, src_dp_names):
             dst_src_mappings[key] = value

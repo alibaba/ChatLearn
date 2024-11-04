@@ -872,7 +872,7 @@ class ParameterSyncGroup:
                 max_workers = len(sorted_send_actors) * len(actor_mappings[sorted_send_actors[0]])
         return max_workers
 
-    def _multi_thread_sync_for_tp_nmapping_gt_1(
+    def _multi_thread_sync_for_tp_num_mapping_gt_1(
         self,
         send_actors:List,
         actor_mappings:List,
@@ -908,7 +908,7 @@ class ParameterSyncGroup:
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
             group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group)
 
-    def _multi_thread_sync_for_tp_nmapping_eq_1(
+    def _multi_thread_sync_for_tp_num_mapping_eq_1(
         self, send_actors_list:List, actor_mappings_list:List,
         requires_grad=None, filter_fn=None, param_group="default"
     ):
@@ -959,7 +959,7 @@ class ParameterSyncGroup:
             if self.tp_num_mapping > 1:
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
-                self._multi_thread_sync_for_tp_nmapping_gt_1(
+                self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad
@@ -967,7 +967,7 @@ class ParameterSyncGroup:
             else:
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
-                self._multi_thread_sync_for_tp_nmapping_eq_1(
+                self._multi_thread_sync_for_tp_num_mapping_eq_1(
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad
@@ -1122,7 +1122,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self.concurrent_comm:
             send_actors_list = [self.sorted_send_actors_for_routed_experts]
             actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
-            self._multi_thread_sync_for_tp_nmapping_eq_1(
+            self._multi_thread_sync_for_tp_num_mapping_eq_1(
                 send_actors_list,
                 actor_mappings_list,
                 requires_grad=requires_grad,
@@ -1165,7 +1165,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             if self.tp_num_mapping > 1:
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
-                self._multi_thread_sync_for_tp_nmapping_gt_1(
+                self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad,
@@ -1175,7 +1175,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             else:
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
-                self._multi_thread_sync_for_tp_nmapping_eq_1(
+                self._multi_thread_sync_for_tp_num_mapping_eq_1(
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad,
