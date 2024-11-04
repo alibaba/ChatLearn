@@ -142,6 +142,9 @@ elif [ "$1" == "test_hep" ]; then
   run_test python test_balance_hep_unbalance_ep_tp_pp_1.py -c "configs/test_param_sync.yaml"
   run_test python test_balance_hep_unbalance_ep_tp_pp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_balance_hep_unbalance_ep_tp_pp_3.py -c "configs/test_param_sync.yaml"
+elif [ "$1" == "test_validate_param_sync" ]; then
+  run_test python test_unbalance_tp.py -c "configs/test_param_sync.yaml"
+  run_test python test_balance_hep_pp_unbalance_ep_tp_1.py -c "configs/test_param_sync.yaml"
 elif [ "$1" == "test_fixed_data" ]; then
   run_test python test_fixed_data.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_dynamic_data" ]; then
