@@ -467,7 +467,10 @@ class ParameterSyncGroup:
             # check the value of src model and tgt model
             names = list(zip(src_names, dst_names))
             for src_name, dst_name in tqdm(names):
-                src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.tp_num_mapping > 1))
+                if param_group in ("default", "except_routed"):
+                    src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True, self.tp_num_mapping > 1))
+                elif param_group == "routed":
+                    src_tensor = future.get(send_actor.get_parameter_to_sync.remote(src_name, pipe_stage, True))
                 if src_tensor.isnan().any():
                     raise RuntimeError(f"weight {src_name} from send actor is nan, please check checkpoint or training process.")
                 src_tensor_shape = src_tensor.shape
@@ -478,10 +481,12 @@ class ParameterSyncGroup:
                     if param_group in ("default", "except_routed"):
                         if self.tp_num_mapping == 1:
                             # for trainer_tp == inference_tp
-                            assert src_tensor.shape == dst_tensor.shape, \
+                            assert src_tensor.shape == dst_tensor.shape, (
                                 f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
-                            assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), \
+                            )
+                            assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), (
                                 f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match."
+                            )
                         else:
                             # for inference_tp % trainer_tp == 0 and inference_tp > trainer_tp
                             dst_tensor_shape = dst_tensor.shape
@@ -491,22 +496,28 @@ class ParameterSyncGroup:
                             if src_tensor.shape == dst_tensor.shape:
                                 src_tensor_slice = src_tensor
                             else:
-                                assert src_tensor.shape[0] % dst_tensor.shape[0] == 0 and \
-                                    src_tensor.shape[0] // dst_tensor.shape[0] == self.tp_num_mapping, \
-                                    f"num of elements in src_tensor must be divided by that of dst_tensor. \
-                                    while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
+                                assert (
+                                    src_tensor.shape[0] % dst_tensor.shape[0] == 0 and
+                                    src_tensor.shape[0] // dst_tensor.shape[0] == self.tp_num_mapping
+                                ), (
+                                    f"num of elements in src_tensor must be divided by that of dst_tensor. "
+                                    f"while src {src_name}: {src_tensor_shape} and dst {dst_name}: {dst_tensor_shape}."
+                                )
                                 start = dst_tensor.shape[0] * tp_slice
                                 end = start + dst_tensor.shape[0]
                                 src_tensor_slice = src_tensor[start:end]
-                            assert torch.allclose(src_tensor_slice, dst_tensor, atol=1e-06), \
-                                f"after weight sync {src_name}_{tp_slice}: \
-                                {src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
+                            assert torch.allclose(src_tensor_slice, dst_tensor, atol=1e-06), (
+                                f"after weight sync {src_name}_{tp_slice}: "
+                                f"{src_tensor_slice.view(dst_tensor_shape)} and {dst_name}: {dst_tensor.view(dst_tensor_shape)} do not match."
+                            )
                     elif param_group == "routed":
                         assert self.hep_num_mapping == 1
-                        assert src_tensor.shape == dst_tensor.shape, \
+                        assert src_tensor.shape == dst_tensor.shape, (
                             f"after weight sync {src_name}: {src_tensor.shape} and {dst_name}: {dst_tensor.shape} do not match."
-                        assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), \
+                        )
+                        assert torch.allclose(src_tensor, dst_tensor, atol=1e-06), (
                             f"after weight sync {src_name}: {src_tensor} and {dst_name}: {dst_tensor} do not match."
+                        )
             return True
         logger.info("Going to validate transmitted tensors...")
         validate()
@@ -907,31 +918,23 @@ class ParameterSyncGroup:
 
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
-        for send_actor in sorted_send_actors:
-            recv_actors = actor_mappings[send_actor]
-            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn)
-            else:
-                for recv_actor in recv_actors:
-                    self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn)
 
-        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        #     futures = []
-        #     for send_actor in sorted_send_actors:
-        #         recv_actors = actor_mappings[send_actor]
-        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-        #             actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-        #             futures.append(executor.submit(self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn))
-        #         else:
-        #             for recv_actor in recv_actors:
-        #                 futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
-        #     for _future in concurrent.futures.as_completed(futures):
-        #         try:
-        #             _future.result()
-        #         except Exception as e:
-        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-        #     concurrent.futures.wait(futures)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for send_actor in sorted_send_actors:
+                recv_actors = actor_mappings[send_actor]
+                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                    actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
+                    futures.append(executor.submit(self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn))
+                else:
+                    for recv_actor in recv_actors:
+                        futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
         assert len(actor_mappings_list) == 1
