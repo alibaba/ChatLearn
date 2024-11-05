@@ -71,7 +71,12 @@ class BaseModule:
         self._is_colocate = False
 
         if self.total_gpu > 0:
-            self._num_gpu_per_replica = args.tensor_model_parallel_size * args.pipeline_model_parallel_size * args.zero_size
+            self._num_gpu_per_replica = (
+                args.tensor_model_parallel_size
+                * args.pipeline_model_parallel_size
+                * args.expert_model_parallel_size
+                * args.zero_size
+            )
             assert self._num_gpu_per_replica <= self.total_gpu
             assert self.total_gpu % self._num_gpu_per_replica == 0
             if not self.trainable:
@@ -128,18 +133,18 @@ class BaseModule:
         self.profiler = None
         self._buffer_num = {}
         self._tp_division = {}
-        self._num_mapping = 1
+        self._tp_num_mapping = 1
         self._sync_buffer = defaultdict(list)
 
     def get_sync_buffer(self):
         return self._sync_buffer
 
-    def set_num_mapping(self, _num_mapping):
-        self._num_mapping = _num_mapping
+    def set_tp_num_mapping(self, _tp_num_mapping):
+        self._tp_num_mapping = _tp_num_mapping
 
     @property
-    def num_mapping(self):
-        return self._num_mapping
+    def tp_num_mapping(self):
+        return self._tp_num_mapping
 
     def set_buffer_num(self, buffer_num):
         self._buffer_num.update(buffer_num)
@@ -777,6 +782,17 @@ class BaseModule:
         self._parameters_to_recv[to_rank] = parameters_to_recv
         return self.set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_recv)
 
+    def clear_sync_parameters(self):
+        self._parameters_to_sync = defaultdict(list)
+
+    def clear_send_recv_parameters(self):
+        self._parameters_to_send = defaultdict(list)
+        self._parameters_to_recv = defaultdict(list)
+
+    def clear_sync_send_recv_parameters(self):
+        self.clear_sync_parameters()
+        self.clear_send_recv_parameters()
+
     def get_parameter_names(self, requires_grad=True):
         """
         :meta private:
@@ -932,11 +948,18 @@ class BaseModule:
         #       'self_attention.dense' in QWen and LLama2 legacy
         #       'mlp.dense_4h_to_h' in QWen and LLama2 legacy model
         #       'mlp.linear_fc2' in LLama2 mcore model
+        #       'mlp.shared_experts.dense_4h_to_h in QWen-MoE model
         #   src -> dst: [w * tp_size, h] -> tp_size * [w, h]
         #       'mlp.dense_h_to_4h' in QWen and LLama2 legacy
         #       'mlp.linear_fc1' in LLama2 mcore model
         #       'mlp.w1' in QWen model only for vLLM backend
-        if "self_attention.dense" in name or "mlp.dense_4h_to_h" in name or "mlp.linear_fc2" in name:
+        #       'mlp.shared_experts.dense_h_to_4h in QWen-MoE model
+        if (
+            "self_attention.dense" in name
+            or "mlp.dense_4h_to_h" in name
+            or "mlp.linear_fc2" in name
+            or "mlp.shared_experts.dense_4h_to_h" in name
+        ):
             param_data_list = []
             col_offset = param_data_shape[1] // self._tp_division[name]
             for idx in range(self._tp_division[name]):
@@ -945,8 +968,12 @@ class BaseModule:
                 param_data_list.append(param_data[:,start:end])
             param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
             del param_data_list
-        if "mlp.dense_h_to_4h" in name or "mlp.linear_fc1" in name or \
-                ("mlp.w1" in name and self.concat_params_dict is not None):
+        if (
+            "mlp.dense_h_to_4h" in name
+            or "mlp.linear_fc1" in name
+            or ("mlp.w1" in name and self.concat_params_dict is not None)
+            or "mlp.shared_experts.dense_h_to_4h" in name
+        ):
             param_data_list = []
             row_offset = param_data_shape[0] // self._tp_division[name] // 2
             for idx in range(self._tp_division[name]):
@@ -1003,12 +1030,14 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                tensors.append(self._sync_buffer[buffer_rank % self.num_mapping][idx])
+                self._logger.debug(f"Adding {name} to sync for if branch from src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
+                tensors.append(self._sync_buffer[buffer_rank % self.tp_num_mapping][idx])
                 buffer_num.append(1)
                 idx += 1
-            del self._sync_buffer[buffer_rank % self.num_mapping]
+            del self._sync_buffer[buffer_rank % self.tp_num_mapping]
         else:
             for name, param in parameters_to_sync[pipe_stage]:
+                self._logger.debug(f"Adding {name} to sync for else branch from src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
                 param_data = param.data
                 if rank and self._buffer_num and not stage2:
                     assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
@@ -1028,7 +1057,7 @@ class BaseModule:
         debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
 
         for bucket in dense_buckets:
-            index = 0 if stage2 else (to_rank % self.num_mapping)
+            index = 0 if stage2 else (to_rank % self.tp_num_mapping)
             all_buffers = coalesced_comm_dense_two_stage(
                 bucket, col.broadcast, rank,
                 extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
@@ -1111,6 +1140,12 @@ class BaseModule:
         :meta private:
         """
         return self.module_args.tensor_model_parallel_size
+
+    def expert_model_parallel_size(self):
+        """
+        :meta private:
+        """
+        return self.module_args.expert_model_parallel_size
 
     def num_layers(self):
         """
