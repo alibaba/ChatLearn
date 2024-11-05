@@ -738,14 +738,18 @@ class ParameterSyncGroup:
             refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
             refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
             future.get(refs)
-        assert len(src_names) == len(dst_names), f"src_names: {src_names}, dst_names = {dst_names}"
+        assert len(src_names) == len(dst_names), (
+            f"expect the length of src_names and dst_names being the same, got {len(src_names)} and {len(dst_names)}"
+        )
         return src_names, dst_names
 
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
-        assert len(src_names) == len(dst_names)
+        assert len(src_names) == len(dst_names), (
+            f"expect the length of src_names and dst_names being the same, got {len(src_names)} and {len(dst_names)}"
+        )
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
             refs = []
