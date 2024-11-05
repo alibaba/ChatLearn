@@ -54,6 +54,11 @@ def create_trainer_memory_manager(
         from chatlearn.models.megatron.memory_manager.trainer_v3 import TrainerMemoryManagerV3
 
         cls = TrainerMemoryManagerV3
+    elif version in [MegatronVersion.V4]:
+        # pylint: disable-next=import-outside-toplevel
+        from chatlearn.models.megatron.memory_manager.trainer_v4 import TrainerMemoryManagerV4
+
+        cls = TrainerMemoryManagerV4
     else:
         raise ValueError(f'Unsupported version of Megatron for trainer memory manager: {version}')
 
@@ -135,6 +140,9 @@ class BaseTrainerMemoryManager(ABC):
             for tensors in state_dict['state'].values():
                 keys = list(tensors.keys())
                 for key in keys:
+                    # compatible with transformer_engine v1.10, state['master_param']=None
+                    if tensors[key] is not None:
+                        tensors[key] = tensors[key].to(device=device, non_blocking=True)
                     tensors[key] = tensors[key].to(device=device, non_blocking=True)
         # make sure the loading is finished before returning
         torch.cuda.synchronize()

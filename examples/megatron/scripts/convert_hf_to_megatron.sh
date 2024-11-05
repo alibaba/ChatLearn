@@ -16,6 +16,8 @@ ep=${EP:-1}
 
 # checkpoint & tokenizer config
 megatron=${MEGATRON}
+chatlearn=${CHATLEARN}
+export PYTHONPATH=${megatron}:${chatlearn}
 load_dir=${LOAD_PATH}
 save_dir=${SAVE_PATH}
 tokenizer_model=${TOKENIZER_MODEL}
@@ -33,13 +35,13 @@ set +x
 START_TIME=$SECONDS
 
 if [[ ${model} == 'gpt_llama' ]]; then
-    cd ${megatron}
+    cd ${chatlearn}
     if [[ ${use_legacy_models} = "False" ]]; then
         saver="mcore"
     else
         saver="megatron"
     fi
-    python tools/checkpoint/convert.py \
+    python chatlearn/tools/megatron_checkpoint_utils.py \
         --model-type GPT \
         --loader llama_mistral \
         --checkpoint-type hf \

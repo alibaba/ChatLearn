@@ -27,10 +27,11 @@ from chatlearn.models.torch_module import TorchModule
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistModel
-from chatlearn.runtime.parameter_sync import ParameterSyncGroup
+from chatlearn.runtime.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
+from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
 from .port_manager import PortManager
 from ..utils import future
 
@@ -116,15 +117,30 @@ class ModelManager:
 
     def build_parameter_group(self):
         # set ParameterSyncGroup
+        megatron_version = get_megatron_version()
         for src_model, dst_model in self._parameter_sync_model_pair:
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
-            sync_group = ParameterSyncGroup(self._name2distmodel[src_model.name], self._name2distmodel[dst_model.name],
-                                            group_name, sync_frequency, self.error_signal)
+            if megatron_version == MegatronVersion.V4:
+                logger.info("QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
+                sync_group = ParameterSyncGroupwithHEP(
+                    self._name2distmodel[src_model.name],
+                    self._name2distmodel[dst_model.name],
+                    group_name,
+                    sync_frequency,
+                    self.error_signal
+                )
+            else:
+                sync_group = ParameterSyncGroup(
+                    self._name2distmodel[src_model.name],
+                    self._name2distmodel[dst_model.name],
+                    group_name,
+                    sync_frequency,
+                    self.error_signal
+                )
             self.parameter_sync_groups[group_name] = sync_group
 
     def start_error_monitor(self):
-        #group_names = [_ for _ in self.parameter_sync_groups.keys()]
         group_names = list(self.parameter_sync_groups.keys())
         self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
@@ -146,7 +162,7 @@ class ModelManager:
             logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
             self._parameter_sync_model_pair.append((src_model, tgt_model))
 
-    def sync_parameters(self, episode_offset=0, requires_grad=None):
+    def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False):
         """
         if requires_grad is False, all parameters will be syncronized,
         this happends when broadcast parameters in the beginning of training,
@@ -163,7 +179,7 @@ class ModelManager:
                 refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
 
-                sync_group.sync(requires_grad)
+                sync_group.sync(requires_grad, validate)
 
                 refs = src_model.offload()
                 future.wait(refs)
@@ -187,7 +203,7 @@ class ModelManager:
         # public user function
         # TODO: use decorator to annotate
         for func_name in ["save_checkpoint", "model_setup", "onload", "offload", "build_dataset",
-                          "_build_dataloader", "generate_vllm"] + model.call_funcs:
+                          "_build_dataloader", "generate_vllm", "init"] + model.call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 

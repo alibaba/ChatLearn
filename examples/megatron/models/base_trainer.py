@@ -29,6 +29,7 @@ try:
     from megatron.core.utils import get_model_config
 except ImportError:
     get_model_config = None
+from megatron.core.distributed import finalize_model_grads
 from megatron.core.optimizer import get_megatron_optimizer, OptimizerConfig
 from megatron.training import get_model
 from megatron.training.training import get_optimizer_param_scheduler
@@ -75,6 +76,7 @@ class BaseTrainer(MegatronModule):
         if get_model_config is not None:
             self.config = get_model_config(self.model[0])
             self.config.grad_scale_func = self.optimizer.scale_loss
+            self.config.finalize_model_grads_func = finalize_model_grads
         else:
             self.config = None
 

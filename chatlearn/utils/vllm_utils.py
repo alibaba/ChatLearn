@@ -328,19 +328,19 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
 
 class Megatron2QWenSyncMap(ParameterSyncMap):
     """sync map:megatron to qwen transformer"""
-    def __init__(self, src_names, layer_offset, qwen_version=QwenVersion.v_1.value):
+    def __init__(self, src_names, layer_offset, qwen_version=QwenVersion.v_1):
         self.qwen_version = qwen_version
         src_prefix = "module.module.language_model"
 
         # configuration for different versions of qwen
-        if qwen_version == QwenVersion.v_1.value:
+        if qwen_version == QwenVersion.v_1:
             dst_prefix = "model.transformer"
             embed_name = "wte"
             att_dense_name = ".attn.c_proj."
             self.layer_prefix = "h"
             mlp_dense_name = ".mlp.c_proj."
             final_norm = "ln_f"
-        elif qwen_version == QwenVersion.v_2.value:
+        elif qwen_version == QwenVersion.v_2:
             dst_prefix = "model.model"
             embed_name = "embed_tokens"
             att_dense_name = ".self_attn.o_proj."
@@ -428,7 +428,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             # For layernorm(s), simply store the layer norm.
             if op_name.endswith("layernorm"):
 
-                if self.qwen_version == QwenVersion.v_1.value:
+                if self.qwen_version == QwenVersion.v_1:
                     if "attention." in op_name:
                         self._dst_names.append(
                             layer_name + self.get_dst_name(self.layer_sync_map, ".attn.attention_layernorm.") + weight_or_bias)
@@ -436,14 +436,14 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
                         self._dst_names.append(
                             layer_name + self.get_dst_name(self.layer_sync_map, op_name) + weight_or_bias)
                 if op_name.startswith("input"):
-                    ln_name = "ln_1" if self.qwen_version == QwenVersion.v_1.value else "input_layernorm"
+                    ln_name = "ln_1" if self.qwen_version == QwenVersion.v_1 else "input_layernorm"
                     self._dst_names.append(
                         layer_name + "." + ln_name + "." + weight_or_bias)
                 elif op_name.startswith("post"):
-                    ln_name = "ln_2" if self.qwen_version == QwenVersion.v_1.value else "post_attention_layernorm"
+                    ln_name = "ln_2" if self.qwen_version == QwenVersion.v_1 else "post_attention_layernorm"
                     self._dst_names.append(
                         layer_name + "." + ln_name + "." + weight_or_bias)
-                elif self.qwen_version == QwenVersion.v_2.value:
+                elif self.qwen_version == QwenVersion.v_2:
                     raise RuntimeError(f"unsupport layernorm {op_name}.")
 
             elif op_name == "self_attention.rotary_emb":
@@ -451,7 +451,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
 
             # Transpose the QKV matrix and the bias.
             elif op_name in ["attention.query_key_value", "self_attention.query_key_value"]:
-                if self.qwen_version == QwenVersion.v_1.value:
+                if self.qwen_version == QwenVersion.v_1:
                     dst_name = layer_name + f".attn.c_attn.{weight_or_bias}"
                 else:
                     dst_name = layer_name + f".self_attn.qkv_proj.{weight_or_bias}"
@@ -544,7 +544,7 @@ def _init_distributed_environment(args):
             world_size=args.world_size, rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes))
 
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
         _WORLD = None
         if _WORLD is None:
             ranks = list(range(torch.distributed.get_world_size()))
@@ -1049,18 +1049,18 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     return output_state_dict
 
 
-def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=QwenVersion.v_1.value):
+def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=QwenVersion.v_1):
     # The converted output model.
     output_state_dict = {}
 
     # configuration for different versions of qwen
-    if qwen_version == QwenVersion.v_1.value:
+    if qwen_version == QwenVersion.v_1:
         prefix_name = "model.transformer."
         embed_name = "wte"
         layer_prefix = "h"
         final_norm = "ln_f"
         func_map = megatron_qwen_to_transformers
-    elif qwen_version == QwenVersion.v_2.value:
+    elif qwen_version == QwenVersion.v_2:
         prefix_name = "model.model."
         embed_name = "embed_tokens"
         layer_prefix = "layers"
@@ -1161,7 +1161,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         # For layernorm(s), simply store the layer norm.
         if op_name.endswith("layernorm"):
 
-            if qwen_version == QwenVersion.v_1.value:
+            if qwen_version == QwenVersion.v_1:
                 if "attention." in op_name:
                     output_state_dict[
                         layer_name + ".attn.attention_layernorm." + weight_or_bias
@@ -1172,16 +1172,16 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                     ] = val
 
             if op_name.startswith("input"):
-                ln_name = "ln_1" if qwen_version == QwenVersion.v_1.value else "input_layernorm"
+                ln_name = "ln_1" if qwen_version == QwenVersion.v_1 else "input_layernorm"
                 output_state_dict[
                     layer_name + "." + ln_name + "." + weight_or_bias
                 ] = val
             elif op_name.startswith("post"):
-                ln_name  = "ln_2" if qwen_version == QwenVersion.v_1.value else "post_attention_layernorm"
+                ln_name  = "ln_2" if qwen_version == QwenVersion.v_1 else "post_attention_layernorm"
                 output_state_dict[
                     layer_name + "." + ln_name + "." + weight_or_bias
                 ] = val
-            elif qwen_version == QwenVersion.v_2.value:
+            elif qwen_version == QwenVersion.v_2:
                 raise RuntimeError(f"unsupport layernorm {op_name}.")
 
         elif op_name == "self_attention.rotary_emb":
@@ -1189,7 +1189,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
         # Transpose the QKV matrix and the bias.
         elif op_name in ["attention.query_key_value", "self_attention.query_key_value"]:
-            if qwen_version == QwenVersion.v_1.value:
+            if qwen_version == QwenVersion.v_1:
                 out_val = fix_qwen_query_key_value_ordering(
                     val, checkpoint_version, 3, heads, hidden_size_per_head
                 )

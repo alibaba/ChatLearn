@@ -145,14 +145,14 @@ def to_device(device, args):
     return args
 
 
-def get_or_cache(cache, key, func):
+def get_or_cache(cache, key, func, *args, **kwargs):
     """
     get results if cached
     otherwise call the func to get the results, and cache the results
     """
     if key in cache:
         return cache[key]
-    res = func()
+    res = func(*args, **kwargs)
     cache[key] = res
     return res
 
@@ -264,7 +264,11 @@ def dict_to_simplenamespace(d):
 
 
 def get_use_legacy_models(model_args):
-    use_legacy_models = model_args.get("use_legacy_models")
+    if isinstance(model_args, dict):
+        use_legacy_models = model_args.get("use_legacy_models", None)
+    else:
+        use_legacy_models = getattr(model_args, "use_legacy_models", None)
+
     if use_legacy_models is None:
         raise RuntimeError("Please specify use_legacy_models (True or False), but not None.")
     return use_legacy_models

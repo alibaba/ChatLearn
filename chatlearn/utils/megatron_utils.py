@@ -40,21 +40,19 @@ from chatlearn.utils.utils import get_use_legacy_models
 layer_re = re.compile(r'layers\.([0-9]+)')
 
 
-def update_layer_num(layers_per_part, rank, m):
+def update_layer_num(start_layer_num, m):
     # This assumes no interleaved pipeline execution
     layer = int(m.group(1))
-    layer += rank * layers_per_part
+    layer += start_layer_num
     return f'layers.{layer}'
 
 
-def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interval, tgt_last_stage, model, requires_grad):
+def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_last_stage, model, requires_grad):
     """
     remap pipeline layer_name. For each pipeline stage, the layer number starts with 0.
     Args:
-        src_layers_per_stage: layer_per_stage in src model
-        src_rank: src model pipeline rank
-        map_interval: map interval from tgt to src, i.e. if src_layers_per_stage is 2, and tgt_layers_per_stage is 4,
-                      then the map_iterval is tgt_layers_per_stage/src_layers_per_stage = 2
+        src_layer_offset: layer offset of src model
+        tgt_layer_offset: layer offset of target model
         tgt_last_stage: is target model in last stage
         model: megatron model
         requires_grad: whether the layer requires grad
@@ -66,7 +64,7 @@ def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interv
                 continue
         if src_name.endswith("word_embeddings.weight") \
                 and "language_model" not in src_name \
-                and hasattr(model, "language_model"):
+                and hasattr(unwrap_model(model), "language_model"):
             # See comment in MegatronModule.initialize_word_embeddings()
             if not tgt_last_stage:
                 tgt_name = src_name.replace("word_embeddings.weight", "language_model.embedding.word_embeddings.weight")
@@ -75,8 +73,12 @@ def build_pipeline_layer_name_mapping(src_layers_per_stage, src_rank, map_interv
         else:
             # Translate destination layer number (0-N for each partition)
             # to source layer number (single-model layer number)
-            rank = src_rank % map_interval
-            _update_layer_num = functools.partial(update_layer_num, src_layers_per_stage, rank)
+            # e.g. for src model with 8 layers, src_num_stage=4, dst_num_stage=2
+            # for src_model, stage offsets are [0, 2, 4, 6]. for dst model, stage offsets are [0, 4]
+            # then the start layer_num of src->dst is as follows:
+            # stage0 0->0 stage1 0->(2-0) stage2 0->(4-4) stage3 0->(6-4)
+            start_layer_num = src_layer_offset - tgt_layer_offset
+            _update_layer_num = functools.partial(update_layer_num, start_layer_num)
             tgt_name = re.sub(layer_re, _update_layer_num, src_name)
         name_mapping[tgt_name] = src_name
     return name_mapping

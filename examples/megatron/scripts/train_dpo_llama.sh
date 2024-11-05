@@ -20,6 +20,8 @@ export retro_encoder_hidden_dropout=0.0
 export retro_encoder_attention_dropout=0.0
 
 export policy_tp=8
+export policy_pp=1
+export ppo_policy_tp=8
 export ppo_policy_pp=1
 export train_global_batch_size=128
 export ref_generation_batch_size=16

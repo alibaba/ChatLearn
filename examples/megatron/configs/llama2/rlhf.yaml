@@ -79,3 +79,5 @@ runtime:
   free_sync_collective_group: ${free_sync_collective_group:False}
   exp_name: ${exp_name:chatlearn}
   output_dir: ${output_dir}
+  debug: ${debug:False}
+  validate_param_sync: ${validate_param_sync:False}

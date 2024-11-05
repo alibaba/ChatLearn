@@ -331,6 +331,8 @@ class RuntimeConfig(BaseConfig):
     exp_name: str = "CHATLEARN"
     #: output dir
     output_dir: str = "./"
+    #: validate param sync
+    validate_param_sync: bool = False
 
     def __init__(self):
         super().__init__()
@@ -525,6 +527,24 @@ class Config(BaseConfig):
                     assert getattr(model_args, key) >= 1
                 elif getattr(model_args, key) is None:
                     setattr(model_args, key, 1)
+
+            ep_size = model_args.args_dict.get("expert_model_parallel_size")
+            moe_ep_size = model_args.args_dict.get("moe_expert_model_parallel_size")
+            if ep_size is not None and moe_ep_size is not None:
+                assert ep_size == moe_ep_size, (
+                    f"If you set moe_expert_model_parallel_size ({moe_ep_size}), "
+                    f"it must be equal to expert_model_parallel_size ({ep_size})"
+                )
+                finalized_ep_size = ep_size
+            elif ep_size is not None:
+                finalized_ep_size = ep_size
+            elif moe_ep_size is not None:
+                finalized_ep_size = moe_ep_size
+            else:
+                finalized_ep_size = 1
+            assert finalized_ep_size >= 1
+            setattr(model_args, "expert_model_parallel_size", finalized_ep_size)
+
             if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1 or model_args.expert_model_parallel_size > 1:
                 assert model_args.zero_size == 1 or model_args.zero_size is None
                 assert model_args.num_gpu % (

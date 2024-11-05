@@ -66,9 +66,9 @@ log_file=${output_dir}/log_${RANK}.log
 
 export batch_generation_min_prompt_length=32
 
-vllm_micro_batch_size=-1 \
+
 generation_batch_size=${generation_batch_size:-64} \
-num_gpu=$num_gpu \
+num_gpu=${num_gpu:-8} \
 policy_tp=$TP \
 policy_ep=$EP \
 policy_pp=$PP \

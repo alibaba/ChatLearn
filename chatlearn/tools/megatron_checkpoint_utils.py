@@ -167,6 +167,9 @@ def exist_checkpoint_util():
     spec = importlib.util.find_spec('tools.checkpoint.util')
     return spec is not None
 
+def repair_loader_llama_mistral(source):
+    source = source.replace('args.seq_length = 4096', 'args.seq_length = model_args["max_position_embeddings"]')
+    return source
 
 class CheckpointUtilsImporter:
     """CheckpointUtilsImporter"""
@@ -196,6 +199,8 @@ class CheckpointUtilsImporter:
             lines = repair_saver_model_provider(lines)
             lines = repair_saver_get_reward(lines)
             source = '\n'.join(lines)
+        elif module_name == 'loader_llama_mistral':
+            source = repair_loader_llama_mistral(source)
         elif module_name == 'loader_mcore':
             source = repair_loader_mcore_import_error(source)
             lines = source.split('\n')
@@ -249,7 +254,8 @@ class CheckpointUtilsImporter:
         if ('loader_megatron' in name
             or 'saver_megatron' in name
             or 'loader_mcore' in name
-            or 'saver_mcore' in name):
+            or 'saver_mcore' in name
+            or 'loader_llama_mistral' in name):
             sys.modules[module_name] = module
 
         # return the module itself so that it could be used
@@ -266,10 +272,11 @@ if __name__ == '__main__':
         sys.meta_path.insert(-1, CheckpointUtilsImporter('tools.checkpoint.convert', \
             'tools.checkpoint.loader_megatron', 'tools.checkpoint.saver_megatron', \
             'tools.checkpoint.loader_mcore', 'tools.checkpoint.saver_mcore', \
-            'tools.checkpoint.utils'))
+            'tools.checkpoint.utils', 'tools.checkpoint.loader_llama_mistral'))
         from tools.checkpoint import loader_megatron, saver_megatron # pylint: disable=unused-import
         from tools.checkpoint import utils # pylint: disable=unused-import
         from tools.checkpoint import loader_mcore, saver_mcore # pylint: disable=unused-import
+        from tools.checkpoint import loader_llama_mistral # pylint: disable=unused-import
         from tools.checkpoint import convert
         convert.main()
 # pylint: enable=wildcard-import,exec-used

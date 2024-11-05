@@ -21,7 +21,7 @@ from vllm.model_executor.layers import logits_processor
 
 
 source = inspect.getsource(logits_processor.LogitsProcessor._get_logits)
-if 'tensor_model_parallel_all_gather' not in source:
+if 'tensor_model_parallel_gather' in source:
     import torch
     from typing import Optional
     from vllm.model_executor.layers.vocab_parallel_embedding import VocabParallelEmbedding

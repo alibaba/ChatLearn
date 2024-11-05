@@ -39,7 +39,7 @@ from chatlearn.utils.vllm_import_helper import parallel_state
 from chatlearn.utils.vllm_import_helper import SamplingParams
 from chatlearn.utils.vllm_import_helper import Counter
 from chatlearn.utils.vllm_import_helper import Worker
-# additional imports for vLLM-0.5.1
+# additional imports for vLLM-0.5.1/0.6.3
 try:
     from chatlearn.utils.vllm_import_helper import Detokenizer
     from chatlearn.utils.vllm_import_helper import ExecuteModelRequest
@@ -49,7 +49,13 @@ try:
     from chatlearn.utils.vllm_import_helper import StopChecker
     from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 except ImportError:
-    print("Cannot import addtional module for vllm 0.5.1, please install vllm 0.5.1 first.")
+    print("Cannot import addtional module for vllm 0.5.1 or 0.6.3, please install vllm 0.5.1/0.6.3 first.")
+# additional imports for vLLM-0.6.3
+try:
+    from chatlearn.utils.vllm_import_helper import InputPreprocessor
+    from chatlearn.utils.vllm_import_helper import SchedulerContext, SchedulerOutputState
+except ImportError:
+    print("Cannot import addtional module for vllm 0.6.3, please install vllm 0.6.3 first.")
 
 from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
 
@@ -126,7 +132,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         )
 
         self.quant_config = None
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             engine_args.max_paddings = self.model_args.get("max_paddings", 256)
             engine_args.max_context_len_to_capture = self.model_args.get("max_context_len_to_capture", 8192)
             self.model_config, self.cache_config, self.parallel_config, self.scheduler_config, self.lora_config = \
@@ -143,7 +149,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 is_driver_worker=True,
             )
             self._init_tokenizer()
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             engine_args.max_seq_len_to_capture = self.model_args.get("max_context_len_to_capture", 8192)
             engine_config = \
                 engine_args.create_engine_config()
@@ -246,7 +252,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         :meta private:
         """
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             parallel_state.set_custom_all_reduce(not self.parallel_config.disable_custom_all_reduce)
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
@@ -254,7 +260,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
     def build_scheduler(self):
         self.seq_counter = Counter()
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             if self.scheduler is None:
                 self.scheduler = Scheduler(self.scheduler_config, self.cache_config, None)
             else:
@@ -264,31 +270,60 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     num_gpu_blocks=self.cache_config.num_gpu_blocks,
                     num_cpu_blocks=self.cache_config.num_cpu_blocks,
                     sliding_window=self.cache_config.sliding_window)
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             if self.scheduler is None:
                 self.scheduler = [
                     Scheduler(self.scheduler_config, self.cache_config, None,
                             self.parallel_config.pipeline_parallel_size)
                     for _ in range(self.parallel_config.pipeline_parallel_size)
                 ]
+
+                def get_tokenizer_for_seq(sequence):
+                    assert tokenizer_group, ("tokenizer_group cannot be None, "
+                                            "make sure skip_tokenizer_init is False")
+                    return tokenizer_group.get_lora_tokenizer(sequence.lora_request)
+
+                tokenizer_for_seq = get_tokenizer_for_seq if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3 \
+                    else self.get_tokenizer_for_seq
+
                 self.output_processor = (
                     SequenceGroupOutputProcessor.create_output_processor(
                         self.scheduler_config,
                         self.detokenizer,
                         self.scheduler,
                         self.seq_counter,
-                        self.get_tokenizer_for_seq,
+                        tokenizer_for_seq,
                         stop_checker=StopChecker(
                             self.scheduler_config.max_model_len,
-                            self.get_tokenizer_for_seq,
+                            tokenizer_for_seq,
                         ),
                     ))
+                if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+                    self.input_preprocessor = InputPreprocessor(self.model_config,
+                                                                self.tokenizer)
+                    self.cached_scheduler_outputs = [
+                        SchedulerOutputState()
+                        for _ in range(self.parallel_config.pipeline_parallel_size)
+                    ]
+                    self.scheduler_contexts = [
+                        SchedulerContext(multi_step_stream_outputs=self.scheduler_config.multi_step_stream_outputs)
+                        for _ in range(self.parallel_config.pipeline_parallel_size)
+                    ]
+                    self.use_cached_outputs = False
+                    self.process_request_outputs_callback = None
+                    self.tracer = None
             else:
-                version = "v1"
-                if self.scheduler_config.use_v2_block_manager:
-                    version = "v2"
-                if self.scheduler_config.embedding_mode:
-                    version = "embedding"
+                if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+                    version = "selfattn"
+                    if (self.scheduler_config.embedding_mode
+                            or self.cache_config.is_attention_free):
+                        version = "placeholder"
+                else:
+                    version = "v1"
+                    if self.scheduler_config.use_v2_block_manager:
+                        version = "v2"
+                    if self.scheduler_config.embedding_mode:
+                        version = "embedding"
 
                 BlockSpaceManagerImpl = get_block_manager_cls(version)
                 num_gpu_blocks = self.cache_config.num_gpu_blocks
@@ -314,26 +349,28 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
     def reinit_cache_engine(self):
         # reinit cache engine
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             self.worker.init_cache_engine(cache_config=self.cache_config)
             self.worker.warm_up_model()
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             self.worker.initialize_cache(self.cache_config.num_gpu_blocks, self.cache_config.num_cpu_blocks)
 
     def empty_cache(self):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
             self.worker.cache_engine.cpu_cache = None
             self.worker.cache_engine.gpu_cache = None
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
-            for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
-                ele = None
-            self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+            if self.worker.gpu_cache is not None:
+                for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
+                    ele = None
+                self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
 
-            for c_e in self.worker.cache_engine:
-                c_e.cpu_cache = None
-                c_e.gpu_cache = None
-            self.worker.cache_engine = None
+            if hasattr(self.worker, "cache_engine") and self.worker.cache_engine is not None:
+                for c_e in self.worker.cache_engine:
+                    c_e.cpu_cache = None
+                    c_e.gpu_cache = None
+                self.worker.cache_engine = None
 
         self.clear_cache()
 
@@ -350,14 +387,14 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         # Get the maximum number of blocks that can be allocated on GPU and CPU.
         self.clear_cache()
 
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             num_gpu_blocks, num_cpu_blocks = self.worker.profile_num_available_blocks(
                 self.cache_config.block_size,
                 self.cache_config.gpu_memory_utilization,
                 self.cache_config.swap_space_bytes,
                 self.cache_config.cache_dtype
             )
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             num_gpu_blocks, num_cpu_blocks = self.worker.determine_num_available_blocks()
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
@@ -438,31 +475,52 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     prompt_token_ids = prompt_token_ids[:seq_len-1]
                 max_tokens = seq_len - len(prompt_token_ids)
 
-            sampling_params = SamplingParams(
-                n=self.model_args.get("n"),
-                presence_penalty=presence_penalty,
-                frequency_penalty=frequency_penalty,
-                repetition_penalty=repetition_penalty,
-                temperature=temperature,
-                top_p=top_p,
-                top_k=top_k,
-                use_beam_search=self.model_args.get("use_beam_search"),
-                ignore_eos=self.model_args.get("ignore_eos"),
-                stop=stop,
-                max_tokens=max_tokens,
-                logprobs=1,
-                prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-                skip_special_tokens=False
-            )
+            if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_3_0, VLLMVersion.v_0_5_1]:
+                sampling_params = SamplingParams(
+                    n=self.model_args.get("n"),
+                    presence_penalty=presence_penalty,
+                    frequency_penalty=frequency_penalty,
+                    repetition_penalty=repetition_penalty,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    use_beam_search=self.model_args.get("use_beam_search"),
+                    ignore_eos=self.model_args.get("ignore_eos"),
+                    stop=stop,
+                    max_tokens=max_tokens,
+                    logprobs=1,
+                    prompt_logprobs=self.model_args.get("prompt_logprobs", None),
+                    skip_special_tokens=False
+                )
+            elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+                sampling_params = SamplingParams(
+                    n=self.model_args.get("n"),
+                    presence_penalty=presence_penalty,
+                    frequency_penalty=frequency_penalty,
+                    repetition_penalty=repetition_penalty,
+                    temperature=temperature,
+                    top_p=top_p,
+                    top_k=top_k,
+                    ignore_eos=self.model_args.get("ignore_eos"),
+                    stop=stop,
+                    max_tokens=max_tokens,
+                    logprobs=1,
+                    prompt_logprobs=self.model_args.get("prompt_logprobs", None),
+                    skip_special_tokens=False
+                )
+            else:
+                raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
 
-            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+
+            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
                 self.add_request(
                     request_id,
                     prompt,
                     sampling_params,
                     prompt_token_ids=prompt_token_ids
                 )
-            elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+            elif CURRENT_VLLM_VERSION in \
+                    [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
                 inputs = self.convert_v1_inputs(
                     prompts=[prompt],
                     prompt_token_ids=[prompt_token_ids],
@@ -494,7 +552,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             assert hasattr(self, "model")
             self.model.eval()
         self.worker.model_runner.model = self.model.model
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             self.worker.device = torch.device(f"cuda:{torch.cuda.current_device()}")
             self.worker.init_gpu_memory = torch.cuda.mem_get_info()[0]
 
@@ -533,12 +591,12 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             sync_map_cls = Megatron2QWenSyncMap
             from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
             self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1.value)
+            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1)
         elif isinstance(self.model.model, Qwen2ForCausalLM):
             sync_map_cls = Megatron2QWenSyncMap
             from chatlearn.utils.vllm_utils import split_attn_state
             self._to_fix_qkv_ordering_func = split_attn_state
-            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2.value)
+            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2)
         elif isinstance(self.model.model, LlamaForCausalLM):
             use_legacy_models = get_use_legacy_models(self.model_args)
             sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
@@ -573,14 +631,14 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         :meta private:
         """
-        return None
+        return 1
 
     @property
     def data_parallel_rank(self):
         """
         :meta private:
         """
-        return None
+        return 0
 
     def tensor_parallel_rank(self):
         """
@@ -637,7 +695,11 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self.start_time = time.monotonic()
 
         scheduler = self.scheduler[0] if isinstance(self.scheduler, list) else self.scheduler
-        self.seq_group_metadata_list, self.scheduler_outputs = scheduler.schedule()
+
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            self.seq_group_metadata_list, self.scheduler_outputs, _ = scheduler.schedule()
+        else:
+            self.seq_group_metadata_list, self.scheduler_outputs = scheduler.schedule()
 
         if self.scheduler_outputs.is_empty():
             return {}
@@ -649,7 +711,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             "blocks_to_copy" : self.scheduler_outputs.blocks_to_copy
         }
 
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
+        if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             finished_requests_ids = self.scheduler[0].get_and_reset_finished_requests_ids()
             data.update({
                 "num_lookahead_slots": self.scheduler_outputs.num_lookahead_slots,
@@ -659,13 +721,61 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
         return data
 
-    def process_model_outputs(self, output):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+    def process_model_outputs(self, output, seq_group_metadata_list=None):
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             step_outputs = self._process_model_outputs(output, self.scheduler_outputs)
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
-            step_outputs = self._process_model_outputs(
-                output, self.scheduler_outputs.scheduled_seq_groups,
-                self.scheduler_outputs.ignored_seq_groups, self.seq_group_metadata_list)
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
+                step_outputs = self._process_model_outputs(
+                    output, self.scheduler_outputs.scheduled_seq_groups,
+                    self.scheduler_outputs.ignored_seq_groups, self.seq_group_metadata_list)
+            else:
+                # We need to do this here so that last step's sampled_token_ids can
+                # be passed to the next iteration for PP.
+                # if self.is_last_rank():virtual_engine
+                virtual_engine = 0
+                allow_async_output_proc = False
+                ctx = self.scheduler_contexts[virtual_engine]
+
+                # Clear outputs for each new scheduler iteration
+                ctx.request_outputs.clear()
+                if self.scheduler_config.is_multi_step:
+                    self._update_cached_scheduler_output(virtual_engine, output)
+                # Finish the current step for all the sequence groups.
+                if self.scheduler_config.is_multi_step:
+                    for seq_group in seq_group_metadata_list:
+                        seq_group.finish_step()
+
+                if not self._has_remaining_steps(seq_group_metadata_list):
+                    # clear the cache if we have finished all the steps.
+                    if self.scheduler_config.is_multi_step:
+                        self.cached_scheduler_outputs[0] = SchedulerOutputState()
+
+                    # is_first_step_output is True only when the num_steps of all
+                    # the sequences are 1. When the num_steps > 1,
+                    # multi_step_model_runner does the first-step output append.
+                    is_first_step_output: bool = False if not seq_group_metadata_list \
+                        else seq_group_metadata_list[0].state.num_steps == 1
+
+                    # Add results to the output_queue
+                    ctx.append_output(outputs=output,
+                                    seq_group_metadata_list=seq_group_metadata_list,
+                                    scheduler_outputs=self.scheduler_outputs,
+                                    is_async=allow_async_output_proc,
+                                    is_last_step=True,
+                                    is_first_step_output=is_first_step_output)
+
+                    self._process_model_outputs(ctx=ctx)
+                else:
+                    # Multi-step case
+                    return ctx.request_outputs
+
+                if not self.has_unfinished_requests():
+                    # Drain async postprocessor (if exists)
+                    if len(ctx.output_queue) > 0:
+                        self._process_model_outputs(ctx=ctx)
+                    assert len(ctx.output_queue) == 0
+                step_outputs = ctx.request_outputs
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
         done = 0
@@ -687,29 +797,68 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
     @torch.inference_mode()
     def execute_step(self, data):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0.value:
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             output = self.worker.execute_model(
                 data["seq_group_metadata_list"],
                 data["blocks_to_swap_in"],
                 data["blocks_to_swap_out"],
                 data["blocks_to_copy"]
             )
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1.value:
-            execute_model_req = ExecuteModelRequest(
-                seq_group_metadata_list=data["seq_group_metadata_list"],
-                blocks_to_swap_in=data["blocks_to_swap_in"],
-                blocks_to_swap_out=data["blocks_to_swap_out"],
-                blocks_to_copy=data["blocks_to_copy"],
-                num_lookahead_slots=data["num_lookahead_slots"],
-                running_queue_size=data["running_queue_size"],
-                finished_requests_ids=data["finished_requests_ids"]
-            )
-            output = self.worker.execute_model(execute_model_req=execute_model_req)
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
+                execute_model_req = ExecuteModelRequest(
+                    seq_group_metadata_list=data["seq_group_metadata_list"],
+                    blocks_to_swap_in=data["blocks_to_swap_in"],
+                    blocks_to_swap_out=data["blocks_to_swap_out"],
+                    blocks_to_copy=data["blocks_to_copy"],
+                    num_lookahead_slots=data["num_lookahead_slots"],
+                    running_queue_size=data["running_queue_size"],
+                    finished_requests_ids=data["finished_requests_ids"]
+                )
+                output = self.worker.execute_model(execute_model_req=execute_model_req)
+            else:
+                # For llm_engine, there is no pipeline parallel support, so the engine
+                # used is always 0.
+                virtual_engine = 0
+
+                # These are cached outputs from previous iterations. None if on first
+                # iteration
+                # cached_outputs = self.cached_scheduler_outputs[virtual_engine]
+                seq_group_metadata_list = data["seq_group_metadata_list"]
+                # scheduler_outputs = self.scheduler_outputs
+                allow_async_output_proc = False
+
+                assert seq_group_metadata_list is not None
+                # assert scheduler_outputs is not None
+                finished_requests_ids = data["finished_requests_ids"]
+
+                # Check if we have a cached last_output from the previous iteration.
+                # For supporting PP this is probably the best way to pass the
+                # sampled_token_ids, as a separate broadcast over all the PP stages
+                # will cause one virtual engine's microbatch to block the pipeline.
+                last_sampled_token_ids = None
+
+                execute_model_req = ExecuteModelRequest(
+                    seq_group_metadata_list=seq_group_metadata_list,
+                    blocks_to_swap_in=data["blocks_to_swap_in"],
+                    blocks_to_swap_out=data["blocks_to_swap_out"],
+                    blocks_to_copy=data["blocks_to_copy"],
+                    num_lookahead_slots=data["num_lookahead_slots"],
+                    running_queue_size=data["running_queue_size"],
+                    finished_requests_ids=finished_requests_ids,
+                    # We use ExecuteModelRequest to pass the last sampled_token_ids
+                    # to each of the non-last PP stages for in-place prepare_input.
+                    last_sampled_token_ids=last_sampled_token_ids)
+
+                if allow_async_output_proc:
+                    execute_model_req.async_callback = self.async_callbacks[
+                        virtual_engine]
+                output = self.worker.execute_model(execute_model_req=execute_model_req)
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
 
         if hasattr(self, "scheduler_outputs"):
-            return self.process_model_outputs(output)
+            return self.process_model_outputs(output, seq_group_metadata_list=data["seq_group_metadata_list"])
 
         return output
 

@@ -37,3 +37,6 @@ tokenizer: ${tokenizer_load}
 
 vllm_input_ids_key: input_ids
 vllm_prompt_key: prompt
+
+tensor_model_parallel_size: ${policy_tp}
+pipeline_model_parallel_size: ${policy_pp}

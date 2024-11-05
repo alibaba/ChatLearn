@@ -43,10 +43,12 @@ export data_checkpoint_path=${output_dir}/data_checkpoint
 
 
 if [[ "$model_size" == "llama2-7B" ]]; then
-    export policy_tp=4
-    export ppo_policy_pp=1
-    export reward_tp=4
-    export ppo_value_pp=1
+    [ -z "$policy_tp" ] && export policy_tp=4
+    [ -z "$policy_pp" ] && export policy_pp=1
+    [ -z "$ppo_policy_tp" ] && export ppo_policy_tp=4
+    [ -z "$ppo_policy_pp" ] && export ppo_policy_pp=1
+    [ -z "$reward_tp" ] && export reward_tp=4
+    [ -z "$ppo_value_pp" ] && export ppo_value_pp=1
     export train_global_batch_size=128
     if [[ "$backend" == "megatron" ]]; then
         export generation_batch_size=256
@@ -68,6 +70,8 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     export free_memory_ppo_value=True
 elif [[ "$model_size" == "llama2-13B" ]]; then
     export policy_tp=8
+    export policy_pp=1
+    export ppo_policy_tp=8
     export ppo_policy_pp=2
     export reward_tp=8
     export ppo_value_pp=2
@@ -76,6 +80,8 @@ elif [[ "$model_size" == "llama2-13B" ]]; then
     export ref_generation_batch_size=16
 elif [[ "$model_size" == "llama2-70B" ]]; then
     export policy_tp=8
+    export policy_pp=1
+    export ppo_policy_tp=8
     export ppo_policy_pp=4
     export reward_tp=8
     export ppo_value_pp=4
@@ -112,5 +118,3 @@ eval_data_path=${EVAL_DATASET_PATH} \
 sample_per_episode=${sample_per_episode} \
 num_episode=${num_episode} \
 python entry/train_rlhf.py -c $configs 2>&1 | tee -a ${log_file} ; exit ${PIPESTATUS[0]}
-
-

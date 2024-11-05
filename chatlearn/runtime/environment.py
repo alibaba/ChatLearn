@@ -97,7 +97,12 @@ class Environment(Executor):
         num_replica = len(self.models[0].replicas)
         num_batch = self.sample_per_episode // (num_replica * self.batch_size) * num_replica
         remainder = self.sample_per_episode % (num_replica * self.batch_size)
-        if remainder >= num_replica:
+        if remainder > 0 and self.first_model.use_vllm_backend:
+            if self.sample_per_episode >= num_replica:
+                self._batch_per_episode = num_replica
+            else:
+                self._batch_per_episode = self.sample_per_episode
+        elif remainder >= num_replica:
             self._batch_per_episode = num_batch + num_replica
         else:
             self._batch_per_episode = num_batch + remainder
