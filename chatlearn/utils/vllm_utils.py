@@ -765,8 +765,8 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         )
     if isinstance(word_embeddings, dict):
         assert not word_embeddings, \
-            f"weight name of word_embed expect 'model.word_embeddings_for_head.weight' \
-             or 'model.language_model.embedding.word_embeddings.weight'."
+            "weight name of word_embed expect 'model.word_embeddings_for_head.weight' \
+            or 'model.language_model.embedding.word_embeddings.weight'."
     elif word_embeddings is not None:
         # After training with megatron, word_embeddings is stored differently
         word_embeddings = word_embeddings.to(hf_config.torch_dtype)
@@ -864,7 +864,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     # For LM head, transformers' wants the matrix to weight embeddings.
     params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
     if isinstance(params, dict):
-        assert not params, f"weight name of lm_head expect 'model.language_model.output_layer.weight'."
+        assert not params, "weight name of lm_head expect 'model.language_model.output_layer.weight'."
     elif params is not None:
         print("Converting LM head")
         output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
@@ -1112,7 +1112,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         )
         if isinstance(word_embeddings, dict):
             assert not word_embeddings, \
-                f"weight name of word_embed expect 'model.word_embeddings_for_head.weight' \
+                "weight name of word_embed expect 'model.word_embeddings_for_head.weight' \
                 or 'model.language_model.embedding.word_embeddings.weight'."
         elif word_embeddings is not None:
             # After training with megatron, word_embeddings is stored differently
