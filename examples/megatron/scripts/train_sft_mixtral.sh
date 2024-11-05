@@ -52,7 +52,7 @@ NODE_RANK=$RANK
 NNODES=$WORLD_SIZE
 
 
-dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp / $ep))
+dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp))
 gbs=$(($gbs * $dp))
 
 
@@ -147,10 +147,10 @@ log_file=$CHECKPOINT_PATH/stderr_$NODE_RANK.log
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
-cd ${CHATLEARN}/examples/megatron/sft
+cd ${CHATLEARN}/examples/megatron/
 
 torchrun $DISTRIBUTED_ARGS \
-  finetune_sft.py \
+  entry/train_sft.py \
   ${MODEL_ARGS[@]} \
   ${MOE_ARGS[@]} \
   ${DATA_ARGS[@]} \
