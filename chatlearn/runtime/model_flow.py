@@ -152,6 +152,7 @@ class ModelFlow:
 
     def fake_compute(self, fn):
         def inner(*args):
+            assert len(args) > 0
             original_fn = unwrap_func(fn)
             func_name = original_fn.__name__
             model_node = ModelNode(args[0], func_name)
@@ -208,11 +209,8 @@ class ModelFlow:
         for i, current_node in enumerate(self.model_nodes):
             for j in range(i + 1, len(self.model_nodes)):
                 next_node = self.model_nodes[j]
-                if current_node.model.colocate_with(next_node.model):
-                    current_node.next_colocate_node = next_node
-                    break
                 # if current_node and next_node share the same model, then thay are colocated
-                if current_node.model is next_node.model:
+                if current_node.model.colocate_with(next_node.model) or current_node.model is next_node.model:
                     current_node.next_colocate_node = next_node
                     break
 

@@ -172,7 +172,7 @@ class Executor:
         future.wait(refs)
 
     def generate_step_one_model_internal(self, model, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
-                                         is_eval=False, to_onload=None, to_offload=None, micro_batch_num=None):
+                                         is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
         Args:
             model: DistModel
@@ -193,7 +193,7 @@ class Executor:
                     data = self.get_merged_data(in_queue)
                     mb, query = decode_data(data)
                 else:
-                    mb, query = micro_batch_num, []
+                    mb, query = micro_batch_index, []
             else:
                 data = in_queue.get()
                 mb, query = decode_data(data)
@@ -223,7 +223,7 @@ class Executor:
         return output
 
     def generate_step_one_model(self, model, in_queue, out_queue, step_num, func_name="forward_step",
-                                to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_num=None):
+                                to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
         Args:
             model: DistModel
@@ -237,7 +237,7 @@ class Executor:
 
         # output is a list of tuple, each tuple is (remote_refs, mb)
         output = self.generate_step_one_model_internal(model, in_queue, step_num, replica, func_name, to_empty_cache,
-                                                       is_eval, to_onload, to_offload, micro_batch_num)
+                                                       is_eval, to_onload, to_offload, micro_batch_index)
 
         if model.module_args.zero_size == 1:
             # If (tp > 1 or pp > 1) and ep = 1 for current model, its `output` will be a list whose

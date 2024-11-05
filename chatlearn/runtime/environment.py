@@ -163,11 +163,12 @@ class MCTSEnv(Environment):
                         model = model_node.model
                         in_queue = model_node.get_input_queues()
                         func_name = model_node.func_name
+                        # TODO: we will consider colocation/offload later
                         to_empty_cache = False
                         to_onload = False
                         to_offload = False
                         _, data = self.generate_step_one_model(model, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
-                                                    is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_num=mb)
+                                                    is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_index=mb)
                 should_stop = future.get(self._get_current_model(self.mcts).should_stop())
                 assert len(should_stop) == 1
                 if should_stop[0]:
