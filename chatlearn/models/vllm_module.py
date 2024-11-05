@@ -578,7 +578,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             "We assume pipeline stage of target model is not smaller than src model, and is divisible by src model"
         mapping_interval = dst_layers_per_stage // src_layers_per_stage
         rank = src_pipe_stage % mapping_interval
-        layer_offset = rank * src_layers_per_stage
+        layer_offset = rank * src_layers_per_stage + dst_layers_per_stage * self.pipeline_parallel_rank()
         return layer_offset
 
     def map_src_to_dst(self, src_names, num_src_pipeline_stage, src_pipe_stage):

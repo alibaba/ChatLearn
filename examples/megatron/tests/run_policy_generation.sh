@@ -4,7 +4,7 @@ set -x
 [ -z "$MEGATRON" ] && export MEGATRON=path-to-megatron
 [ -z "$CHATLEARN" ] && export CHATLEARN=path-to-chatlearn
 [ -z "$TP" ] && export TP=4
-[ -z "$PP" ] && export PP=1
+[ -z "$PP" ] && export PP=2
 [ -z "$VOCAB_FILE" ] && export VOCAB_FILE=path-to-tokenizer
 [ -z "$LOAD" ] && export LOAD=path-to-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json

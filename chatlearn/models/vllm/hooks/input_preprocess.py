@@ -17,7 +17,7 @@
 
 import inspect
 
-# pylint: disable=unused-import,wildcard-import
+# pylint: disable=unused-import,unused-argument
 from vllm.inputs import preprocess
 
 
