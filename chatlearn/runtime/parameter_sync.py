@@ -452,7 +452,7 @@ class ParameterSyncGroup:
         )
 
         def validate():
-            src_names, dst_names = self.set_sync_param_names(send_actor, recv_actors[0], requires_grad, filter_fn)
+            src_names, dst_names = self.set_sync_param_names(send_actor, recv_actors[0], requires_grad, filter_fn, param_group)
             # check the value of src model and tgt model
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             res = [send_actor.reset_sync_parameters.remote(src_names, pipe_stage)]
@@ -523,21 +523,21 @@ class ParameterSyncGroup:
         validate()
         logger.info("Validation passed!")
 
-    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad, filter_fn=None):
-        send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad, filter_fn)
+    def set_sync_param_names_stage2(self, send_actor, recv_actor, to_rank, requires_grad, filter_fn=None, param_group="default"):
+        send_names, _ = self.set_sync_param_names(send_actor, send_actor, requires_grad, filter_fn, param_group)
         refs = []
         refs.append(send_actor.set_send_parameters.remote(send_names, self.get_actor_pipe_rank(send_actor)))
         refs.append(recv_actor.set_recv_parameters.remote(to_rank, send_names, self.get_actor_pipe_rank(recv_actor)))
         future.get(refs)
         return send_names, send_names
 
-    def sync_broadcast_two_stage(self, actors, group_name, requires_grad=None, stage2=False, filter_fn=None):
+    def sync_broadcast_two_stage(self, actors, group_name, requires_grad=None, stage2=False, filter_fn=None, param_group="default"):
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn)
+                self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn, param_group)
             else:
-                self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn)
+                self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
                 pipe_stage = self.get_actor_pipe_rank(send_actor)
 
                 shape_refs = []
@@ -576,10 +576,10 @@ class ParameterSyncGroup:
         rets = future.wait(refs, return_output=True)
         return rets
 
-    def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None):
+    def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
         send_actor = actors[0]
         for recv_actor in actors[1:]:
-            self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn)
+            self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         assert self.enable_coalesce_param
         refs = []
@@ -588,8 +588,8 @@ class ParameterSyncGroup:
             refs.append(ref)
         future.wait(refs, return_output=True)
 
-    def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
-        src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn)
+    def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
+        src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
 
@@ -621,9 +621,9 @@ class ParameterSyncGroup:
                 future.get([send_ref, recv_ref])
             logger.debug(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
 
-    def sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
+    def sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         try:
-            self._sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn)
+            self._sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         except Exception:
             future.get(self.error_signal.set.remote(traceback.format_exc()))
 
@@ -673,12 +673,15 @@ class ParameterSyncGroup:
             return future.get(actor.get_data_parallel_rank.remote())
         return utils.get_or_cache(self._actor2dp, actor, inner_func)
 
-    def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
+    def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         if requires_grad is None:
             requires_grad = True
         if self._enable_lora:
             # TODO(jiangle.jl): support freeze layer.
             requires_grad = False
+        assert param_group in ("default", "routed", "except_routed"), (
+            f"param_group must be one of 'default', 'routed', or 'except_routed', got {param_group}."
+        )
 
         if self.num_src_pipeline_stage > 1:
             dst_pipe_rank = self.get_actor_pipe_rank(recv_actor)
@@ -715,7 +718,7 @@ class ParameterSyncGroup:
             src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
             dst_names = [self._get_dst_name(name, src_prefix, dst_prefix) for name in dst_names]
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
-        if self.tp_num_mapping > 1:
+        if param_group != "routed" and self.tp_num_mapping > 1:
             key = (recv_actor, recv_actor)
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = (dst_names, dst_names)
@@ -723,18 +726,26 @@ class ParameterSyncGroup:
                 dst_names0 = self._send_recv_param_names[key][0]
                 dst_names0 += dst_names
                 self._send_recv_param_names[key] = (dst_names0, dst_names0)
+        elif param_group == "routed":
+            # Do nothing becuase the routed experts are one-to-one mapped across training and inference currently.
+            assert self.hep_num_mapping == 1, (
+                "Currently, ChatLearn supports balanced hyper expert parallel size across training and inference only, "
+                "i.e. training EP size * training TP size must be equal to inference EP size * inference TP size."
+            )
         if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             refs = []
             refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
             refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
             future.get(refs)
+        assert len(src_names) == len(dst_names), f"src_names: {src_names}, dst_names = {dst_names}"
         return src_names, dst_names
 
-    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None):
+    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
-            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn))
+            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
+        assert len(src_names) == len(dst_names)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
             refs = []
@@ -802,14 +813,14 @@ class ParameterSyncGroup:
                                 send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
                             )
                             futures.append(executor.submit(
-                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn
+                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
                             ))
                     else:
                         actor_groups, finalized_group_name = self.create_broadcast_group(
                             send_actor, recv_actors, group_name=group_name, param_group=param_group
                         )
                         futures.append(executor.submit(
-                            self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn
+                            self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
                         ))
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
@@ -925,10 +936,14 @@ class ParameterSyncGroup:
                 recv_actors = actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                    futures.append(executor.submit(self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn))
+                    futures.append(executor.submit(
+                        self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                    ))
                 else:
                     for recv_actor in recv_actors:
-                        futures.append(executor.submit(self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn))
+                        futures.append(executor.submit(
+                            self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
+                        ))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
@@ -943,10 +958,10 @@ class ParameterSyncGroup:
         for send_actor, recv_actors in actor_mappings.items():
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn)
+                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
             else:
                 for recv_actor in recv_actors:
-                    self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn)
+                    self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group)
 
     def sync(self, requires_grad=None, validate=False):
         self.check_and_setup_collective_group()
