@@ -14,7 +14,6 @@
 # ==============================================================================
 """Sync parameters"""
 
-import importlib
 import concurrent.futures
 import traceback
 from collections import defaultdict
@@ -572,7 +571,7 @@ class ParameterSyncGroup:
         future.wait(refs, return_output=True)
 
     def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
-        src_names, dst_names = self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
+        self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
 

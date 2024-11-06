@@ -36,7 +36,7 @@ class BaseSync:
             setattr(self, cached_name, cached)
         return utils.get_or_cache(cached, actor, inner_func, *args, **kwargs)
 
-    def map_name_from_src_to_dst(self, send_actor, recv_actor, src_names, dst_names):
+    def map_name_from_src_to_dst(self, send_actor, recv_actor, src_names, dst_names): # pylint: disable=unused-argument
         """
         map layer name from src model to dst model
         """
@@ -48,13 +48,11 @@ class BaseSync:
         """
         return params_to_sync_list
 
-    
     def regroup_params_to_sync(self, name, param_data):
         """
         :meta private:
         """
         param_data_shape = param_data.shape
-        
         # Regroup these tensors into different tp slices.
         # Output: [tp_slice_0, tp_slice_1, ...]
         # Comment:
@@ -101,3 +99,4 @@ class BaseSync:
             del param_data_list
 
         return param_data
+

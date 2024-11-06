@@ -150,7 +150,7 @@ class MegatronVllmSync(BaseSync):
         params_to_sync_list = self.fix_qkv_ordering(params_to_sync_list)
         return params_to_sync_list
 
-    def regroup_qkv_tp_slices(name, param_data):
+    def regroup_qkv_tp_slices(self, name, param_data):
         param_data_shape = param_data.shape
         # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
         to_fix_qkv_ordering_dict = self.sync_map.to_fix_qkv_ordering_dict
@@ -241,3 +241,4 @@ class MegatronVllmLlamaSync(MegatronVllmSync):
         sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
         self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
         return sync_map_cls(src_names, src_pipe_layer_offset)
+

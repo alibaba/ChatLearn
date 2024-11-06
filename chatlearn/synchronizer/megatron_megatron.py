@@ -20,9 +20,6 @@ from .base import BaseSync
 class MegatronMegatronSync(BaseSync):
     """megatron to megatron synchronizer"""
 
-    def __init__(self, src_model, dst_model):
-        super().__init__(src_model, dst_model)
-
     def _get_dst_name(self, src_name, src_prefix, dst_prefix):
         if src_prefix:
             dst_name = src_name[len(src_prefix):]
