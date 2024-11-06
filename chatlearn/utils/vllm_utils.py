@@ -884,7 +884,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     assert qwen_version is None, f"Expect qwen_version is None for Llama, while {qwen_version}"
     tp_rank = mpu.get_tensor_model_parallel_rank()
     pp_rank = get_pipeline_model_parallel_rank()
-    assert pp_rank == 0
+    assert pp_rank == 0, "pipeline parallelism for mcore inference not supported for now."
 
     state_dict = load_state_dict(args)
 
@@ -906,7 +906,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
 
     tp_size = megatron_args.tensor_model_parallel_size
     pp_size = megatron_args.pipeline_model_parallel_size
-    assert pp_size == 1
+    assert pp_size == 1, "pipeline parallelism for mcore inference not supported for now."
     # The number of heads.
     heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
