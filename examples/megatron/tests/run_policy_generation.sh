@@ -3,16 +3,15 @@ set -x
 
 [ -z "$MEGATRON" ] && export MEGATRON=path-to-megatron
 [ -z "$CHATLEARN" ] && export CHATLEARN=path-to-chatlearn
+[ -z "$num_gpu" ] && export num_gpu=8
+[ -z "$PP" ] && export PP=2
+[ -z "$EP" ] && export EP=1
+[ -z "$TP" ] && export TP=4
 [ -z "$VOCAB_FILE" ] && export VOCAB_FILE=path-to-tokenizer
 [ -z "$LOAD" ] && export LOAD=path-to-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
 [ -z "$model_size" ] && export model_size=llama2-13B
 [ -z "$tokenizer_load" ] && export tokenizer_load=path-to-hf-tokenizer-for-vllm-backend
-
-[ -z "$num_gpu" ] && export num_gpu=4
-[ -z "$TP" ] && export TP=4
-[ -z "$EP" ] && export EP=1
-[ -z "$PP" ] && export PP=1
 
 cd $CHATLEARN/examples/megatron
 
@@ -69,9 +68,9 @@ export batch_generation_min_prompt_length=32
 
 generation_batch_size=${generation_batch_size:-64} \
 num_gpu=${num_gpu:-8} \
-policy_tp=$TP \
-policy_ep=$EP \
 policy_pp=$PP \
+policy_ep=$EP \
+policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \
 python tests/test_policy_generation.py -c $configs 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}

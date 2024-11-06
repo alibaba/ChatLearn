@@ -22,6 +22,7 @@ from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
     # imports for vllm-030
     from vllm.core.block_manager import BlockSpaceManager
+    from vllm.engine.llm_engine import LLMEngine
     from vllm.model_executor.model_loader import _set_default_torch_dtype
     from vllm.model_executor.parallel_utils import parallel_state
     from vllm.model_executor.parallel_utils.communication_op import tensor_model_parallel_all_gather
@@ -35,6 +36,7 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
     from vllm.distributed.communication_op import tensor_model_parallel_all_gather
     from vllm.distributed.parallel_state import init_world_group
     from vllm.distributed.parallel_state import initialize_model_parallel
+    from vllm.engine.llm_engine import LLMEngine
     from vllm.engine.llm_engine import _load_generation_config_dict
     from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
     from vllm.engine.output_processor.stop_checker import StopChecker
@@ -52,6 +54,7 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
     from vllm.distributed.communication_op import tensor_model_parallel_all_gather
     from vllm.distributed.parallel_state import init_world_group
     from vllm.distributed.parallel_state import initialize_model_parallel
+    from vllm.engine.async_llm_engine import _AsyncLLMEngine as LLMEngine
     from vllm.engine.llm_engine import _load_generation_config_dict
     from vllm.engine.llm_engine import SchedulerContext, SchedulerOutputState
     from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
@@ -83,7 +86,6 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
 
 from vllm.core.scheduler import Scheduler
 from vllm.engine.arg_utils import EngineArgs
-from vllm.engine.llm_engine import LLMEngine
 from vllm.entrypoints.llm import LLM
 from vllm.model_executor.models.llama import LlamaForCausalLM
 from vllm.model_executor.models.qwen import QWenLMHeadModel
