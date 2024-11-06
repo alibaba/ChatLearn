@@ -12,7 +12,7 @@ source ${DIR}/base_env.sh
 # TODO: support vllm
 backend=${1:-megatron}
 if [[ "$backend" != "megatron" ]]; then
-  echo "ERROR: expect megatron backend, while "$backend
+  echo "ERROR: expect megatron backend for Mixtral models, while current backend is "$backend
   exit 1
 fi
 
@@ -52,9 +52,9 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export policy_pp=4
     export reward_pp=4
     export value_pp=4
-    export train_global_batch_size=128
-    export generation_batch_size=1
-    export ref_generation_batch_size=1
+    export train_global_batch_size=32
+    export generation_batch_size=8
+    export ref_generation_batch_size=8
     export train_micro_batch_size=1
     export policy_recompute_activations=True
     export policy_moe_layer_recompute=True
@@ -66,6 +66,8 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export free_memory_value=True
     export free_memory_ppo_policy=True
     export free_memory_ppo_value=True
+    export seq_length=2048
+    export max_new_tokens=1024
 fi
 
 mkdir -p ${output_dir}

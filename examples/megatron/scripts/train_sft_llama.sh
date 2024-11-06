@@ -86,7 +86,7 @@ dp=$(($WORLD_SIZE * $GPUS_PER_NODE / $tp / $pp))
 gbs=$(($gbs * $dp))
 
 
-[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/sft/hh_sft_$(date +%F)_gpt_${MODEL_SIZE}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
+[ -z "$CHECKPOINT_PATH" ] && CHECKPOINT_PATH=${CHATLEARN}/output/sft/hh_sft_$(date +%F)_gpt_${model_size}_${NNODES}w${GPUS_PER_NODE}g_tp${tp}_pp${pp}_mb${mb}_seqlen${seq_len}
 
 mkdir -p $CHECKPOINT_PATH
 
@@ -110,7 +110,7 @@ use_legacy_models=${USE_LEGACY_MODELS:-"True"}
 if [[ ${use_legacy_models} = "False" ]]; then
   MCORE_ARGS="--transformer-impl transformer_engine "
 else
-  if [[ ${MODEL_SIZE} = "llama3-8B" || ${MODEL_SIZE} = "llama3-70B" ]]; then
+  if [[ ${model_size} = "llama3-8B" || ${model_size} = "llama3-70B" ]]; then
     echo "Expect USE_LEGACY_MODELS to be False for Llama3 models, but got True."
     exit 1
   fi

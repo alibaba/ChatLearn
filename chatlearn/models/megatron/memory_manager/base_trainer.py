@@ -130,7 +130,10 @@ class BaseTrainerMemoryManager(ABC):
     def _optimizer_load_state_bucket_into_device(self, device, optimizer=None):
         """put the state bucket onto a device"""
         if optimizer is not None:
-            optimizer_list = [optimizer]
+            if isinstance(optimizer, ChainedOptimizer):
+                optimizer_list = optimizer.chained_optimizers
+            else:
+                optimizer_list = [optimizer]
         else:
             optimizer_list = self.get_optimizer_list()
 

@@ -32,7 +32,7 @@ runtime:
     - ppo_policy,reference
   train_micro_batch_size: ${train_micro_batch_size:2}
   train_global_batch_size: ${train_global_batch_size:512}
-  num_episode: ${num_episode:100}
+  num_episode: ${num_episode:200}
   sample_per_episode: ${sample_per_episode:1024}
   num_training_epoch: 1
   save_episode_interval: ${save_episode_interval:100}

@@ -147,6 +147,7 @@ elif [[ "$model_size" == "mixtral-8x7B" ]]; then
   export reward_moe_router_topk=2
   export max_position_embedding=32768
   export seq_length=2048
+  export USE_LEGACY_MODELS=False
 else
   echo "unsupported model_size ${model_size}, please set your own model config"
   exit 1
