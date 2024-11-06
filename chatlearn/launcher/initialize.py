@@ -18,6 +18,9 @@ import os
 import sys
 
 import ray
+import torch
+from cupy.cuda import nccl
+from ray.util.collective.collective_group.nccl_util import TORCH_NCCL_DTYPE_MAP
 
 from chatlearn.launcher import dlc_utils
 from chatlearn.utils.arguments import parse_args
@@ -25,6 +28,13 @@ from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.global_vars import set_initialized
 from chatlearn.utils.logger import logger
 from chatlearn.utils.version import VERSION
+
+
+def patch_ray():
+    TORCH_NCCL_DTYPE_MAP[torch.bfloat16] = nccl.NCCL_BFLOAT16
+
+
+patch_ray()
 
 
 def init_ray(runtime_env_args):

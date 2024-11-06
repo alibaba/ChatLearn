@@ -14,6 +14,8 @@
 # ==============================================================================
 """base"""
 
+import torch
+
 from chatlearn.utils import future
 from chatlearn.utils import utils
 
@@ -24,6 +26,7 @@ class BaseSync:
         self.src_model = src_model
         self.dst_model = dst_model
         self.is_parameter_changed = False
+        self.concat_params_dict = None
 
     def get_or_cache(self, actor, func_name, *args, **kwargs):
         def inner_func(*args, **kwargs):
@@ -48,7 +51,7 @@ class BaseSync:
         """
         return params_to_sync_list
 
-    def regroup_params_to_sync(self, name, param_data):
+    def regroup_params_to_sync(self, name, param_data, tp_division):
         """
         :meta private:
         """
@@ -73,8 +76,8 @@ class BaseSync:
             or "mlp.shared_experts.dense_4h_to_h" in name
         ):
             param_data_list = []
-            col_offset = param_data_shape[1] // self._tp_division[name]
-            for idx in range(self._tp_division[name]):
+            col_offset = param_data_shape[1] // tp_division
+            for idx in range(tp_division):
                 start = idx * col_offset
                 end =  start + col_offset
                 param_data_list.append(param_data[:,start:end])
@@ -87,11 +90,11 @@ class BaseSync:
             or "mlp.shared_experts.dense_h_to_4h" in name
         ):
             param_data_list = []
-            row_offset = param_data_shape[0] // self._tp_division[name] // 2
-            for idx in range(self._tp_division[name]):
+            row_offset = param_data_shape[0] // tp_division // 2
+            for idx in range(tp_division):
                 w1_start = idx * row_offset
                 w1_end = w1_start + row_offset
-                w2_start = (idx + self._tp_division[name]) * row_offset
+                w2_start = (idx + tp_division) * row_offset
                 w2_end = w2_start + row_offset
                 param_data_list.append(
                     torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))

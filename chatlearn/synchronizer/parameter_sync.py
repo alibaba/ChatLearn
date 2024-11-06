@@ -24,6 +24,7 @@ from typing import List, Dict
 import torch
 from tqdm import tqdm
 
+from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
@@ -33,6 +34,7 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
 from . import get_synchronizer
 
+patch_ray()
 
 class ParameterSyncGroup:
     """ParameterSyncGroup"""

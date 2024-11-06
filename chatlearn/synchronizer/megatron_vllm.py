@@ -68,6 +68,7 @@ class MegatronVllmSync(BaseSync):
         src_pipe_layer_offset = self.get_or_cache(send_actor, "get_pipeline_stage_layer_offset")
         self.sync_map = self.map_src_to_dst(src_names, src_pipe_layer_offset)
         self._validate(self.sync_map)
+        self.concat_params_dict = self.sync_map.concat_params_dict
         return self.sync_map.src_names, self.sync_map.dst_names
 
     def concat_params(self, params_to_sync_list):
@@ -150,7 +151,7 @@ class MegatronVllmSync(BaseSync):
         params_to_sync_list = self.fix_qkv_ordering(params_to_sync_list)
         return params_to_sync_list
 
-    def regroup_qkv_tp_slices(self, name, param_data):
+    def regroup_qkv_tp_slices(self, name, param_data, tp_divition):
         param_data_shape = param_data.shape
         # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
         to_fix_qkv_ordering_dict = self.sync_map.to_fix_qkv_ordering_dict
@@ -168,8 +169,8 @@ class MegatronVllmSync(BaseSync):
                 if to_fix_qkv_ordering_dict is not None:
                     param_data = param_data.view(param_shape)
                     param_data_list = []
-                    head_offset = heads // self._tp_division[name]
-                    for idx in range(self._tp_division[name]):
+                    head_offset = heads // tp_divition
+                    for idx in range(tp_divition):
                         start = idx * head_offset
                         end = start + head_offset
                         param_data_list.append(param_data[:,start:end])
@@ -185,11 +186,11 @@ class MegatronVllmSync(BaseSync):
                         param_data = param_data.view(
                             (heads + 2 * _num_query_groups, hidden_size_per_head, self.src_module_args.args_dict["hidden_size"]))
                     param_data_list = []
-                    head_offset = heads // self._tp_division[name]
-                    for idx in range(self._tp_division[name]):
+                    head_offset = heads // tp_divition
+                    for idx in range(tp_divition):
                         q_start = idx * head_offset
                         q_end = q_start + head_offset
-                        k_start = (heads + idx) if _num_query_groups // self._tp_division[name] else heads
+                        k_start = (heads + idx) if _num_query_groups // tp_divition else heads
                         k_end = k_start + 1
                         v_start = k_start + _num_query_groups
                         v_end = v_start + 1
@@ -210,9 +211,9 @@ class MegatronVllmSync(BaseSync):
                     del param_data_list
         return param_data
 
-    def regroup_params_to_sync(self, name, param_data):
-        param_data = self.regroup_qkv_tp_slices(name, param_data)
-        return super().regroup_params_to_sync(name, param_data)
+    def regroup_params_to_sync(self, name, param_data, tp_division):
+        param_data = self.regroup_qkv_tp_slices(name, param_data, tp_division)
+        return super().regroup_params_to_sync(name, param_data, tp_division)
 
 class MegatronVllmQWenSync(MegatronVllmSync):
     """qwen"""

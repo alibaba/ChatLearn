@@ -692,7 +692,7 @@ class BaseModule:
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
                 if regroup:
-                    param = self._synchronizer.regroup_params_to_sync(name, param.data)
+                    param = self._synchronizer.regroup_params_to_sync(name, param.data, self._tp_division[name])
                 if to_cpu:
                     param = param.cpu()
                 return param
@@ -799,7 +799,7 @@ class BaseModule:
                     buffer_num.append(1)
                 else:
                     # regroup src_tensor by tp_rank.
-                    param_data = self._synchronizer.regroup_params_to_sync(name, param_data)
+                    param_data = self._synchronizer.regroup_params_to_sync(name, param_data, self._tp_division[name])
                     buffer_num.append(1)
                 tensors.append(param_data)
 
@@ -1062,3 +1062,15 @@ class BaseModule:
 
     def set_synchronizer(self, synchronizer):
         self._synchronizer = synchronizer
+
+    def expert_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return 0
+
+    def tensor_and_expert_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return 0
