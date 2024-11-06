@@ -19,7 +19,6 @@ from typing import List, Optional
 
 import torch
 
-from chatlearn.models.megatron.memory_manager.base import BaseMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
 from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version

@@ -29,6 +29,7 @@ try:
     from chatlearn.models.megatron.memory_manager import create_trainer_memory_manager, InferenceMemoryManager
 except ImportError:
     mpu = None
+    print("Megatron is not imported, setting mpu to None.")
 from .torch_module import TorchModule
 
 
