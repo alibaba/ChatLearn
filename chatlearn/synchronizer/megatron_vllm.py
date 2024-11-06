@@ -66,7 +66,8 @@ class MegatronVllmSync(BaseSync):
 
     def map_name_from_src_to_dst(self, send_actor, recv_actor, src_names, dst_names):
         src_pipe_layer_offset = self.get_or_cache(send_actor, "get_pipeline_stage_layer_offset")
-        self.sync_map = self.map_src_to_dst(src_names, src_pipe_layer_offset)
+        dst_pipe_layer_offset = self.get_or_cache(recv_actor, "get_pipeline_stage_layer_offset")
+        self.sync_map = self.map_src_to_dst(src_names, src_pipe_layer_offset+dst_pipe_layer_offset)
         self._validate(self.sync_map)
         self.concat_params_dict = self.sync_map.concat_params_dict
         return self.sync_map.src_names, self.sync_map.dst_names
