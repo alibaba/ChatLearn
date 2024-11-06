@@ -25,7 +25,6 @@ from typing import List, Dict
 import torch
 from tqdm import tqdm
 
-from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
@@ -33,13 +32,7 @@ from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
-
-vllm_exist = importlib.util.find_spec("vllm")
-if vllm_exist:
-    from chatlearn.models.vllm_module import VLLMModule
-
-
-patch_ray()
+from . import get_synchronizer
 
 
 class ParameterSyncGroup:
@@ -48,6 +41,7 @@ class ParameterSyncGroup:
     def __init__(self, src_model, dst_model, group_name, frequency, error_signal):
         self.src_model = src_model
         self.dst_model = dst_model
+        self.synchronizer = get_synchronizer(src_model, dst_model)
         self.group_name = group_name
         self.error_signal = error_signal
         self.send_recv_actor_mappings = defaultdict(list)
@@ -76,7 +70,6 @@ class ParameterSyncGroup:
 
         self.setup_rank_mapping()
 
-        self.enable_coalesce_param = get_args().runtime_args.coalesce_param
         self.concurrent_comm = get_args().runtime_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
         # sync every n episodes, n = 0 for no param sync
@@ -401,13 +394,6 @@ class ParameterSyncGroup:
         logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
         logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
 
-    def _get_dst_name(self, src_name, src_prefix, dst_prefix):
-        if src_prefix:
-            dst_name = src_name[len(src_prefix):]
-        else:
-            dst_name = dst_prefix + src_name
-        return dst_name
-
     def _clear_sync_send_recv_parameters(self, rank_mappings:List):
         if len(rank_mappings) == 0:
             return
@@ -560,8 +546,6 @@ class ParameterSyncGroup:
                 refs.append(send_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
                 refs.append(send_actor.set_tp_division.remote(tp_division))
                 future.get(refs)
-
-        assert self.enable_coalesce_param
         refs = []
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         send_rank = 0
@@ -581,7 +565,6 @@ class ParameterSyncGroup:
         for recv_actor in actors[1:]:
             self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
-        assert self.enable_coalesce_param
         refs = []
         for rank, actor in enumerate(actors):
             ref = actor.broadcast_parameter.remote(rank, 0, group_name, pipe_stage)
@@ -593,56 +576,21 @@ class ParameterSyncGroup:
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
 
-        if self.enable_coalesce_param:
-            if is_the_same_gpu:
-                name2ref = send_actor.ray_put_parameter.remote(None, self.group_name, pipe_stage)
-                recv_ref = recv_actor.ray_get_parameter.remote(None, self.group_name, name2ref, pipe_stage)
-                future.get(recv_ref)
-            else:
-                send_ref = send_actor.send_parameter.remote(None, self.actor2rank[recv_actor], self.group_name, pipe_stage)
-                recv_ref = recv_actor.recv_parameter.remote(None, self.actor2rank[send_actor], self.group_name, pipe_stage)
-                future.get([send_ref, recv_ref])
-            logger.debug(f"sync all parameters from {send_actor} to {recv_actor}")
+        if is_the_same_gpu:
+            name2ref = send_actor.ray_put_parameter.remote(self.group_name, pipe_stage)
+            recv_ref = recv_actor.ray_get_parameter.remote(self.group_name, name2ref, pipe_stage)
+            future.get(recv_ref)
         else:
-            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=requires_grad))
-            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
-            for send_name, dst_name in zip(src_names, dst_names):
-                dst_name = self._get_dst_name(send_name, src_prefix, dst_prefix)
-                recv_tensor_exist = future.get(recv_actor.exist_parameter.remote(dst_name))
-                if not recv_tensor_exist:
-                    logger.info(f"recv tensor {dst_name} not exists")
-                    all_dst_layer_names = future.get(recv_actor.get_parameter_names.remote())
-                    raise Exception(
-                        f"recv tensor {dst_name} not exists, while recv model has following layers {all_dst_layer_names}")
-                if is_the_same_gpu:
-                    raise Exception("In the single gpu case, enable_coalesce_param must be True, not False.")
-                send_ref = send_actor.send_parameter.remote(send_name, self.actor2rank[recv_actor], self.group_name)
-                recv_ref = recv_actor.recv_parameter.remote(dst_name, self.actor2rank[send_actor], self.group_name)
-                future.get([send_ref, recv_ref])
-            logger.debug(f"sync all parameters from {send_actor} to {recv_actor}, total param num {len(src_names)}")
+            send_ref = send_actor.send_parameter.remote(self.actor2rank[recv_actor], self.group_name, pipe_stage)
+            recv_ref = recv_actor.recv_parameter.remote(self.actor2rank[send_actor], self.group_name, pipe_stage)
+            future.get([send_ref, recv_ref])
+        logger.debug(f"sync all parameters from {send_actor} to {recv_actor}")
 
     def sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         try:
             self._sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         except Exception:
             future.get(self.error_signal.set.remote(traceback.format_exc()))
-
-    def set_model_prefix(self, src_names, dst_names):
-        dst_prefix = None
-        src_prefix = None
-        for sname in src_names:
-            for dname in dst_names:
-                if sname in dname:
-                    prefix = dname[:dname.index(sname)]
-                    dst_prefix = prefix
-                    return src_prefix, dst_prefix
-                elif dname in sname:
-                    prefix = sname[:sname.index(dname)]
-                    src_prefix = prefix
-                    return src_prefix, dst_prefix
-        if dst_prefix is None and src_prefix is None:
-            raise RuntimeError("Cannot find prefix")
-        return src_prefix, dst_prefix
 
     def check_param_names(self, send_actor, recv_actor, src_names, dst_names):
         ref0 = send_actor.check_param_exists.remote(src_names)
@@ -702,21 +650,9 @@ class ParameterSyncGroup:
             src_names = filter_fn(src_names)
             dst_names = filter_fn(dst_names)
 
-        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
-            src_pipe_stage = self.get_actor_pipe_rank(send_actor)
-            src_names, dst_names = future.get(recv_actor.map_src_to_dst.remote(src_names, self.num_src_pipeline_stage, src_pipe_stage))
-            concat_params_dict = future.get(recv_actor.get_concat_params_dict.remote())
-            future.get(send_actor.set_concat_params_dict.remote(concat_params_dict))
-            to_fix_act_ordering_dict = future.get(recv_actor.get_to_fix_act_ordering_dict.remote())
-            future.get(send_actor.set_to_fix_act_ordering_dict.remote(to_fix_act_ordering_dict))
-            to_fix_qkv_ordering_dict = future.get(recv_actor.get_to_fix_qkv_ordering_dict.remote())
-            future.get(send_actor.set_to_fix_qkv_ordering_dict.remote(to_fix_qkv_ordering_dict))
-            to_fix_qkv_ordering_func = future.get(recv_actor.get_to_fix_qkv_ordering_func.remote())
-            future.get(send_actor.set_to_fix_qkv_ordering_func.remote(to_fix_qkv_ordering_func))
-        else:
-            dst_names_ref = future.get(recv_actor.get_parameter_names.remote(requires_grad=False))
-            src_prefix, dst_prefix = self.set_model_prefix(src_names, dst_names_ref)
-            dst_names = [self._get_dst_name(name, src_prefix, dst_prefix) for name in dst_names]
+        src_names, dst_names = self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        future.wait(send_actor.set_synchronizer.remote(self.synchronizer))
+
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         if param_group != "routed" and self.tp_num_mapping > 1:
             key = (recv_actor, recv_actor)
@@ -732,7 +668,7 @@ class ParameterSyncGroup:
                 "Currently, ChatLearn supports balanced hyper expert parallel size across training and inference only, "
                 "i.e. training EP size * training TP size must be equal to inference EP size * inference TP size."
             )
-        if not (vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule)):
+        if not self.synchronizer.is_parameter_changed:
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             refs = []
             refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
@@ -751,7 +687,7 @@ class ParameterSyncGroup:
             f"expect the length of src_names and dst_names being the same, got {len(src_names)} and {len(dst_names)}"
         )
         pipe_stage = self.get_actor_pipe_rank(send_actor)
-        if vllm_exist and isinstance(self.dst_model.replicas[0].model, VLLMModule):
+        if self.synchronizer.is_parameter_changed:
             refs = []
             refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
             refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))

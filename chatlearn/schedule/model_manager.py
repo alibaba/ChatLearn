@@ -27,7 +27,7 @@ from chatlearn.models.torch_module import TorchModule
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistModel
-from chatlearn.runtime.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
+from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
