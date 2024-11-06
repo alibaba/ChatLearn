@@ -99,4 +99,3 @@ class BaseSync:
             del param_data_list
 
         return param_data
-

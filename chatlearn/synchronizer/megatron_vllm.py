@@ -241,4 +241,3 @@ class MegatronVllmLlamaSync(MegatronVllmSync):
         sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
         self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
         return sync_map_cls(src_names, src_pipe_layer_offset)
-
