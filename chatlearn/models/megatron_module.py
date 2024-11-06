@@ -168,10 +168,10 @@ class MegatronModule(TorchModule):
         get expert_model_parallel_size
         :meta private:
         """
-        if hasattr(self.megatron_args, "moe_expert_model_parallel_size"):
-            return self.megatron_args.moe_expert_model_parallel_size
         if hasattr(self.megatron_args, "expert_model_parallel_size"):
             return self.megatron_args.expert_model_parallel_size
+        if hasattr(self.megatron_args, "moe_expert_model_parallel_size"):
+            return self.megatron_args.moe_expert_model_parallel_size
         return 1
 
     def tensor_and_expert_model_parallel_size(self):
