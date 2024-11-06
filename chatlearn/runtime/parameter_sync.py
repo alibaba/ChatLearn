@@ -191,8 +191,8 @@ class ParameterSyncGroup:
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.actor2rank[dst_actor] = dst_rank
 
-        src_gpu = future.get(src_actor.get_visible_gpus.remote())
-        dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
+        src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
+        dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
         src_tp_rank = self.get_actor_tp_rank(src_actor)
         dst_tp_rank = self.get_actor_tp_rank(dst_actor)
         src_pp_rank = self.get_actor_pipe_rank(src_actor)
@@ -228,6 +228,7 @@ class ParameterSyncGroup:
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
+
         if add_recv_actor_fn is None:
             add_recv_actor_fn = self.add_recv_actor
 
@@ -295,18 +296,18 @@ class ParameterSyncGroup:
 
         dst_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
-        if local_src_ranks[0] is None or dst_dp_ranks is None:
+        if local_src_ranks[0] is None or dst_ranks is None:
             if self._debug:
                 logger.warning(
-                    f"DEBUG MODE! src_dp_ranks {local_src_ranks} or dst_dp_ranks: {dst_dp_ranks} is None, "
+                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, "
                     "make sure they have values in real application.")
                 return
             else:
-                raise Exception(f"src_dp_ranks {local_src_ranks} or dst_dp_ranks {dst_dp_ranks} should not be None")
+                raise Exception(f"src_ranks {local_src_ranks} or dst_ranks {dst_ranks} should not be None")
         dp_rank_to_ranks = defaultdict(list)
         for local_ranks, dp_rank in local_src_ranks:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
-        src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+        src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
 
         replica_rank_iter = cycle(iter(src_ranks))
 
@@ -316,10 +317,6 @@ class ParameterSyncGroup:
             "currently we require mod value equals to zero for tensor_model_parallel_size of dst_model and that of src_model while " + \
             f"src model {self.src_model.name}(TP={self.num_src_tensor_parallel}) and " + \
             f"dst model {self.dst_model.name}(TP={self.num_dst_tensor_parallel})"
-        assert self.num_src_expert_parallel == self.num_dst_expert_parallel, \
-             "currently we require the expert_model_parallel_size to be the same between " + \
-            f"src model {self.src_model.name}(EP={self.num_src_expert_parallel}) and " + \
-            f"dst model {self.dst_model.name}(EP={self.num_dst_expert_parallel})"
         assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
 
         def split_ranks_by_tp_and_ep_size(ranks, tp_size, ep_size):

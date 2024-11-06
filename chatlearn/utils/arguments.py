@@ -521,7 +521,7 @@ class Config(BaseConfig):
             if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
                 if self.runtime_args.generation_batch_size:
                     model_args.generation_batch_size = self.runtime_args.generation_batch_size
-            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "expert_model_parallel_size", "zero_size"]:
+            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
                     assert getattr(model_args, key) >= 1

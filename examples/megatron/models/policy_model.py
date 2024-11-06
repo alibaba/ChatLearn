@@ -32,6 +32,7 @@ from .constants import select_actions_from_right_padded
 
 class PolicyModel(GPTModel):
     """PolicyModel"""
+
     def __init__(self,
                  num_tokentypes=0,
                  parallel_output=True,
