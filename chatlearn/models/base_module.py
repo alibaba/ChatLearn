@@ -1320,3 +1320,15 @@ class BaseModule:
 
     def get_pipeline_stage_layer_offset(self):
         return 0
+
+    def expert_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return 0
+
+    def tensor_and_expert_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return 0
