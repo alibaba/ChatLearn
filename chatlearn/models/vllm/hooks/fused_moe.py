@@ -16,14 +16,13 @@
 
 
 import inspect
-from typing import Optional
-
 # pylint: disable=unused-import,unused-argument
+from typing import Optional
 from vllm.model_executor.layers import fused_moe
 from chatlearn.utils.utils import detect_and_insert_code_to_func
 
 
-def get_config_file_name(source_code):
+def convert_device_name_to_str(source_code):
     pattern = 'device_name = current_platform.get_device_name().replace(" ", "_")'
     new_code = \
 """
@@ -34,7 +33,5 @@ device_name = str(current_platform.get_device_name()).replace(" ", "_")
 
 source = inspect.getsource(fused_moe.get_config_file_name)
 if 'current_platform.get_device_name' in source:
-    exec(get_config_file_name(source)) # pylint: disable=exec-used
+    exec(convert_device_name_to_str(source)) # pylint: disable=exec-used
     fused_moe.get_config_file_name = get_config_file_name
-
-    

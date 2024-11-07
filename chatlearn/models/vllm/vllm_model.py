@@ -29,7 +29,6 @@ from chatlearn.utils.vllm_utils import (
     convert_llama_state_dict_from_megatron_to_vllm,
     convert_llama_state_dict_from_mcore_to_vllm,
     convert_qwen_state_dict_from_megatron_to_vllm,
-    convert_qwen_moe_state_dict_from_megatron_to_vllm,
     load_checkpoint
 )
 
@@ -75,12 +74,9 @@ class VLLMModel(nn.Module):
         elif isinstance(self.model, QWenLMHeadModel):
             qwen_version = 1.0
             convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm
-        elif isinstance(self.model, Qwen2ForCausalLM):
+        elif isinstance(self.model, Qwen2ForCausalLM) or (Qwen2MoeForCausalLM is not None and isinstance(self.model, Qwen2MoeForCausalLM)):
             qwen_version = 2.0
             convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm
-        elif Qwen2MoeForCausalLM is not None and isinstance(self.model, Qwen2MoeForCausalLM):
-            qwen_version = 2.0
-            convert_state_dict_internal = convert_qwen_moe_state_dict_from_megatron_to_vllm
         else:
             raise RuntimeError(f"Unsupported model for vllm backend. \
                 support [LlamaForCausalLM, QWenLMHeadModel, Qwen2ForCausalLM, Qwen2MoeForCausalLM] only, while {self.model_class}")
