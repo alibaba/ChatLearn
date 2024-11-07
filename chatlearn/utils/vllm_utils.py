@@ -355,7 +355,8 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
         self.src_prefix = src_prefix
         self.dst_prefix = dst_prefix
         self._embedding_sync_map = {
-            f"{src_prefix}.embedding.word_embeddings.weight": f"{dst_prefix}.{embed_name}.weight"
+            f"{src_prefix}.embedding.word_embeddings.weight": f"{dst_prefix}.{embed_name}.weight",
+            "module.module.word_embeddings.weight": f"{dst_prefix}.{embed_name}.weight"
         }
         self._layer_sync_map = {
             "attention.attention_layernorm": ".attn.attention_layernorm.",
