@@ -189,7 +189,7 @@ class PPOPolicy(TestTorchModule):
             tmp[name] = tensor
 
         for name, shape in ParamsToSync_Trainer["dp"].items():
-            tensor = torch.arange(0, shape[0] * shape[1]).reshape(shape).cuda() # params should be identical across different ranks in current setting.
+            tensor = torch.arange(0, shape[0] * shape[1]).reshape(shape).to(torch.float32).cuda() # params should be identical across different ranks in current setting.
             tmp[name] = tensor
 
         global trainer_params
