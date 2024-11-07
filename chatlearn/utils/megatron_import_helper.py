@@ -217,13 +217,13 @@ from megatron.core.tensor_parallel.mappings import (
 )
 
 try:
-    from megatron.training import save_checkpoint_and_time
+    from megatron.training import save_checkpoint_and_time as megatron_save_checkpoint_and_time
 except ImportError:
-    from megatron.training.training import save_checkpoint_and_time
+    from megatron.training.training import save_checkpoint_and_time as megatron_save_checkpoint_and_time
 
 
 def save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler):
     try:
-        save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler)
-    except TypeError: # missing required positional arguments
-        save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler, 0, None)
+        megatron_save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler)
+    except TypeError: # missing required positional arguments for new Megatron version
+        megatron_save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler, 0, None)
