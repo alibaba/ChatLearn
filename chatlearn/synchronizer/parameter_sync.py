@@ -449,7 +449,10 @@ class ParameterSyncGroup:
 
             src_names, dst_names = future.get([send_actor.get_parameter_to_sync_names.remote(pipe_stage),
                                                recv_actors[0].get_parameter_to_sync_names.remote(pipe_stage)])
-            assert len(src_names) == len(dst_names)
+
+            assert len(src_names) == len(dst_names), (
+                f"expect the length of src_names and dst_names being the same, got {len(src_names)} and {len(dst_names)}"
+            )
 
             # check the value of src model and tgt model
             names = list(zip(src_names, dst_names))
@@ -675,18 +678,12 @@ class ParameterSyncGroup:
             refs.append(send_actor.set_sync_parameters.remote(src_names, pipe_stage))
             refs.append(recv_actor.set_sync_parameters.remote(dst_names, pipe_stage))
             future.get(refs)
-        assert len(src_names) == len(dst_names), (
-            f"expect the length of src_names and dst_names being the same, got {len(src_names)} and {len(dst_names)}"
-        )
         return src_names, dst_names
 
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
-        assert len(src_names) == len(dst_names), (
-            f"expect the length of src_names and dst_names being the same, got {len(src_names)} and {len(dst_names)}"
-        )
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if self.synchronizer.is_parameter_changed:
             refs = []

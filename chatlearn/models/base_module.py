@@ -1068,9 +1068,3 @@ class BaseModule:
         :meta private:
         """
         return 0
-
-    def tensor_and_expert_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return 0
