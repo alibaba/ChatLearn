@@ -27,3 +27,4 @@ if importlib.util.find_spec("vllm"):
             from chatlearn.models.vllm.hooks import worker
         else:
             from chatlearn.models.vllm.hooks import input_preprocess
+            from chatlearn.models.vllm.hooks import fused_moe

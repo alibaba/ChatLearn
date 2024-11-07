@@ -29,8 +29,16 @@ from chatlearn.utils.vllm_utils import (
     convert_llama_state_dict_from_megatron_to_vllm,
     convert_llama_state_dict_from_mcore_to_vllm,
     convert_qwen_state_dict_from_megatron_to_vllm,
+    convert_qwen_moe_state_dict_from_megatron_to_vllm,
     load_checkpoint
 )
+
+# additional imports for vLLM-0.6.3
+try:
+    from chatlearn.utils.vllm_import_helper import Qwen2MoeForCausalLM
+except ImportError:
+    Qwen2MoeForCausalLM = None
+    print("Cannot import Qwen2MoeForCausalLM for vllm 0.6.3, please install vllm 0.6.3 first.")
 
 
 class VLLMModel(nn.Module):
@@ -44,7 +52,12 @@ class VLLMModel(nn.Module):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             self.model = self.model_class(config.hf_config)
         elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
-            self.model = self.model_class(config.hf_config, cache_config, quant_config, lora_config)
+            model_class_name = getattr(config.hf_config, "architectures", [])
+            assert model_class_name, f"architectures should be set in model config, while {model_class_name}"
+            if model_class_name[0] == "Qwen2MoeForCausalLM":
+                self.model = self.model_class(config.hf_config, cache_config, quant_config)
+            else:
+                self.model = self.model_class(config.hf_config, cache_config, quant_config, lora_config)
 
     def load_weights(self):
         torch.distributed.barrier()
@@ -65,9 +78,12 @@ class VLLMModel(nn.Module):
         elif isinstance(self.model, Qwen2ForCausalLM):
             qwen_version = 2.0
             convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm
+        elif Qwen2MoeForCausalLM is not None and isinstance(self.model, Qwen2MoeForCausalLM):
+            qwen_version = 2.0
+            convert_state_dict_internal = convert_qwen_moe_state_dict_from_megatron_to_vllm
         else:
             raise RuntimeError(f"Unsupported model for vllm backend. \
-                support [LlamaForCausalLM, QWenLMHeadModel, Qwen2ForCausalLM] only, while {self.model_class}")
+                support [LlamaForCausalLM, QWenLMHeadModel, Qwen2ForCausalLM, Qwen2MoeForCausalLM] only, while {self.model_class}")
 
         state_dict = convert_state_dict_internal(self.model_args, self.config.hf_config, qwen_version=qwen_version)
         super().load_state_dict(state_dict, strict=strict)

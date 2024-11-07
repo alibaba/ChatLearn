@@ -76,26 +76,32 @@ megatron_to_transformers = {
 }
 
 megatron_qwen_to_transformers = {
-        "attention.attention_layernorm": ".attn.attention_layernorm.",
-        "attention.dense": ".attn.c_proj.",
-        "self_attention.dense": ".attn.c_proj.",
-        "mlp.dense_h_to_4h": ".mlp.c_fc.",
-        "mlp.w1": ".mlp.gate_up_proj.",
-        "mlp.w2": ".mlp.gate_up_proj.",
-        "mlp.dense_4h_to_h": ".mlp.c_proj.",
-        "mlp.dense_layernorm": "mlp.dense_layernorm",
+    "attention.attention_layernorm": ".attn.attention_layernorm.",
+    "attention.dense": ".attn.c_proj.",
+    "self_attention.dense": ".attn.c_proj.",
+    "mlp.dense_h_to_4h": ".mlp.c_fc.",
+    "mlp.w1": ".mlp.gate_up_proj.",
+    "mlp.w2": ".mlp.gate_up_proj.",
+    "mlp.dense_4h_to_h": ".mlp.c_proj.",
+    "mlp.dense_layernorm": "mlp.dense_layernorm",
 }
 
 
 megatron_qwen2_to_transformers = {
-        "attention.attention_layernorm": ".attn.attention_layernorm.",
-        "attention.dense": ".attn.c_proj.",
-        "self_attention.dense": ".self_attn.o_proj.",
-        "mlp.dense_h_to_4h": ".mlp.gate_up_proj.",
-        "mlp.w1": ".mlp.gate_up_proj.",
-        "mlp.w2": ".mlp.gate_up_proj.",
-        "mlp.dense_4h_to_h": ".mlp.down_proj.",
-        "mlp.dense_layernorm": "mlp.dense_layernorm",
+    "attention.attention_layernorm": ".attn.attention_layernorm.",
+    "attention.dense": ".attn.c_proj.",
+    "self_attention.dense": ".self_attn.o_proj.",
+    "mlp.dense_h_to_4h": ".mlp.gate_up_proj.",
+    "mlp.w1": ".mlp.gate_up_proj.",
+    "mlp.w2": ".mlp.gate_up_proj.",
+    "mlp.dense_4h_to_h": ".mlp.down_proj.",
+    "mlp.dense_layernorm": ".mlp.dense_layernorm.",
+    "mlp.router.layer": ".mlp.gate.",
+    "mlp.experts.dense_h_to_4h": ".mlp.experts.w13_weight",
+    "mlp.experts.dense_4h_to_h": ".mlp.experts.w2_weight",
+    "mlp.shared_experts.dense_h_to_4h": ".mlp.shared_expert.gate_up_proj.",
+    "mlp.shared_experts.dense_4h_to_h": ".mlp.shared_expert.down_proj.",
+    "mlp.gate": ".mlp.shared_expert_gate."
 }
 
 
@@ -1145,7 +1151,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         m = layer_re.match(key)
         # Stop if that's not a layer
         if m is None:
-            break
+            continue
         # The index of the layer.
         layer_idx = int(m.group(1)) + pp_rank * num_layers
         # The name of the operation.
@@ -1220,6 +1226,17 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 gate_up_proj_name = layer_name + out_name + "weight"
                 output_state_dict[gate_up_proj_name] = torch.cat(gate_up_proj, dim=0)
                 gate_up_proj = {}
+
+        elif "mlp.experts" in op_name:
+            out_name = func_map[op_name]
+            moe_num_experts = megatron_args.moe_num_experts
+            if "dense_h_to_4h" in op_name:
+                val = params.view((moe_num_experts, -1, hf_config.hidden_size)).contiguous()
+            elif "dense_4h_to_h" in op_name:
+                val = params.view((moe_num_experts, -1, hf_config.hidden_size)).transpose(1, 2).contiguous()
+            else:
+                raise RuntimeError(f"only support router weight name 'dense_h_to_4h' or 'dense_4h_to_h' for qwen2_moe. while {op_name}.")
+            output_state_dict[layer_name + out_name] = val
 
         # Transpose the weights.
         elif weight_or_bias == "weight":
