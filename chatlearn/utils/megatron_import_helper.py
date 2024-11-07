@@ -216,13 +216,14 @@ from megatron.core.tensor_parallel.mappings import (
     reduce_scatter_to_sequence_parallel_region
 )
 
-# pylint: enable=unused-import
+try:
+    from megatron.training import save_checkpoint_and_time
+except ImportError:
+    from megatron.training.training import save_checkpoint_and_time
 
 
 def save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler):
     try:
-        from megatron.training import save_checkpoint_and_time as save_checkpoint_and_time_v1 # pylint: disable=import-outside-toplevel
-        save_checkpoint_and_time_v1(iteration, model, optimizer, opt_param_scheduler)
-    except ImportError:
-        from megatron.training.training import save_checkpoint_and_time as save_checkpoint_and_time_v2# pylint: disable=import-outside-toplevel
-        save_checkpoint_and_time_v2(iteration, model, optimizer, opt_param_scheduler, 0, None)
+        save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler)
+    except TypeError: # missing required positional arguments
+        save_checkpoint_and_time(iteration, model, optimizer, opt_param_scheduler, 0, None)
