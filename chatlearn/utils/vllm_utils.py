@@ -355,7 +355,8 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
         self.src_prefix = src_prefix
         self.dst_prefix = dst_prefix
         self._embedding_sync_map = {
-            f"{src_prefix}.embedding.word_embeddings.weight": f"{dst_prefix}.{embed_name}.weight"
+            f"{src_prefix}.embedding.word_embeddings.weight": f"{dst_prefix}.{embed_name}.weight",
+            "module.module.word_embeddings.weight": f"{dst_prefix}.{embed_name}.weight"
         }
         self._layer_sync_map = {
             "attention.attention_layernorm": ".attn.attention_layernorm.",
@@ -686,16 +687,18 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     return tp_state_dicts
 
 
-def load_llama_state_dict(args):
+def load_state_dict(args):
     # Load original state dict from Megatron-LM checkpoint.
     possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
 
     for root, dirnames, _ in os.walk(args["load"]):
         for dirname in dirnames:
             if dirname in possible_sub_dirs:
-                rank0_checkpoint_name = glob.glob(os.path.join(root, dirname) + "/model*.pt")
-                args["load"] = root
-                rank0_checkpoint_path = rank0_checkpoint_name[0]
+                sub_dir = os.path.join(root, dirname)
+                if os.path.exists(sub_dir):
+                    rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
+                    args["load"] = root
+                    rank0_checkpoint_path = rank0_checkpoint_name[0]
 
     print(f"Loading Megatron checkpoint arguments from: {rank0_checkpoint_path}")
     state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")
@@ -711,9 +714,8 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     assert qwen_version is None, f"Expect qwen_version is None for Llama, while {qwen_version}"
     tp_rank = mpu.get_tensor_model_parallel_rank()
     pp_rank = get_pipeline_model_parallel_rank()
-    assert pp_rank == 0
 
-    state_dict = load_llama_state_dict(args)
+    state_dict = load_state_dict(args)
 
     megatron_args = state_dict.get("args", None)
     if "checkpoint_version" in state_dict.keys():
@@ -733,7 +735,6 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     tp_size = megatron_args.tensor_model_parallel_size
     pp_size = megatron_args.pipeline_model_parallel_size
-    assert pp_size == 1
     # The number of heads.
     heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
@@ -747,7 +748,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Embeddings
     print("Converting embeddings")
-    tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, 0)
+    tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, pp_rank)
 
     # Convert and store the position embeddings.
     position_embeddings = get_element_from_dict_by_path(
@@ -758,27 +759,25 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         output_state_dict["transformer.position_embeddings.weight"] = position_embeddings.to(hf_config.torch_dtype)
 
     # Convert and store the word embeddings.
-    word_embeddings = []
-
-    word_embeddings = get_element_from_dict_by_path(
-        tp_state_dicts[tp_rank], "model.word_embeddings_for_head.weight")
-    # After training with megatron, word_embeddings is stored differently
+    word_embeddings = get_element_from_dict_by_path(tp_state_dicts[tp_rank], "model.word_embeddings_for_head.weight")
     if isinstance(word_embeddings, dict):
         word_embeddings = get_element_from_dict_by_path(
             tp_state_dicts[tp_rank], "model.language_model.embedding.word_embeddings.weight"
         )
-    word_embeddings = word_embeddings.to(hf_config.torch_dtype)
-    output_state_dict["model.model.embed_tokens.weight"] = word_embeddings
-    # Reset the vocab size
-    hf_config.vocab_size = word_embeddings.shape[0]
+    if isinstance(word_embeddings, dict):
+        assert not word_embeddings, \
+            "weight name of word_embed expect 'model.word_embeddings_for_head.weight' \
+            or 'model.language_model.embedding.word_embeddings.weight'."
+    elif word_embeddings is not None:
+        # After training with megatron, word_embeddings is stored differently
+        word_embeddings = word_embeddings.to(hf_config.torch_dtype)
+        output_state_dict["model.model.embed_tokens.weight"] = word_embeddings
+        # Reset the vocab size
+        hf_config.vocab_size = word_embeddings.shape[0]
 
     # Transformer Layers
     print("Converting transformer layers")
     num_layers = hf_config.num_hidden_layers // pp_size
-
-    if pp_size > 0:
-        print(f"Converting pipeline parallel rank {pp_rank}")
-        tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, pp_rank)
 
     # The transformer.
     path = (
@@ -856,24 +855,26 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
             out_name = megatron_to_transformers[op_name]
             output_state_dict[layer_name + out_name] = params
 
-    if hf_config.num_hidden_layers != (layer_idx + 1):
-        raise ValueError(f"Expected {hf_config.num_hidden_layers} layers but found {layer_idx + 1}")
-
     # The final layernorm.
-    print("Converting final layernorm")
-    params = get_element_from_dict_by_path(tp_state_dicts[0], str(path))
-    final_norm_weight =  params["final_norm.weight"] if "final_norm.weight" in params else params["final_layernorm.weight"]
-    output_state_dict["model.model.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
+    params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], str(path))
+    if "final_norm.weight" in params or "final_layernorm.weight" in params:
+        print("Converting final layernorm")
+        final_norm_weight =  params["final_norm.weight"] if "final_norm.weight" in params else params["final_layernorm.weight"]
+        output_state_dict["model.model.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
 
     # For LM head, transformers' wants the matrix to weight embeddings.
-    print("Converting LM head")
     params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
-    output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+    if isinstance(params, dict):
+        assert not params, "weight name of lm_head expect 'model.language_model.output_layer.weight'."
+    elif params is not None:
+        print("Converting LM head")
+        output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
 
     # It should be done!
     print("Conversion from Megatron-LM to Transformers is done!")
 
     return output_state_dict
+
 
 def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=None):
     """Convert NVIDIA Megatron-Core state_dict to vLLM llama state_dict.
@@ -884,9 +885,9 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     assert qwen_version is None, f"Expect qwen_version is None for Llama, while {qwen_version}"
     tp_rank = mpu.get_tensor_model_parallel_rank()
     pp_rank = get_pipeline_model_parallel_rank()
-    assert pp_rank == 0
+    assert pp_rank == 0, "pipeline parallelism for mcore inference not supported for now."
 
-    state_dict = load_llama_state_dict(args)
+    state_dict = load_state_dict(args)
 
     megatron_args = state_dict.get("args", None)
     if "checkpoint_version" in state_dict.keys():
@@ -906,7 +907,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
 
     tp_size = megatron_args.tensor_model_parallel_size
     pp_size = megatron_args.pipeline_model_parallel_size
-    assert pp_size == 1
+    assert pp_size == 1, "pipeline parallelism for mcore inference not supported for now."
     # The number of heads.
     heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
@@ -1069,94 +1070,92 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
     else:
         raise RuntimeError(f"Unsupported qwen version {qwen_version}, only 1.0 or 2.0 for now. while {qwen_version}.")
 
-    # Load original state dict from Megatron-LM checkpoint.
     tp_rank = mpu.get_tensor_model_parallel_rank()
-    possible_sub_dirs = [f"mp_rank_{tp_rank:02d}"]
+    pp_rank = get_pipeline_model_parallel_rank()
 
-    for root, dirnames, _ in os.walk(args["load"]):
-        for dirname in dirnames:
-            if dirname in possible_sub_dirs:
-                rank0_checkpoint_name = glob.glob(os.path.join(root, dirname) + "/*.pt")
-                args["load"] = root
-                rank0_checkpoint_path = rank0_checkpoint_name[0]
+    state_dict = load_state_dict(args)
+    megatron_args = state_dict.get("args", None)
+    if "checkpoint_version" in state_dict.keys():
+        checkpoint_version = state_dict["checkpoint_version"]
+    else:
+        checkpoint_version = 0.0
+    if megatron_args is None:
+        raise ValueError(
+            "Megatron-LM checkpoint does not contain arguments. This utility only supports Megatron-LM checkpoints"
+            " containing all the megatron arguments. This is because it loads all config related to model"
+            " architecture, the tensor and pipeline model parallel size from the checkpoint insead of user having to"
+            " manually specify all the details. Please save Megatron-LM checkpoint along with all the megatron"
+            " arguments to use this utility."
+        )
 
-    print(f"Loading Megatron-LM checkpoint arguments from: {rank0_checkpoint_path}")
-    input_state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")
-
-    # old versions did not store training args
-    ds_args = input_state_dict.get("args", None)
-    if ds_args is not None:
-        # do not make the user write a config file when the exact dimensions/sizes are already in the checkpoint
-        hf_config.vocab_size = ds_args.padded_vocab_size
-        hf_config.max_position_embeddings = ds_args.max_position_embeddings
-        hf_config.hidden_size = ds_args.hidden_size
-        hf_config.num_hidden_layers = ds_args.num_layers
-        hf_config.num_attention_heads = ds_args.num_attention_heads
-        hf_config.intermediate_size = ds_args.ffn_hidden_size
-
-    tp_size = ds_args.tensor_model_parallel_size
-    pp_size = ds_args.pipeline_model_parallel_size
-    assert pp_size == 1
+    tp_size = megatron_args.tensor_model_parallel_size
+    pp_size = megatron_args.pipeline_model_parallel_size
     # The number of heads.
     heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
     hidden_size_per_head = hf_config.hidden_size // hf_config.num_attention_heads
-    # Megatron-LM checkpoint version
-    if "checkpoint_version" in input_state_dict.keys():
-        checkpoint_version = input_state_dict["checkpoint_version"]
-    else:
-        checkpoint_version = 0.0
-    # The model.
-    model = input_state_dict["model"]
-    # The language model.
-    lm = model["language_model"]
-    # The embeddings.
-    embeddings = lm["embedding"]
-
-    # The word embeddings.
-    word_embeddings = embeddings["word_embeddings"]["weight"]
-    # Truncate the embedding table to vocab_size rows.
-    word_embeddings = word_embeddings[: hf_config.vocab_size, :]
-    output_state_dict[f"{prefix_name}{embed_name}.weight"] = word_embeddings
-
-    # The transformer. now encoder
-    transformer = lm["transformer"] if "transformer" in lm.keys() else lm["encoder"]
-    # The position embeddings.
-    if "position_embeddings" in embeddings:
-        pos_embeddings = embeddings["position_embeddings"]["weight"]
-        # Read the causal mask dimension (seqlen). [max_sequence_length, hidden_size]
-        n_positions = pos_embeddings.size(0)
-        if n_positions != hf_config.max_position_embeddings:
-            raise ValueError(
-                f"pos_embeddings.max_sequence_length={n_positions} and hf_config.n_positions={hf_config.max_position_embeddings} don't match"
-            )
-        # Store the position embeddings.
-        output_state_dict[f"{prefix_name}wpe.weight"] = pos_embeddings
-    else:
-        n_positions = hf_config.max_position_embeddings
 
     # The regex to extract layer names.
     layer_re = re.compile(r"layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
 
+    # Convert.
+    print("Start to convert...")
+
+    # Embeddings
+    print("Converting embeddings")
+    tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, pp_rank)
+
+    # Convert and store the word embeddings.
+    if pp_rank == 0 or (pp_rank == pp_size - 1 and not megatron_args.untie_embeddings_and_output_weights):
+        embed_state_dict = tp_state_dicts if pp_rank == 0 else get_megatron_sharded_states(args, tp_size, pp_size, 0)
+        word_embeddings = get_element_from_dict_by_path(
+            embed_state_dict[tp_rank], "model.language_model.embedding.word_embeddings.weight"
+        )
+        if isinstance(word_embeddings, dict):
+            assert not word_embeddings, \
+                "weight name of word_embed expect 'model.word_embeddings_for_head.weight' \
+                or 'model.language_model.embedding.word_embeddings.weight'."
+        elif word_embeddings is not None:
+            # After training with megatron, word_embeddings is stored differently
+            word_embeddings = word_embeddings.to(hf_config.torch_dtype)
+            word_embeddings = word_embeddings[: hf_config.vocab_size, :]
+            output_state_dict[f"{prefix_name}{embed_name}.weight"] = word_embeddings
+            # Reset the vocab size
+            hf_config.vocab_size = word_embeddings.shape[0]
+
+    # Transformer Layers
+    print("Converting transformer layers")
+    num_layers = hf_config.num_hidden_layers // pp_size
+
+    # The transformer.
+    path = (
+        "model.language_model.transformer"
+        if "transformer" in get_element_from_dict_by_path(tp_state_dicts[0], "model.language_model").keys()
+        else "model.language_model.encoder"
+    )
+
     # Extract the layers.
     gate_up_proj = {}
-    for key, val in transformer.items():
+    for key, val in get_element_from_dict_by_path(tp_state_dicts[tp_rank], path).items():
+        # skip None value.
+        # TODO(jiangle.jl): whether to process empty value.
+        if val is None:
+            continue
         # Match the name.
         m = layer_re.match(key)
-
         # Stop if that's not a layer
         if m is None:
             break
-
         # The index of the layer.
-        layer_idx = int(m.group(1))
+        layer_idx = int(m.group(1)) + pp_rank * num_layers
         # The name of the operation.
         op_name = m.group(2)
         # Is it a weight or a bias?
         weight_or_bias = m.group(3)
-
         # The name of the layer.
         layer_name = f"{prefix_name}{layer_prefix}.{layer_idx}"
+
+        params = val.to(hf_config.torch_dtype)
 
         # For layernorm(s), simply store the layer norm.
         if op_name.endswith("layernorm"):
@@ -1165,33 +1164,33 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 if "attention." in op_name:
                     output_state_dict[
                         layer_name + ".attn.attention_layernorm." + weight_or_bias
-                    ] = val
+                    ] = params
                 if "mlp." in op_name:
                     output_state_dict[
                         layer_name + "." + op_name + "." + weight_or_bias
-                    ] = val
+                    ] = params
 
             if op_name.startswith("input"):
                 ln_name = "ln_1" if qwen_version == QwenVersion.v_1 else "input_layernorm"
                 output_state_dict[
                     layer_name + "." + ln_name + "." + weight_or_bias
-                ] = val
+                ] = params
             elif op_name.startswith("post"):
                 ln_name  = "ln_2" if qwen_version == QwenVersion.v_1 else "post_attention_layernorm"
                 output_state_dict[
                     layer_name + "." + ln_name + "." + weight_or_bias
-                ] = val
+                ] = params
             elif qwen_version == QwenVersion.v_2:
                 raise RuntimeError(f"unsupport layernorm {op_name}.")
 
         elif op_name == "self_attention.rotary_emb":
-            output_state_dict[layer_name + ".attn.rotary_emb.inv_freq"] = val
+            output_state_dict[layer_name + ".attn.rotary_emb.inv_freq"] = params
 
         # Transpose the QKV matrix and the bias.
         elif op_name in ["attention.query_key_value", "self_attention.query_key_value"]:
             if qwen_version == QwenVersion.v_1:
                 out_val = fix_qwen_query_key_value_ordering(
-                    val, checkpoint_version, 3, heads, hidden_size_per_head
+                    params, checkpoint_version, 3, heads, hidden_size_per_head
                 )
                 # Megatron stores (3*D) x D but transformers-GPT2 expects D x 3*D.
                 if len(list(out_val.shape)) > 1:
@@ -1199,21 +1198,21 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 # Store.
                 output_state_dict[layer_name + f".attn.c_attn.{weight_or_bias}"] = out_val
             else:
-                num_query_groups = ds_args.num_query_groups if ds_args.group_query_attention else ds_args.num_attention_heads
-                val = split_attn_state(val, heads, num_query_groups // tp_size, hidden_size_per_head, hf_config.hidden_size)
+                num_query_groups = megatron_args.num_query_groups if megatron_args.group_query_attention else megatron_args.num_attention_heads
+                params = split_attn_state(params, heads, num_query_groups // tp_size, hidden_size_per_head, hf_config.hidden_size)
                 # Store. No change of shape.
-                output_state_dict[layer_name + f".self_attn.qkv_proj.{weight_or_bias}"] = val
+                output_state_dict[layer_name + f".self_attn.qkv_proj.{weight_or_bias}"] = params
 
         elif op_name in ["mlp.dense_h_to_4h"]:
-            offset = val.shape[0] // 2
-            w1 = val[:offset,:]
-            w2 = val[offset:,:]
+            offset = params.shape[0] // 2
+            w1 = params[:offset,:]
+            w2 = params[offset:,:]
             out_name = func_map[op_name]
             out_name = layer_name + out_name + "weight"
             output_state_dict[out_name] = torch.cat([w2, w1], dim=0)
 
         elif op_name in ["mlp.w1", "mlp.w2"]:
-            gate_up_proj[op_name] = val
+            gate_up_proj[op_name] = params
 
             if len(gate_up_proj) == 2:
                 gate_up_proj = [gate_up_proj["mlp.w2"], gate_up_proj["mlp.w1"]]
@@ -1225,33 +1224,38 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         # Transpose the weights.
         elif weight_or_bias == "weight":
             out_name = func_map[op_name]
-            output_state_dict[layer_name + out_name + "weight"] = val
+            output_state_dict[layer_name + out_name + "weight"] = params
 
         # Copy the bias.
         elif weight_or_bias == "bias":
             out_name = func_map[op_name]
-            output_state_dict[layer_name + out_name + "bias"] = val
-
-    # DEBUG.
-    assert hf_config.num_hidden_layers == layer_idx + 1
+            output_state_dict[layer_name + out_name + "bias"] = params
 
     # The final layernorm.
-    output_state_dict[f"{prefix_name}{final_norm}.weight"] = transformer[
-        "final_layernorm.weight"
-    ]
-    if "final_layernorm.bias" in output_state_dict:
-        output_state_dict[f"{prefix_name}{final_norm}.bias"] = transformer[
-            "final_layernorm.bias"
-        ]
+    params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], str(path))
+    print("Converting final layernorm")
+    if "final_norm.weight" in params or "final_layernorm.weight" in params:
+        final_norm_weight =  params["final_norm.weight"] if "final_norm.weight" in params else params["final_layernorm.weight"]
+        output_state_dict[f"{prefix_name}{final_norm}.weight"] = final_norm_weight.to(hf_config.torch_dtype)
+    if "final_norm.bias" in params or "final_layernorm.bias" in params:
+        final_norm_bias =  params["final_norm.bias"] if "final_norm.bias" in params else params["final_layernorm.bias"]
+        output_state_dict[f"{prefix_name}{final_norm}.bias"] = final_norm_bias.to(hf_config.torch_dtype)
 
-    # LM head
-    if ds_args.untie_embeddings_and_output_weights:
-        output_layer = lm["output_layer"]["weight"]
+    # For LM head, transformers' wants the matrix to weight embeddings.
+    params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
+    if (isinstance(params, dict) and len(params.keys())) or (params is not None and not isinstance(params, dict)):
+        print("Converting LM head")
+        output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+
+    if megatron_args.untie_embeddings_and_output_weights:
+        output_layer = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
         output_state_dict["model.lm_head.weight"] = output_layer
     else:
         output_state_dict["model.lm_head.weight"] = word_embeddings
 
     # It should be done!
+    print("Conversion from Megatron-LM to Transformers is done!")
+
     return output_state_dict
 
 

@@ -22,19 +22,14 @@ import torch
 from tqdm import tqdm
 
 from chatlearn.models.vllm.vllm_model import VLLMModel
-from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.dist_utils import broadcast_var_object_dict
-from chatlearn.utils.utils import get_use_legacy_models
 from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import Scheduler
 from chatlearn.utils.vllm_import_helper import EngineArgs
 from chatlearn.utils.vllm_import_helper import LLM
 from chatlearn.utils.vllm_import_helper import LLMEngine
-from chatlearn.utils.vllm_import_helper import LlamaForCausalLM
-from chatlearn.utils.vllm_import_helper import QWenLMHeadModel
-from chatlearn.utils.vllm_import_helper import Qwen2ForCausalLM
 from chatlearn.utils.vllm_import_helper import parallel_state
 from chatlearn.utils.vllm_import_helper import SamplingParams
 from chatlearn.utils.vllm_import_helper import Counter
@@ -57,7 +52,7 @@ try:
 except ImportError:
     print("Cannot import addtional module for vllm 0.6.3, please install vllm 0.6.3 first.")
 
-from chatlearn.utils.vllm_utils import initialize_vllm, Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
+from chatlearn.utils.vllm_utils import initialize_vllm
 
 from chatlearn.utils.vllm_utils import get_model, print_rank_0
 from .torch_module import TorchModule
@@ -511,7 +506,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             else:
                 raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
 
-
             if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
                 self.add_request(
                     request_id,
@@ -564,51 +558,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 self.runtime_args.bucket_size_mb_in_memory_manager,
             )
             self.offload()
-
-    def get_pipeline_layer_offset(self, num_src_pipeline_stage, src_pipe_stage):
-        """
-        get layer_idx offset from src model to tgt model
-        Args:
-            num_src_pipeline_stage: number of pipeline stage in src model
-            src_pipe_stage: src model pipeline rank
-        :meta private:
-        """
-        src_layers_per_stage = self.num_layers() // num_src_pipeline_stage
-        dst_layers_per_stage = self.num_layers() // self.pipeline_model_parallel_size()
-        assert dst_layers_per_stage % src_layers_per_stage == 0, \
-            "We assume pipeline stage of target model is not smaller than src model, and is divisible by src model"
-        mapping_interval = dst_layers_per_stage // src_layers_per_stage
-        rank = src_pipe_stage % mapping_interval
-        layer_offset = rank * src_layers_per_stage
-        return layer_offset
-
-    def map_src_to_dst(self, src_names, num_src_pipeline_stage, src_pipe_stage):
-        """
-        :meta private:
-        """
-        layer_offset = self.get_pipeline_layer_offset(num_src_pipeline_stage, src_pipe_stage)
-        if isinstance(self.model.model, QWenLMHeadModel):
-            sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
-            self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_1)
-        elif isinstance(self.model.model, Qwen2ForCausalLM):
-            sync_map_cls = Megatron2QWenSyncMap
-            from chatlearn.utils.vllm_utils import split_attn_state
-            self._to_fix_qkv_ordering_func = split_attn_state
-            sync_map = sync_map_cls(src_names, layer_offset, QwenVersion.v_2)
-        elif isinstance(self.model.model, LlamaForCausalLM):
-            use_legacy_models = get_use_legacy_models(self.model_args)
-            sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
-            from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering # pylint: disable=import-outside-toplevel
-            self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
-            sync_map = sync_map_cls(src_names, layer_offset)
-        else:
-            raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
-        self._concat_params_dict = sync_map.concat_params_dict
-        self._to_fix_act_ordering_dict = sync_map.to_fix_act_ordering_dict
-        self._to_fix_qkv_ordering_dict = sync_map.to_fix_qkv_ordering_dict
-        return sync_map.src_names, sync_map.dst_names
 
     def pipeline_model_parallel_size(self):
         """
@@ -671,6 +620,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         # add requests of current episode to vllm scheduler
         if self.is_last_rank():
             self._add_request(query, is_eval=is_eval)
+
         step_outputs = True
         while step_outputs:
             schedule_query = None
@@ -694,12 +644,13 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         if self.start_time is None:
             self.start_time = time.monotonic()
 
-        scheduler = self.scheduler[0] if isinstance(self.scheduler, list) else self.scheduler
-
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            self.seq_group_metadata_list, self.scheduler_outputs, _ = scheduler.schedule()
+            for scheduler in self.scheduler:
+                self.seq_group_metadata_list, self.scheduler_outputs, _ = scheduler.schedule()
+                if self.seq_group_metadata_list:
+                    break
         else:
-            self.seq_group_metadata_list, self.scheduler_outputs = scheduler.schedule()
+            self.seq_group_metadata_list, self.scheduler_outputs = self.scheduler[0].schedule()
 
         if self.scheduler_outputs.is_empty():
             return {}
@@ -779,7 +730,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
         done = 0
-
         for out in step_outputs:
             if out.finished:
                 self.outputs.append(out)
@@ -823,13 +773,10 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
                 # These are cached outputs from previous iterations. None if on first
                 # iteration
-                # cached_outputs = self.cached_scheduler_outputs[virtual_engine]
                 seq_group_metadata_list = data["seq_group_metadata_list"]
-                # scheduler_outputs = self.scheduler_outputs
                 allow_async_output_proc = False
 
                 assert seq_group_metadata_list is not None
-                # assert scheduler_outputs is not None
                 finished_requests_ids = data["finished_requests_ids"]
 
                 # Check if we have a cached last_output from the previous iteration.

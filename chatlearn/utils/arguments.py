@@ -302,8 +302,6 @@ class RuntimeConfig(BaseConfig):
     nsys: bool = False
     #: profiler dir
     profiler_dir: str = None
-    #: coalesce parameters in model sync
-    coalesce_param: bool = True
     #: coalesce_buffer size in mb
     coalesced_buffer_mb: int = 100
     #: concurrent parameter sync

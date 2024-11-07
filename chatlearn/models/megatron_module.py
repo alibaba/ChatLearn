@@ -170,7 +170,9 @@ class MegatronModule(TorchModule):
         """
         if hasattr(self.megatron_args, "expert_model_parallel_size"):
             return self.megatron_args.expert_model_parallel_size
-        return self.megatron_args.moe_expert_model_parallel_size
+        if hasattr(self.megatron_args, "moe_expert_model_parallel_size"):
+            return self.megatron_args.moe_expert_model_parallel_size
+        return 1
 
     def tensor_and_expert_model_parallel_size(self):
         """
@@ -209,13 +211,9 @@ class MegatronModule(TorchModule):
         """
         :meta private:
         """
-        return mpu.get_expert_model_parallel_rank()
-
-    def tensor_and_expert_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return mpu.get_tensor_and_expert_parallel_rank()
+        if hasattr(mpu, "get_expert_model_parallel_rank"):
+            return mpu.get_expert_model_parallel_rank()
+        return 0
 
     def num_layers(self):
         """
