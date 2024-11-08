@@ -68,6 +68,9 @@ if [[ "$model_size" == "mixtral-8x7B" ]]; then
     export free_memory_ppo_value=True
     export seq_length=2048
     export max_new_tokens=1024
+else
+  echo "Unrecognized model_size ${model_size}, choose from 'mixtral-8x7B'."
+  exit -1
 fi
 
 mkdir -p ${output_dir}

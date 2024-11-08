@@ -25,7 +25,7 @@ export PYTHONPATH=${PYTHONPATH}:${MEGATRON}:${CHATLEARN}/examples/megatron:${CHA
 
 [ -z "$model_size" ] && export model_size="mixtral-8x7B"
 
-if [ $model_size == "mixtral-8x7B" ]; then
+if [[ $model_size == "mixtral-8x7B" ]]; then
   NUM_LAYERS=32
   HIDDEN_SIZE=4096
   NUM_ATTN_HEADS=32
@@ -39,7 +39,10 @@ if [ $model_size == "mixtral-8x7B" ]; then
   pp=4
   ep=8
   mb=1
-  gbs=64
+  gbs=32
+else
+  echo "Unrecognized model_size ${model_size}, choose from 'mixtral-8x7B'."
+  exit -1
 fi
 
 DIR=$(pwd)
@@ -66,7 +69,7 @@ MODEL_ARGS="
 --hidden-size ${HIDDEN_SIZE} \
 --ffn-hidden-size ${FFN_HIDDEN_SIZE} \
 --num-attention-heads ${NUM_ATTN_HEADS} \
---init-method-std 0.006 \
+--init-method-std 0.01 \
 --attention-dropout 0.0 \
 --hidden-dropout 0.0 \
 --normalization RMSNorm \
@@ -99,13 +102,13 @@ DATA_ARGS="
 TRAINING_ARGS="
 --micro-batch-size $mb \
 --global-batch-size $gbs \
---lr 2.0e-5 \
+--lr 1e-4 \
 --train-iters 1000 \
---lr-decay-iters 1000 \
+--lr-decay-iters 640 \
 --lr-decay-style cosine \
---min-lr 6.0e-12 \
---weight-decay 0. \
---lr-warmup-iters 40 \
+--min-lr 1.0e-5 \
+--weight-decay 0.1 \
+--lr-warmup-iters 50 \
 --clip-grad 1.0 \
 --bf16 \
 --exit-on-missing-checkpoint \
@@ -131,13 +134,13 @@ LOGGING_ARGS="
 --save-interval 1000 \
 --save $CHECKPOINT_PATH \
 --load $LOAD_PATH \
---tensorboard-dir $CHECKPOINT_PATH \
---tensorboard-log-interval 100 \
+--auto-detect-ckpt-format \
 --num-workers 8 \
 --no-load-rng \
 --no-load-optim \
+--tensorboard-dir $CHECKPOINT_PATH \
+--tensorboard-log-interval 10 \
 --log-timers-to-tensorboard \
---log-batch-size-to-tensorboard \
 --log-validation-ppl-to-tensorboard \
 "
 

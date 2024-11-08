@@ -58,7 +58,7 @@ elif [[ ${model} == 'mixtral' ]]; then
     cd ${megatron}
     python tools/checkpoint/convert.py \
         --model-type GPT \
-        --loader loader_mixtral_hf \
+        --loader mixtral_hf \
         --saver mcore \
         --target-tensor-parallel-size ${tp} \
         --target-pipeline-parallel-size ${pp} \
