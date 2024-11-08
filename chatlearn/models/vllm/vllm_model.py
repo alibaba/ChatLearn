@@ -43,20 +43,25 @@ except ImportError:
 class VLLMModel(nn.Module):
     """VLLM based Model"""
 
-    def __init__(self, config, model_args, cache_config, quant_config, lora_config):
+    def __init__(self, config, model_args, cache_config):
         super().__init__()
         self.config = config
         self.model_args = model_args
         self.model_class = get_model_architecture(config)
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             self.model = self.model_class(config.hf_config)
-        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
+            self.model = self.model_class(config.hf_config, cache_config=cache_config)
+        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             model_class_name = getattr(config.hf_config, "architectures", [])
             assert model_class_name, f"architectures should be set in model config, while {model_class_name}"
-            if model_class_name[0] == "Qwen2MoeForCausalLM":
-                self.model = self.model_class(config.hf_config, cache_config, quant_config)
+            if model_class_name[0] == "QWenLMHeadModel":
+                # None for multimodal config.
+                self.model = self.model_class(config.hf_config, None, cache_config=cache_config)
             else:
-                self.model = self.model_class(config.hf_config, cache_config, quant_config, lora_config)
+                self.model = self.model_class(config.hf_config, cache_config=cache_config)
+        else:
+            raise RuntimeError(f"unsupport vllm version, supported version list: [0.3.0, 0.5.1, 0.6.3], while {CURRENT_VLLM_VERSION}")
 
     def load_weights(self):
         torch.distributed.barrier()

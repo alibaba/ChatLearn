@@ -191,7 +191,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
     def model_provider(self):
         """Build the model."""
         print_rank_0('building vLLM model ...')
-        model = VLLMModel(self.model_config, self.model_args, self.cache_config, self.quant_config, self.lora_config)
+        model = VLLMModel(self.model_config, self.model_args, self.cache_config)
 
         return model
 

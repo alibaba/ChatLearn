@@ -1227,6 +1227,12 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 output_state_dict[gate_up_proj_name] = torch.cat(gate_up_proj, dim=0)
                 gate_up_proj = {}
 
+        elif op_name in ["mlp.shared_experts.dense_h_to_4h"]:
+            out_name = func_map[op_name]
+            gate_up_proj_name = layer_name + out_name + "weight"
+            w1, w2 = params.chunk(2, dim=0)
+            output_state_dict[gate_up_proj_name] = torch.cat([w2, w1], dim=0).contiguous()
+
         elif "mlp.experts" in op_name:
             out_name = func_map[op_name]
             moe_num_experts = megatron_args.moe_num_experts

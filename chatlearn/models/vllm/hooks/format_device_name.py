@@ -17,21 +17,16 @@
 
 import inspect
 # pylint: disable=unused-import,unused-argument
-from typing import Optional
-from vllm.model_executor.layers import fused_moe
-from chatlearn.utils.utils import detect_and_insert_code_to_func
+from vllm.platforms import cuda
 
 
-def convert_device_name_to_str(source_code):
-    pattern = 'device_name = current_platform.get_device_name().replace(" ", "_")'
-    new_code = \
-"""
-device_name = str(current_platform.get_device_name()).replace(" ", "_")
-"""
-    source_code = detect_and_insert_code_to_func(source_code, pattern, new_code, line_offset=1, replace=True)
-    return source_code
+source = inspect.getsource(cuda.CudaPlatform.get_device_name)
+if 'physical_device_id = device_id_to_physical_device_id(device_id)' in source:
+    from vllm.platforms.cuda import device_id_to_physical_device_id, get_physical_device_name
 
-source = inspect.getsource(fused_moe.get_config_file_name)
-if 'current_platform.get_device_name' in source:
-    exec(convert_device_name_to_str(source)) # pylint: disable=exec-used
-    fused_moe.get_config_file_name = get_config_file_name
+    @classmethod
+    def _get_device_name(cls, device_id: int = 0) -> str:
+        physical_device_id = device_id_to_physical_device_id(device_id)
+        return str(get_physical_device_name(physical_device_id))
+
+    cuda.CudaPlatform.get_device_name = _get_device_name
