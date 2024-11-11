@@ -39,7 +39,7 @@ if [[ $model_size == "mixtral-8x7B" ]]; then
   pp=4
   ep=8
   mb=1
-  gbs=32
+  gbs=8
 else
   echo "Unrecognized model_size ${model_size}, choose from 'mixtral-8x7B'."
   exit -1
@@ -102,13 +102,13 @@ DATA_ARGS="
 TRAINING_ARGS="
 --micro-batch-size $mb \
 --global-batch-size $gbs \
---lr 1e-4 \
+--lr 5e-6 \
 --train-iters 1000 \
---lr-decay-iters 640 \
+--lr-decay-iters 1000 \
 --lr-decay-style cosine \
---min-lr 1.0e-5 \
---weight-decay 0.1 \
---lr-warmup-iters 50 \
+--min-lr 1.0e-12 \
+--weight-decay 0. \
+--lr-warmup-iters 40 \
 --clip-grad 1.0 \
 --bf16 \
 --exit-on-missing-checkpoint \
@@ -141,6 +141,7 @@ LOGGING_ARGS="
 --tensorboard-dir $CHECKPOINT_PATH \
 --tensorboard-log-interval 10 \
 --log-timers-to-tensorboard \
+--log-batch-size-to-tensorboard \
 --log-validation-ppl-to-tensorboard \
 "
 
