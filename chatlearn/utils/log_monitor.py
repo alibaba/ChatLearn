@@ -382,6 +382,8 @@ class LogMonitor:
         """
         anything_published = False
         lines_to_publish = []
+        if ray.__version__ < "2.11.0":
+            raise ValueError("Just support ray version >= 2.11.0")
 
         def flush():
             nonlocal lines_to_publish
