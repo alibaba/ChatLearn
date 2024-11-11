@@ -382,6 +382,8 @@ class LogMonitor:
         """
         anything_published = False
         lines_to_publish = []
+        if ray.__version__ < "2.11.0":
+            raise ValueError("Just support ray version >= 2.11.0")
 
         def flush():
             nonlocal lines_to_publish
@@ -396,7 +398,10 @@ class LogMonitor:
                     "actor_name": file_info.actor_name,
                     "task_name": file_info.task_name,
                 }
-                print_to_stdstream(data)
+                if ray.__version__ >= "2.38.0":
+                    print_to_stdstream(data, ignore_prefix=False)
+                else:
+                    print_to_stdstream(data)
                 anything_published = True
                 lines_to_publish = []
 
@@ -415,77 +420,37 @@ class LogMonitor:
                     if next_line == "":
                         break
                     next_line = next_line.rstrip("\r\n")
-                    if ray.__version__ >= "2.11.0":
-                        if next_line.startswith(ray_constants.LOG_PREFIX_ACTOR_NAME):
-                            flush()  # Possible change of task/actor name.
-                            file_info.actor_name = next_line.split(
-                                ray_constants.LOG_PREFIX_ACTOR_NAME, 1
-                            )[1]
-                            file_info.task_name = None
-                        elif next_line.startswith(ray_constants.LOG_PREFIX_TASK_NAME):
-                            flush()  # Possible change of task/actor name.
-                            file_info.task_name = next_line.split(
-                                ray_constants.LOG_PREFIX_TASK_NAME, 1
-                            )[1]
-                        elif next_line.startswith(ray_constants.LOG_PREFIX_JOB_ID):
-                            file_info.job_id = next_line.split(
-                                ray_constants.LOG_PREFIX_JOB_ID, 1
-                            )[1]
-                        elif next_line.startswith(
-                            "Windows fatal exception: access violation"
-                        ):
-                            # We are suppressing the
-                            # 'Windows fatal exception: access violation'
-                            # message on workers on Windows here.
-                            # As far as we know it is harmless,
-                            # but is frequently popping up if Python
-                            # functions are run inside the core
-                            # worker C extension. See the investigation in
-                            # github.com/ray-project/ray/issues/18944
-                            # Also skip the following line, which is an
-                            # empty line.
-                            file_info.file_handle.readline()
-                        else:
-                            lines_to_publish.append(next_line)
+                    if next_line.startswith(ray_constants.LOG_PREFIX_ACTOR_NAME):
+                        flush()  # Possible change of task/actor name.
+                        file_info.actor_name = next_line.split(
+                            ray_constants.LOG_PREFIX_ACTOR_NAME, 1
+                        )[1]
+                        file_info.task_name = None
+                    elif next_line.startswith(ray_constants.LOG_PREFIX_TASK_NAME):
+                        flush()  # Possible change of task/actor name.
+                        file_info.task_name = next_line.split(
+                            ray_constants.LOG_PREFIX_TASK_NAME, 1
+                        )[1]
+                    elif next_line.startswith(ray_constants.LOG_PREFIX_JOB_ID):
+                        file_info.job_id = next_line.split(
+                            ray_constants.LOG_PREFIX_JOB_ID, 1
+                        )[1]
+                    elif next_line.startswith(
+                        "Windows fatal exception: access violation"
+                    ):
+                        # We are suppressing the
+                        # 'Windows fatal exception: access violation'
+                        # message on workers on Windows here.
+                        # As far as we know it is harmless,
+                        # but is frequently popping up if Python
+                        # functions are run inside the core
+                        # worker C extension. See the investigation in
+                        # github.com/ray-project/ray/issues/18944
+                        # Also skip the following line, which is an
+                        # empty line.
+                        file_info.file_handle.readline()
                     else:
-                        if next_line.startswith(ray_constants.LOG_PREFIX_ACTOR_NAME):
-                            flush()  # Possible change of task/actor name.
-                            file_info.actor_name = next_line.split(
-                                ray_constants.LOG_PREFIX_ACTOR_NAME, 1
-                            )[1]
-                            file_info.task_name = None
-                        elif next_line.startswith(ray_constants.LOG_PREFIX_TASK_NAME):
-                            flush()  # Possible change of task/actor name.
-                            file_info.task_name = next_line.split(
-                                ray_constants.LOG_PREFIX_TASK_NAME, 1
-                            )[1]
-                        elif next_line.startswith(ray_constants.LOG_PREFIX_JOB_ID):
-                            file_info.job_id = next_line.split(
-                                ray_constants.LOG_PREFIX_JOB_ID, 1
-                            )[1]
-                        elif next_line.startswith(
-                            ray_constants.LOG_PREFIX_TASK_ATTEMPT_START
-                        ) or next_line.startswith(
-                            ray_constants.LOG_PREFIX_TASK_ATTEMPT_END
-                        ):
-                            # Ignore these magic tokens for task logs.
-                            pass
-                        elif next_line.startswith(
-                            "Windows fatal exception: access violation"
-                        ):
-                            # We are suppressing the
-                            # 'Windows fatal exception: access violation'
-                            # message on workers on Windows here.
-                            # As far as we know it is harmless,
-                            # but is frequently popping up if Python
-                            # functions are run inside the core
-                            # worker C extension. See the investigation in
-                            # github.com/ray-project/ray/issues/18944
-                            # Also skip the following line, which is an
-                            # empty line.
-                            file_info.file_handle.readline()
-                        else:
-                            lines_to_publish.append(next_line)
+                        lines_to_publish.append(next_line)
                 except Exception:
                     logger.error(
                         f"Error: Reading file: {file_info.filename}, "
