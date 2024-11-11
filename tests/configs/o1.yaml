@@ -12,49 +12,31 @@ runtime_env:
 models:
     mcts:
         model_config_file: model.yaml
-        num_gpu: 1
+        num_cpu: 4
         cpu_per_process: 1
         trainable: False
-        batch_generation:
-            ranking: ${batch_generation_ranking:False}
-            min_prompt_length: ${batch_generation_min_prompt_length:0}
-        free_memory: ${free_memory_policy:False}
     policy:
         model_config_file: model.yaml
         num_gpu: 1
         gpu_per_process: 1
         trainable: False
-        batch_generation:
-            ranking: ${batch_generation_ranking:False}
-            min_prompt_length: ${batch_generation_min_prompt_length:0}
-        free_memory: ${free_memory_policy:False}
-
-    reference:
-        model_config_file: model.yaml
-        num_gpu: 1
-        trainable: False
-        free_memory: ${free_memory_reference:False}
 
     reward:
         model_config_file: model.yaml
         num_gpu: 1
         trainable: False
-        free_memory: ${free_memory_reward:False}
 
-    value:
+    reward1:
         model_config_file: model.yaml
-        num_gpu: 1
-        generation_batch_size: ${value_generation_bs:16}
+        num_cpu: 1
+        cpu_per_process: 1
         trainable: False
-        free_memory: ${free_memory_value:False}
 
 
 runtime:
-    generation_batch_size: ${generation_batch_size:8}
-    train_micro_batch_size: ${train_micro_batch_size:16}
-    train_global_batch_size: ${train_global_batch_size:64}
-    num_episode: ${num_episode:5}
-    sample_per_episode: ${sample_per_episode:32}
+    generation_batch_size: ${generation_batch_size:1}
+    num_episode: ${num_episode:1}
+    sample_per_episode: ${sample_per_episode:4}
     num_training_epoch: 1
     save_episode_interval: ${save_episode_interval:1000}
     query_key: ${query_key:query}

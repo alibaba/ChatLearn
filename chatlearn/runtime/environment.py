@@ -15,11 +15,14 @@
 """Environment"""
 
 import math
+import uuid
+from collections import defaultdict
 from itertools import cycle
 
 from chatlearn.data.ranking import batch_generation_ranking
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
+from chatlearn.utils.utils import execute_in_parallel
 from .executor import Executor
 from .utils import encode_data
 
@@ -145,34 +148,57 @@ class MCTSEnv(Environment):
 
     def __init__(self, model_flow, mcts):
         super().__init__(model_flow)
-        self.max_iteration_per_batch = self.args.max_iteration_per_batch
+        self.max_iteration_per_sample = self.args.max_iteration_per_sample
         self.mcts = mcts
+        assert self.args.sample_per_episode == mcts.module_args.num_cpu
+
+    def mcts_loop(self, max_iteration, encoded_data, data_queues, mb, replica_data_list, mcts):
+        unique_id = uuid.uuid4()
+        future.wait(mcts.init_tree())
+        for i in range(max_iteration):
+            for data_queue in data_queues:
+                data_queue.put(encoded_data)
+            for replica, model_node in replica_data_list:
+                model = model_node.model
+                self.lookup_table[unique_id][model.name] = replica
+                in_queue = model_node.get_input_queues()
+                func_name = model_node.func_name
+                # TODO: we will consider colocation/offload later
+                to_empty_cache = False
+                to_onload = False
+                to_offload = False
+                self.generate_step_one_model(model, replica, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
+                                            is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_index=unique_id)
+            should_stop = future.get(mcts.should_stop())
+            assert len(should_stop) == 1
+            if should_stop[0]:
+                break
 
     def execute(self, is_eval):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
+        args = []
+        self.lookup_table = defaultdict(dict)
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
-            for i in range(self.max_iteration_per_batch):
-                for data_queue in data_queues:
-                    data_queue.put(encoded_data)
-                for model_group in self.model_flow.flow_topology:
-                    for model_node in model_group:
-                        model = model_node.model
-                        in_queue = model_node.get_input_queues()
-                        func_name = model_node.func_name
-                        # TODO: we will consider colocation/offload later
-                        to_empty_cache = False
-                        to_onload = False
-                        to_offload = False
-                        _, data = self.generate_step_one_model(model, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
-                                                    is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_index=mb)
-                should_stop = future.get(self._get_current_model(self.mcts).should_stop())
-                assert len(should_stop) == 1
-                if should_stop[0]:
-                    break
+            replica_data_list = []
+            model_to_replica = {}
+            for model_group in self.model_flow.flow_topology:
+                for model_node in model_group:
+                    model = model_node.model
+                    if model in model_to_replica:
+                        replica = model_to_replica[model]
+                    else:
+                        replica = self._next_model(model)
+                        model_to_replica[model] = replica
+                    replica_data_list.append((replica, model_node))
+            mcts = [replica_data[0] for replica_data in replica_data_list if replica_data[0].model is self.mcts]
+            assert len(mcts) > 0
+            mcts = mcts[0]
+            args.append((self.max_iteration_per_sample, encoded_data, data_queues, mb, replica_data_list, mcts))
+        execute_in_parallel(self.mcts_loop, args)
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:
             if model_node in self.model_flow.return_model_nodes:

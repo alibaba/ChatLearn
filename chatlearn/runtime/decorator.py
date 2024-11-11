@@ -14,6 +14,7 @@
 # ==============================================================================
 """module runtime decorator"""
 
+import inspect
 import traceback
 
 import torch
@@ -108,16 +109,16 @@ def concat_along_batch(tensors):
     return batched
 
 
-def preprocess_compute(func, is_forward_step, trainable):
+def preprocess_compute(func, trainable):
     """
-    1. if is_forward_step is True, merge a list of dict into one dict, i.e., merge inputs of forward_step.
+    1. if not trainable, merge a list of dict into one dict, i.e., merge inputs of forward_step.
     2. split a list of data for data_parallel, this is used for train_step
     3. convert output to cpu
     """
 
     def inner(self, *args, **kwargs):
         args = future.get(args)
-        if is_forward_step and len(args) > 1:
+        if not trainable and len(args) > 1:
             if all(isinstance(arg, dict) for arg in args):
                 merged = {}
                 for arg in args:
@@ -153,7 +154,8 @@ def preprocess_compute(func, is_forward_step, trainable):
                 results = []
                 for batch in batches:
                     args[0] = batch
-                    if is_forward_step:
+                    breakpoint()
+                    if 'iteration' in inspect.signature(func).parameters:
                         kwargs["iteration"] = self._iteration
                     ret = func(self, *args, **kwargs)
                     self._iteration += 1
@@ -164,7 +166,7 @@ def preprocess_compute(func, is_forward_step, trainable):
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = concat_along_batch(results)
             else:
-                if is_forward_step:
+                if 'iteration' in inspect.signature(func).parameters:
                     kwargs["iteration"] = self._iteration
                 ret = func(self, *args, **kwargs)
                 ret = utils.to_device('cpu', ret)
@@ -175,7 +177,8 @@ def preprocess_compute(func, is_forward_step, trainable):
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = ret
         else:
-            kwargs["iteration"] = self._train_iteration
+            if 'iteration' in inspect.signature(func).parameters:
+                kwargs["iteration"] = self._train_iteration
             self._train_iteration += 1
             ret = func(self, *args, **kwargs)
             ret = utils.to_device('cpu', ret)
@@ -189,7 +192,11 @@ def preprocess_compute(func, is_forward_step, trainable):
             self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results
 
-    return inner
+    def locked_inner(self, *args, **kwargs):
+        with self.lock:
+            return inner(self, *args, **kwargs)
+
+    return locked_inner
 
 
 def decorate_class_func(cls, func_name, decorator, *args, **kwargs):

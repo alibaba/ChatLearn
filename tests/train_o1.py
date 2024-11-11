@@ -22,7 +22,7 @@ import chatlearn
 from chatlearn import ControlDependencies
 from chatlearn import Evaluator, Trainer
 from chatlearn.runtime.environment import MCTSEnv
-from chatlearn.runtime.engine import BaseEngine, Engine
+from chatlearn.runtime.engine import Engine
 
 import os
 import time
@@ -32,7 +32,6 @@ from torch.utils.data import DataLoader
 from torch.utils.data import Dataset
 
 import chatlearn
-from chatlearn import RLHFEngine
 from chatlearn import TorchModule, BaseModule
 from chatlearn.utils import future
 
@@ -53,24 +52,29 @@ class MCTS(BaseModule):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.iter = 0
 
     def build_dataset(self, train_prompts, is_eval=False):
         dataset = CustomDataset(train_prompts)
         return dataset
 
-    def backpropagation(self):
-        self._logger.info(f"perform backpropagation {self.iter}")
+    def init_tree(self):
+        self.iter = 0
+
+    def backpropagation(self, data):
+        self._logger.info(f"[{self.replica_id}] perform backpropagation {self.iter}")
         self.iter += 1
         return {}
 
     def get_select_value_input(self, data):
+        self._logger.info(f"[{self.replica_id}] perform get_select_value_input {self.iter}")
         return data
     
     def update(self, data):
+        self._logger.info(f"[{self.replica_id}] perform update {self.iter}")
         return data
     
     def select_node_to_playout(self, data):
+        self._logger.info(f"[{self.replica_id}] perform select_node_to_playout {self.iter}")
         return data
 
     def should_stop(self):
@@ -89,93 +93,35 @@ class PolicyModel(TorchModule):
         dataset = CustomDataset(prompts)
         return dataset
 
-
-class PolicyReference(TorchModule):
-
-    def forward_step(self, data, iteration):
-        return data
-
-
 class RewardInference(TorchModule):
 
     def forward_step(self, data, iteration):
         return data
 
-
-class ValueInference(TorchModule):
+class RewardInference2(TorchModule):
 
     def forward_step(self, data, iteration):
         return data
 
-
-class PolicyTrainer(TorchModule):
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.data = []
-
-    def _get_rank(self):
-        return int(os.environ["RANK"])
-
-    @property
-    def data_parallel_size(self):
-        return 2
-
-    @property
-    def data_parallel_rank(self):
-        if self._get_rank() < 4:
-            return 0
-        return 1
-
-    def train_step(self, data, iteration):
-        print(f"ppo policy train_step ========= {self.data_parallel_rank}", flush=True)
-        if self._get_rank() == 0 or self._get_rank() == 4:
-            self.data.append(data)
-        num_mb = len(data)
-        return num_mb
-
-    def get_data(self):
-        return self.data
-
-
-class ValueTrainer(TorchModule):
-
-    @property
-    def data_parallel_size(self):
-        return 2
-
-    @property
-    def data_parallel_rank(self):
-        if int(os.environ["RANK"]) < 4:
-            return 0
-        return 1
-
-    def train_step(self, data, iteration):
-        print("ppo value train_step =========", flush=True)
-        num_mb = len(data)
-        return num_mb
-
 class MCTSEngine(Engine):
 
-    def __init__(self, mcts, policy, reference, reward, value):
+    def __init__(self, mcts, policy, reward, reward2):
 
         def mcts_flow(batch):
             # selection
             select_out = mcts.get_select_value_input(batch)
-            value_out = value.forward_step(select_out)
+            reward_out = reward.forward_step(select_out)
             # expansion
-            mcts_out = mcts.update(value_out)
-            string = policy.forward_step(mcts_out)
-            ref_out = reference.forward_step(string)
-            mcts_expand_reward = reward.forward_step(ref_out)
+            mcts_out = mcts.update(reward_out)
+            policy_out = policy.forward_step(mcts_out)
+            mcts_expand_reward = reward.forward_step(policy_out)
             # playout
             to_playout = mcts.select_node_to_playout(mcts_expand_reward)
             policy_playout = policy.playout(to_playout)
-            playout_reward = reward.forward_step(policy_playout)
+            playout_reward = reward2.forward_step(policy_playout)
             # backpropagation
-            with ControlDependencies(playout_reward):
-                mcts.backpropagation()
-            return policy_playout, playout_reward
+            mcts.backpropagation(policy_playout, playout_reward)
+            return policy_playout
 
         env = MCTSEnv(mcts_flow, mcts)
         super().__init__(env, name='MCTS')
@@ -185,15 +131,13 @@ if __name__ == "__main__":
     chatlearn.init()
     args = chatlearn.get_args()
     args.runtime_args.num_episode = 2
-    args.runtime_args.max_iteration_per_batch = 2
+    args.runtime_args.max_iteration_per_sample = 2
     args.runtime_args.debug = True
     mcts_model = MCTS("mcts")
-    reference_model = PolicyReference("reference")
     policy_model = PolicyModel("policy")
     reward_model = RewardInference("reward")
-
-    value_model = ValueInference("value")
-    engine = MCTSEngine(mcts_model, policy_model, reference_model, reward_model, value_model)
+    reward_model1 = RewardInference2("reward1")
+    engine = MCTSEngine(mcts_model, policy_model, reward_model, reward_model1)
     all_prompts = ['test'] * 200
     split_ratio = 0.9 if args.runtime_args.eval_episode_interval > 0 else 1
     num_train = int(len(all_prompts) * split_ratio)

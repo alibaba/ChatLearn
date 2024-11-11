@@ -18,6 +18,7 @@ from collections import defaultdict
 from itertools import cycle
 import math
 import os
+import threading
 
 import ray
 import ray.util.collective as col
@@ -257,6 +258,7 @@ class BaseModule:
                     self._iteration = start_episode * math.ceil(self.runtime_args.sample_per_episode / \
                         self._num_replica / self.module_args.generation_batch_size)
                     log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}", self._logger)
+        self.lock = threading.Lock()
         self.setup()
 
     def forward_step(self, data, iteration):

@@ -176,10 +176,10 @@ class DistActor:
         pass
 
     def __str__(self):
-        return f"{self.__class__.__name__}({self.name})"
+        return f"{self.__class__.__name__}({self.name})[{self.replica_id}]"
 
     def __repr__(self):
-        return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'
+        return f'<{self.__class__.__name__}({self.name})[{self.replica_id}] object at {hex(id(self))}>'
 
 
 class DistTorchActor(DistActor):

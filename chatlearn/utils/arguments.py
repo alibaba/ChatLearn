@@ -268,8 +268,8 @@ class RuntimeConfig(BaseConfig):
     sample_per_episode: int = 1000
     #: [optional] number of training epoch per episode. default set to 1.
     num_training_epoch: int = 1
-    #: [optional] max iteration per batch, for mcts-style search algorithm
-    max_iteration_per_batch = 1
+    #: [optional] max iteration per sample, for mcts-style search algorithm
+    max_iteration_per_sample = 1
     #: [required] generation(inference) batch size.
     generation_batch_size: int = 2
     #: [required] training micro batch size.
