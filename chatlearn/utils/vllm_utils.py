@@ -1281,7 +1281,6 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 val = torch.cat(val_list, dim=0).contiguous()
             elif "dense_4h_to_h" in op_name:
                 params_list = []
-                local_num_experts = moe_num_experts // tp_size
                 for rank in range(tp_size):
                     if rank != tp_rank:
                         params = get_element_from_dict_by_path(tp_state_dicts[rank], path)[key]
