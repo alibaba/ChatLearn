@@ -156,6 +156,18 @@ class PolicyModel(TestTorchModule):
 
 class PPOPolicy(TestTorchModule):
 
+    def model_setup(self):
+        super().model_setup()
+        key = f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"
+        global trainer_params
+        if key not in trainer_params:
+            tmp = {}
+            for name, shape in ParamsToSync_Trainer[self.pipeline_parallel_rank()].items():
+                tensor = torch.rand(shape).cuda()
+                tmp[name] = tensor
+            trainer_params[key] = tmp
+        self._named_parameters = trainer_params[key]
+
     def build_pipeline_layer_name_mapping(self, num_target_pipe_stage, target_pipe_rank, tgt_layer_offset, requires_grad=True):
         src_names = ParamsToSync_Trainer[self.pipeline_parallel_rank()].keys()
         dst_src_mappings = {}
@@ -168,24 +180,10 @@ class PPOPolicy(TestTorchModule):
         """
         :meta private:
         """
-        if self._named_parameters is None:
-            self._named_parameters = trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
         return self._named_parameters
 
     def get_parameter(self, name):
         return trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
-
-    def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
-        if parameters_to_sync is None:
-            parameters_to_sync = self._parameters_to_sync
-        tmp = {}
-        for name, shape in ParamsToSync_Trainer[self.pipeline_parallel_rank()].items():
-            tensor = torch.rand(shape).cuda()
-            tmp[name] = tensor
-            parameters_to_sync[pipe_stage].append((name, tensor))
-
-        global trainer_params
-        trainer_params[f"{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
 
     def _get_rank(self):
         return int(os.environ["RANK"])

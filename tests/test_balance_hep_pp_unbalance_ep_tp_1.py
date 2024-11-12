@@ -121,6 +121,16 @@ class CustomEngine(Engine):
 
 class PolicyModel(TestTorchModule):
 
+    def model_setup(self):
+        super().model_setup()
+        tmp = {}
+        for name, shape in ParamsToSync_Inference[self.tensor_parallel_rank()].items():
+            tensor = torch.rand(shape).cuda()
+            tmp[name] = tensor
+        global inference_params
+        inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
+        self._named_parameters = tmp
+
     def get_parameter_names(self, requires_grad=True):
         return list(ParamsToSync_Inference[self.tensor_parallel_rank()].keys())
 
@@ -129,8 +139,6 @@ class PolicyModel(TestTorchModule):
         """
         :meta private:
         """
-        if self._named_parameters is None:
-            self._named_parameters = inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
         return self._named_parameters
 
     def get_parameter(self, name):
@@ -140,27 +148,10 @@ class PolicyModel(TestTorchModule):
         if parameters_to_sync is None:
             parameters_to_sync = self._parameters_to_sync
         all_params = []
-        tmp = {}
-        for name, shape in ParamsToSync_Inference[self.tensor_parallel_rank()].items():
-            tensor = torch.rand(shape).cuda()
-            tmp[name] = tensor
+        for name in trainable_param_names:
+            tensor = self.named_parameters[name]
             all_params.append((name, tensor))
-        global inference_params
-        inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
         parameters_to_sync[pipe_stage] = all_params
-
-    def set_recv_parameters(self, rank, trainable_param_names, pipe_stage=0):
-        """
-        :meta private:
-        """
-        all_params = []
-        global inference_params
-        for name, shape in ParamsToSync_Inference[self.tensor_parallel_rank()].items():
-            tensor = inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
-            all_params.append((name, tensor))
-        parameters_to_recv = defaultdict(list)
-        parameters_to_recv[pipe_stage] = all_params
-        self._parameters_to_recv[rank] = parameters_to_recv
 
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
@@ -189,6 +180,23 @@ class PolicyModel(TestTorchModule):
 
 class PPOPolicy(TestTorchModule):
 
+    def model_setup(self):
+        super().model_setup()
+        tmp = {}
+
+        for name, shape in ParamsToSync_Trainer["ep"][self.expert_parallel_rank()].items():
+            tensor = torch.rand(shape).cuda()
+            tmp[name] = tensor
+
+        for name, shape in ParamsToSync_Trainer["dp"].items():
+            tensor = torch.arange(0, shape[0] * shape[1]).reshape(shape).to(torch.float32).cuda() # params should be identical across different ranks in current setting.
+            tmp[name] = tensor
+
+        global trainer_params
+        trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
+        self._named_parameters = tmp
+
+
     def get_parameter_names(self, requires_grad=True):
         return list(ParamsToSync_Trainer["ep"][self.expert_parallel_rank()].keys()) + list(ParamsToSync_Trainer["dp"].keys())
 
@@ -209,30 +217,10 @@ class PPOPolicy(TestTorchModule):
         """
         :meta private:
         """
-        if self._named_parameters is None:
-            self._named_parameters = trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"]
         return self._named_parameters
 
     def get_parameter(self, name):
         return trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
-
-    def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
-        if parameters_to_sync is None:
-            parameters_to_sync = self._parameters_to_sync
-        tmp = {}
-
-        for name, shape in ParamsToSync_Trainer["ep"][self.expert_parallel_rank()].items():
-            tensor = torch.rand(shape).cuda()
-            tmp[name] = tensor
-            parameters_to_sync[pipe_stage].append((name, tensor))
-
-        for name, shape in ParamsToSync_Trainer["dp"].items():
-            tensor = torch.ones(shape).cuda() # params should be identical across different ranks in current setting.
-            tmp[name] = tensor
-            parameters_to_sync[pipe_stage].append((name, tensor))
-
-        global trainer_params
-        trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
 
     @property
     def data_parallel_size(self):
