@@ -192,12 +192,10 @@ class ModelManager:
 
         model_cls = model.__class__
         for func_name in model.call_funcs:
-            is_forward_step = func_name == "forward_step"
             trainable = func_name in model.trainable_funcs
-            decorate_class_func(model_cls, func_name, preprocess_compute, is_forward_step, trainable)
+            decorate_class_func(model_cls, func_name, preprocess_compute, trainable)
 
-        for func_name in ["forward_step", "train_step",
-                          "save_checkpoint", "model_setup"]:
+        for func_name in ["save_checkpoint", "model_setup"] + model.call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
 
         # public user function
@@ -362,7 +360,7 @@ class ModelManager:
         for model in cpu_models:
             for _ in range(model.module_args.num_replica):
                 num_cpus.append(model.module_args.cpu_per_process)
-        if self.placement_groups is None:
+        if not self.placement_groups:
             placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus, \
                 strategy=self.runtime_args.cpu_schedule_strategy)
             models_str = ','.join([model.name for model in cpu_models])

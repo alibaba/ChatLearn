@@ -52,9 +52,9 @@ function run_test {
 
       attempts=$((attempts + 1))
       if [[ $attempts -lt 3 ]]; then
-          echo "$file fail, retry ($attempts/3)..."
+          echo "$file fail, retry ($attempts/3)... $@"
       else
-          echo "$file fail, exit ..."
+          echo "$file fail, exit ... $@"
           exit 1
       fi
   done
@@ -62,6 +62,8 @@ function run_test {
 
 
 function run_all_tests {
+  run_test python train_o1.py -c configs/o1.yaml
+  run_test python test_model_flow.py -c "configs/rlhf.yaml"
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_data_input.py -c "configs/exp.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"
@@ -122,6 +124,8 @@ if [ "$1" == "" ]; then
   else
     run_all_tests
   fi
+elif [ "$1" == "test_o1" ]; then
+  run_test python train_o1.py -c configs/o1.yaml
 elif [ "$1" == "test_data" ]; then
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"

@@ -121,8 +121,6 @@ class BaseModule:
         self._address = dlc_utils.get_addr() if dlc_utils.in_dlc_env() else get_host_addr()
         self._is_master_node = os.environ.get("RANK", '0') == '0'
         self._logger = setup_logger(model_name=self.name, ip_addr=self._address)
-        self._dummy_output = None
-        self._dummy_inputs = []
         # parameter sync from src_model
         self._src_parameter_model = None
         self.profiler = None

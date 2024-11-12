@@ -17,27 +17,45 @@
 from collections import defaultdict, deque
 
 from chatlearn.utils import future
+from chatlearn.utils.global_vars import unwrap_func
+from chatlearn.utils.global_vars import reset_dependencies, set_dependencies, get_dependencies
 from chatlearn.utils.utils import flatten
+from .decorator import decorate_class_func
+
+
+class ControlDependencies:
+    """ControlDependencies"""
+
+    def __init__(self, dependencies):
+        if not isinstance(dependencies, list):
+            dependencies = [dependencies]
+        self.dependencies = dependencies
+
+    def __enter__(self):
+        set_dependencies(self.dependencies)
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        reset_dependencies()
 
 
 class DummyData:
     """DummyData to trace ModelGraph"""
 
-    def __init__(self, from_model=None):
-        self.from_model = from_model
-        self.to_models = []
+    def __init__(self, from_node=None):
+        self.from_node = from_node
+        self.to_nodes = []
 
 
 class ModelNode:
     """ModelNode"""
 
-    def __init__(self, model, model_arg_name, func_name):
+    def __init__(self, model, func_name):
         self.model = model
         self.name = model.name
-        self.model_arg_name = model_arg_name
         self.func_name = func_name
-        self.input_models = []
-        self.output_models = []
+        self.input_nodes = []
+        self.output_nodes = []
         self.out_queues = None
         self._input_queue = None
         # next colocate model node to execute
@@ -46,13 +64,17 @@ class ModelNode:
         self.models_to_wait = []
         # remote objects to wait before the execution of current model
         self.remote_objects_to_wait = []
+        self.dependent_output_nodes = []
+        self.trainable = False
 
-    def add_input_node(self, model):
-        self.input_models.append(model)
-        model.add_output_node(self)
+    def add_input_node(self, node):
+        if node in self.input_nodes:
+            raise RuntimeError(f"{node} already added to {self} inputs")
+        self.input_nodes.append(node)
+        node.add_output_node(self)
 
     def add_output_node(self, model):
-        self.output_models.append(model)
+        self.output_nodes.append(model)
 
     def set_out_queues(self, queues):
         self.out_queues = queues
@@ -64,8 +86,8 @@ class ModelNode:
         input_queues = []
         if self._input_queue is not None:
             input_queues.append(self._input_queue)
-        for input_model_node in self.input_models:
-            out_index = input_model_node.output_models.index(self)
+        for input_model_node in self.input_nodes:
+            out_index = input_model_node.output_nodes.index(self)
             input_queues.append(input_model_node.out_queues[out_index])
         if len(input_queues) == 1:
             return input_queues[0]
@@ -82,7 +104,7 @@ class ModelNode:
                 continue
             visited.add(cur_model)
             for prev_model, results in prev_models_results:
-                if prev_model in cur_model.input_models and prev_model not in parents_models:
+                if prev_model in cur_model.input_nodes and prev_model not in parents_models:
                     parents_models.append(prev_model)
                     parents_results.append(results)
                     queue.append(prev_model)
@@ -113,23 +135,10 @@ class ModelNode:
         self.models_to_wait = []
 
     def __str__(self):
-        return f"{self.__class__.__name__}({self.model})"
+        return f"{self.__class__.__name__}({self.model}) {self.func_name}"
 
     def __repr__(self):
-        return f'<{self.__class__.__name__}({self.model}) object at {hex(id(self))}>'
-
-
-def fake_compute():
-    def inner(self, *args):
-        for data in args:
-            if isinstance(data, DummyData):
-                data.to_models.append(self)
-                self._dummy_inputs.append(data)
-        res = DummyData(self)
-        self._dummy_output = res
-        return res
-
-    return inner
+        return f'<{self.__class__.__name__}({self.model}) {self.func_name} object at {hex(id(self))}>'
 
 
 class ModelFlow:
@@ -138,13 +147,33 @@ class ModelFlow:
     def __init__(self, cls):
         self.model_nodes = []
         self.return_model_nodes = []
-        self.out_to_model_node = {}
         self.cls = cls
         # models that consumes input data
         self.input_consumers = []
 
-    def get(self, name):
-        return self.name_to_node[name]
+    def fake_compute(self, fn):
+        def inner(*args):
+            assert len(args) > 0
+            original_fn = unwrap_func(fn)
+            func_name = original_fn.__name__
+            model_node = ModelNode(args[0], func_name)
+            dist_model = self.name2remote_model[model_node.name]
+            model_node.model = dist_model
+            dist_model.model_node = model_node
+            self.model_nodes.append(model_node)
+            for data in args[1:]:
+                if isinstance(data, DummyData):
+                    data.to_nodes.append(model_node)
+                    if data.from_node:
+                        model_node.add_input_node(data.from_node)
+            dependencies = get_dependencies()
+            if dependencies is not None:
+                for dep in dependencies:
+                    dep.from_node.dependent_output_nodes.append(model_node)
+            res = DummyData(model_node)
+            return res
+
+        return inner
 
     def trace(self, models, compute_flow):
         """
@@ -158,52 +187,35 @@ class ModelFlow:
             compute_flow function
         """
         local_models = [model.replicas[0].model for model in models]
-        name2remote_model = {model.name: model for model in models}
-        class_to_old_func = {}
+        self.name2remote_model = {model.name: model for model in models}
         for model in local_models:
-            func_name = self.cls.model_to_call_func[model]
-            class_to_old_func[(model, func_name)] = getattr(model.__class__, func_name)
-            setattr(model.__class__, func_name, fake_compute())
+            for func_name in self.cls.model_to_call_funcs[model]:
+                decorate_class_func(model.__class__, func_name, self.fake_compute)
 
         dummy_data = DummyData()
         assert compute_flow is not None
         dummy_output = compute_flow(dummy_data)
         # convert decorator back
         for model in local_models:
-            func_name = self.cls.model_to_call_func[model]
-            setattr(model.__class__, func_name, class_to_old_func[(model, func_name)])
+            for func_name in self.cls.model_to_call_funcs[model]:
+                setattr(model.__class__, func_name, unwrap_func(getattr(model.__class__, func_name), level=1))
 
-        for model in local_models:
-            remote_model = name2remote_model[model.name]
-            node = ModelNode(remote_model, model.name, self.cls.model_to_call_func[model])
-            if model._dummy_output:
-                self.out_to_model_node[model._dummy_output] = node
-            for dummy_input in model._dummy_inputs:
-                if dummy_input in self.out_to_model_node:
-                    node.add_input_node(self.out_to_model_node[dummy_input])
-            self.model_nodes.append(node)
         if dummy_output:
             if isinstance(dummy_output, DummyData):
                 dummy_output = [dummy_output]
             for do in dummy_output:
-                self.return_model_nodes.append(self.out_to_model_node[do])
+                self.return_model_nodes.append(do.from_node)
 
-        self.name_to_node = {node.model.name: node for node in self.model_nodes}
-        self.input_consumers = [self.name_to_node[model.name] for model in dummy_data.to_models]
+        self.input_consumers = dummy_data.to_nodes
         self.flow_topology = self.topological_sort()
         self.model_nodes = flatten(self.flow_topology)
         for i, current_node in enumerate(self.model_nodes):
             for j in range(i + 1, len(self.model_nodes)):
-                if not current_node.model.colocate_models:
-                    break
                 next_node = self.model_nodes[j]
-                if current_node.model.colocate_with(next_node.model):
+                # if current_node and next_node share the same model, then thay are colocated
+                if current_node.model.colocate_with(next_node.model) or current_node.model is next_node.model:
                     current_node.next_colocate_node = next_node
                     break
-        # reset dummy info
-        for model in local_models:
-            model._dummy_inputs = []
-            model._dummy_output = None
 
     def topological_sort(self):
         result = []
@@ -212,7 +224,9 @@ class ModelFlow:
 
         # Calculate the in-degree of each vertex
         for u in self.model_nodes:
-            for v in u.output_models:
+            for v in u.output_nodes:
+                in_degree[v] += 1
+            for v in u.dependent_output_nodes:
                 in_degree[v] += 1
 
         # Enqueue all the vertices with an in-degree of 0
@@ -227,7 +241,7 @@ class ModelFlow:
                 result.append(current)
 
                 # Decrement the in-degree of adjacent vertices
-                for v in current.output_models:
+                for v in current.output_nodes + current.dependent_output_nodes:
                     in_degree[v] -= 1
                     if in_degree[v] == 0:
                         queue.append(v)
@@ -236,5 +250,5 @@ class ModelFlow:
 
         # Check if the graph contains a cycle
         if len(result) != len(self.model_nodes):
-            return None
+            raise RuntimeError("Please check if the graph contains a cycle")
         return [v[1] for v in sorted(level_map.items())]
