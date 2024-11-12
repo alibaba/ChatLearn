@@ -198,12 +198,14 @@ class Executor:
                     # behavior for models accept multiple inputs
                     # we need to deal with it later
                     assert not model_node.trainable
-                    data = self.get_merged_data_locked(in_queue, micro_batch_index=micro_batch_index, model_node=model_node, trainable=model_node.trainable)
+                    data = self.get_merged_data_locked(in_queue, micro_batch_index=micro_batch_index,
+                                                       model_node=model_node, trainable=model_node.trainable)
                     mb, query = decode_data(data)
                 else:
                     mb, query = micro_batch_index, []
             else:
-                data = self.get_merged_data_locked([in_queue], micro_batch_index=micro_batch_index, model_node=model_node, trainable=model_node.trainable)
+                data = self.get_merged_data_locked([in_queue], micro_batch_index=micro_batch_index,
+                                                   model_node=model_node, trainable=model_node.trainable)
                 assert len(data['data']) == 1
                 data['data'] = data['data'][0]
                 mb, query = decode_data(data)
