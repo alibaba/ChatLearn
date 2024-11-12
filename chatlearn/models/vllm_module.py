@@ -575,6 +575,13 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         return self.parallel_config.tensor_parallel_size
 
+    def tensor_and_expert_model_parallel_size(self):
+        """
+        get tensor_and_expert_model_parallel_size
+        :meta private:
+        """
+        return self.parallel_config.tensor_parallel_size
+
     @property
     def data_parallel_size(self):
         """

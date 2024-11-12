@@ -373,6 +373,12 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             "mlp.w2": ".mlp.gate_up_proj.",
             "mlp.dense_4h_to_h": mlp_dense_name,
             "mlp.dense_layernorm": "mlp.dense_layernorm",
+            "mlp.router.layer": ".mlp.gate.",
+            "mlp.experts.dense_h_to_4h": ".mlp.experts.w13_weight",
+            "mlp.experts.dense_4h_to_h": ".mlp.experts.w2_weight",
+            "mlp.shared_experts.dense_h_to_4h": ".mlp.shared_expert.gate_up_proj.",
+            "mlp.shared_experts.dense_4h_to_h": ".mlp.shared_expert.down_proj.",
+            "mlp.gate": ".mlp.shared_expert_gate."
         }
         self._final_layer_sync_map = {
             f"{src_prefix}.encoder.final_layernorm.bias": f"{dst_prefix}.{final_norm}.bias",
@@ -469,6 +475,15 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
                 gate_up_proj_name = layer_name + out_name + "weight"
                 if gate_up_proj_name not in self._dst_names:
                     self._dst_names.append(gate_up_proj_name)
+
+            elif op_name in ["mlp.shared_experts.dense_h_to_4h"]:
+                out_name =  self.layer_sync_map[op_name]
+                gate_up_proj_name = layer_name + out_name + "weight"
+                self._dst_names.append(gate_up_proj_name)
+
+            elif "mlp.experts" in op_name:
+                out_name =  self.layer_sync_map[op_name]
+                self._dst_names.append(layer_name + out_name)
 
             # Transpose the weights.
             elif weight_or_bias in ["weight", "bias"]:
@@ -1234,12 +1249,50 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
             output_state_dict[gate_up_proj_name] = torch.cat([w2, w1], dim=0).contiguous()
 
         elif "mlp.experts" in op_name:
+            # For w13_weight and w2_weigh, each tp slice contains part of expert weights.
+            # w13_weight in tp slice 0 (tp = 4):
+            #       expert   0: [ w3_tp0, w3_tp1 ]
+            #       expert   1: [ w3_tp2, w3_tp3 ]
+            #       expert   2: [ w1_tp0, w1_tp1 ]
+            #       expert   3: [ w1_tp2, w1_tp3 ]
+            #       ...
+            #       expert n-4: [ w3_tp0, w3_tp1 ]
+            #       expert n-2: [ w3_tp2, w3_tp3 ]
+            #       expert n-1: [ w1_tp0, w1_tp1 ]
+            #       expert   n: [ w1_tp2, w1_tp3 ]
+            # we need to gather all w3_tp{tp_rank}/w1_tp{tp_rank} for tp_rank from all tp slices. w2_weight as well.
             out_name = func_map[op_name]
             moe_num_experts = megatron_args.moe_num_experts
             if "dense_h_to_4h" in op_name:
-                val = params.view((moe_num_experts, -1, hf_config.hidden_size)).contiguous()
+                params_list = []
+                for rank in range(tp_size):
+                    if rank != tp_rank:
+                        params = get_element_from_dict_by_path(tp_state_dicts[rank], path)[key]
+                    params_list.append(params)
+                val_list = []
+                for params in params_list:
+                    params = params.view((moe_num_experts, -1, hf_config.hidden_size)).contiguous()
+                    params = params.reshape((moe_num_experts // tp_size * 2, -1, hf_config.hidden_size))
+                    params = params.chunk(tp_size, dim=1)[tp_rank]
+                    params = params.reshape(params.shape[0] // tp_size * 2, -1, hf_config.hidden_size)
+                    params_right, params_left = params.chunk(2, dim=1)
+                    params = torch.cat([params_left, params_right], dim=1)
+                    val_list.append(params)
+                val = torch.cat(val_list, dim=0).contiguous()
             elif "dense_4h_to_h" in op_name:
-                val = params.view((moe_num_experts, -1, hf_config.hidden_size)).transpose(1, 2).contiguous()
+                params_list = []
+                local_num_experts = moe_num_experts // tp_size
+                for rank in range(tp_size):
+                    if rank != tp_rank:
+                        params = get_element_from_dict_by_path(tp_state_dicts[rank], path)[key]
+                    params = params.view((moe_num_experts, -1, hf_config.hidden_size)).contiguous()
+                    params_list.append(params)
+                val_list = []
+                for params in params_list:
+                    params = params.reshape((moe_num_experts // tp_size, -1, hf_config.hidden_size))
+                    params = params.chunk(tp_size, dim=1)[tp_rank]
+                    val_list.append(params)
+                val = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
             else:
                 raise RuntimeError(f"only support router weight name 'dense_h_to_4h' or 'dense_4h_to_h' for qwen2_moe. while {op_name}.")
             output_state_dict[layer_name + out_name] = val
