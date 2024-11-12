@@ -580,6 +580,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         get tensor_and_expert_model_parallel_size
         :meta private:
         """
+        # vLLM not supported to enable expert parallel size
+        # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
         return self.parallel_config.tensor_parallel_size
 
     @property
