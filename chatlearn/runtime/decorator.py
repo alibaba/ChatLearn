@@ -191,11 +191,7 @@ def preprocess_compute(func, trainable):
             self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results
 
-    def locked_inner(self, *args, **kwargs):
-        with self.lock:
-            return inner(self, *args, **kwargs)
-
-    return locked_inner
+    return inner
 
 
 def decorate_class_func(cls, func_name, decorator, *args, **kwargs):

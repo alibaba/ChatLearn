@@ -181,6 +181,8 @@ class MCTSEnv(Environment):
             for model_group in self.model_flow.flow_topology:
                 for model_node in model_group:
                     model = model_node.model
+                    assert not model.is_colocate, "colocation is currently not supported in MCTSEnv"
+                    assert not model.enable_offload, "offload is currently not supported in MCTSEnv"
                     if model in model_to_replica:
                         replica = model_to_replica[model]
                     else:
@@ -191,7 +193,11 @@ class MCTSEnv(Environment):
             assert len(mcts) > 0
             mcts = mcts[0]
             args.append((self.max_iteration_per_sample, encoded_data, data_queues, mb, replica_data_list, mcts))
-        execute_in_parallel(self.mcts_loop, args)
+        if self.args.debug:
+            for arg in args:
+                self.mcts_loop(*arg)
+        else:
+            execute_in_parallel(self.mcts_loop, args)
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:
             if model_node in self.model_flow.return_model_nodes:

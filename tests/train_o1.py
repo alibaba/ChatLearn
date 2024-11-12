@@ -139,7 +139,6 @@ chatlearn.init()
 args = chatlearn.get_args()
 args.runtime_args.num_episode = 2
 args.runtime_args.max_iteration_per_sample = 2
-args.runtime_args.debug = True
 mcts_model = MCTS("mcts")
 policy_model = PolicyModel("policy")
 reward_model = RewardInference("reward")
