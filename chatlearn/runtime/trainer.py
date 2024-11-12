@@ -41,6 +41,11 @@ class Trainer(Executor):
         self.iteration = 0
         self._data_parallel_size = None
 
+    def setup(self):
+        super().setup()
+        for model_node in self.model_flow.model_nodes:
+            model_node.trainable = True
+
     def set_data_loader(self, data_loader):
         self._data_loader = data_loader
 

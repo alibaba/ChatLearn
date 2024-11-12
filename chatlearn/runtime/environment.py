@@ -15,8 +15,6 @@
 """Environment"""
 
 import math
-import uuid
-from collections import defaultdict
 from itertools import cycle
 
 from chatlearn.data.ranking import batch_generation_ranking
@@ -45,7 +43,6 @@ class Environment(Executor):
         self._dataset = None
         self.data_iter = None
         self._padding_config = {}
-        self.merged_buffer = {}
 
     def set_dataset(self, dataset):
         self._dataset = dataset
@@ -153,22 +150,19 @@ class MCTSEnv(Environment):
         assert self.args.sample_per_episode == mcts.module_args.num_cpu
 
     def mcts_loop(self, max_iteration, encoded_data, data_queues, mb, replica_data_list, mcts):
-        unique_id = uuid.uuid4()
         future.wait(mcts.init_tree())
         for i in range(max_iteration):
             for data_queue in data_queues:
                 data_queue.put(encoded_data)
             for replica, model_node in replica_data_list:
-                model = model_node.model
-                self.lookup_table[unique_id][model.name] = replica
                 in_queue = model_node.get_input_queues()
                 func_name = model_node.func_name
                 # TODO: we will consider colocation/offload later
                 to_empty_cache = False
                 to_onload = False
                 to_offload = False
-                self.generate_step_one_model(model, replica, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
-                                            is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_index=unique_id)
+                self.generate_step_one_model(model_node, replica, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
+                                             is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_index=mb)
             should_stop = future.get(mcts.should_stop())
             assert len(should_stop) == 1
             if should_stop[0]:
@@ -178,7 +172,6 @@ class MCTSEnv(Environment):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
         args = []
-        self.lookup_table = defaultdict(dict)
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)

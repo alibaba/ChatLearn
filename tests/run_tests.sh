@@ -52,9 +52,9 @@ function run_test {
 
       attempts=$((attempts + 1))
       if [[ $attempts -lt 3 ]]; then
-          echo "$file fail, retry ($attempts/3)..."
+          echo "$file fail, retry ($attempts/3)... $@"
       else
-          echo "$file fail, exit ..."
+          echo "$file fail, exit ... $@"
           exit 1
       fi
   done

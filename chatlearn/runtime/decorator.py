@@ -154,7 +154,6 @@ def preprocess_compute(func, trainable):
                 results = []
                 for batch in batches:
                     args[0] = batch
-                    breakpoint()
                     if 'iteration' in inspect.signature(func).parameters:
                         kwargs["iteration"] = self._iteration
                     ret = func(self, *args, **kwargs)

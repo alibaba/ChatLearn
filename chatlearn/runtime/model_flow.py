@@ -65,6 +65,7 @@ class ModelNode:
         # remote objects to wait before the execution of current model
         self.remote_objects_to_wait = []
         self.dependent_output_nodes = []
+        self.trainable = False
 
     def add_input_node(self, node):
         if node in self.input_nodes:
@@ -156,7 +157,9 @@ class ModelFlow:
             original_fn = unwrap_func(fn)
             func_name = original_fn.__name__
             model_node = ModelNode(args[0], func_name)
-            model_node.model = self.name2remote_model[model_node.name]
+            dist_model = self.name2remote_model[model_node.name]
+            model_node.model = dist_model
+            dist_model.model_node = model_node
             self.model_nodes.append(model_node)
             for data in args[1:]:
                 if isinstance(data, DummyData):

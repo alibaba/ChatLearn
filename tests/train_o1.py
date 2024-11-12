@@ -52,6 +52,7 @@ class MCTS(BaseModule):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.data = []
 
     def build_dataset(self, train_prompts, is_eval=False):
         dataset = CustomDataset(train_prompts)
@@ -60,26 +61,33 @@ class MCTS(BaseModule):
     def init_tree(self):
         self.iter = 0
 
-    def backpropagation(self, data):
-        self._logger.info(f"[{self.replica_id}] perform backpropagation {self.iter}")
-        self.iter += 1
-        return {}
-
     def get_select_value_input(self, data):
         self._logger.info(f"[{self.replica_id}] perform get_select_value_input {self.iter}")
+        data['query'] = [item + f"_step0_iter{self.iter}" for item in data['query']]
         return data
     
     def update(self, data):
         self._logger.info(f"[{self.replica_id}] perform update {self.iter}")
+        data['query'] = [item + f"_step1_iter{self.iter}" for item in data['query']]
         return data
     
     def select_node_to_playout(self, data):
         self._logger.info(f"[{self.replica_id}] perform select_node_to_playout {self.iter}")
+        data['query'] = [item + f"_step2_iter{self.iter}" for item in data['query']]
         return data
 
     def should_stop(self):
         return False
 
+    def backpropagation(self, data):
+        self._logger.info(f"[{self.replica_id}] perform backpropagation {self.iter}")
+        data['query'] = [item + f"_step3_iter{self.iter}" for item in data['query']]
+        self.iter += 1
+        self.data.append(data)
+        return data
+
+    def get_data(self):
+        return self.data
     
 class PolicyModel(TorchModule):
 
@@ -127,21 +135,34 @@ class MCTSEngine(Engine):
         super().__init__(env, name='MCTS')
 
 
-if __name__ == "__main__":
-    chatlearn.init()
-    args = chatlearn.get_args()
-    args.runtime_args.num_episode = 2
-    args.runtime_args.max_iteration_per_sample = 2
-    args.runtime_args.debug = True
-    mcts_model = MCTS("mcts")
-    policy_model = PolicyModel("policy")
-    reward_model = RewardInference("reward")
-    reward_model1 = RewardInference2("reward1")
-    engine = MCTSEngine(mcts_model, policy_model, reward_model, reward_model1)
-    all_prompts = ['test'] * 200
-    split_ratio = 0.9 if args.runtime_args.eval_episode_interval > 0 else 1
-    num_train = int(len(all_prompts) * split_ratio)
-    random.shuffle(all_prompts)
-    train_prompts = all_prompts[:num_train]
-    engine.set_dataset(train_prompts)
-    engine.learn()
+chatlearn.init()
+args = chatlearn.get_args()
+args.runtime_args.num_episode = 2
+args.runtime_args.max_iteration_per_sample = 2
+args.runtime_args.debug = True
+mcts_model = MCTS("mcts")
+policy_model = PolicyModel("policy")
+reward_model = RewardInference("reward")
+reward_model1 = RewardInference2("reward1")
+engine = MCTSEngine(mcts_model, policy_model, reward_model, reward_model1)
+all_prompts = [f'test{i}' for i in range(200)]
+split_ratio = 0.9 if args.runtime_args.eval_episode_interval > 0 else 1
+num_train = int(len(all_prompts) * split_ratio)
+train_prompts = all_prompts[:num_train]
+engine.set_dataset(train_prompts)
+engine.learn()
+all_data = []
+for replica in engine.named_models['mcts'].replicas:
+    mcts_actors = replica.all_actors
+    assert len(mcts_actors) == 1
+    data = future.get(mcts_actors[0].get_data.remote())
+    all_data.append(data)
+assert len(all_data) == args.runtime_args.sample_per_episode
+expected_results = [[] for i in range(args.runtime_args.sample_per_episode)]
+data_index = 0
+for episode_id in range(args.runtime_args.num_episode):
+    for i in range(args.runtime_args.sample_per_episode):
+        for j in range(args.runtime_args.max_iteration_per_sample):
+            expected_results[i].append({'query': [f"test{data_index}_step0_iter{j}_step1_iter{j}_step2_iter{j}_step3_iter{j}"]})
+        data_index += 1
+assert all_data == expected_results
