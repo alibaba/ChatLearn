@@ -45,7 +45,7 @@ class BaseSync:
         """
         return src_names, dst_names
 
-    def regroup_experts_from_all_tp_ranks(self, name, params_to_sync, tp_rank, group_name):
+    def regroup_experts_from_all_tp_ranks(self, name, params_to_sync, tp_rank, group_name): # pylint: disable=unused-argument
         return params_to_sync
 
     def transform_parameters(self, params_to_sync_list):
