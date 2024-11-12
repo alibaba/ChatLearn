@@ -137,6 +137,14 @@ class ParameterSyncMap:
         return self._concat_params_dict
 
     @property
+    def to_fix_shared_expert_ordering(self):
+        return self._to_fix_shared_expert_ordering
+
+    @property
+    def to_regroup_experts_dict(self):
+        return self._to_regroup_experts_dict
+
+    @property
     def to_fix_act_ordering_dict(self):
         return self._to_fix_act_ordering_dict
 
@@ -181,6 +189,8 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
             f"{src_prefix}.output_layer.weight": "model.lm_head.weight"
         }
         self._concat_params_dict = None
+        self._to_fix_shared_expert_ordering = None
+        self._to_regroup_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
             "modules": [
@@ -267,6 +277,8 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
             f"{src_prefix}.output_layer.weight": "model.lm_head.weight"
         }
         self._concat_params_dict = None
+        self._to_fix_shared_expert_ordering = None
+        self._to_regroup_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
             "modules": [
@@ -389,6 +401,10 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             "modules": ["mlp.w1", "mlp.w2"],
             "dim": 0
         }
+        self._to_fix_shared_expert_ordering = {
+            "modules": ["mlp.shared_experts.dense_h_to_4"],
+            "dim": 0
+        }
         self._to_fix_act_ordering_dict = {
             "modules": ["mlp.dense_h_to_4h"],
             "dim": 0
@@ -397,6 +413,13 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             "modules": [
                 "attention.query_key_value",
                 "self_attention.query_key_value"
+            ],
+            "layer_re": self.layer_re
+        }
+        self._to_regroup_experts_dict = {
+            "modules": [
+                "mlp.experts.dense_h_to_4h",
+                "mlp.experts.dense_4h_to_h",
             ],
             "layer_re": self.layer_re
         }
@@ -1249,18 +1272,18 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
             output_state_dict[gate_up_proj_name] = torch.cat([w2, w1], dim=0).contiguous()
 
         elif "mlp.experts" in op_name:
-            # For w13_weight and w2_weigh, each tp slice contains part of expert weights.
-            # w13_weight in tp slice 0 (tp = 4):
-            #       expert   0: [ w3_tp0, w3_tp1 ]
-            #       expert   1: [ w3_tp2, w3_tp3 ]
-            #       expert   2: [ w1_tp0, w1_tp1 ]
-            #       expert   3: [ w1_tp2, w1_tp3 ]
-            #       ...
-            #       expert n-4: [ w3_tp0, w3_tp1 ]
-            #       expert n-2: [ w3_tp2, w3_tp3 ]
-            #       expert n-1: [ w1_tp0, w1_tp1 ]
-            #       expert   n: [ w1_tp2, w1_tp3 ]
-            # we need to gather all w3_tp{tp_rank}/w1_tp{tp_rank} for tp_rank from all tp slices. w2_weight as well.
+            # For w13_weight and w2_weight, each tp slice contains part of expert weights.
+            # qwen w13_weight when tp = 4 (pp=1,ep=1):
+            #       rank 0: [[0.1, 0.2], [0.3, 0.4]]
+            #       rank 1: [[1.1, 1.2], [1.3, 1.4]]
+            #       rank 2: [[2.1, 2.2], [2.3, 2.4]]
+            #       rank 3: [[3.1, 3.2], [3.3, 3.4]]
+            # vLLM w13_weight when tp = 4 (pp=1,ep=1):
+            #       rank 0: [[0.1, 1.1], [2.1, 3.1]]
+            #       rank 1: [[0.2, 1.2], [2.2, 3.2]]
+            #       rank 2: [[0.3, 1.3], [2.3, 3.3]]
+            #       rank 3: [[0.4, 1.4], [2.4, 3.4]]
+            # w2_weight as well.
             out_name = func_map[op_name]
             moe_num_experts = megatron_args.moe_num_experts
             if "dense_h_to_4h" in op_name:

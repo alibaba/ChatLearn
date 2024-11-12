@@ -262,6 +262,7 @@ class ParameterSyncGroup:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_and_ep_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_and_ep_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
+            self.set_send_actors_to_regroup_experts(src_replica_ranks_group)
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
@@ -625,7 +626,7 @@ class ParameterSyncGroup:
             return future.get(actor.get_data_parallel_rank.remote())
         return utils.get_or_cache(self._actor2dp, actor, inner_func)
 
-    def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
+    def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", is_parameter_changed=True):
         if requires_grad is None:
             requires_grad = True
         if self._enable_lora:
@@ -654,7 +655,10 @@ class ParameterSyncGroup:
             src_names = filter_fn(src_names)
             dst_names = filter_fn(dst_names)
 
-        src_names, dst_names = self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        if is_parameter_changed:
+            src_names, dst_names = self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        else:
+            self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         future.wait(send_actor.set_synchronizer.remote(self.synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
@@ -680,9 +684,9 @@ class ParameterSyncGroup:
             future.get(refs)
         return src_names, dst_names
 
-    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
+    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", is_parameter_changed=True):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
-            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group))
+            lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, is_parameter_changed))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if self.synchronizer.is_parameter_changed:
@@ -960,6 +964,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._num_dst_hyper_expert_parallel = None
         self._actor2hep = {}
         self.sorted_send_actors_for_routed_experts = None
+        self.send_actors_to_regroup_experts = []
         super().__init__(src_model, dst_model, group_name, frequency, error_signal)
 
     def setup_rank_mapping(self):
@@ -988,6 +993,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model {self.src_model.name} "
                 f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model {self.dst_model.name}."
             )
+
+    def set_send_actors_to_regroup_experts(self, src_replica_ranks_group):
+        for src_replica_ranks in src_replica_ranks_group:
+            self.send_actors_to_regroup_experts.append(
+                [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1061,6 +1071,59 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_sync_send_recv_parameters(rank_mapping_list)
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
+
+    def create_group_experts_regrouping(self, actor_groups, group_name=None, param_group="regroup_router"):
+        # Use self.actor2rank to ensure a globally unique number within a param_group.
+        actor_ranks = '_'.join([str(self.actor2rank[actor]) for actor in actor_groups])
+        # Always include self.group_name to ensure the name of a param_group is unique.
+        if group_name is None:
+            group_name = self.group_name
+        elif not group_name.startswith(self.group_name + "_"):
+            group_name = self.group_name + "_" + group_name
+        finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
+        logger.debug(f"finalized_group_name is {finalized_group_name}")
+        logger.debug(f"current collevtive_groups is {self.collective_groups}")
+        if finalized_group_name not in self.collective_groups:
+            refs = []
+            for rank, actor in enumerate(actor_groups):
+                ref = actor.setup_collective_group.remote(rank, len(actor_groups), "nccl", finalized_group_name)
+                refs.append(ref)
+            future.wait(refs)
+            self.collective_groups.append(finalized_group_name)
+        return actor_groups, finalized_group_name
+
+    def sync_regroup_experts(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
+        for actor in actors:
+            self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, is_parameter_changed=False)
+        pipe_stage = self.get_actor_pipe_rank(actors[0])
+        refs = []
+        for rank, actor in enumerate(actors):
+            ref = actor.allgather_expert_parameter.remote(group_name, pipe_stage, self.actor2rank[actor])
+            refs.append(ref)
+        future.wait(refs, return_output=True)
+
+    def _multi_thread_sync_for_tp_num_mapping_eq_1(
+        self, send_actors_list:List, actor_mappings_list:List,
+        requires_grad=None, filter_fn=None, param_group="default"
+    ):
+        if self.synchronizer.is_parameter_changed:
+            # regroup experts when megatron sync params to vllm.
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                futures = []
+                for regroup_actors in self.send_actors_to_regroup_experts:
+                    actor_groups, finalized_group_name = self.create_group_experts_regrouping(regroup_actors, param_group=param_group)
+                    futures.append(executor.submit(
+                        self.sync_regroup_experts, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                    ))
+                for _future in concurrent.futures.as_completed(futures):
+                    try:
+                        _future.result()
+                    except Exception as e:
+                        raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+                concurrent.futures.wait(futures)
+
+        super()._multi_thread_sync_for_tp_num_mapping_eq_1(
+            send_actors_list, actor_mappings_list, requires_grad, filter_fn, param_group)
 
     def _synchronize_routed_experts(self, requires_grad=None, validate=False):
         assert self.hep_num_mapping == 1, (

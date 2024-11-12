@@ -17,6 +17,7 @@
 from abc import abstractmethod
 import operator
 from functools import reduce
+import ray.util.collective as col
 import torch
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
@@ -91,10 +92,10 @@ class MegatronVllmSync(BaseSync):
         return params_to_sync_list_new
 
     def fix_qkv_ordering(self, params_to_sync_list):
-        layer_re = self.sync_map.to_fix_qkv_ordering_dict["layer_re"]
         to_fix_qkv_ordering_dict = self.sync_map.to_fix_qkv_ordering_dict
         if to_fix_qkv_ordering_dict is None:
             return params_to_sync_list
+        layer_re = self.sync_map.to_fix_qkv_ordering_dict["layer_re"]
         to_fix_modules_list = to_fix_qkv_ordering_dict["modules"]
         for i, (name, params_to_sync) in enumerate(params_to_sync_list):
             m = layer_re.match(name)
@@ -143,6 +144,62 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
+    def fix_shared_expert_ordering(self, params_to_sync_list):
+        if self.sync_map.to_fix_shared_expert_ordering is None:
+            return params_to_sync_list
+        fix_dim = self.sync_map.to_fix_shared_expert_ordering["dim"]
+        to_fix_shared_expert_ordering_list = self.sync_map.to_fix_shared_expert_ordering["modules"]
+        for i, (name, params_to_sync) in enumerate(params_to_sync_list):
+            if any([ele in name for ele in to_fix_shared_expert_ordering_list]): # pylint: disable=use-a-generator
+                w1, w2 = params_to_sync.chunk(2, dim=0)
+                params_to_sync = torch.cat([w2, w1], dim=fix_dim).contiguous()
+                params_to_sync_list[i] = (name, params_to_sync)
+        return params_to_sync_list
+
+    def regroup_experts_from_all_tp_ranks(self, name, params_to_sync, tp_rank, group_name, rank):
+        to_regroup_experts_dict = self.sync_map.to_regroup_experts_dict
+        if to_regroup_experts_dict is None:
+            return params_to_sync_list
+        layer_re = self.sync_map.to_regroup_experts_dict["layer_re"]
+        to_regroup_modules_list = to_regroup_experts_dict["modules"]
+
+        m = layer_re.match(name)
+        if m is not None:
+            op_name = m.group(2)
+            if op_name in to_regroup_modules_list:
+                if "dense_h_to_4h" in op_name:
+                    # w13_weight
+                    tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
+                    moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+                    hidden_size = self.src_module_args.args_dict["hidden_size"]
+                    output_tensor_list = [torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) for _ in range(tp_size)]
+                    col.allgather(output_tensor_list, params_to_sync, group_name)
+                    val_list = []
+                    for params in output_tensor_list:
+                        params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
+                        params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
+                        params = params.chunk(tp_size, dim=1)[tp_rank]
+                        params = params.reshape(params.shape[0] // tp_size * 2, -1, hidden_size)
+                        params_right, params_left = params.chunk(2, dim=1)
+                        params = torch.cat([params_left, params_right], dim=1)
+                        val_list.append(params)
+                    params_to_sync = torch.cat(val_list, dim=0).contiguous()
+                else:
+                    # w2_weight
+                    tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
+                    moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+                    hidden_size = self.src_module_args.args_dict["hidden_size"]
+                    output_tensor_list = [torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) for _ in range(tp_size)]
+                    col.allgather(output_tensor_list, params_to_sync, group_name)
+                    val_list = []
+                    for params in output_tensor_list:
+                        params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
+                        params = params.chunk(tp_size, dim=1)[tp_rank]
+                        val_list.append(params)
+                    params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
+                return params_to_sync, True
+        return params_to_sync, False
+
     def transform_parameters(self, params_to_sync_list):
         """
         transform parameters, e.g. concat, fix ordering
@@ -150,6 +207,7 @@ class MegatronVllmSync(BaseSync):
         params_to_sync_list = self.concat_params(params_to_sync_list)
         params_to_sync_list = self.fix_act_ordering(params_to_sync_list)
         params_to_sync_list = self.fix_qkv_ordering(params_to_sync_list)
+        params_to_sync_list = self.fix_shared_expert_ordering(params_to_sync_list)
         return params_to_sync_list
 
     def regroup_qkv_tp_slices(self, name, param_data, tp_divition):
