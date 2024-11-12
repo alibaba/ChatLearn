@@ -1098,7 +1098,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
         for rank, actor in enumerate(actors):
-            ref = actor.allgather_expert_parameter.remote(group_name, pipe_stage, self.actor2rank[actor])
+            ref = actor.allgather_expert_parameter.remote(group_name, pipe_stage)
             refs.append(ref)
         future.wait(refs, return_output=True)
 

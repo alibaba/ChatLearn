@@ -156,7 +156,7 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def regroup_experts_from_all_tp_ranks(self, name, params_to_sync, tp_rank, group_name, rank):
+    def regroup_experts_from_all_tp_ranks(self, name, params_to_sync, tp_rank, group_name):
         to_regroup_experts_dict = self.sync_map.to_regroup_experts_dict
         if to_regroup_experts_dict is None:
             return params_to_sync_list
@@ -172,7 +172,10 @@ class MegatronVllmSync(BaseSync):
                     tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
                     moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
                     hidden_size = self.src_module_args.args_dict["hidden_size"]
-                    output_tensor_list = [torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) for _ in range(tp_size)]
+                    output_tensor_list = [
+                        torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) \
+                        for _ in range(tp_size)
+                    ]
                     col.allgather(output_tensor_list, params_to_sync, group_name)
                     val_list = []
                     for params in output_tensor_list:
@@ -189,7 +192,10 @@ class MegatronVllmSync(BaseSync):
                     tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
                     moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
                     hidden_size = self.src_module_args.args_dict["hidden_size"]
-                    output_tensor_list = [torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) for _ in range(tp_size)]
+                    output_tensor_list = [
+                        torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) \
+                        for _ in range(tp_size)
+                    ]
                     col.allgather(output_tensor_list, params_to_sync, group_name)
                     val_list = []
                     for params in output_tensor_list:
