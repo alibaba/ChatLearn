@@ -39,22 +39,7 @@ if [[ $model_size == "mixtral-8x7B" ]]; then
   pp=4
   ep=8
   mb=1
-  gbs=32
-elif [[ $model_size == "mixtral-tiny" ]]; then
-  NUM_LAYERS=2
-  HIDDEN_SIZE=4096
-  NUM_ATTN_HEADS=32
-  FFN_HIDDEN_SIZE=14336
-  MAX_POSITION_EMBEDDINGS=32768
-  NUM_QUERY_GROUPS=8
-  NUM_EXPERTS=8
-  MOE_ROUTER_TOPK=2
-  seq_length=2048
-  tp=1
-  pp=2
-  ep=4
-  mb=1
-  gbs=64
+  gbs=8
 else
   echo "Unrecognized model_size ${model_size}, choose from 'mixtral-8x7B'."
   exit -1
@@ -111,29 +96,31 @@ MOE_ARGS="
 DATA_ARGS="
 --tokenizer-type Llama2Tokenizer \
 --tokenizer-model ${TOKENIZER_MODEL} \
---data-path $DATASET_PATH/train.jsonl $DATASET_PATH/train.jsonl $DATASET_PATH/train.jsonl \
+--data-path $DATASET_PATH/train.jsonl $DATASET_PATH/dev.jsonl $DATASET_PATH/dev.jsonl \
 --split 98,2,0 \
 --dataloader-type cyclic "
 
 TRAINING_ARGS="
 --micro-batch-size $mb \
 --global-batch-size $gbs \
---lr 1e-4 \
+--lr 3e-6 \
 --train-iters 1000 \
---lr-decay-iters 640 \
+--lr-decay-iters 1000 \
 --lr-decay-style cosine \
---min-lr 1.0e-5 \
+--min-lr 1.0e-12 \
 --weight-decay 0.1 \
---lr-warmup-iters 50 \
+--lr-warmup-iters 300 \
 --clip-grad 1.0 \
 --bf16 \
 --exit-on-missing-checkpoint \
 --use-checkpoint-args \
 --adam-beta1 0.9 \
---adam-beta2 0.999 \
+--adam-beta2 0.95 \
 --use-flash-attn \
 --finetune \
---recompute-activations"
+--recompute-activations \
+--max-response 2 \
+--select-max-response firstk "
 
 MODEL_PARALLEL_ARGS="
 --tensor-model-parallel-size $tp \
@@ -146,7 +133,7 @@ MODEL_PARALLEL_ARGS="
 
 LOGGING_ARGS="
 --log-interval 1 \
---eval-iters 10 \
+--eval-iters 20 \
 --eval-interval 1000 \
 --save-interval 1000 \
 --save $CHECKPOINT_PATH \
@@ -158,6 +145,7 @@ LOGGING_ARGS="
 --tensorboard-dir $CHECKPOINT_PATH \
 --tensorboard-log-interval 10 \
 --log-timers-to-tensorboard \
+--log-batch-size-to-tensorboard \
 --log-validation-ppl-to-tensorboard \
 "
 

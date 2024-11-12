@@ -102,13 +102,13 @@ DATA_ARGS="
 TRAINING_ARGS="
 --micro-batch-size $mb \
 --global-batch-size $gbs \
---lr 5e-6 \
+--lr 1e-5 \
 --train-iters 1000 \
 --lr-decay-iters 1000 \
 --lr-decay-style cosine \
---min-lr 1.0e-12 \
---weight-decay 0. \
---lr-warmup-iters 40 \
+--min-lr 1.0e-7 \
+--weight-decay 0.01 \
+--lr-warmup-iters 50 \
 --clip-grad 1.0 \
 --bf16 \
 --exit-on-missing-checkpoint \
@@ -130,7 +130,7 @@ MODEL_PARALLEL_ARGS="
 LOGGING_ARGS="
 --log-interval 1 \
 --eval-iters 10 \
---eval-interval 1000 \
+--eval-interval 100 \
 --save-interval 1000 \
 --save $CHECKPOINT_PATH \
 --load $LOAD_PATH \
