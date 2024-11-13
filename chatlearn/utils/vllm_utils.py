@@ -402,7 +402,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             "dim": 0
         }
         self._to_fix_shared_expert_ordering = {
-            "modules": ["mlp.shared_experts.dense_h_to_4"],
+            "modules": ["mlp.shared_experts.dense_h_to_4h"],
             "dim": 0
         }
         self._to_fix_act_ordering_dict = {
