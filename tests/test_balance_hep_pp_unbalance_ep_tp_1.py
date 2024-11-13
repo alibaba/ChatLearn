@@ -253,7 +253,6 @@ chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[2]
 chatlearn.get_args().models['ppo_policy'].expert_model_parallel_size = tuples[3]
 chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[4]
 chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[5]
-chatlearn.get_args().runtime_args.debug = True
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
 
@@ -271,6 +270,12 @@ assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 assert param_sync_group.hep_num_mapping == 1
 
 actor2rank = param_sync_group.actor2rank
+
+# test for actors to create_group_experts_regrouping
+send_actors = []
+for actors in param_sync_group.send_actors_to_regroup_experts:
+    send_actors.append([actor2rank[actor] for actor in actors])
+assert send_actors == [[4, 5, 6, 7], [0, 1, 2, 3]]
 
 # Judge routed experts and parameters except routed experts
 comm_pair_routed_experts = []
@@ -299,5 +304,5 @@ assert comm_pair_stage_2 == [(8, 9), (8, 10), (8, 11), (12, 13), (12, 14), (12, 
 
 print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
 
-engine.model_manager.sync_parameters(requires_grad=False)
+engine.model_manager.sync_parameters(requires_grad=False, validate=True)
 print(f"pass parameter sync validation for hyper expert parallel.")
