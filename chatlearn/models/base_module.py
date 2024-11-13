@@ -128,6 +128,7 @@ class BaseModule:
         self._tp_division = {}
         self._tp_num_mapping = 1
         self._sync_buffer = defaultdict(list)
+        self._expert_sync_buffer = defaultdict(list)
         self._synchronizer = None
 
     def get_sync_buffer(self):
@@ -723,11 +724,26 @@ class BaseModule:
         for param in sparse_bucket:
             func(param, rank, group_name)
 
+    def allgather_expert_parameter(self, group_name, pipe_stage=0):
+        for name, param in self._parameters_to_sync[pipe_stage]:
+            param, state = self._synchronizer.regroup_experts_from_all_tp_ranks(name, param, self.tensor_parallel_rank(), group_name)
+            if state:
+                self._expert_sync_buffer[name].append(param)
+
     def broadcast_parameter(self, rank, src_rank, group_name, pipe_stage=0):
         """
         :meta private:
         """
-        tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
+        tensors = []
+        for name, param in self._parameters_to_sync[pipe_stage]:
+            if self._expert_sync_buffer and name in self._expert_sync_buffer:
+                tensors.append(self._expert_sync_buffer[name][0])
+            else:
+                tensors.append(param.data)
+        if self._expert_sync_buffer:
+            del self._expert_sync_buffer
+            self._expert_sync_buffer = defaultdict(list)
+
         assert len(tensors) > 0
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
         debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)

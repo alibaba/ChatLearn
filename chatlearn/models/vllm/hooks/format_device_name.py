@@ -12,19 +12,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""vLLM Hooks."""
+"""Hooks of vllm-0.6.3 convert device_name to string."""
 
-import importlib
 
-if importlib.util.find_spec("vllm"):
-    import vllm
-    from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-        from chatlearn.models.vllm.hooks import sampler
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
-        from chatlearn.models.vllm.hooks import llm_engine, logits_processor
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
-            from chatlearn.models.vllm.hooks import worker
-        else:
-            from chatlearn.models.vllm.hooks import input_preprocess
-            from chatlearn.models.vllm.hooks import format_device_name
+import inspect
+# pylint: disable=unused-import,unused-argument
+from vllm.platforms import cuda
+
+
+source = inspect.getsource(cuda.CudaPlatform.get_device_name)
+if 'physical_device_id = device_id_to_physical_device_id(device_id)' in source:
+    from vllm.platforms.cuda import device_id_to_physical_device_id, get_physical_device_name
+
+    @classmethod
+    def _get_device_name(cls, device_id: int = 0) -> str:
+        physical_device_id = device_id_to_physical_device_id(device_id)
+        return str(get_physical_device_name(physical_device_id))
+
+    cuda.CudaPlatform.get_device_name = _get_device_name
