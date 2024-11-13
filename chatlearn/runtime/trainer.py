@@ -36,10 +36,15 @@ class Trainer(Executor):
             a list of modules
         """
         super().__init__(model_flow)
-        for model, func_name in self.model_to_call_func.items():
-            model.trainable_funcs.append(func_name)
+        for model, func_names in self.model_to_call_funcs.items():
+            model.trainable_funcs += func_names
         self.iteration = 0
         self._data_parallel_size = None
+
+    def setup(self):
+        super().setup()
+        for model_node in self.model_flow.model_nodes:
+            model_node.trainable = True
 
     def set_data_loader(self, data_loader):
         self._data_loader = data_loader

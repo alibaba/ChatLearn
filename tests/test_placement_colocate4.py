@@ -109,7 +109,8 @@ engine.set_dataset([data] * 35)
 engine.learn()
 
 def check_output_models(model_name, expected_models):
-    assert [node.model.name for node in engine.env.model_flow.get(model_name).output_models] == expected_models
+    model_node = [node for node in engine.env.model_flow.model_nodes if node.name == model_name][0]
+    assert [node.name for node in model_node.output_nodes] == expected_models
 
 check_output_models("policy", ['reference', 'value', 'reward'])
 check_output_models("reference", ['reward'])
@@ -117,7 +118,8 @@ check_output_models("value", ['reward'])
 check_output_models("reward", [])
 
 def check_colocate_models(model_name, expected_models):
-    assert [model.name for model in engine.env.model_flow.get(model_name).model.colocate_models] == expected_models
+    model_node = [node for node in engine.env.model_flow.model_nodes if node.name == model_name][0]
+    assert [model.name for model in model_node.model.colocate_models] == expected_models
 
 check_colocate_models("policy", ['ppo_policy', 'ppo_value'])
 check_colocate_models("reference", ['reward'])
@@ -125,10 +127,11 @@ check_colocate_models("value", ['reward'])
 check_colocate_models("reward", ['reference', 'value'])
 
 def check_next_colocate_model(model_name, expected_model):
-    if engine.env.model_flow.get(model_name).next_colocate_node:
-        assert engine.env.model_flow.get(model_name).next_colocate_node.name == expected_model
+    model_node = [node for node in engine.env.model_flow.model_nodes if node.name == model_name][0]
+    if model_node.next_colocate_node:
+        assert model_node.next_colocate_node.name == expected_model
     else:
-        assert engine.env.model_flow.get(model_name).next_colocate_node is expected_model
+        assert model_node.next_colocate_node is expected_model
 
 check_next_colocate_model("policy", None)
 check_next_colocate_model("reference", "reward")

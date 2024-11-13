@@ -83,6 +83,7 @@ class PPOPolicy(TorchModule):
         return 1
 
     def train_step(self, data, iteration):
+        assert isinstance(data, list)
         print(f"ppo policy train_step ========= {self.data_parallel_rank}", flush=True)
         if self._get_rank() == 0 or self._get_rank() == 4:
             self.data.append(data)

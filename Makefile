@@ -1,6 +1,6 @@
 PYTHON ?= python3
 ADDITIONAL_DEPS ?=
-current_dir := $(dir $(abspath $(firstword $(MAKEFILE_LIST))))
+current_dir := $(shell pwd | sed 's:/*$$::')
 
 .PHONY: build
 build: $(LIB)

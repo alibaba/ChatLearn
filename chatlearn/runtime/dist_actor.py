@@ -172,11 +172,14 @@ class DistActor:
         for actor, dp_rank in zip(self.all_actors, dp_ranks):
             self.dp_rank_to_actors[dp_rank].append(actor)
 
+    def set_dist_env(self, revert_placement=False):
+        pass
+
     def __str__(self):
-        return f"{self.__class__.__name__}({self.name})"
+        return f"{self.__class__.__name__}({self.name})[{self.replica_id}]"
 
     def __repr__(self):
-        return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'
+        return f'<{self.__class__.__name__}({self.name})[{self.replica_id}] object at {hex(id(self))}>'
 
 
 class DistTorchActor(DistActor):
@@ -230,7 +233,7 @@ class DistModel:
         self.register_serial_func()
         self.register_func()
         self._is_colocate = False
-        self._colocate_models = None
+        self._colocate_models = []
 
     def add_replica(self, replica):
         self.replicas.append(replica)

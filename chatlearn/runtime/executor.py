@@ -14,6 +14,8 @@
 # ==============================================================================
 """Executor"""
 
+import threading
+from collections import defaultdict
 from itertools import cycle
 from ray.util.queue import Queue
 
@@ -45,6 +47,8 @@ class Executor:
         self._batch_per_episode = -1
         self.is_eval = False
         self._timers = None
+        self.model2iter = {}
+        self.merged_buffer = defaultdict(dict)
 
     def set_timers(self, _timers):
         self._timers = _timers
@@ -72,10 +76,10 @@ class Executor:
             return self
         """
         self._flow = flow
-        self.model_to_call_func = FlowParser().parse(flow)
-        for model, func_name in self.model_to_call_func.items():
-            model.call_funcs.append(func_name)
-        self.models = list(self.model_to_call_func.keys())
+        self.model_to_call_funcs = FlowParser().parse(flow)
+        for model, func_names in self.model_to_call_funcs.items():
+            model.call_funcs += func_names
+        self.models = list(self.model_to_call_funcs.keys())
         return self
 
     @property
@@ -103,41 +107,53 @@ class Executor:
         self.model_flow = ModelFlow(self)
         self.model_flow.trace(self.models, self._flow)
         self.models = [model_node.model for model_node in self.model_flow.model_nodes]
+        self.model_locks = {model_node: threading.Lock() for model_node in self.model_flow.model_nodes}
 
-    def _get_model(self, model):
+    def _next_model(self, model):
         if len(model.replicas) == 1:
             return model.replicas[0]
         if model not in self.model2iter:
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
 
-    def get_merged_data(self, queues, encode=True):
-        queue0 = queues[0]
-
-        mb0, data0 = decode_data(queue0.get())
-        if isinstance(data0, list):
-            # if model has multiple actors, if TP>1/PP>1, just use the last
-            data0 = data0[-1]
+    def get_merged_data(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
+        mb0 = None
+        if micro_batch_index is not None:
+            mb0 = micro_batch_index
         data_list = [None] * len(queues)
-        data_list[0] = data0
-        for index, queue in enumerate(queues[1:]):
-            if index not in self.merged_buffer:
-                self.merged_buffer[index] = {}
-            if mb0 in self.merged_buffer[index]:
-                data_list[index+1] = self.merged_buffer[index].pop(mb0)
+        merged_buffer = self.merged_buffer[model_node]
+        for index, queue in enumerate(queues):
+            if index not in merged_buffer:
+                merged_buffer[index] = {}
+            if mb0 in merged_buffer[index]:
+                data_list[index] = merged_buffer[index].pop(mb0)
                 continue
             while True:
+                flag = False
+                while queue.qsize() == 0:
+                    if mb0 in merged_buffer[index]:
+                        data_list[index] = merged_buffer[index].pop(mb0)
+                        flag = True
+                        break
+                if flag:
+                    break
                 encoded_data = queue.get()
                 mb, data = decode_data(encoded_data)
-                if isinstance(data, list):
+                if mb0 is None:
+                    mb0 = mb
+                if isinstance(data, list) and not trainable:
                     data = data[-1]
                 if mb == mb0:
-                    data_list[index+1] = data
+                    data_list[index] = data
                     break
-                self.merged_buffer[index][mb] = data
+                merged_buffer[index][mb] = data
         if encode:
             return encode_data(mb0, data_list)
         return data_list
+
+    def get_merged_data_locked(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
+        with self.model_locks[model_node]:
+            return self.get_merged_data(queues, encode, micro_batch_index, model_node, trainable)
 
     def get_all_merged_data(self, queues, out_queue, encode=True):
         queue0 = queues[0]
@@ -162,8 +178,8 @@ class Executor:
         refs = model.offload()
         future.wait(refs)
 
-    def generate_step_one_model_internal(self, model, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
-                                         is_eval=False, to_onload=None, to_offload=None):
+    def generate_step_one_model_internal(self, model_node, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
+                                         is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
         Args:
             model: DistModel
@@ -173,17 +189,25 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
+        model = model_node.model
         def get_next_data():
             if isinstance(in_queue, list):
-                # this should happen for inference models, will trigger bug for training models
-                # since training models accept a list of remote object, which has the same
-                # behavior for models accept multiple inputs
-                # we need to deal with it later
-                assert not model.trainable
-                data = self.get_merged_data(in_queue)
-                mb, query = decode_data(data)
+                if len(in_queue) > 0:
+                    # this should happen for inference models, will trigger bug for training models
+                    # since training models accept a list of remote object, which has the same
+                    # behavior for models accept multiple inputs
+                    # we need to deal with it later
+                    assert not model_node.trainable
+                    data = self.get_merged_data_locked(in_queue, micro_batch_index=micro_batch_index,
+                                                       model_node=model_node, trainable=model_node.trainable)
+                    mb, query = decode_data(data)
+                else:
+                    mb, query = micro_batch_index, []
             else:
-                data = in_queue.get()
+                data = self.get_merged_data_locked([in_queue], micro_batch_index=micro_batch_index,
+                                                   model_node=model_node, trainable=model_node.trainable)
+                assert len(data['data']) == 1
+                data['data'] = data['data'][0]
                 mb, query = decode_data(data)
                 query = [query]
             return mb, query
@@ -210,8 +234,8 @@ class Executor:
                 output.append((ret, mb))
         return output
 
-    def generate_step_one_model(self, model, in_queue, out_queue, step_num, func_name="forward_step",
-                                to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None):
+    def generate_step_one_model(self, model_node, replica, in_queue, out_queue, step_num, func_name="forward_step",
+                                to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
         Args:
             model: DistModel
@@ -221,11 +245,10 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
-        replica = self._get_model(model)
-
+        model = model_node.model
         # output is a list of tuple, each tuple is (remote_refs, mb)
-        output = self.generate_step_one_model_internal(model, in_queue, step_num, replica, func_name, to_empty_cache,
-                                                       is_eval, to_onload, to_offload)
+        output = self.generate_step_one_model_internal(model_node, in_queue, step_num, replica, func_name, to_empty_cache,
+                                                       is_eval, to_onload, to_offload, micro_batch_index)
 
         if model.module_args.zero_size == 1:
             # If (tp > 1 or pp > 1) and ep = 1 for current model, its `output` will be a list whose
@@ -267,14 +290,14 @@ class Executor:
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
         in_queue = model_node.get_input_queues()
-        out_queue = model_node.out_queues
         results = []
         self.timers(f"{model.name}").start()
         for step in range(num_batch):
             to_empty_cache = step >= last_step_start and model.is_colocate
             to_onload = step < replica_num and model.is_colocate and model.enable_offload
             to_offload = step >= last_step_start and model.is_colocate and model.enable_offload
-            _, data = self.generate_step_one_model(model, in_queue, out_queue, step, func_name, to_empty_cache,
+            replica = self._next_model(model)
+            _, data = self.generate_step_one_model(model_node, replica, in_queue, model_node.out_queues, step, func_name, to_empty_cache,
                                                    is_eval=is_eval, to_onload=to_onload, to_offload=to_offload)
             results.append(data)
         self.timers(f"{model.name}").stop()
@@ -290,8 +313,6 @@ class Executor:
             # so we add them to a temp list
             logger.info(f"Sync {model} in the end of {self.__class__.__name__}")
             self._models_and_results_to_wait.append((model_node, results))
-
-        return results
 
     def compute_loop(self, out_queue, num_batch):
         for model_group in self.model_flow.flow_topology:
@@ -329,7 +350,7 @@ class Executor:
             data_queues.append(data_queue)
             model_node.set_input_queue(data_queue)
         for model_node in self.model_flow.model_nodes:
-            num_out_queue = len(model_node.output_models)
+            num_out_queue = len(model_node.output_nodes)
             if model_node in self.model_flow.return_model_nodes:
                 num_out_queue += 1
             model_node.set_out_queues([Queue() for _ in range(num_out_queue)])

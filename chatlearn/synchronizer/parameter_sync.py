@@ -771,6 +771,7 @@ class ParameterSyncGroup:
                 try:
                     _future.result()
                 except Exception as e:
+                    traceback.print_exc()
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 

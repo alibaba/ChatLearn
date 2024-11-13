@@ -14,6 +14,7 @@
 # ==============================================================================
 """module runtime decorator"""
 
+import inspect
 import traceback
 
 import torch
@@ -22,7 +23,7 @@ import ray
 
 from chatlearn.utils import future
 from chatlearn.utils import utils
-from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME
+from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 
 
@@ -108,16 +109,16 @@ def concat_along_batch(tensors):
     return batched
 
 
-def preprocess_compute(func, is_forward_step, trainable):
+def preprocess_compute(func, trainable):
     """
-    1. if is_forward_step is True, merge a list of dict into one dict, i.e., merge inputs of forward_step.
+    1. if not trainable, merge a list of dict into one dict, i.e., merge inputs of forward_step.
     2. split a list of data for data_parallel, this is used for train_step
     3. convert output to cpu
     """
 
     def inner(self, *args, **kwargs):
         args = future.get(args)
-        if is_forward_step and len(args) > 1:
+        if not trainable and len(args) > 1:
             if all(isinstance(arg, dict) for arg in args):
                 merged = {}
                 for arg in args:
@@ -140,17 +141,20 @@ def preprocess_compute(func, is_forward_step, trainable):
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
             input_batch = 0
-            for value in args[0].values():
-                input_batch = len(value)
-                break
-            input_data = args[0]
-            if input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
+            if len(args) > 0:
+                for value in args[0].values():
+                    input_batch = len(value)
+                    break
+                input_data = args[0]
+            else:
+                input_data = None
+            if input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []
                 for batch in batches:
                     args[0] = batch
-                    if is_forward_step:
+                    if 'iteration' in inspect.signature(func).parameters:
                         kwargs["iteration"] = self._iteration
                     ret = func(self, *args, **kwargs)
                     self._iteration += 1
@@ -161,7 +165,7 @@ def preprocess_compute(func, is_forward_step, trainable):
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = concat_along_batch(results)
             else:
-                if is_forward_step:
+                if 'iteration' in inspect.signature(func).parameters:
                     kwargs["iteration"] = self._iteration
                 ret = func(self, *args, **kwargs)
                 ret = utils.to_device('cpu', ret)
@@ -172,7 +176,8 @@ def preprocess_compute(func, is_forward_step, trainable):
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
                     final_results = ret
         else:
-            kwargs["iteration"] = self._train_iteration
+            if 'iteration' in inspect.signature(func).parameters:
+                kwargs["iteration"] = self._train_iteration
             self._train_iteration += 1
             ret = func(self, *args, **kwargs)
             ret = utils.to_device('cpu', ret)
@@ -199,4 +204,6 @@ def decorate_class_func(cls, func_name, decorator, *args, **kwargs):
         # for example, if 'reference' inherits from 'policy', then methods like 'offload_optimizer_states'
         # would be decorated in the base class, eliminating the need for repeated decoration.
         return
-    setattr(cls, func_name, decorator(func, *args, **kwargs))
+    new_func = decorator(func, *args, **kwargs)
+    set_wrap_func(func, new_func)
+    setattr(cls, func_name, new_func)
