@@ -1060,6 +1060,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             sorted_send_actors_list = [
             self.sorted_send_actors,
             self.sorted_send_actors_stage2,
+            self.send_actors_to_regroup_experts,
             self.sorted_send_actors_for_routed_experts
         ]
         if rank_mapping_list is None:
@@ -1235,6 +1236,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         self.clear_cache(
             sorted_send_actors_list = [
+                self.send_actors_to_regroup_experts,
                 self.sorted_send_actors_for_routed_experts
             ],
             rank_mapping_list=[
