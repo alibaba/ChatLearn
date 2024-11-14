@@ -576,6 +576,21 @@ class ParameterSyncGroup:
             refs.append(ref)
         future.wait(refs, return_output=True)
 
+    def sync_allgather(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
+        for actor in actors:
+            self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, should_map_name=False)
+        pipe_stage = self.get_actor_pipe_rank(actors[0])
+        refs = []
+        for actor in actors:
+            if param_group == "routed":
+                ref = actor.allgather_expert_parameter.remote(group_name, pipe_stage)
+            else:
+                raise NotImplementedError(
+                    f"expect param_group for allgather is `routed`, got `{param_group}`"
+                )
+            refs.append(ref)
+        future.wait(refs, return_output=True)
+
     def _sync_send_recv(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default"):
         self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
@@ -721,6 +736,26 @@ class ParameterSyncGroup:
             self.collective_groups.append(finalized_group_name)
         return actor_groups, finalized_group_name
 
+    def create_allgather_group(self, actor_groups, group_name=None, param_group="default"):
+        # Use self.actor2rank to ensure a globally unique number within a param_group.
+        actor_ranks = '_'.join([str(self.actor2rank[actor]) for actor in actor_groups])
+        # Always include self.group_name to ensure the name of a param_group is unique.
+        if group_name is None:
+            group_name = self.group_name
+        elif not group_name.startswith(self.group_name + "_"):
+            group_name = self.group_name + "_" + group_name
+        finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
+        logger.debug(f"finalized_group_name is {finalized_group_name}")
+        logger.debug(f"current collevtive_groups is {self.collective_groups}")
+        if finalized_group_name not in self.collective_groups:
+            refs = []
+            for rank, actor in enumerate(actor_groups):
+                ref = actor.setup_collective_group.remote(rank, len(actor_groups), "nccl", finalized_group_name)
+                refs.append(ref)
+            future.wait(refs)
+            self.collective_groups.append(finalized_group_name)
+        return actor_groups, finalized_group_name
+
     def sort_send_actors(self, send_recv_actor_mappings, sorted_send_actors):
         if sorted_send_actors is not None:
             return sorted_send_actors
@@ -742,7 +777,7 @@ class ParameterSyncGroup:
         return sorted_send_actors
 
     def sync_broadcast_multi_threads(
-        self, sorted_send_actors, send_recv_actor_mappings, max_workers, requires_grad,
+        self, sorted_send_actors, send_recv_actor_mappings, max_workers=1, requires_grad=None,
         group_name=None, stage2=False, filter_fn=None, param_group="default"):
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
@@ -772,6 +807,25 @@ class ParameterSyncGroup:
                     _future.result()
                 except Exception as e:
                     traceback.print_exc()
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
+
+    def sync_allgather_multi_threads(
+        self, send_actors, max_workers=1, requires_grad=None,
+        group_name=None, filter_fn=None, param_group="default"
+    ):
+        """allgather experts for HEP when need to change parameter."""
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for allgather_actors in send_actors:
+                actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
+                futures.append(executor.submit(
+                    self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                ))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
@@ -981,14 +1035,17 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             f"Currently, expert parallel world size for training ({self.num_src_expert_parallel}) should be"
             f"greater or equal to expert parallel world size for inference ({self.num_dst_expert_parallel}) with HEP enabled."
         )
-        if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
-            # In this special case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
-            self.build_rank_mapping()
-        elif self.dst_model.use_vllm_backend:
-            self.build_rank_mapping_for_routed_experts()
-            self.build_rank_mapping_for_params_except_routed_expert()
+        if self.dst_model.use_vllm_backend:
+            if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+                # In this case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
+                self.build_rank_mapping()
+            else:
+                raise NotImplementedError("Not implemented")
         else:
-            if self.hep_num_mapping == 1:
+            if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+                # In this case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
+                self.build_rank_mapping()
+            elif self.hep_num_mapping == 1:
                 # In this case, routed experts are mapped one by one, while params except routed experts are split by TP.
                 self.build_rank_mapping_for_routed_experts()
                 self.build_rank_mapping_for_params_except_routed_expert()
@@ -1080,61 +1137,51 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
-    def create_routed_expert_allgather_group(self, actor_groups, group_name=None, param_group="allgather_routed"):
-        # Use self.actor2rank to ensure a globally unique number within a param_group.
-        actor_ranks = '_'.join([str(self.actor2rank[actor]) for actor in actor_groups])
-        # Always include self.group_name to ensure the name of a param_group is unique.
-        if group_name is None:
-            group_name = self.group_name
-        elif not group_name.startswith(self.group_name + "_"):
-            group_name = self.group_name + "_" + group_name
-        finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
-        logger.debug(f"finalized_group_name is {finalized_group_name}")
-        logger.debug(f"current collevtive_groups is {self.collective_groups}")
-        if finalized_group_name not in self.collective_groups:
-            refs = []
-            for rank, actor in enumerate(actor_groups):
-                ref = actor.setup_collective_group.remote(rank, len(actor_groups), "nccl", finalized_group_name)
-                refs.append(ref)
-            future.wait(refs)
-            self.collective_groups.append(finalized_group_name)
-        return actor_groups, finalized_group_name
+    def _synchronize_all_moe_parameters(self, requires_grad=None, validate=False):
+        self.check_and_setup_collective_group()
 
-    def allgather_routed_experts(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
-        for actor in actors:
-            self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, should_map_name=False)
-        pipe_stage = self.get_actor_pipe_rank(actors[0])
-        refs = []
-        for actor in actors:
-            ref = actor.allgather_expert_parameter.remote(group_name, pipe_stage)
-            refs.append(ref)
-        future.wait(refs, return_output=True)
+        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
-    def allgather_routed_experts_among_trainer(self, requires_grad=None, filter_fn=None, param_group="default"):
-        """allgather experts for HEP when need to change parameter."""
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            futures = []
-            for allgather_actors in self.send_actors_to_allgather_experts:
-                actor_groups, finalized_group_name = self.create_routed_expert_allgather_group(allgather_actors, param_group=param_group)
-                futures.append(executor.submit(
-                    self.allgather_routed_experts, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
-                ))
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+        send_actors_list : List = []
+        actor_mappings_list : List = []
+        if self.concurrent_comm:
+            assert self.dst_model.use_vllm_backend
+            assert self.ep_num_mapping == 1 and self.tp_num_mapping == 1
 
-    def _multi_thread_sync_for_tp_num_mapping_eq_1(
-        self, send_actors_list:List, actor_mappings_list:List,
-        requires_grad=None, filter_fn=None, param_group="default"
-    ):
-        if self.synchronizer.is_parameter_changed:
-            self.allgather_routed_experts_among_trainer(requires_grad, filter_fn, param_group)
+            # allgather routed experts only
+            allgather_send_actors = [self.send_actors_to_allgather_experts]
+            self.sync_allgather_multi_threads(
+                allgather_send_actors,
+                max_workers=1,
+                requires_grad=requires_grad,
+                group_name=self.group_name + "_allgather",
+                filter_fn=None,
+                param_group="routed")
 
-        super()._multi_thread_sync_for_tp_num_mapping_eq_1(
-            send_actors_list, actor_mappings_list, requires_grad, filter_fn, param_group)
+            # sync everything to inference model
+            send_actors_list = [self.sorted_send_actors]
+            actor_mappings_list = [self.send_recv_actor_mappings]
+            self._multi_thread_sync_for_tp_num_mapping_eq_1(
+                send_actors_list,
+                actor_mappings_list,
+                requires_grad=requires_grad,
+                filter_fn=None,
+                param_group="default"
+            )
+        else:
+            raise NotImplementedError(
+                "for models with HEP enabled, ChatLearn supports concurrent_comm only"
+            )
+
+        assert len(actor_mappings_list) == 1
+
+        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+
+        self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
+
+        self.check_and_destroy_collective_group()
+
+        logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def _synchronize_routed_experts(self, requires_grad=None, validate=False):
         assert self.hep_num_mapping == 1, (
@@ -1233,33 +1280,42 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def sync(self, requires_grad=None, validate=False):
-        if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
-            super().sync(requires_grad, validate)
-            return
+        # Keep the structure of if-else clause the same as setup_rank_mapping
+        if self.dst_model.use_vllm_backend:
+            if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+                self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
+                return
 
-        # First, synchronize routed experts.
-        self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
+            assert False, "shouldn't be here currently!"
+        else:
+            if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+                # synchronization is the same as base class when applying Qwen + Qwen
+                super().sync(requires_grad, validate)
+                return
 
-        self.clear_cache(
-            sorted_send_actors_list = [
-                self.send_actors_to_allgather_experts,
-                self.sorted_send_actors_for_routed_experts
-            ],
-            rank_mapping_list=[
-                self.send_recv_actor_mappings_for_routed_experts
-            ]
-        )
+            # First, synchronize routed experts.
+            self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
 
-        # Then, synchronize parameters except routed experts
-        self._synchronize_params_except_routed_experts(requires_grad=requires_grad, validate=validate)
+            self.clear_cache(
+                sorted_send_actors_list = [
+                    self.send_actors_to_allgather_experts,
+                    self.sorted_send_actors_for_routed_experts
+                ],
+                rank_mapping_list=[
+                    self.send_recv_actor_mappings_for_routed_experts
+                ]
+            )
 
-        self.clear_cache(
-            sorted_send_actors_list = [
-                self.sorted_send_actors,
-                self.sorted_send_actors_stage2,
-            ],
-            rank_mapping_list = [
-                self.send_recv_actor_mappings,
-                self.send_recv_actor_mappings_stage2
-            ]
-        )
+            # Then, synchronize parameters except routed experts
+            self._synchronize_params_except_routed_experts(requires_grad=requires_grad, validate=validate)
+
+            self.clear_cache(
+                sorted_send_actors_list = [
+                    self.sorted_send_actors,
+                    self.sorted_send_actors_stage2,
+                ],
+                rank_mapping_list = [
+                    self.send_recv_actor_mappings,
+                    self.send_recv_actor_mappings_stage2
+                ]
+            )
