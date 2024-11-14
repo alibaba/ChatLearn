@@ -446,6 +446,8 @@ class PolicyTrainer(BaseTrainer):
         avg_dpo_loss = avg_dpo_loss / (len(num_responses) + 1e-5)
 
         averaged_loss = average_losses_across_data_parallel_group([loss, avg_dpo_loss])
+        self.stats["lm_loss"] = averaged_loss[0]
+        self.stats["dpo_loss"] = averaged_loss[1]
         return loss, {'lm_loss': averaged_loss[0], 'dpo_loss': averaged_loss[1]}
 
     def get_grpo_loss(self, inputs, losses):
