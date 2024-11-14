@@ -262,7 +262,7 @@ class ParameterSyncGroup:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_and_ep_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_and_ep_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
-            self.set_send_actors_to_regroup_experts(src_replica_ranks_group)
+            self.set_send_actors_to_allgather_experts(src_replica_ranks_group)
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
@@ -658,7 +658,7 @@ class ParameterSyncGroup:
         if should_map_name:
             src_names, dst_names = self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         else:
-            # For router experts which need to regroup expert first in trainer actors.
+            # For routed experts which need to allgather expert first in trainer actors.
             self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         future.wait(send_actor.set_synchronizer.remote(self.synchronizer))
 
@@ -966,7 +966,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._num_dst_hyper_expert_parallel = None
         self._actor2hep = {}
         self.sorted_send_actors_for_routed_experts = None
-        self.send_actors_to_regroup_experts = []
+        self.send_actors_to_allgather_experts = []
         super().__init__(src_model, dst_model, group_name, frequency, error_signal)
 
     def setup_rank_mapping(self):
@@ -982,23 +982,28 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             f"greater or equal to expert parallel world size for inference ({self.num_dst_expert_parallel}) with HEP enabled."
         )
         if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
-            # In this special case, all parameters are mapped one by one
+            # In this special case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
             self.build_rank_mapping()
-        elif self.hep_num_mapping == 1:
-            # In this case, routed experts are mapped one by one, while params except routed experts are split by TP.
+        elif self.dst_model.use_vllm_backend:
             self.build_rank_mapping_for_routed_experts()
             self.build_rank_mapping_for_params_except_routed_expert()
         else:
-            # We do not support other cases for HEP. Please note that tp_num_mapping > 1 with ep_num_mapping = 1 is also unsupported.
-            raise NotImplementedError(
-                "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled now. "
-                f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model {self.src_model.name} "
-                f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model {self.dst_model.name}."
-            )
+            if self.hep_num_mapping == 1:
+                # In this case, routed experts are mapped one by one, while params except routed experts are split by TP.
+                self.build_rank_mapping_for_routed_experts()
+                self.build_rank_mapping_for_params_except_routed_expert()
+            else:
+                # We do not support other cases for HEP. Please note that tp_num_mapping > 1 with ep_num_mapping = 1 is also unsupported.
+                raise NotImplementedError(
+                    "ChatLearn does not support inequivalent EP x TP between training and inference with Hyper Expert Parallel (HEP) enabled and "
+                    f"inference model is an instance of `MegatronModule`. Your current setting is "
+                    f"EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model `{self.src_model.name}` "
+                    f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model `{self.dst_model.name}`."
+                )
 
-    def set_send_actors_to_regroup_experts(self, src_replica_ranks_group):
+    def set_send_actors_to_allgather_experts(self, src_replica_ranks_group):
         for src_replica_ranks in src_replica_ranks_group:
-            self.send_actors_to_regroup_experts.append(
+            self.send_actors_to_allgather_experts.append(
                 [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
@@ -1061,7 +1066,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             sorted_send_actors_list = [
             self.sorted_send_actors,
             self.sorted_send_actors_stage2,
-            self.send_actors_to_regroup_experts,
+            self.send_actors_to_allgather_experts,
             self.sorted_send_actors_for_routed_experts
         ]
         if rank_mapping_list is None:
@@ -1075,7 +1080,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
-    def create_group_experts_regrouping(self, actor_groups, group_name=None, param_group="regroup_router"):
+    def create_routed_expert_allgather_group(self, actor_groups, group_name=None, param_group="allgather_routed"):
         # Use self.actor2rank to ensure a globally unique number within a param_group.
         actor_ranks = '_'.join([str(self.actor2rank[actor]) for actor in actor_groups])
         # Always include self.group_name to ensure the name of a param_group is unique.
@@ -1095,7 +1100,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.collective_groups.append(finalized_group_name)
         return actor_groups, finalized_group_name
 
-    def regroup_router_experts(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
+    def allgather_routed_experts(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
         for actor in actors:
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
@@ -1105,14 +1110,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             refs.append(ref)
         future.wait(refs, return_output=True)
 
-    def regroup_router_experts_among_trainer(self, requires_grad=None, filter_fn=None, param_group="default"):
-        """regroup experts for HEP when need to change parameter."""
+    def allgather_routed_experts_among_trainer(self, requires_grad=None, filter_fn=None, param_group="default"):
+        """allgather experts for HEP when need to change parameter."""
         with ThreadPoolExecutor(max_workers=1) as executor:
             futures = []
-            for regroup_actors in self.send_actors_to_regroup_experts:
-                actor_groups, finalized_group_name = self.create_group_experts_regrouping(regroup_actors, param_group=param_group)
+            for allgather_actors in self.send_actors_to_allgather_experts:
+                actor_groups, finalized_group_name = self.create_routed_expert_allgather_group(allgather_actors, param_group=param_group)
                 futures.append(executor.submit(
-                    self.regroup_router_experts, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                    self.allgather_routed_experts, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
                 ))
             for _future in concurrent.futures.as_completed(futures):
                 try:
@@ -1126,7 +1131,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         requires_grad=None, filter_fn=None, param_group="default"
     ):
         if self.synchronizer.is_parameter_changed:
-            self.regroup_router_experts_among_trainer(requires_grad, filter_fn, param_group)
+            self.allgather_routed_experts_among_trainer(requires_grad, filter_fn, param_group)
 
         super()._multi_thread_sync_for_tp_num_mapping_eq_1(
             send_actors_list, actor_mappings_list, requires_grad, filter_fn, param_group)
@@ -1237,7 +1242,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         self.clear_cache(
             sorted_send_actors_list = [
-                self.send_actors_to_regroup_experts,
+                self.send_actors_to_allgather_experts,
                 self.sorted_send_actors_for_routed_experts
             ],
             rank_mapping_list=[
