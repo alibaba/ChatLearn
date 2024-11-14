@@ -1149,9 +1149,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             assert self.ep_num_mapping == 1 and self.tp_num_mapping == 1
 
             # allgather routed experts only
-            allgather_send_actors = [self.send_actors_to_allgather_experts]
+            send_actors_to_allgather_experts = self.send_actors_to_allgather_experts
             self.sync_allgather_multi_threads(
-                allgather_send_actors,
+                send_actors_to_allgather_experts,
                 max_workers=1,
                 requires_grad=requires_grad,
                 group_name=self.group_name + "_allgather",
