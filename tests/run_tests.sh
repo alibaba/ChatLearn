@@ -103,6 +103,7 @@ function run_all_tests {
   run_test python test_placement.py -c "configs/exp.yaml"
   run_test python test_placement_colocate.py -c "configs/exp.yaml"
   run_test python test_flat_tensors.py
+  run_test python test_balanced_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_unbalance_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_unbalance_tp_1.py -c "configs/test_param_sync.yaml"
   run_test python test_unbalance_tp_2.py -c "configs/test_param_sync.yaml"
@@ -147,6 +148,7 @@ elif [ "$1" == "test_hep" ]; then
   run_test python test_balance_hep_unbalance_ep_tp_pp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_balance_hep_unbalance_ep_tp_pp_3.py -c "configs/test_param_sync.yaml"
 elif [ "$1" == "test_validate_param_sync" ]; then
+  run_test python test_balanced_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_unbalance_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_balance_hep_pp_unbalance_ep_tp_1.py -c "configs/test_param_sync.yaml"
 elif [ "$1" == "test_fixed_data" ]; then
