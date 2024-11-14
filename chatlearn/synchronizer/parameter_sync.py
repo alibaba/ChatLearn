@@ -49,6 +49,7 @@ class ParameterSyncGroup:
         self.recv_send_actor_mappings = defaultdict(list)
         self.send_recv_actor_mappings_stage2 = defaultdict(list)
         self.recv_send_actor_mappings_stage2 = defaultdict(list)
+        self.send_actors_to_regroup_experts = []
         self.actor2rank = {}
         self._debug = get_args().runtime_args.debug
         self._num_src_pipeline_stage = None
@@ -218,6 +219,11 @@ class ParameterSyncGroup:
                      f"from tp rank {src_tp_rank} to {dst_tp_rank}")
         self.send_recv_actor_mappings_stage2[src_actor].append(dst_actor)
         self.recv_send_actor_mappings_stage2[dst_actor].append(src_actor)
+
+    def set_send_actors_to_regroup_experts(self, src_replica_ranks_group):
+        for src_replica_ranks in src_replica_ranks_group:
+            self.send_actors_to_regroup_experts.append(
+                [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
@@ -966,7 +972,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._num_dst_hyper_expert_parallel = None
         self._actor2hep = {}
         self.sorted_send_actors_for_routed_experts = None
-        self.send_actors_to_regroup_experts = []
         super().__init__(src_model, dst_model, group_name, frequency, error_signal)
 
     def setup_rank_mapping(self):
@@ -995,11 +1000,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 f"Your current setting is EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model {self.src_model.name} "
                 f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model {self.dst_model.name}."
             )
-
-    def set_send_actors_to_regroup_experts(self, src_replica_ranks_group):
-        for src_replica_ranks in src_replica_ranks_group:
-            self.send_actors_to_regroup_experts.append(
-                [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
