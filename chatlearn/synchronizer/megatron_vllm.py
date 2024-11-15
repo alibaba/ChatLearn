@@ -156,12 +156,12 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def regroup_routed_experts(self, name, params_to_sync, tp_rank, ep_rank, group_name):
-        to_regroup_routed_experts_dict = self.sync_map.to_regroup_routed_experts_dict
-        if to_regroup_routed_experts_dict is None:
+    def allgather_routed_experts(self, name, params_to_sync, tp_rank, ep_rank, group_name):
+        to_allgather_routed_experts_dict = self.sync_map.to_allgather_routed_experts_dict
+        if to_allgather_routed_experts_dict is None:
             return params_to_sync_list
-        layer_re = self.sync_map.to_regroup_routed_experts_dict["layer_re"]
-        to_regroup_modules_list = to_regroup_routed_experts_dict["modules"]
+        layer_re = self.sync_map.to_allgather_routed_experts_dict["layer_re"]
+        to_regroup_modules_list = to_allgather_routed_experts_dict["modules"]
 
         m = layer_re.match(name)
         if m is not None:

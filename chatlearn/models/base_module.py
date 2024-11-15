@@ -726,7 +726,7 @@ class BaseModule:
 
     def allgather_routed_expert_parameter(self, group_name, pipe_stage=0):
         for name, param in self._parameters_to_sync[pipe_stage]:
-            param, state = self._synchronizer.regroup_routed_experts(
+            param, state = self._synchronizer.allgather_routed_experts(
                 name, param, self.tensor_parallel_rank(), self.expert_parallel_rank(), group_name
             )
             if state:
