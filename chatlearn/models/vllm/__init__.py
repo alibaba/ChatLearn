@@ -13,3 +13,5 @@
 # limitations under the License.
 # ==============================================================================
 """vLLM related."""
+
+from . import hooks

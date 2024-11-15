@@ -14,6 +14,7 @@
 # ==============================================================================
 """Environment"""
 
+from collections import defaultdict
 import math
 from itertools import cycle
 
@@ -23,6 +24,8 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
 from .executor import Executor
 from .utils import encode_data
+from chatlearn.utils.global_vars import set_vllm_actors
+from chatlearn.models.vllm.vllm_engine import VllmEngine
 
 # pylint: disable=not-callable
 class Environment(Executor):
@@ -72,6 +75,9 @@ class Environment(Executor):
             model = model_node.model.replicas[0]
             config = future.get(model.master.padding_config.remote())
             self._padding_config.update(config)
+            if model_node.model.use_vllm_backend:
+                for replica in model_node.model.replicas:
+                    replica.model.setup_vllm(replica.all_actors)
 
     @property
     def sample_per_episode(self):

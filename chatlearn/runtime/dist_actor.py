@@ -29,6 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
+    from chatlearn.models.vllm_module2 import VLLMModule2
 
 RAY_REMOTE = "remote"
 
@@ -117,11 +118,21 @@ class DistActor:
             placement_group=placement_group,
             placement_group_bundle_index=group_index,
         )
+        # TODO: hardcode here, should call _get_worker_module_and_class
+        worker_module_name = "vllm.worker.worker"
+        worker_class_name = "Worker"
+        worker_class_fn = None
+        kwargs = dict(
+            worker_module_name=worker_module_name,
+            worker_class_name=worker_class_name,
+            worker_class_fn=worker_class_fn,
+            trust_remote_code=True,
+        )
         # use max_concurrency=1 to make sure only one task execute at one time
         actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(self.model.__class__) \
             .options(scheduling_strategy=scheduling_strategy,
                      max_concurrency=1) \
-            .remote(self.model.name, self.model.global_args, self.replica_id)
+            .remote(self.model.name, self.model.global_args, self.replica_id, **kwargs)
         actor.set_error_signal.remote(self.error_signal)
         actor.set_storage.remote(self.storage)
         self.all_actors.append(actor)
@@ -221,6 +232,11 @@ class DistTorchActor(DistActor):
             ret.append(actor.set_env.remote(env_config))
         status = sum(future.get(ret))
         assert status == world_size
+
+class DistVLLMActor(DistTorchActor):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
 
 class DistModel:
@@ -342,7 +358,7 @@ class DistModel:
 
     @property
     def use_vllm_backend(self):
-        return vllm_exist and isinstance(self.replicas[0].model, VLLMModule)
+        return vllm_exist and isinstance(self.replicas[0].model, (VLLMModule, VLLMModule2))
 
     def group_dist_actors_by_tp_rank(self):
         for replica in self.replicas:

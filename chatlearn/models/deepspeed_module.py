@@ -27,7 +27,7 @@ from transformers.integrations import HfDeepSpeedConfig
 from transformers.trainer import get_scheduler
 
 from chatlearn.utils.utils import dict_to_simplenamespace
-from .deepspeed.deepspeed_utils import get_eval_ds_config, get_tokenizer, get_train_ds_config, create_optimizer
+from .deepspeed.deepspeed_utils import tokenizerget_eval_ds_config, get_, get_train_ds_config, create_optimizer
 from .deepspeed.deepspeed_utils import save_hf_format, save_zero_three_model
 from .torch_module import TorchModule
 

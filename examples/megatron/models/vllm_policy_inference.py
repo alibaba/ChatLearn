@@ -20,7 +20,8 @@ import random
 import torch
 import torch.nn.functional as F
 
-from chatlearn import VLLMModule
+# from chatlearn import VLLMModule
+from chatlearn.models.vllm_module2 import VLLMModule2 as VLLMModule
 from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 
 from .utils import get_loss_mask
@@ -66,9 +67,8 @@ class VLLMPolicyInference(VLLMModule):
 
     def _forward_step(self, data, iteration, is_eval): # pylint: disable=unused-argument
         outputs = self.generate_vllm(data, is_eval)
-        if self.is_last_rank():
-            rets = self.decode_internal(outputs)
-            return rets
+        rets = self.decode_internal(outputs)
+        return rets
 
     def forward_step(self, data, iteration=0):
         return self._forward_step(data, iteration, False)

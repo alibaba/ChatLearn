@@ -130,6 +130,14 @@ class TorchModule(BaseModule):
             return dist.get_rank() == (dist.get_world_size() - 1)
         return True
 
+    def is_first_rank(self):
+        """
+        Is last rank.
+        """
+        if dist.is_initialized():
+            return dist.get_rank() == 0
+        return True
+
     @property
     def world_size(self):
         return dist.get_world_size()

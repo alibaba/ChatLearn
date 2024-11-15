@@ -14,6 +14,7 @@
 # ==============================================================================
 """Evaluator"""
 
+import ray
 from collections import defaultdict
 
 from chatlearn.runtime.environment import Environment
@@ -104,7 +105,10 @@ class Evaluator(Environment):
         queue_size = out_queue.qsize()
         result_refs = [out_queue.get() for _ in range(queue_size)]
         element_size = len(result_refs[0])
-        data_list = future.wait(result_refs, desc="evaluator", return_output=True)
+        if isinstance(result_refs[0][0], ray.ObjectRef):
+            data_list = future.wait(result_refs, desc="evaluator", return_output=True)
+        else:
+            data_list = result_refs[0]
         results = [data_list[i:i + element_size] for i in range(0, len(data_list), element_size)]
         all_results = defaultdict(list)
         for batches in results:

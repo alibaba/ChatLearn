@@ -42,6 +42,8 @@ def init_ray(runtime_env_args):
     python_path = os.environ.get("PYTHONPATH", "")
     if python_path:
         runtime_env["env_vars"]["PYTHONPATH"] = python_path
+        # runtime_env["env_vars"]["VLLM_USE_RAY_SPMD_WORKER"] = "1"
+        # runtime_env["env_vars"]["VLLM_USE_RAY_COMPILED_DAG"] = "1"
 
     def _set_runtime_env(runtime_env_args, attribute, runtime_env):
         if getattr(runtime_env_args, attribute):
