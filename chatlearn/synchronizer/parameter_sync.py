@@ -49,7 +49,6 @@ class ParameterSyncGroup:
         self.recv_send_actor_mappings = defaultdict(list)
         self.send_recv_actor_mappings_stage2 = defaultdict(list)
         self.recv_send_actor_mappings_stage2 = defaultdict(list)
-        self.send_actors_to_allgather_routed_experts = []
         self.actor2rank = {}
         self._debug = get_args().runtime_args.debug
         self._num_src_pipeline_stage = None
@@ -68,9 +67,6 @@ class ParameterSyncGroup:
             if self.num_src_tensor_parallel % 2 == 1 and self.num_dst_tensor_parallel % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
-        self.setup_collective_group()
-
-        self.setup_rank_mapping()
 
         self.concurrent_comm = get_args().runtime_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
@@ -81,8 +77,13 @@ class ParameterSyncGroup:
         self._is_collective_group_created = True
         self.collective_groups = []
         self.src_dp_size = future.get(self.src_model.replicas[0].all_actors[0].get_data_parallel_size.remote())
+        self.send_actors_to_allgather_routed_experts = None
         self.sorted_send_actors = None
         self.sorted_send_actors_stage2 = None
+
+        self.setup_collective_group()
+
+        self.setup_rank_mapping()
 
     def get_group_name(self, actors):
         return f"{self.group_name}_" + "_".join(str(self.actor2rank[actor]) for actor in actors)
@@ -221,6 +222,8 @@ class ParameterSyncGroup:
         self.recv_send_actor_mappings_stage2[dst_actor].append(src_actor)
 
     def set_send_actors_to_allgather_routed_experts(self, src_replica_ranks_group):
+        if self.send_actors_to_allgather_routed_experts is None:
+            self.send_actors_to_allgather_routed_experts = []
         for src_replica_ranks in src_replica_ranks_group:
             self.send_actors_to_allgather_routed_experts.append(
                 [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
@@ -1026,7 +1029,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._num_dst_hyper_expert_parallel = None
         self._actor2hep = {}
         self.sorted_send_actors_for_routed_experts = None
-        self.send_actors_to_allgather_routed_experts = []
         super().__init__(src_model, dst_model, group_name, frequency, error_signal)
 
     def setup_rank_mapping(self):
