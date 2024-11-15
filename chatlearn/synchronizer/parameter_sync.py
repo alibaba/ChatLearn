@@ -49,6 +49,7 @@ class ParameterSyncGroup:
         self.recv_send_actor_mappings = defaultdict(list)
         self.send_recv_actor_mappings_stage2 = defaultdict(list)
         self.recv_send_actor_mappings_stage2 = defaultdict(list)
+        self.send_actors_to_allgather_routed_experts = []
         self.actor2rank = {}
         self._debug = get_args().runtime_args.debug
         self._num_src_pipeline_stage = None
@@ -219,6 +220,11 @@ class ParameterSyncGroup:
         self.send_recv_actor_mappings_stage2[src_actor].append(dst_actor)
         self.recv_send_actor_mappings_stage2[dst_actor].append(src_actor)
 
+    def set_send_actors_to_allgather_routed_experts(self, src_replica_ranks_group):
+        for src_replica_ranks in src_replica_ranks_group:
+            self.send_actors_to_allgather_routed_experts.append(
+                [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
+
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
@@ -262,7 +268,7 @@ class ParameterSyncGroup:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_and_ep_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_and_ep_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
-            self.set_send_actors_to_allgather_experts(src_replica_ranks_group)
+            self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
@@ -1020,7 +1026,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._num_dst_hyper_expert_parallel = None
         self._actor2hep = {}
         self.sorted_send_actors_for_routed_experts = None
-        self.send_actors_to_allgather_experts = []
+        self.send_actors_to_allgather_routed_experts = []
         super().__init__(src_model, dst_model, group_name, frequency, error_signal)
 
     def setup_rank_mapping(self):
@@ -1057,11 +1063,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     f"EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model `{self.src_model.name}` "
                     f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model `{self.dst_model.name}`."
                 )
-
-    def set_send_actors_to_allgather_experts(self, src_replica_ranks_group):
-        for src_replica_ranks in src_replica_ranks_group:
-            self.send_actors_to_allgather_experts.append(
-                [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1123,7 +1124,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             sorted_send_actors_list = [
             self.sorted_send_actors,
             self.sorted_send_actors_stage2,
-            self.send_actors_to_allgather_experts,
+            self.send_actors_to_allgather_routed_experts,
             self.sorted_send_actors_for_routed_experts
         ]
         if rank_mapping_list is None:
@@ -1149,9 +1150,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             assert self.ep_num_mapping == 1 and self.tp_num_mapping == 1
 
             # allgather routed experts only
-            send_actors_to_allgather_experts = self.send_actors_to_allgather_experts
+            send_actors_to_allgather_routed_experts = self.send_actors_to_allgather_routed_experts
             self.sync_allgather_multi_threads(
-                send_actors_to_allgather_experts,
+                send_actors_to_allgather_routed_experts,
                 max_workers=1,
                 requires_grad=requires_grad,
                 group_name=self.group_name + "_allgather",
@@ -1298,7 +1299,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             self.clear_cache(
                 sorted_send_actors_list = [
-                    self.send_actors_to_allgather_experts,
+                    self.send_actors_to_allgather_routed_experts,
                     self.sorted_send_actors_for_routed_experts
                 ],
                 rank_mapping_list=[
