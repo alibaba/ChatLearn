@@ -592,7 +592,8 @@ class ParameterSyncGroup:
         refs = []
         for actor in actors:
             if param_group == "routed":
-                ref = actor.allgather_expert_parameter.remote(group_name, pipe_stage)
+                # sync_allgather is applicable for routed weights on QWen only.
+                ref = actor.allgather_routed_expert_parameter.remote(group_name, pipe_stage)
             else:
                 raise NotImplementedError(
                     f"expect param_group for allgather is `routed`, got `{param_group}`"
@@ -823,7 +824,6 @@ class ParameterSyncGroup:
         self, send_actors, max_workers=1, requires_grad=None,
         group_name=None, filter_fn=None, param_group="default"
     ):
-        """allgather experts for HEP when need to change parameter."""
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for allgather_actors in send_actors:
@@ -1019,7 +1019,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
        For routed experts, the new EP size (we call it HEP size for clarification) = mpu.ep_size x mpu.tp_size.
        For shared experts, the EP size remains 1 because they cannot be parallelized in expert dimension.
        In this case, shared experts in HEP shares the same parallel dimension with other non-expert weights.
-       Therefore, we manage only two seperate parameter sync groups for routed expert weigts and other weights.
+       Therefore, we shall manage seperate parameter sync groups for routed expert weigts and other weights.
     """
 
     def __init__(self, src_model, dst_model, group_name, frequency, error_signal):
