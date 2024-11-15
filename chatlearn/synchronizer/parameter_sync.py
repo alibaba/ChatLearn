@@ -1044,7 +1044,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             f"greater or equal to expert parallel world size for inference ({self.num_dst_expert_parallel}) with HEP enabled."
         )
         if self.dst_model.use_vllm_backend:
-            if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+            if self.tp_num_mapping == 1:
                 # In this case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
                 self.build_rank_mapping()
             else:
@@ -1149,7 +1149,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         actor_mappings_list : List = []
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
-            assert self.ep_num_mapping == 1 and self.tp_num_mapping == 1
+            assert self.tp_num_mapping == 1
 
             # allgather routed experts only
             send_actors_to_allgather_routed_experts = self.send_actors_to_allgather_routed_experts
@@ -1285,7 +1285,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     def sync(self, requires_grad=None, validate=False):
         # Keep the structure of if-else clause the same as setup_rank_mapping
         if self.dst_model.use_vllm_backend:
-            if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
+            if self.tp_num_mapping == 1:
                 self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
                 return
 
