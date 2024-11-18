@@ -67,5 +67,4 @@ num_episode=2 \
 data_path=${DATASET_PATH} \
 enable_lora_value=${lora} \
 enable_lora_policy=${lora} \
-tensorboard_dir=${TENSORBOARD_DIR} \
 python tests/test_parameter_sync.py -c ${config_name} 2>&1 | tee ${output_dir}/log_${RANK}.log ; exit ${PIPESTATUS[0]}

@@ -82,11 +82,11 @@ customPortList=30000-30050
 ## Task failure but DLC status shows success
 1. Redirect the log to a file
 ```
-python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt
+python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${output_dir}/log_${RANK}.txt
 ```
 In this situation, the exit code is always 0, and the DLC job will show as successful. It is necessary to change it to the following:
 ```
-python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt ; exit ${PIPESTATUS[0]}
+python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${output_dir}/log_${RANK}.txt ; exit ${PIPESTATUS[0]}
 ```
 2. There are some additional operations after the training command, causing the error code to be different from the training command's error code. It is recommended to add `set -e` at the beginning of the command, so that it exits at the first encountered error command.
 ## Adjusting lr error in continued training
