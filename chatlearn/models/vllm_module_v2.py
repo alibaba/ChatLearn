@@ -22,9 +22,8 @@ from typing import Dict, Optional
 
 import torch
 from transformers import AutoTokenizer
-from vllm import EngineArgs, LLMEngine
 from vllm import SamplingParams
-from vllm.config import (EngineConfig)
+from vllm.config import EngineConfig
 from vllm.executor.ray_utils import RayWorkerWrapper
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -71,11 +70,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         os.environ['VLLM_HOST_IP'] = self.get_address()
         set_vllm_actors(workers)
         parser = FlexibleArgumentParser()
-        use_async = True
-        if not use_async:
-            parser = EngineArgs.add_cli_args(parser)
-        else:
-            parser = AsyncEngineArgs.add_cli_args(parser)
+        parser = AsyncEngineArgs.add_cli_args(parser)
         backup_sys_argv = sys.argv
         dtype = "bfloat16"
         if self.model_args.get("fp16", False):
@@ -89,19 +84,15 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                          "--disable_custom_all_reduce"]
         sys.argv = vllm_sys_argv
         args = parser.parse_args()
-        if not use_async:
-            engine_args = EngineArgs.from_cli_args(args)
-            self.engine = LLMEngine.from_engine_args(engine_args)
-        else:
-            engine_args = AsyncEngineArgs.from_cli_args(args)
-            self.engine = self.from_engine_args(engine_args)
+        engine_args = AsyncEngineArgs.from_cli_args(args)
+        self.engine = self.from_engine_args(engine_args)
 
         sys.argv = backup_sys_argv
         self.tokenizer = self.engine.engine.tokenizer
 
     def from_engine_args(
             self,
-            engine_args: EngineArgs,
+            engine_args: AsyncEngineArgs,
             engine_config: Optional[EngineConfig] = None,
             start_engine_loop: bool = True,
             usage_context: UsageContext = UsageContext.ENGINE_CONTEXT,
