@@ -215,14 +215,6 @@ class MegatronModule(TorchModule):
             return mpu.get_expert_model_parallel_rank()
         return 0
 
-    def tensor_and_expert_parallel_rank(self):
-        """
-        :meta private:
-        """
-        if hasattr(mpu, "get_tensor_and_expert_model_parallel_rank"):
-            return mpu.get_tensor_and_expert_model_parallel_rank()
-        return mpu.get_tensor_and_expert_parallel_rank()
-
     def num_layers(self):
         """
         :meta private:

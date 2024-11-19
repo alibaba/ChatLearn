@@ -604,12 +604,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         return parallel_state.get_tensor_model_parallel_rank()
 
-    def tensor_and_expert_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return self.tensor_parallel_rank() # vLLM doesn't support EP
-
     def pipeline_parallel_rank(self):
         """
         :meta private:

@@ -234,14 +234,7 @@ class ParameterSyncGroup:
                 self.send_actors_to_allgather_routed_experts[-1].extend(
                     [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
-
-    def build_rank_mapping(self, add_recv_actor_fn=None):
-        # setup rank mapping for src parameter and dst parameter
-        # get rank for one src_model, without model replicas
-
-        if add_recv_actor_fn is None:
-            add_recv_actor_fn = self.add_recv_actor
-
+    def get_src_and_dst_dp_ranks(self):
         dst_dp_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
         if local_src_ranks[0] is None or dst_dp_ranks is None:
@@ -256,6 +249,16 @@ class ParameterSyncGroup:
         for local_ranks, dp_rank in local_src_ranks:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
         src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+        return src_dp_ranks, dst_dp_ranks
+
+    def build_rank_mapping(self, add_recv_actor_fn=None):
+        # setup rank mapping for src parameter and dst parameter
+        # get rank for one src_model, without model replicas
+
+        if add_recv_actor_fn is None:
+            add_recv_actor_fn = self.add_recv_actor
+
+        src_dp_ranks, dst_dp_ranks = self.get_src_and_dst_dp_ranks()
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
             f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
@@ -305,19 +308,7 @@ class ParameterSyncGroup:
             add_recv_actor_stage1_fn = add_recv_actor_fn[0]
             add_recv_actor_stage2_fn = add_recv_actor_fn[1]
 
-        dst_ranks = self.dst_model.all_ranks
-        local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
-        if local_src_ranks[0] is None or dst_ranks is None:
-            if self._debug:
-                logger.warning(
-                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
-                return
-            else:
-                raise Exception(f"src_ranks {local_src_ranks} or dst_ranks {dst_ranks} should not be None")
-        dp_rank_to_ranks = defaultdict(list)
-        for local_ranks, dp_rank in local_src_ranks:
-            dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
-        src_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+        src_ranks, dst_ranks = self.get_src_and_dst_dp_ranks()
 
         replica_rank_iter = cycle(iter(src_ranks))
 
@@ -606,7 +597,7 @@ class ParameterSyncGroup:
                 # sync_allgather is applicable for routed weights in QWen only.
                 ref = actor.allgather_routed_expert_parameter.remote(group_name, pipe_stage)
             else:
-                raise NotImplementedError(
+                raise RuntimeError(
                     f"expect param_group for allgather is `routed`, got `{param_group}`"
                 )
             refs.append(ref)
@@ -760,8 +751,8 @@ class ParameterSyncGroup:
         elif not group_name.startswith(self.group_name + "_"):
             group_name = self.group_name + "_" + group_name
         finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
-        logger.info(f"finalized_group_name is {finalized_group_name}")
-        logger.info(f"current collevtive_groups is {self.collective_groups}")
+        logger.debug(f"finalized_group_name is {finalized_group_name}")
+        logger.debug(f"current collevtive_groups is {self.collective_groups}")
         if finalized_group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -830,22 +821,19 @@ class ParameterSyncGroup:
         group_name=None, filter_fn=None, param_group="default"
     ):
         send_actors_to_allgather_routed_experts = send_actors[0]
-        for allgather_actors in send_actors_to_allgather_routed_experts:
-            actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
-            self.sync_allgather(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
-        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        #     futures = []
-        #     for allgather_actors in send_actors_to_allgather_routed_experts:
-        #         actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
-        #         futures.append(executor.submit(
-        #             self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
-        #         ))
-        #     for _future in concurrent.futures.as_completed(futures):
-        #         try:
-        #             _future.result()
-        #         except Exception as e:
-        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-        #     concurrent.futures.wait(futures)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for allgather_actors in send_actors_to_allgather_routed_experts:
+                actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
+                futures.append(executor.submit(
+                    self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                ))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
 
     def check_and_setup_collective_group(self):
         if not self._is_collective_group_created:
@@ -1060,7 +1048,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 else:
                     self.build_rank_mapping_for_ep()
             else:
-                raise NotImplementedError("Not implemented")
+                raise NotImplementedError("ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same.")
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 self.build_rank_mapping()
@@ -1084,20 +1072,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if add_recv_actor_fn is None:
             add_recv_actor_fn = self.add_recv_actor
 
-        dst_dp_ranks = self.dst_model.all_ranks
-        local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
-        if local_src_ranks[0] is None or dst_dp_ranks is None:
-            if self._debug:
-                logger.warning(
-                    f"DEBUG MODE! src_dp_ranks {local_src_ranks} or dst_dp_ranks: {dst_dp_ranks} is None, "
-                    "make sure they have values in real application.")
-                return
-            else:
-                raise Exception(f"src_dp_ranks {local_src_ranks} or dst_dp_ranks {dst_dp_ranks} should not be None")
-        dp_rank_to_ranks = defaultdict(list)
-        for local_ranks, dp_rank in local_src_ranks:
-            dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
-        src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+        src_dp_ranks, dst_dp_ranks = self.get_src_and_dst_dp_ranks()
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
             f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
@@ -1148,12 +1123,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 src_replica_ranks2offset[tuple(src_replica_ranks)] = int(
                     (src_replica_ranks2offset[tuple(src_replica_ranks)] + 1) % len(src_ep_and_tp_group)
                 )
-        for k, v_list in self.send_recv_actor_mappings.items():
-            for v in v_list:
-                logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
-        for allgather_actors in self.send_actors_to_allgather_routed_experts:
-            cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
-            logger.info(f"allgather actors: {cat_str}")
+
+        if self._debug:
+            for k, v_list in self.send_recv_actor_mappings.items():
+                for v in v_list:
+                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+            for allgather_actors in self.send_actors_to_allgather_routed_experts:
+                cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
+                logger.debug(f"allgather actors: {cat_str}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1372,7 +1349,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def sync(self, requires_grad=None, validate=False):
-        # Keep the structure of if-else clause the same as setup_rank_mapping
         if self.dst_model.use_vllm_backend:
             if self.tp_num_mapping == 1:
                 self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
