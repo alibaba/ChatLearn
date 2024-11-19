@@ -226,9 +226,14 @@ class ParameterSyncGroup:
             self.send_actors_to_allgather_routed_experts = []
         for src_replica_ranks in src_replica_ranks_group:
             self.send_actors_to_allgather_routed_experts.append([])
-            for src_tp_ranks in src_replica_ranks:
+            if isinstance(src_replica_ranks[0], list):
+                for src_tp_ranks in src_replica_ranks:
+                    self.send_actors_to_allgather_routed_experts[-1].extend(
+                        [self.src_model.get_actor(src_rank) for src_rank in src_tp_ranks])
+            else:
                 self.send_actors_to_allgather_routed_experts[-1].extend(
-                    [self.src_model.get_actor(src_rank) for src_rank in src_tp_ranks])
+                    [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
+
 
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
@@ -595,7 +600,6 @@ class ParameterSyncGroup:
         for actor in actors:
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
-        breakpoint()
         refs = []
         for actor in actors:
             if param_group == "routed":
@@ -714,7 +718,7 @@ class ParameterSyncGroup:
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
-        logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
+        logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if self.synchronizer.is_parameter_changed:
             refs = []
@@ -758,7 +762,6 @@ class ParameterSyncGroup:
         finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
         logger.info(f"finalized_group_name is {finalized_group_name}")
         logger.info(f"current collevtive_groups is {self.collective_groups}")
-        breakpoint()
         if finalized_group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -1147,7 +1150,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         for allgather_actors in self.send_actors_to_allgather_routed_experts:
             cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
             logger.info(f"allgather actors: {cat_str}")
-        breakpoint()
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1241,7 +1243,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 max_workers=1,
                 requires_grad=requires_grad,
                 group_name=self.group_name + "_allgather",
-                filter_fn=None,
+                filter_fn=self.routed_experts_filter,
                 param_group="routed")
 
             # sync everything to inference model

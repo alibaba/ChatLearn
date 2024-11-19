@@ -45,7 +45,7 @@ class BaseSync:
         """
         return src_names, dst_names
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank=None, ep_rank=None, hep_rank=None): # pylint: disable=unused-argument
+    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
         """
         allgather routed expert params 
         """

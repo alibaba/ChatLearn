@@ -157,7 +157,7 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, hep_rank):
+    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, tp_rank):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
@@ -183,7 +183,7 @@ class MegatronVllmSync(BaseSync):
             hidden_size = self.src_module_args.args_dict["hidden_size"]
             output_tensor_list = [
                 torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device)
-                for _ in range(tp_size * ep_size)
+                for _ in range(hep_size)
             ]
             col.allgather(output_tensor_list, params_to_sync, group_name)
             val_list = []
@@ -191,9 +191,9 @@ class MegatronVllmSync(BaseSync):
                 # w13_weight
                 for params in output_tensor_list:
                     params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
-                    params = params.reshape((moe_num_experts // hep_size * 2, -1, hidden_size))
-                    params = params.chunk(hep_size, dim=1)[hep_rank]
-                    params = params.reshape(params.shape[0] // hep_size * 2, -1, hidden_size)
+                    params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
+                    params = params.chunk(tp_size, dim=1)[tp_rank]
+                    params = params.reshape(params.shape[0] // tp_size * 2, -1, hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
                     params = torch.cat([params_left, params_right], dim=1)
                     val_list.append(params)
@@ -201,20 +201,18 @@ class MegatronVllmSync(BaseSync):
             else:
                 # w2_weight
                 for params in output_tensor_list:
-                    params = params.reshape((moe_num_experts // hep_size, -1, hidden_size))
-                    params = params.chunk(hep_size, dim=1)[hep_rank]
+                    params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
+                    params = params.chunk(tp_size, dim=1)[tp_rank]
                     val_list.append(params)
                 params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
             return params_to_sync, True
         else:
             return params_to_sync, False
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank=None, ep_rank=None, hep_rank=None): # pylint: disable=unused-argument
+    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            assert hep_rank is not None, \
-                f"hep_rank shouldn't be None when allgathering routed experts in Qwen."
-            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, hep_rank)
+            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, tp_rank)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
