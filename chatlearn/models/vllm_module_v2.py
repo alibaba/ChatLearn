@@ -18,7 +18,7 @@ import asyncio
 import inspect
 import os
 import sys
-from typing import Dict, Optional
+from typing import Optional
 
 import torch
 from transformers import AutoTokenizer
