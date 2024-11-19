@@ -1138,12 +1138,16 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 src_tp_group = src_ep_and_tp_group[src_replica_ranks2offset[tuple(src_replica_ranks)]]
                 # dst_replica does not have ep currently, so we extract from dst_replica_ranks_group[0]
                 if len(dst_replica_ranks_group) > 1:
-                    raise NotImplementedError(f"ChatLearn does not support expert parallel for inference/generation currently.")
-                assert len(src_tp_group) == len(dst_replica_ranks_group[0][j]), \
-                    f"expect the length of send_ranks and recv_ranks shall be the same, got {len(src_tp_group)} and {len(dst_replica_ranks_group[0][j])}"
+                    raise NotImplementedError("ChatLearn does not support expert parallel for inference/generation currently.")
+                assert len(src_tp_group) == len(dst_replica_ranks_group[0][j]), (
+                    "expect the length of send_ranks and recv_ranks being the same, "
+                    f"got {len(src_tp_group)} and {len(dst_replica_ranks_group[0][j])}"
+                )
                 for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[0][j]):
                     add_recv_actor_fn(src_rank, dst_rank)
-                src_replica_ranks2offset[tuple(src_replica_ranks)] = int((src_replica_ranks2offset[tuple(src_replica_ranks)] + 1) % len(src_ep_and_tp_group))
+                src_replica_ranks2offset[tuple(src_replica_ranks)] = int(
+                    (src_replica_ranks2offset[tuple(src_replica_ranks)] + 1) % len(src_ep_and_tp_group)
+                )
         for k, v_list in self.send_recv_actor_mappings.items():
             for v in v_list:
                 logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
@@ -1373,10 +1377,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             if self.tp_num_mapping == 1:
                 self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
                 return
-
-            raise NotImplementedError(
-                f"ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same."
-            )
+            else:
+                raise NotImplementedError(
+                    "ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same."
+                )
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 # synchronization is the same as base class when applying Qwen + Qwen
