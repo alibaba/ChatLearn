@@ -128,7 +128,7 @@ class BaseModule:
         self._tp_division = {}
         self._tp_num_mapping = 1
         self._sync_buffer = defaultdict(list)
-        self._expert_sync_buffer = defaultdict(list)
+        self._expert_sync_buffer = {}
         self._synchronizer = None
 
     def get_sync_buffer(self):
@@ -690,6 +690,8 @@ class BaseModule:
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
+                if name in self._expert_sync_buffer:
+                    param = self._expert_sync_buffer[name]
                 if regroup:
                     param = self._synchronizer.regroup_params_to_sync(name, param.data, self._tp_division[name])
                 if to_cpu:
@@ -736,7 +738,8 @@ class BaseModule:
                 hep_rank=self.tensor_and_expert_parallel_rank()
             )
             if state:
-                self._expert_sync_buffer[name].append(param)
+                self._expert_sync_buffer.pop(name, "Not Found.")
+                self._expert_sync_buffer[name] = param
 
     def broadcast_parameter(self, rank, src_rank, group_name, pipe_stage=0):
         """
@@ -745,12 +748,9 @@ class BaseModule:
         tensors = []
         for name, param in self._parameters_to_sync[pipe_stage]:
             if self._expert_sync_buffer and name in self._expert_sync_buffer:
-                tensors.append(self._expert_sync_buffer[name][0])
+                tensors.append(self._expert_sync_buffer[name])
             else:
                 tensors.append(param.data)
-        if self._expert_sync_buffer:
-            del self._expert_sync_buffer
-            self._expert_sync_buffer = defaultdict(list)
 
         assert len(tensors) > 0
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
