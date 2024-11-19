@@ -20,23 +20,23 @@ import inspect
 from vllm.engine import llm_engine
 
 
-# source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
-# if 'RuntimeError' in source:
-#     def __reduce__(self):
-#         # This is to ensure that the LLMEngine can be referenced in
-#         # the closure used to initialize Ray worker actors
-#         pass
+source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
+if 'RuntimeError' in source:
+    def __reduce__(self):
+        # This is to ensure that the LLMEngine can be referenced in
+        # the closure used to initialize Ray worker actors
+        pass
 
-#     del llm_engine.LLMEngine.__reduce__
+    del llm_engine.LLMEngine.__reduce__
 
-def _get_executor_cls(*args, **kwargs):
-    # distributed_executor_backend = (
-    #         engine_config.parallel_config.distributed_executor_backend)
-    # assert distributed_executor_backend == "ray"
-    from vllm.executor.ray_gpu_executor import RayGPUExecutor
-    return RayGPUExecutor
+# def _get_executor_cls(*args, **kwargs):
+#     # distributed_executor_backend = (
+#     #         engine_config.parallel_config.distributed_executor_backend)
+#     # assert distributed_executor_backend == "ray"
+#     from vllm.executor.ray_gpu_executor import RayGPUExecutor
+#     return RayGPUExecutor
 
-llm_engine.LLMEngine._get_executor_cls = _get_executor_cls
+# llm_engine.LLMEngine._get_executor_cls = _get_executor_cls
 
 
     

@@ -21,6 +21,7 @@ _DECORATED_MODELS = None
 _DECORATED_OUTER_TO_INNER = {}
 _DEPENDENCIES = None
 _VLLM_ACTORS = None
+_VLLM_ENGINES = None
 
 
 def _ensure_var_is_initialized(var, name):
@@ -100,3 +101,18 @@ def set_vllm_actors(actors):
 
 def get_vllm_actors():
     return _VLLM_ACTORS
+
+def set_vllm_engine(engine):
+    global _VLLM_ENGINES
+    if _VLLM_ENGINES is None:
+        _VLLM_ENGINES = []
+    _VLLM_ENGINES.append(engine)
+
+def get_vllm_engines():
+    return _VLLM_ENGINES
+
+def shutdown_vllm_engines():
+    if _VLLM_ENGINES is None:
+        return
+    for engine in _VLLM_ENGINES:
+        engine.shutdown()

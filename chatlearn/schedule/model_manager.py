@@ -24,7 +24,7 @@ import ray.experimental.state.api
 from chatlearn.data.storage import Storage
 from chatlearn.launcher import dlc_utils
 from chatlearn.models.torch_module import TorchModule
-from chatlearn.models.vllm_module2 import VLLMModule2
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
@@ -217,7 +217,7 @@ class ModelManager:
         model.finalize()
 
         def actor_type():
-            if isinstance(model, VLLMModule2):
+            if isinstance(model, VLLMModuleV2):
                 return DistVLLMActor
             if isinstance(model, TorchModule):
                 return DistTorchActor

@@ -139,13 +139,15 @@ class BaseEngine:
         _, e2e_time_dict = self.timer_summary()
         refs = []
         for model in self.remote_models:
+            # TODO: should get time for all replicas
             time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_time_dict.get(model.name, None))
             refs.append(time_ref)
         summaries = future.get(refs)
 
         logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
-            logger.info(f"{LOG_START} [{model.name}] {summary[-1]}")
+            summary = summary[-1] if isinstance(summary, list) else summary
+            logger.info(f"{LOG_START} [{model.name}] {summary}")
         self.logging_memory()
 
     def stop(self):
@@ -553,6 +555,7 @@ class EvalEngine(Engine):
         """
         self.setup()
         self.evaluator.setup()
+        self.logging_memory()
         self.timers("episode").start()
         results = self.evaluator.eval(
             cur_iter=cur_iter, train_iteration=train_iteration)

@@ -14,7 +14,6 @@
 # ==============================================================================
 """Environment"""
 
-from collections import defaultdict
 import math
 from itertools import cycle
 
@@ -24,8 +23,6 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
 from .executor import Executor
 from .utils import encode_data
-from chatlearn.utils.global_vars import set_vllm_actors
-from chatlearn.models.vllm.vllm_engine import VllmEngine
 
 # pylint: disable=not-callable
 class Environment(Executor):

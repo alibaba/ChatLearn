@@ -52,7 +52,10 @@ def timeit(func, func_name):
     def inner(self, *args, **kwargs):
         if self.runtime_args.nsys:
             nvtx.range_push(func_name)
+        # if func_name == "eval_forward":
+        #     import pdb; pdb.set_trace()
         if self.is_last_rank():
+            self._logger.info(f"========= start timer for {func_name} ===========")
             # for the class inherited from base, it may call multiple times, so use the first start time
             if not self.timers(func_name).started_:
                 self.timers(func_name).start()
@@ -162,7 +165,8 @@ def preprocess_compute(func, trainable):
                     results.append(ret)
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
-                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 or (hasattr(self, 'engine') and self.engine is not None):
+                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
+                    or (hasattr(self, 'engine') and self.engine is not None):
                     final_results = concat_along_batch(results)
             else:
                 if 'iteration' in inspect.signature(func).parameters:
@@ -173,7 +177,8 @@ def preprocess_compute(func, trainable):
                 final_results = None
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
-                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 or (hasattr(self, 'engine') and self.engine is not None):
+                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
+                    or (hasattr(self, 'engine') and self.engine is not None):
                     final_results = ret
         else:
             if 'iteration' in inspect.signature(func).parameters:

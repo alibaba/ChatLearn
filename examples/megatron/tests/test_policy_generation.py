@@ -46,7 +46,7 @@ engine = EvalEngine(eval_flow)
 
 args = chatlearn.get_args()
 k = {"math_coef": 0}
-num_limit = 15
+num_limit = 128
 train_prompts = get_prompts(args.runtime_args.get("eval_data_path"), num_limit=num_limit)
 
 policy_checkpoint = policy.model_args["load"]
@@ -72,5 +72,4 @@ policy_inference_fp = f"{eval_dir}/{load_iteration}/{exp_name}/inference_json.js
 print(policy_inference_fp)
 print(f"inference finished: got jsons number: {len(output)}")
 write_jsonl(output, policy_inference_fp)
-
 engine.logging_summary()

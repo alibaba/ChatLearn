@@ -13,8 +13,8 @@ export OPENBLAS_NUM_THREADS=1
 [ -z "$RANK" ] && export RANK=0
 if [ -z "${CUSTOM_PORTS}" ]; then
   set +x
-  ports="30100"
-  for i in $(seq 30101 30150); do
+  ports="30000"
+  for i in $(seq 30001 30050); do
     ports="${ports};${i}"
   done
   set -x

@@ -21,7 +21,7 @@ import torch
 import torch.nn.functional as F
 
 # from chatlearn import VLLMModule
-from chatlearn.models.vllm_module2 import VLLMModule2 as VLLMModule
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2 as VLLMModule
 from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 
 from .utils import get_loss_mask

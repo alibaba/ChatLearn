@@ -19,7 +19,7 @@ import importlib
 from chatlearn import hooks
 from chatlearn.launcher.initialize import init
 from chatlearn.models.base_module import BaseModule
-#from chatlearn.models.deepspeed_module import DeepSpeedModule
+from chatlearn.models.deepspeed_module import DeepSpeedModule
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.runtime.engine import DPOEngine

@@ -14,8 +14,8 @@
 # ==============================================================================
 """Evaluator"""
 
-import ray
 from collections import defaultdict
+import ray
 
 from chatlearn.runtime.environment import Environment
 from chatlearn.utils import future
@@ -123,5 +123,10 @@ class Evaluator(Environment):
             if train_iteration is not None:
                 eval_info["train_iteration"] = train_iteration
             self._post_process_func(all_results, eval_info)
+        # engines = get_vllm_engines()
+        # for replica in self.models[0].replicas:
+        #     replica.model.stop_remote_worker_execution_loop_async()
+        # for engine in engines:
+        #     engine.stop_remote_worker_execution_loop_async()
         return all_results
 # pylint: disable=not-callable
