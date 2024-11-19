@@ -15,7 +15,6 @@
 """VLLM module"""
 
 import asyncio
-import gc
 import inspect
 import os
 import sys
@@ -33,7 +32,6 @@ from vllm.engine.metrics_types import StatLoggerBase
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser
 
-from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
 from .torch_module import TorchModule
 
@@ -48,6 +46,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """
 
     def __init__(self, *args, **kwargs):
+        # avoid overwrite methods
         methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
         methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
         common_methods = methods_class1.intersection(methods_class2)
@@ -58,34 +57,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         os.environ['LOCAL_RANK'] = '0'
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
-        self.log_stats = False
-
-        # inference only
-        if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
-            self._logger.info(
-                f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
-        self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
-
-        # parallel size
-        self.model_args["pipeline_model_parallel_size"] = self.module_args.pipeline_model_parallel_size
-        self.model_args["tensor_model_parallel_size"] = self.module_args.tensor_model_parallel_size
-
-        # precision
-        if self.model_args.get("fp16", False):
-            assert not self.model_args.get("bf16", False)
-            self.model_args["params_dtype"] = torch.half
-        if self.model_args.get("bf16", False):
-            assert not self.model_args.get("fp16", False)
-            self.model_args["params_dtype"] = torch.bfloat16
-
-        # To save gpu memory, we set `prompt_logprobs=None` default. If need to evaluate loss on prompts, please set prompt_logprobs=1
-        if self.model_args.get("loss_on_prompts", False) and self.model_args.get("prompt_logprobs", None) is None:
-            raise RuntimeError(
-                "expect loss_on_prompts to be false for memory reduction, or set prompt_logprobs in sampling_params to be `1`.")
-
-        self.scheduler = None
-        self._need_to_reset_scheduler = True
-        self._log_metrics = self.model_args.get("log_metrics", False)
         os.environ['VLLM_HOST_IP'] = self.get_address()
         self.engine = None
 
@@ -106,15 +77,18 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         else:
             parser = AsyncEngineArgs.add_cli_args(parser)
         backup_sys_argv = sys.argv
-        vllm_sys_argv = [""]
-        vllm_sys_argv.append(f"--model={self.model_args['load']}")
-        vllm_sys_argv.append(f"--tensor_parallel_size={self.module_args.tensor_model_parallel_size}")
-        vllm_sys_argv.append(f"--pipeline_parallel_size={self.module_args.pipeline_model_parallel_size}")
-        vllm_sys_argv.append("--worker_use_ray")
-        vllm_sys_argv.append("--disable_custom_all_reduce")
+        dtype = "bfloat16"
+        if self.model_args.get("fp16", False):
+            dtype = "float16"
+        vllm_sys_argv = ["",
+                         f"--model={self.model_args['load']}",
+                         f"--tensor_parallel_size={self.module_args.tensor_model_parallel_size}",
+                         f"--pipeline_parallel_size={self.module_args.pipeline_model_parallel_size}",
+                         f"--dtype={dtype}",
+                         "--worker_use_ray",
+                         "--disable_custom_all_reduce"]
         sys.argv = vllm_sys_argv
         args = parser.parse_args()
-        # self.model_args = self.module_args.args_dict
         if not use_async:
             engine_args = EngineArgs.from_cli_args(args)
             self.engine = LLMEngine.from_engine_args(engine_args)
@@ -160,41 +134,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             final_output = request_output
         return final_output
 
-    def reinit_cache_engine(self):
-        # reinit cache engine
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-            self.worker.init_cache_engine(cache_config=self.cache_config)
-            self.worker.warm_up_model()
-        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
-            self.worker.initialize_cache(self.cache_config.num_gpu_blocks, self.cache_config.num_cpu_blocks)
-
-    def empty_cache(self):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-            self.worker.gpu_cache = None  # pylint: disable=access-member-before-definition
-            self.worker.cache_engine.cpu_cache = None
-            self.worker.cache_engine.gpu_cache = None
-        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
-            if self.worker.gpu_cache is not None:
-                for ele in self.worker.gpu_cache:  # pylint: disable=unused-variable
-                    ele = None
-                self.worker.gpu_cache = None  # pylint: disable=access-member-before-definition
-
-            if hasattr(self.worker, "cache_engine") and self.worker.cache_engine is not None:
-                for c_e in self.worker.cache_engine:
-                    c_e.cpu_cache = None
-                    c_e.gpu_cache = None
-                self.worker.cache_engine = None
-
-        self.clear_cache()
-
-    def clear_cache(self):
-        if not self.timers("gc").started_:
-            self.timers("gc").start()
-        gc.collect()
-        self.timers("gc").stop()
-
-        super().empty_cache()
-
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
         if not self.model_args.get("use_beam_search"):
@@ -230,22 +169,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             sampling_params.use_beam_search = self.model_args.get("use_beam_search")
         return sampling_params
 
-    def pipeline_model_parallel_size(self):
-        """
-        get pipeline_model_parallel_size
-
-        :meta private:
-        """
-        return self.parallel_config.pipeline_parallel_size
-
-    def tensor_model_parallel_size(self):
-        """
-        get tensor_model_parallel_size
-
-        :meta private:
-        """
-        return self.parallel_config.tensor_parallel_size
-
     @property
     def data_parallel_size(self):
         """
@@ -259,24 +182,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         return 0
-
-    def tensor_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return parallel_state.get_tensor_model_parallel_rank()
-
-    def pipeline_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return get_pipeline_model_parallel_rank()
-
-    def num_layers(self):
-        """
-        :meta private:
-        """
-        return self.model_config.hf_config.num_hidden_layers
 
     async def _generate_vllm(self, query, is_eval):
         prompts = query['prompt']
@@ -307,20 +212,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         outputs = loop.run_until_complete(self._generate_vllm(data, is_eval))
         outputs = sorted(outputs, key=lambda x: int(x.request_id))
         return outputs
-
-    def offload_weights(self):
-        """
-        offload weights
-        """
-        if self.module_args.offload_weights:
-            self._memory_manager.offload_weights()
-
-    def onload_weights(self):
-        """
-        onload weights
-        """
-        if self.module_args.offload_weights:
-            self._memory_manager.onload_weights()
 
     def is_last_rank(self):
         return True

@@ -22,7 +22,7 @@ from examples.megatron.models.train_helper import get_prompts
 import chatlearn
 from chatlearn import EvalEngine
 
-# pylint: disable=invalid-envvar-default,bad-exception-cause,ungrouped-imports
+# pylint: disable=invalid-envvar-default,bad-exception-cause,ungrouped-imports,wrong-import-position
 if os.getenv("ENABLE_VLLM", False):
     try:
         from examples.megatron.models.vllm_policy_inference import VLLMPolicyInference as PolicyModel
@@ -46,7 +46,7 @@ engine = EvalEngine(eval_flow)
 
 args = chatlearn.get_args()
 k = {"math_coef": 0}
-num_limit = 128
+num_limit = 2048
 train_prompts = get_prompts(args.runtime_args.get("eval_data_path"), num_limit=num_limit)
 
 policy_checkpoint = policy.model_args["load"]

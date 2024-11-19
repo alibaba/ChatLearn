@@ -16,8 +16,9 @@
 
 import importlib
 import os
+from .. import is_vllm_v2
 
-if os.environ.get('ENABLE_VLLM_V2'):
+if is_vllm_v2():
     if importlib.util.find_spec("vllm"):
         from . import ray_gpu_executor
 else:

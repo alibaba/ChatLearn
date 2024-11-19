@@ -19,6 +19,7 @@ from collections import defaultdict
 from itertools import cycle
 from ray.util.queue import Queue
 
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.model_flow import ModelFlow
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
@@ -209,8 +210,7 @@ class Executor:
         if is_eval is not None:
             kwargs["is_eval"] = is_eval
         output = []
-        # TODO isinstance DistVllmActor
-        if hasattr(replica.model, 'engine'):
+        if isinstance(replica.model, VLLMModuleV2):
             mb, query = get_next_data()
             assert isinstance(query, list)
             output.append((getattr(replica.model, func_name)(*query, **kwargs), mb))

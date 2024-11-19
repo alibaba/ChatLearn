@@ -21,13 +21,14 @@ import random
 import torch
 import torch.nn.functional as F
 
+from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
+from .utils import get_loss_mask
+
 if os.environ.get("ENABLE_VLLM_V2"):
     from chatlearn.models.vllm_module_v2 import VLLMModuleV2 as VLLMModule
 else:
     from chatlearn import VLLMModule
-from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 
-from .utils import get_loss_mask
 
 
 class VLLMPolicyInference(VLLMModule):
