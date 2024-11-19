@@ -242,7 +242,7 @@ class ParameterSyncGroup:
                 logger.warning(
                     f"DEBUG MODE! src_dp_ranks {local_src_ranks} or dst_dp_ranks: {dst_dp_ranks} is None, "
                     "make sure they have values in real application.")
-                return
+                return local_src_ranks, dst_dp_ranks
             else:
                 raise Exception(f"src_dp_ranks {local_src_ranks} or dst_dp_ranks {dst_dp_ranks} should not be None")
         dp_rank_to_ranks = defaultdict(list)
@@ -259,6 +259,8 @@ class ParameterSyncGroup:
             add_recv_actor_fn = self.add_recv_actor
 
         src_dp_ranks, dst_dp_ranks = self.get_src_and_dst_dp_ranks()
+        if self._debug and (src_dp_ranks is None or dst_dp_ranks is None):
+            return
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
             f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
@@ -309,6 +311,8 @@ class ParameterSyncGroup:
             add_recv_actor_stage2_fn = add_recv_actor_fn[1]
 
         src_ranks, dst_ranks = self.get_src_and_dst_dp_ranks()
+        if self._debug and (src_ranks is None or dst_ranks is None):
+            return
 
         replica_rank_iter = cycle(iter(src_ranks))
 
@@ -1073,6 +1077,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             add_recv_actor_fn = self.add_recv_actor
 
         src_dp_ranks, dst_dp_ranks = self.get_src_and_dst_dp_ranks()
+        if self._debug and (src_dp_ranks is None or dst_dp_ranks is None):
+            return
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
             f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"

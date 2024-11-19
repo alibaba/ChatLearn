@@ -17,6 +17,7 @@ Test:
 1. trainer_tp < inference_tp
 2. trainer_tp can divide inference_tp
 3. trainer_tp * trainer_ep == inference_tp * inference_ep
+4. HEP is enabled for both trainer and inference.
 
 Current test case: 
 (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp) = (1, 4, 2, 4, 1, 2).
