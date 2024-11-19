@@ -235,10 +235,4 @@ assert comm_pair_stage_2 == [(8, 9), (9, 8), (10, 11), (11, 10), (12, 13), (13, 
 
 print(f"pass test_case (dst_tp, src_pp, src_tp): {tuples}")
 
-engine.model_manager.sync_parameters(requires_grad=False)
-for _, sync_group in engine.model_manager.parameter_sync_groups.items():
-    args = []
-    for send_actor, recv_actors in sync_group.send_recv_actor_mappings.items():
-        for recv_actor in recv_actors:
-            recv_actors_stage2 = sync_group.send_recv_actor_mappings_stage2[recv_actor]
-            sync_group.validate_sync_results(send_actor, [recv_actor] + recv_actors_stage2, False)
+engine.model_manager.sync_parameters(requires_grad=False, validate=True)

@@ -35,11 +35,12 @@ def get_synchronizer(src_model, dst_model):
         model_class_name = config.architectures[0]
         if model_class_name == "QWenLMHeadModel":
             return MegatronVllmQWenSync(src_model, dst_model)
-        elif model_class_name == "Qwen2ForCausalLM":
+        elif model_class_name in ["Qwen2ForCausalLM", "Qwen2MoeForCausalLM"]:
             return MegatronVllmQWen2Sync(src_model, dst_model)
         elif model_class_name == "LlamaForCausalLM":
             return MegatronVllmLlamaSync(src_model, dst_model)
         else:
-            raise RuntimeError(f"Unsupported model {type(self.model.model)}, Expect QWenLMHeadModel, Qwen2ForCausalLM or LlamaForCausalLM.")
+            raise RuntimeError(
+                f"Unsupported model {model_class_name}, Expect QWenLMHeadModel, Qwen2ForCausalLM, Qwen2MoeForCausalLM or LlamaForCausalLM.")
     else:
         return BaseSync(src_model, dst_model)

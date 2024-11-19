@@ -55,5 +55,4 @@ num_episode=${num_ppo_episode:-0} \
 data_path=${DATASET_PATH} \
 eval_data_path=${EVAL_DATASET_PATH} \
 sample_per_episode=${sample_per_episode} \
-tensorboard_dir=${TENSORBOARD_DIR} \
 python tests/test_unbalanced_param_sync.py -c $config_file 2>&1 | tee ${output_dir}/log_${RANK}.log ; exit ${PIPESTATUS[0]}

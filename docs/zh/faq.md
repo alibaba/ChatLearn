@@ -98,13 +98,13 @@ customPortList=30000-30050
 1. 将log重定向到文件
 
 ```
-python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt
+python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${output_dir}/log_${RANK}.txt
 ```
 
 这种情况退出码总是0，DLC作业会显示成功。需要加上改成以下方式
 
 ```
-python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${LOG_DIR}/log_${RANK}.txt ; exit ${PIPESTATUS[0]}
+python train_rlhf.py -c configs/llama2/rlhf.yaml 2>&1 | tee -a ${output_dir}/log_${RANK}.txt ; exit ${PIPESTATUS[0]}
 ```
 
 2. 在训练命令之后有一些额外的操作，导致错误码非训练命令的错误码。建议在 command 开头加上 `set -e`, 这样就可以在第一个遇到错误的命令退出。

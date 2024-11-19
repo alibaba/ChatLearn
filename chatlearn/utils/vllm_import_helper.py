@@ -63,6 +63,7 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
     from vllm.inputs.preprocess import InputPreprocessor
     from vllm.model_executor.model_loader.utils import set_default_torch_dtype as _set_default_torch_dtype
     from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
+    from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
     from vllm.sequence import ExecuteModelRequest
     from vllm.transformers_utils.detokenizer import Detokenizer
 

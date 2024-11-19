@@ -15,17 +15,21 @@
 """vLLM Hooks."""
 
 import importlib
+import os
 
-if importlib.util.find_spec("vllm"):
-    # import vllm
-    # from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-    # if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-    #     from chatlearn.models.vllm.hooks import sampler
-    # elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
-    #     from chatlearn.models.vllm.hooks import llm_engine, logits_processor
-    #     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
-    #         from chatlearn.models.vllm.hooks import worker
-    #     else:
-    #         from chatlearn.models.vllm.hooks import input_preprocess
-    # from chatlearn.models.vllm.hooks import llm_engine
-    from . import ray_gpu_executor
+if os.environ.get('ENABLE_VLLM_V2'):
+    if importlib.util.find_spec("vllm"):
+        from . import ray_gpu_executor
+else:
+    if importlib.util.find_spec("vllm"):
+        import vllm
+        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
+            from chatlearn.models.vllm.hooks import sampler
+        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+            from chatlearn.models.vllm.hooks import llm_engine, logits_processor
+            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
+                from chatlearn.models.vllm.hooks import worker
+            else:
+                from chatlearn.models.vllm.hooks import input_preprocess
+                from chatlearn.models.vllm.hooks import format_device_name

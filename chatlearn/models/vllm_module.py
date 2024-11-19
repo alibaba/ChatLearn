@@ -191,7 +191,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
     def model_provider(self):
         """Build the model."""
         print_rank_0('building vLLM model ...')
-        model = VLLMModel(self.model_config, self.model_args, self.cache_config, self.quant_config, self.lora_config)
+        model = VLLMModel(self.model_config, self.model_args, self.cache_config)
 
         return model
 
@@ -573,6 +573,15 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
         :meta private:
         """
+        return self.parallel_config.tensor_parallel_size
+
+    def tensor_and_expert_model_parallel_size(self):
+        """
+        get tensor_and_expert_model_parallel_size
+        :meta private:
+        """
+        # vLLM not supported to enable expert parallel size
+        # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
         return self.parallel_config.tensor_parallel_size
 
     @property
