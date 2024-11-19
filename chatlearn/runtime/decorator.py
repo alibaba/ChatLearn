@@ -52,10 +52,7 @@ def timeit(func, func_name):
     def inner(self, *args, **kwargs):
         if self.runtime_args.nsys:
             nvtx.range_push(func_name)
-        # if func_name == "eval_forward":
-        #     import pdb; pdb.set_trace()
         if self.is_last_rank():
-            self._logger.info(f"========= start timer for {func_name} ===========")
             # for the class inherited from base, it may call multiple times, so use the first start time
             if not self.timers(func_name).started_:
                 self.timers(func_name).start()

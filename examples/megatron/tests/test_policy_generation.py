@@ -72,4 +72,5 @@ policy_inference_fp = f"{eval_dir}/{load_iteration}/{exp_name}/inference_json.js
 print(policy_inference_fp)
 print(f"inference finished: got jsons number: {len(output)}")
 write_jsonl(output, policy_inference_fp)
+
 engine.logging_summary()

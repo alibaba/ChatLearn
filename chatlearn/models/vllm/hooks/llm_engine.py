@@ -28,16 +28,3 @@ if 'RuntimeError' in source:
         pass
 
     del llm_engine.LLMEngine.__reduce__
-
-# def _get_executor_cls(*args, **kwargs):
-#     # distributed_executor_backend = (
-#     #         engine_config.parallel_config.distributed_executor_backend)
-#     # assert distributed_executor_backend == "ray"
-#     from vllm.executor.ray_gpu_executor import RayGPUExecutor
-#     return RayGPUExecutor
-
-# llm_engine.LLMEngine._get_executor_cls = _get_executor_cls
-
-
-    
-

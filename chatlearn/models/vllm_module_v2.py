@@ -34,7 +34,7 @@ from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-from chatlearn.utils.global_vars import set_vllm_actors, set_vllm_engine
+from chatlearn.utils.global_vars import set_vllm_actors
 from .torch_module import TorchModule
 
 
@@ -121,7 +121,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         else:
             engine_args = AsyncEngineArgs.from_cli_args(args)
             self.engine = self.from_engine_args(engine_args)
-        set_vllm_engine(self.engine)
 
         sys.argv = backup_sys_argv
         self.tokenizer = self.engine.engine.tokenizer

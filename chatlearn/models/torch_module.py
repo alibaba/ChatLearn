@@ -88,9 +88,7 @@ class TorchModule(BaseModule):
         """
         :meta private:
         """
-        self._logger.info(f"======================= start getting peak memory at rank {self.rank}")
         self._peak_memory = max(self._peak_memory, torch.cuda.max_memory_allocated() / (1024 ** 3))
-        self._logger.info(f"done getting peak memory at rank {self.rank} =====================")
         return self._peak_memory
 
     def empty_cache(self):
@@ -130,14 +128,6 @@ class TorchModule(BaseModule):
         """
         if dist.is_initialized():
             return dist.get_rank() == (dist.get_world_size() - 1)
-        return True
-
-    def is_first_rank(self):
-        """
-        Is last rank.
-        """
-        if dist.is_initialized():
-            return dist.get_rank() == 0
         return True
 
     @property

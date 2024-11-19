@@ -214,7 +214,6 @@ class StartExitListener:
     def stop(self):
         self.quit_event.set()
         self.log_monitor_thread.join(2)
-        # shutdown_vllm_engines()
         ray.shutdown()
         logger.info("Execute ray.shutdown before the program exits. Done ...")
 
