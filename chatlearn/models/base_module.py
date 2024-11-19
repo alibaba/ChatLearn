@@ -725,9 +725,15 @@ class BaseModule:
             func(param, rank, group_name)
 
     def allgather_routed_expert_parameter(self, group_name, pipe_stage=0):
+        breakpoint()
         for name, param in self._parameters_to_sync[pipe_stage]:
             param, state = self._synchronizer.allgather_routed_experts(
-                name, param, self.tensor_parallel_rank(), self.expert_parallel_rank(), group_name
+                name,
+                param,
+                group_name,
+                tp_rank=self.tensor_parallel_rank(),
+                ep_rank=self.expert_parallel_rank(),
+                hep_rank=self.tensor_and_expert_parallel_rank()
             )
             if state:
                 self._expert_sync_buffer[name].append(param)
@@ -1083,4 +1089,7 @@ class BaseModule:
         """
         :meta private:
         """
+        return 0
+
+    def tensor_and_expert_parallel_rank(self):
         return 0

@@ -225,8 +225,10 @@ class ParameterSyncGroup:
         if self.send_actors_to_allgather_routed_experts is None:
             self.send_actors_to_allgather_routed_experts = []
         for src_replica_ranks in src_replica_ranks_group:
-            self.send_actors_to_allgather_routed_experts.append(
-                [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
+            self.send_actors_to_allgather_routed_experts.append([])
+            for src_tp_ranks in src_replica_ranks:
+                self.send_actors_to_allgather_routed_experts[-1].extend(
+                    [self.src_model.get_actor(src_rank) for src_rank in src_tp_ranks])
 
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
@@ -280,8 +282,8 @@ class ParameterSyncGroup:
 
     # pylint: disable=unused-argument
     def build_rank_mapping_for_ep(self, add_recv_actor_fn=None):
-        # Currently, we do nothing for ep
-        pass
+        # Currently, we do not support build rank mapping for expert parallelism
+        raise NotImplementedError("ChatLearn does not support build rank mapping from Megatron-LM for expert parallelism")
 
     def build_rank_mapping_two_stage(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
@@ -435,7 +437,11 @@ class ParameterSyncGroup:
 
     def clear_cache(self, sorted_send_actors_list=None, rank_mapping_list=None):
         if sorted_send_actors_list is None:
-            sorted_send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+            sorted_send_actors_list = [
+                self.send_actors_to_allgather_routed_expert,
+                self.sorted_send_actors,
+                self.sorted_send_actors_stage2
+            ]
         if rank_mapping_list is None:
             rank_mapping_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
 
@@ -589,10 +595,11 @@ class ParameterSyncGroup:
         for actor in actors:
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
+        breakpoint()
         refs = []
         for actor in actors:
             if param_group == "routed":
-                # sync_allgather is applicable for routed weights on QWen only.
+                # sync_allgather is applicable for routed weights in QWen only.
                 ref = actor.allgather_routed_expert_parameter.remote(group_name, pipe_stage)
             else:
                 raise NotImplementedError(
@@ -696,12 +703,6 @@ class ParameterSyncGroup:
                 dst_names0 = self._send_recv_param_names[key][0]
                 dst_names0 += dst_names
                 self._send_recv_param_names[key] = (dst_names0, dst_names0)
-        elif param_group == "routed":
-            # Do nothing becuase the routed experts are one-to-one mapped across training and inference currently.
-            assert self.hep_num_mapping == 1, (
-                "Currently, ChatLearn supports balanced hyper expert parallel size across training and inference only, "
-                "i.e. training EP size * training TP size must be equal to inference EP size * inference TP size."
-            )
         if not self.synchronizer.is_parameter_changed:
             pipe_stage = self.get_actor_pipe_rank(send_actor)
             refs = []
@@ -755,8 +756,9 @@ class ParameterSyncGroup:
         elif not group_name.startswith(self.group_name + "_"):
             group_name = self.group_name + "_" + group_name
         finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
-        logger.debug(f"finalized_group_name is {finalized_group_name}")
-        logger.debug(f"current collevtive_groups is {self.collective_groups}")
+        logger.info(f"finalized_group_name is {finalized_group_name}")
+        logger.info(f"current collevtive_groups is {self.collective_groups}")
+        breakpoint()
         if finalized_group_name not in self.collective_groups:
             refs = []
             for rank, actor in enumerate(actor_groups):
@@ -824,19 +826,23 @@ class ParameterSyncGroup:
         self, send_actors, max_workers=1, requires_grad=None,
         group_name=None, filter_fn=None, param_group="default"
     ):
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for allgather_actors in send_actors:
-                actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
-                futures.append(executor.submit(
-                    self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
-                ))
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+        send_actors_to_allgather_routed_experts = send_actors[0]
+        for allgather_actors in send_actors_to_allgather_routed_experts:
+            actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
+            self.sync_allgather(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
+        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        #     futures = []
+        #     for allgather_actors in send_actors_to_allgather_routed_experts:
+        #         actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
+        #         futures.append(executor.submit(
+        #             self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+        #         ))
+        #     for _future in concurrent.futures.as_completed(futures):
+        #         try:
+        #             _future.result()
+        #         except Exception as e:
+        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+        #     concurrent.futures.wait(futures)
 
     def check_and_setup_collective_group(self):
         if not self._is_collective_group_created:
@@ -1015,11 +1021,12 @@ class ParameterSyncGroup:
 class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     """ParameterSyncGroup for Hyper Expert Parallel (HEP).
     
-       Note that in HEP, EP size for routed experts is not equivalent to that for shared experts.
-       For routed experts, the new EP size (we call it HEP size for clarification) = mpu.ep_size x mpu.tp_size.
-       For shared experts, the EP size remains 1 because they cannot be parallelized in expert dimension.
-       In this case, shared experts in HEP shares the same parallel dimension with other non-expert weights.
-       Therefore, we shall manage seperate parameter sync groups for routed expert weigts and other weights.
+       Note that in HEP, EP size for routed experts is different from that for Megatorn-LM. For routed experts,
+       the new EP size (we call it HEP size for clarification) = mpu.ep_size x mpu.tp_size, while Megatron-LM
+       set the EP size as mpu.ep_size. However, the EP size of shared experts in HEP is equal to that in Megatron
+       -LM (which is 1). In this case, routed experts treat TP and EP altogether as EP, and shared experts ignore
+       EP just like other non-expert weights. Therefore, we manage seperate parameter sync groups for routed
+       expert weigts and weights except routed experts in this class.
     """
 
     def __init__(self, src_model, dst_model, group_name, frequency, error_signal):
@@ -1045,13 +1052,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         )
         if self.dst_model.use_vllm_backend:
             if self.tp_num_mapping == 1:
-                # In this case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
-                self.build_rank_mapping()
+                if self.ep_num_mapping == 1:
+                    self.build_rank_mapping()
+                else:
+                    self.build_rank_mapping_for_ep()
             else:
                 raise NotImplementedError("Not implemented")
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
-                # In this case, all parameters are mapped one by one no matter dst model is MegatronModule or VLLMModule
                 self.build_rank_mapping()
             elif self.hep_num_mapping == 1:
                 # In this case, routed experts are mapped one by one, while params except routed experts are split by TP.
@@ -1065,6 +1073,81 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     f"EP{self.num_src_expert_parallel} TP{self.num_src_tensor_parallel} for training model `{self.src_model.name}` "
                     f"and EP{self.num_dst_expert_parallel} TP{self.num_dst_tensor_parallel} for inference model `{self.dst_model.name}`."
                 )
+
+    def build_rank_mapping_for_ep(self, add_recv_actor_fn=None):
+        # setup rank mapping for src parameter and dst parameter
+        # get rank for one src_model, without model replicas
+
+        if add_recv_actor_fn is None:
+            add_recv_actor_fn = self.add_recv_actor
+
+        dst_dp_ranks = self.dst_model.all_ranks
+        local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
+        if local_src_ranks[0] is None or dst_dp_ranks is None:
+            if self._debug:
+                logger.warning(
+                    f"DEBUG MODE! src_dp_ranks {local_src_ranks} or dst_dp_ranks: {dst_dp_ranks} is None, "
+                    "make sure they have values in real application.")
+                return
+            else:
+                raise Exception(f"src_dp_ranks {local_src_ranks} or dst_dp_ranks {dst_dp_ranks} should not be None")
+        dp_rank_to_ranks = defaultdict(list)
+        for local_ranks, dp_rank in local_src_ranks:
+            dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
+        src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+
+        assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
+            f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
+        if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
+            replica_rank_iter = cycle(reversed(src_dp_ranks))
+        else:
+            replica_rank_iter = cycle(iter(src_dp_ranks))
+        logger.debug(f"src_dp_ranks: {src_dp_ranks}")
+        logger.debug(f"dst_dp_ranks: {dst_dp_ranks}")
+
+        assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
+
+        def split_ranks_by_ep_and_tp_size(ranks,
+                                          tp_size : int = 1,
+                                          ep_size : int = 1):
+            tp_and_ep_size = tp_size * ep_size
+            return [[ranks[i:i + tp_size] for i in range(j, j + tp_and_ep_size, tp_size)] for j in range(0, len(ranks), tp_and_ep_size)]
+
+        src_replica_ranks2offset = {}
+        is_first_time_set_send_actors = True
+        for dst_replica_ranks in dst_dp_ranks:
+            src_replica_ranks = next(replica_rank_iter)
+            if tuple(src_replica_ranks) not in src_replica_ranks2offset:
+                src_replica_ranks2offset[tuple(src_replica_ranks)] = 0
+                is_first_time_set_send_actors = True
+            else:
+                is_first_time_set_send_actors = False
+
+            src_replica_ranks_group = split_ranks_by_ep_and_tp_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
+            dst_replica_ranks_group = split_ranks_by_ep_and_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
+
+            if is_first_time_set_send_actors:
+                self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
+
+            pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
+            for i, src_ep_and_tp_group in enumerate(src_replica_ranks_group):
+                j = i // pipe_map_interval
+                src_tp_group = src_ep_and_tp_group[src_replica_ranks2offset[tuple(src_replica_ranks)]]
+                # dst_replica does not have ep currently, so we extract from dst_replica_ranks_group[0]
+                if len(dst_replica_ranks_group) > 1:
+                    raise NotImplementedError(f"ChatLearn does not support expert parallel for inference/generation currently.")
+                assert len(src_tp_group) == len(dst_replica_ranks_group[0][j]), \
+                    f"expect the length of send_ranks and recv_ranks shall be the same, got {len(src_tp_group)} and {len(dst_replica_ranks_group[0][j])}"
+                for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[0][j]):
+                    add_recv_actor_fn(src_rank, dst_rank)
+                src_replica_ranks2offset[tuple(src_replica_ranks)] = int((src_replica_ranks2offset[tuple(src_replica_ranks)] + 1) % len(src_ep_and_tp_group))
+        for k, v_list in self.send_recv_actor_mappings.items():
+            for v in v_list:
+                logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+        for allgather_actors in self.send_actors_to_allgather_routed_experts:
+            cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
+            logger.info(f"allgather actors: {cat_str}")
+        breakpoint()
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1152,7 +1235,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             assert self.tp_num_mapping == 1
 
             # allgather routed experts only
-            send_actors_to_allgather_routed_experts = self.send_actors_to_allgather_routed_experts
+            send_actors_to_allgather_routed_experts = [self.send_actors_to_allgather_routed_experts]
             self.sync_allgather_multi_threads(
                 send_actors_to_allgather_routed_experts,
                 max_workers=1,
@@ -1289,7 +1372,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
                 return
 
-            assert False, "shouldn't be here currently!"
+            raise NotImplementedError(
+                f"ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same."
+            )
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 # synchronization is the same as base class when applying Qwen + Qwen

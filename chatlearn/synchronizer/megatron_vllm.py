@@ -157,7 +157,7 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts_from_hep(self, name, params_to_sync, tp_rank, ep_rank, group_name):
+    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, hep_rank):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
@@ -179,7 +179,6 @@ class MegatronVllmSync(BaseSync):
             tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
             ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
             hep_size = tp_size * ep_size
-            hep_rank = ep_rank * ep_size + tp_rank
             moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
             hidden_size = self.src_module_args.args_dict["hidden_size"]
             output_tensor_list = [
@@ -209,11 +208,13 @@ class MegatronVllmSync(BaseSync):
             return params_to_sync, True
         else:
             return params_to_sync, False
-    
-    def allgather_routed_experts(self, name, params_to_sync, tp_rank, ep_rank, group_name):
+
+    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank=None, ep_rank=None, hep_rank=None): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.allgather_routed_experts_from_hep(name, params_to_sync, tp_rank, ep_rank, group_name)
+            assert hep_rank is not None, \
+                f"hep_rank shouldn't be None when allgathering routed experts in Qwen."
+            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, hep_rank)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
