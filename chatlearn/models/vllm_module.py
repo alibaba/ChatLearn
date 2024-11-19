@@ -47,6 +47,7 @@ except ImportError:
     print("Cannot import addtional module for vllm 0.5.1 or 0.6.3, please install vllm 0.5.1/0.6.3 first.")
 # additional imports for vLLM-0.6.3
 try:
+    from chatlearn.utils.vllm_import_helper import get_pp_indices
     from chatlearn.utils.vllm_import_helper import InputPreprocessor
     from chatlearn.utils.vllm_import_helper import SchedulerContext, SchedulerOutputState
 except ImportError:
@@ -127,6 +128,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         )
 
         self.quant_config = None
+        self.pipeline_layer_offset = None
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             engine_args.max_paddings = self.model_args.get("max_paddings", 256)
             engine_args.max_context_len_to_capture = self.model_args.get("max_context_len_to_capture", 8192)
@@ -831,6 +833,16 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         if self.module_args.offload_weights:
             self._memory_manager.onload_weights()
+
+    def get_pipeline_stage_layer_offset(self):
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            if self.pipeline_layer_offset is None:
+                start_layer_idx, _ = get_pp_indices(
+                    self.num_layers(), self.pipeline_parallel_rank(), self.pipeline_model_parallel_size())
+                self.pipeline_layer_offset = start_layer_idx
+            return self.pipeline_layer_offset
+        else:
+            return super().get_pipeline_stage_layer_offset()
 
     def log_metrics_stats(self, num_done_requests):
         now = time.monotonic()

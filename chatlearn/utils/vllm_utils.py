@@ -60,6 +60,11 @@ try:
 except ImportError:
     print("Cannot import vllm, please install vllm 0.3.0 or 0.5.1 first.")
 
+try:
+    from chatlearn.utils.vllm_import_helper import get_pp_indices
+except ImportError:
+    print("Cannot import vllm, please install vllm 0.6.3 first.")
+
 from .constant import QwenVersion
 
 
@@ -821,8 +826,16 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Transformer Layers
     print("Converting transformer layers")
-    num_layers = hf_config.num_hidden_layers // pp_size
-
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+        start_layer_idx, _ = get_pp_indices(
+            hf_config.num_hidden_layers,
+            pp_rank,
+            pp_size
+        )
+        layer_offset = start_layer_idx
+    else:
+        assert pp_size == 1, f"expect pipeline parallel size eq 1 for vllm {CURRENT_VLLM_VERSION}"
+        layer_offset = hf_config.num_hidden_layers // pp_size * pp_rank
     # The transformer.
     path = (
         "model.language_model.transformer"
@@ -842,7 +855,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         if m is None:
             break
         # The index of the layer.
-        layer_idx = int(m.group(1)) + pp_rank * num_layers
+        layer_idx = int(m.group(1)) + layer_offset
         # The name of the operation.
         op_name = m.group(2)
         # Is it a weight or a bias?
@@ -1169,7 +1182,16 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # Transformer Layers
     print("Converting transformer layers")
-    num_layers = hf_config.num_hidden_layers // pp_size
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+        start_layer_idx, _ = get_pp_indices(
+            hf_config.num_hidden_layers,
+            pp_rank,
+            pp_size
+        )
+        layer_offset = start_layer_idx
+    else:
+        assert pp_size == 1, f"expect pipeline parallel size eq 1 for vllm {CURRENT_VLLM_VERSION}"
+        layer_offset = hf_config.num_hidden_layers // pp_size * pp_rank
 
     # The transformer.
     path = (
@@ -1191,7 +1213,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         if m is None:
             continue
         # The index of the layer.
-        layer_idx = int(m.group(1)) + pp_rank * num_layers
+        layer_idx = int(m.group(1)) + layer_offset
         # The name of the operation.
         op_name = m.group(2)
         # Is it a weight or a bias?
