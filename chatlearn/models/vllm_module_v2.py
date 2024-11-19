@@ -27,7 +27,6 @@ from vllm.config import EngineConfig
 from vllm.executor.ray_utils import RayWorkerWrapper
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.engine.metrics_types import StatLoggerBase
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser
 
@@ -96,7 +95,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             engine_config: Optional[EngineConfig] = None,
             start_engine_loop: bool = True,
             usage_context: UsageContext = UsageContext.ENGINE_CONTEXT,
-            stat_loggers: Optional[Dict[str, StatLoggerBase]] = None,
+            stat_loggers = None,
     ) -> "AsyncLLMEngine":
         """Creates an async LLM engine from the engine arguments."""
         # Create the engine configs.
