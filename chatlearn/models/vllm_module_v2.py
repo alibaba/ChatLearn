@@ -49,7 +49,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
         common_methods = methods_class1.intersection(methods_class2)
         # common method is '__init__'
-        assert len(common_methods) == 1
+        assert common_methods == {'__init__'}, \
+            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         TorchModule.__init__(self, *args)
         self.local_rank = 0
         os.environ['LOCAL_RANK'] = '0'
