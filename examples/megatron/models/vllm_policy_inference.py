@@ -25,7 +25,7 @@ from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 from .utils import get_loss_mask
 
 if os.environ.get("ENABLE_VLLM_V2"):
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2 as VLLMModule
+    from chatlearn import VLLMModuleV2 as VLLMModule
 else:
     from chatlearn import VLLMModule
 

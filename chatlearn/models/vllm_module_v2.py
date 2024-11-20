@@ -71,7 +71,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         parser = FlexibleArgumentParser()
         parser = AsyncEngineArgs.add_cli_args(parser)
         backup_sys_argv = sys.argv
-        dtype = "bfloat16"
+        dtype = self.model_args.get("dtype", "bfloat16")
         if self.model_args.get("fp16", False):
             dtype = "float16"
         vllm_sys_argv = ["",
