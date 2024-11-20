@@ -259,7 +259,7 @@ class ParameterSyncGroup:
             add_recv_actor_fn = self.add_recv_actor
 
         src_dp_ranks, dst_dp_ranks = self.get_src_and_dst_dp_ranks()
-        if self._debug and (src_dp_ranks is None or dst_dp_ranks is None):
+        if self._debug and (src_dp_ranks[0] is None or dst_dp_ranks is None):
             return
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
@@ -311,7 +311,7 @@ class ParameterSyncGroup:
             add_recv_actor_stage2_fn = add_recv_actor_fn[1]
 
         src_ranks, dst_ranks = self.get_src_and_dst_dp_ranks()
-        if self._debug and (src_ranks is None or dst_ranks is None):
+        if self._debug and (src_ranks[0] is None or dst_ranks is None):
             return
 
         replica_rank_iter = cycle(iter(src_ranks))
@@ -1077,7 +1077,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             add_recv_actor_fn = self.add_recv_actor
 
         src_dp_ranks, dst_dp_ranks = self.get_src_and_dst_dp_ranks()
-        if self._debug and (src_dp_ranks is None or dst_dp_ranks is None):
+        if self._debug and (src_dp_ranks[0] is None or dst_dp_ranks is None):
             return
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
