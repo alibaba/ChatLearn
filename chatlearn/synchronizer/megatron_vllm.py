@@ -180,6 +180,7 @@ class MegatronVllmSync(BaseSync):
             ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
             hep_size = tp_size * ep_size
             moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+            local_num_experts = moe_num_experts // hep_size
             hidden_size = self.src_module_args.args_dict["hidden_size"]
             output_tensor_list = [
                 torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device)
@@ -191,9 +192,9 @@ class MegatronVllmSync(BaseSync):
                 # w13_weight
                 for params in output_tensor_list:
                     params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
-                    params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
+                    params = params.reshape((local_num_experts * 2, -1, hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
-                    params = params.reshape(params.shape[0] // tp_size * 2, -1, hidden_size)
+                    params = params.reshape(params.shape[0] // 2, -1, hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
                     params = torch.cat([params_left, params_right], dim=1)
                     val_list.append(params)
@@ -201,7 +202,7 @@ class MegatronVllmSync(BaseSync):
             else:
                 # w2_weight
                 for params in output_tensor_list:
-                    params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
+                    params = params.reshape((local_num_experts, -1, hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
                     val_list.append(params)
                 params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()

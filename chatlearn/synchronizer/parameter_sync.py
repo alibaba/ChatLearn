@@ -878,7 +878,11 @@ class ParameterSyncGroup:
                     elif len(actor_mappings_list) == 2:
                         recv_actors_stage2 = actor_mappings_list[1].get(recv_actor, [])
                         args.append((send_actor, [recv_actor] + recv_actors_stage2, requires_grad, filter_fn, param_group))
-            execute_in_parallel(self.validate_sync_results, args)
+            if self._debug:
+                for arg in args:
+                    self.validate_sync_results(arg[0], arg[1], arg[2], arg[3], arg[4])
+            else:
+                execute_in_parallel(self.validate_sync_results, args)
 
     def _calculate_max_workers(self, sorted_send_actors, actor_mapping):
         max_workers = get_args().runtime_args.param_sync_max_workers
