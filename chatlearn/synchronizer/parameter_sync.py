@@ -1154,10 +1154,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self._debug:
             for k, v_list in self.send_recv_actor_mappings.items():
                 for v in v_list:
-                    logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
             for allgather_actors in self.send_actors_to_allgather_routed_experts:
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
-                logger.info(f"allgather actors: {cat_str}")
+                logger.debug(f"allgather actors: {cat_str}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
