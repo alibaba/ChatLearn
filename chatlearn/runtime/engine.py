@@ -145,7 +145,8 @@ class BaseEngine:
 
         logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
-            logger.info(f"{LOG_START} [{model.name}] {summary[-1]}")
+            summary = summary[-1] if isinstance(summary, list) else summary
+            logger.info(f"{LOG_START} [{model.name}] {summary}")
         self.logging_memory()
 
     def stop(self):

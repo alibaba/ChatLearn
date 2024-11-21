@@ -29,6 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
+    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 
 RAY_REMOTE = "remote"
 
@@ -112,7 +113,7 @@ class DistActor:
             results.append(res)
         return results
 
-    def create_actor(self, num_gpus, placement_group, group_index):
+    def _create_actor(self, num_gpus, placement_group, group_index, **kwargs):
         scheduling_strategy = PlacementGroupSchedulingStrategy(
             placement_group=placement_group,
             placement_group_bundle_index=group_index,
@@ -121,10 +122,13 @@ class DistActor:
         actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(self.model.__class__) \
             .options(scheduling_strategy=scheduling_strategy,
                      max_concurrency=1) \
-            .remote(self.model.name, self.model.global_args, self.replica_id)
+            .remote(self.model.name, self.model.global_args, self.replica_id, **kwargs)
         actor.set_error_signal.remote(self.error_signal)
         actor.set_storage.remote(self.storage)
         self.all_actors.append(actor)
+
+    def create_actor(self, num_gpus, placement_group, group_index):
+        return self._create_actor(num_gpus, placement_group, group_index)
 
     def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
         refs = []
@@ -221,6 +225,36 @@ class DistTorchActor(DistActor):
             ret.append(actor.set_env.remote(env_config))
         status = sum(future.get(ret))
         assert status == world_size
+
+class DistVLLMActor(DistTorchActor):
+    """DistVLLMActor"""
+
+    def create_actor(self, num_gpus, placement_group, group_index):
+        kwargs = {
+            "worker_module_name": "vllm.worker.worker",
+            "worker_class_name": "Worker",
+            "worker_class_fn": None,
+            "trust_remote_code": True,
+        }
+        self._create_actor(num_gpus, placement_group, group_index, **kwargs)
+
+    def add_remote_func(self):
+        for func_name, _ in inspect.getmembers(self.master):
+            # ray.actor.ActorMethod
+            if func_name.startswith('_') or func_name == "timer_summary" or func_name == "peak_memory":
+                continue
+            dist_call = partial(self.call_remote_funcs, func_name)
+            setattr(self, func_name, dist_call)
+
+    def timer_summary(self, e2e_cost=None):
+        """
+        :meta private:
+        """
+        if self.model._timers:
+            return self.model._timers.log(e2e_cost=e2e_cost)
+
+    def peak_memory(self):
+        return self.model.peak_memory()
 
 
 class DistModel:
@@ -342,7 +376,7 @@ class DistModel:
 
     @property
     def use_vllm_backend(self):
-        return vllm_exist and isinstance(self.replicas[0].model, VLLMModule)
+        return vllm_exist and isinstance(self.replicas[0].model, (VLLMModule, VLLMModuleV2))
 
     def group_dist_actors_by_tp_rank(self):
         for replica in self.replicas:

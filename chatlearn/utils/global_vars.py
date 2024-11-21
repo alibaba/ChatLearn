@@ -20,6 +20,7 @@ _EXIT_ACTOR_NAME = "ChatLearnExitActor"
 _DECORATED_MODELS = None
 _DECORATED_OUTER_TO_INNER = {}
 _DEPENDENCIES = None
+_VLLM_ACTORS = None
 
 
 def _ensure_var_is_initialized(var, name):
@@ -92,3 +93,10 @@ def reset_dependencies():
 
 def get_dependencies():
     return _DEPENDENCIES
+
+def set_vllm_actors(actors):
+    global _VLLM_ACTORS
+    _VLLM_ACTORS = actors
+
+def get_vllm_actors():
+    return _VLLM_ACTORS

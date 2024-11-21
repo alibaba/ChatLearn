@@ -21,6 +21,7 @@ import torch
 from torch.cuda import nvtx
 import ray
 
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
@@ -162,7 +163,8 @@ def preprocess_compute(func, trainable):
                     results.append(ret)
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
-                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
+                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
+                    or isinstance(self, VLLMModuleV2):
                     final_results = concat_along_batch(results)
             else:
                 if 'iteration' in inspect.signature(func).parameters:
@@ -173,7 +175,8 @@ def preprocess_compute(func, trainable):
                 final_results = None
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
-                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1:
+                if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
+                    or isinstance(self, VLLMModuleV2):
                     final_results = ret
         else:
             if 'iteration' in inspect.signature(func).parameters:

@@ -18,6 +18,7 @@ import math
 from itertools import cycle
 
 from chatlearn.data.ranking import batch_generation_ranking
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
@@ -72,6 +73,10 @@ class Environment(Executor):
             model = model_node.model.replicas[0]
             config = future.get(model.master.padding_config.remote())
             self._padding_config.update(config)
+
+            if isinstance(model.model, VLLMModuleV2):
+                for replica in model_node.model.replicas:
+                    replica.model.setup_vllm(replica.all_actors)
 
     @property
     def sample_per_episode(self):
