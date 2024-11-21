@@ -181,11 +181,27 @@ class ParameterSyncGroup:
         else:
             self.build_rank_mapping_two_stage()
 
+    def insert_actor2rank(self, actor, rank: int):
+        if actor not in self.actor2rank:
+            self.actor2rank[actor] = rank
+
+    def add_allgather_actor(self, model, ranks_group: List):
+        for replica_ranks_group in ranks_group:
+            if isinstance(replica_ranks_group[0], list):
+                for tp_ranks in replica_ranks_group:
+                    for rank in tp_ranks:
+                        actor = model.get_actor(rank)
+                        self.insert_actor2rank(actor, rank)
+            else:
+                for rank in replica_ranks_group:
+                    actor = model.get_actor(rank)
+                    self.insert_actor2rank(actor, rank)
+
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
-        self.actor2rank[src_actor] = src_rank
+        self.insert_actor2rank(src_actor, src_rank)
         dst_actor = self.dst_model.get_actor(dst_rank)
-        self.actor2rank[dst_actor] = dst_rank
+        self.insert_actor2rank(dst_actor, dst_rank)
 
         src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
         dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
@@ -1116,6 +1132,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             if is_first_time_set_send_actors:
                 self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
+                self.add_allgather_actor(self.src_model, src_replica_ranks_group)
 
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_ep_and_tp_group in enumerate(src_replica_ranks_group):
@@ -1137,10 +1154,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self._debug:
             for k, v_list in self.send_recv_actor_mappings.items():
                 for v in v_list:
-                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+                    logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
             for allgather_actors in self.send_actors_to_allgather_routed_experts:
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
-                logger.debug(f"allgather actors: {cat_str}")
+                logger.info(f"allgather actors: {cat_str}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
