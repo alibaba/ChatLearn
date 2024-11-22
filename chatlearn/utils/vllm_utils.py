@@ -60,6 +60,11 @@ try:
 except ImportError:
     print("Cannot import vllm, please install vllm 0.3.0 or 0.5.1 first.")
 
+try:
+    from chatlearn.utils.vllm_import_helper import get_pp_indices
+except ImportError:
+    print("Cannot import vllm, please install vllm 0.6.3 first.")
+
 from .constant import QwenVersion
 
 
@@ -821,8 +826,16 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Transformer Layers
     print("Converting transformer layers")
-    num_layers = hf_config.num_hidden_layers // pp_size
-
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+        start_layer_idx, _ = get_pp_indices(
+            hf_config.num_hidden_layers,
+            pp_rank,
+            pp_size
+        )
+        layer_offset = start_layer_idx
+    else:
+        assert pp_size == 1, f"expect pipeline parallel size eq 1 for vllm {CURRENT_VLLM_VERSION}"
+        layer_offset = hf_config.num_hidden_layers // pp_size * pp_rank
     # The transformer.
     path = (
         "model.language_model.transformer"
@@ -842,7 +855,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         if m is None:
             break
         # The index of the layer.
-        layer_idx = int(m.group(1)) + pp_rank * num_layers
+        layer_idx = int(m.group(1)) + layer_offset
         # The name of the operation.
         op_name = m.group(2)
         # Is it a weight or a bias?
@@ -1150,7 +1163,8 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
     tp_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, pp_rank)
 
     # Convert and store the word embeddings.
-    if pp_rank == 0 or (pp_rank == pp_size - 1 and not megatron_args.untie_embeddings_and_output_weights):
+    if pp_rank == 0 or (pp_rank == pp_size - 1 and not megatron_args.untie_embeddings_and_output_weights) or \
+            (hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts):
         embed_state_dict = tp_state_dicts if pp_rank == 0 else get_megatron_sharded_states(args, tp_size, pp_size, 0)
         word_embeddings = get_element_from_dict_by_path(
             embed_state_dict[tp_rank], "model.language_model.embedding.word_embeddings.weight"
@@ -1169,7 +1183,16 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # Transformer Layers
     print("Converting transformer layers")
-    num_layers = hf_config.num_hidden_layers // pp_size
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+        start_layer_idx, _ = get_pp_indices(
+            hf_config.num_hidden_layers,
+            pp_rank,
+            pp_size
+        )
+        layer_offset = start_layer_idx
+    else:
+        assert pp_size == 1, f"expect pipeline parallel size eq 1 for vllm {CURRENT_VLLM_VERSION}"
+        layer_offset = hf_config.num_hidden_layers // pp_size * pp_rank
 
     # The transformer.
     path = (
@@ -1191,7 +1214,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         if m is None:
             continue
         # The index of the layer.
-        layer_idx = int(m.group(1)) + pp_rank * num_layers
+        layer_idx = int(m.group(1)) + layer_offset
         # The name of the operation.
         op_name = m.group(2)
         # Is it a weight or a bias?
@@ -1292,14 +1315,15 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                     if rank != tp_rank:
                         params = get_element_from_dict_by_path(tp_state_dicts[rank], path)[key]
                     params_list.append(params)
+
                 val_list = []
                 for params in params_list:
                     params = params.view((moe_num_experts, -1, hf_config.hidden_size)).contiguous()
                     params = params.reshape((moe_num_experts // tp_size * 2, -1, hf_config.hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
-                    params = params.reshape(params.shape[0] // tp_size * 2, -1, hf_config.hidden_size)
+                    params = params.reshape(params.shape[0] // 2, -1, hf_config.hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
-                    params = torch.cat([params_left, params_right], dim=1)
+                    params = torch.cat([params_left, params_right], dim=1).contiguous()
                     val_list.append(params)
                 val = torch.cat(val_list, dim=0).contiguous()
             elif "dense_4h_to_h" in op_name:
@@ -1330,8 +1354,11 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
             output_state_dict[layer_name + out_name + "bias"] = params
 
     # The final layernorm.
-    params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], str(path))
-    print("Converting final layernorm")
+    if hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts:
+        final_state_dicts = get_megatron_sharded_states(args, tp_size, pp_size, pp_size - 1)
+        params = get_element_from_dict_by_path(final_state_dicts[tp_rank], str(path))
+    else:
+        params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], str(path))
     if "final_norm.weight" in params or "final_layernorm.weight" in params:
         final_norm_weight =  params["final_norm.weight"] if "final_norm.weight" in params else params["final_layernorm.weight"]
         output_state_dict[f"{prefix_name}{final_norm}.weight"] = final_norm_weight.to(hf_config.torch_dtype)
@@ -1340,15 +1367,15 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         output_state_dict[f"{prefix_name}{final_norm}.bias"] = final_norm_bias.to(hf_config.torch_dtype)
 
     # For LM head, transformers' wants the matrix to weight embeddings.
-    params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
-    if (isinstance(params, dict) and len(params.keys())) or (params is not None and not isinstance(params, dict)):
-        print("Converting LM head")
-        output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
-
+    print("Converting LM head")
     if megatron_args.untie_embeddings_and_output_weights:
-        output_layer = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
-        output_state_dict["model.lm_head.weight"] = output_layer
-    else:
+        if hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts:
+            params = get_element_from_dict_by_path(final_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
+        else:
+            params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
+        if (isinstance(params, dict) and len(params.keys())) or (params is not None and not isinstance(params, dict)):
+            output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+    elif pp_rank == 0 or (pp_rank == pp_size - 1) or (hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts):
         output_state_dict["model.lm_head.weight"] = word_embeddings
 
     # It should be done!

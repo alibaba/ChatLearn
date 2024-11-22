@@ -167,37 +167,30 @@ class MegatronVllmSync(BaseSync):
         if m is not None:
             op_name = m.group(2)
             if op_name in to_regroup_modules_list:
+                tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
+                moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+                hidden_size = self.src_module_args.args_dict["hidden_size"]
+                output_tensor_list = [
+                    torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) \
+                    for _ in range(tp_size)
+                ]
+                col.allgather(output_tensor_list, params_to_sync, group_name)
+                val_list = []
                 if "dense_h_to_4h" in op_name:
                     # w13_weight
-                    tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-                    moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
-                    hidden_size = self.src_module_args.args_dict["hidden_size"]
-                    output_tensor_list = [
-                        torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) \
-                        for _ in range(tp_size)
-                    ]
-                    col.allgather(output_tensor_list, params_to_sync, group_name)
-                    val_list = []
                     for params in output_tensor_list:
+                        # regroup among difference tp slices
                         params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
                         params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
                         params = params.chunk(tp_size, dim=1)[tp_rank]
-                        params = params.reshape(params.shape[0] // tp_size * 2, -1, hidden_size)
+                        # reorder w1 and w3
+                        params = params.reshape(params.shape[0] // 2, -1, hidden_size)
                         params_right, params_left = params.chunk(2, dim=1)
                         params = torch.cat([params_left, params_right], dim=1)
                         val_list.append(params)
                     params_to_sync = torch.cat(val_list, dim=0).contiguous()
                 else:
                     # w2_weight
-                    tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-                    moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
-                    hidden_size = self.src_module_args.args_dict["hidden_size"]
-                    output_tensor_list = [
-                        torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) \
-                        for _ in range(tp_size)
-                    ]
-                    col.allgather(output_tensor_list, params_to_sync, group_name)
-                    val_list = []
                     for params in output_tensor_list:
                         params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
                         params = params.chunk(tp_size, dim=1)[tp_rank]

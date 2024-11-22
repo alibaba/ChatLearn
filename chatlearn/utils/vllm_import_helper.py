@@ -54,6 +54,7 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
     from vllm.distributed.communication_op import tensor_model_parallel_all_gather
     from vllm.distributed.parallel_state import init_world_group
     from vllm.distributed.parallel_state import initialize_model_parallel
+    from vllm.distributed.utils import get_pp_indices
     from vllm.engine.async_llm_engine import _AsyncLLMEngine as LLMEngine
     from vllm.engine.llm_engine import _load_generation_config_dict
     from vllm.engine.llm_engine import SchedulerContext, SchedulerOutputState
