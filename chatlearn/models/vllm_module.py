@@ -48,7 +48,6 @@ except ImportError:
     print("Cannot import addtional module for vllm 0.5.1 or 0.6.3, please install vllm 0.5.1/0.6.3 first.")
 # additional imports for vLLM-0.6.3
 try:
-    from chatlearn.utils.vllm_import_helper import get_pp_indices
     from chatlearn.utils.vllm_import_helper import InputPreprocessor
     from chatlearn.utils.vllm_import_helper import SchedulerContext, SchedulerOutputState
 except ImportError:
