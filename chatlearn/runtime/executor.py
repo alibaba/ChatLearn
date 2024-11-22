@@ -19,7 +19,8 @@ from collections import defaultdict
 from itertools import cycle
 from ray.util.queue import Queue
 
-from chatlearn.runtime.model_flow import ModelFlow, ModelNode
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+from chatlearn.runtime.model_flow import ModelFlow
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
@@ -161,23 +162,6 @@ class Executor:
             res = self.get_merged_data(queues, encode)
             out_queue.put(res)
 
-    def execute_onload(self, model_node):
-        if isinstance(model_node, ModelNode):
-            model = model_node.model
-        else:
-            model = model_node
-        # TODO: overlap with execution of other models
-        refs = model.onload()
-        future.wait(refs)
-
-    def execute_offload(self, model_node):
-        if isinstance(model_node, ModelNode):
-            model = model_node.model
-        else:
-            model = model_node
-        refs = model.offload()
-        future.wait(refs)
-
     def generate_step_one_model_internal(self, model_node, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
                                          is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
@@ -226,12 +210,17 @@ class Executor:
         if is_eval is not None:
             kwargs["is_eval"] = is_eval
         output = []
-        for _, actors in replica.dp_rank_to_actors.items():
+        if isinstance(replica.model, VLLMModuleV2):
             mb, query = get_next_data()
             assert isinstance(query, list)
-            for actor in actors:
-                ret = replica.call_actor_remote_func(actor, func_name, *query, **kwargs)
-                output.append((ret, mb))
+            output.append((getattr(replica.model, func_name)(*query, **kwargs), mb))
+        else:
+            for _, actors in replica.dp_rank_to_actors.items():
+                mb, query = get_next_data()
+                assert isinstance(query, list)
+                for actor in actors:
+                    ret = replica.call_actor_remote_func(actor, func_name, *query, **kwargs)
+                    output.append((ret, mb))
         return output
 
     def generate_step_one_model(self, model_node, replica, in_queue, out_queue, step_num, func_name="forward_step",
