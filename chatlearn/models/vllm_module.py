@@ -870,7 +870,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             num_padding = num_layers - num_layers_without_padding
             if num_padding > 0:
                 assert num_padding == 2, \
-                    f"Support num_padding_lsyers == 2 when applies inbalanced pp. Please set `args.pipeline_layers` for VLLMModule."
+                    "Support num_padding_lsyers == 2 when applies inbalanced pp. Please set `args.pipeline_layers` for VLLMModule."
 
             for _index in range(-1, num_padding - 1):
                 rank_sizes[_index] -= 1
