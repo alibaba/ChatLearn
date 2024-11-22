@@ -1323,8 +1323,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                     params = params.chunk(tp_size, dim=1)[tp_rank]
                     params = params.reshape(params.shape[0] // 2, -1, hf_config.hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
-                    params = torch.cat([params_left, params_right], dim=1).view(
-                        moe_num_experts // tp_size, -1, hf_config.hidden_size).contiguous()
+                    params = torch.cat([params_left, params_right], dim=1).contiguous()
                     val_list.append(params)
                 val = torch.cat(val_list, dim=0).contiguous()
             elif "dense_4h_to_h" in op_name:

@@ -857,7 +857,6 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             num_layers_with_padding = num_layers
         num_layers_without_padding = num_layers
         num_layers = num_layers_with_padding
-
         num_layers_per_stage_with_padding = (
             num_layers // pipeline_world_size)
 
@@ -869,11 +868,15 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         else:
             rank_sizes = [num_layers_per_stage_with_padding] * pipeline_world_size
             num_padding = num_layers - num_layers_without_padding
+            if num_padding > 0 and :
+                assert num_padding == 2, \
+                    f"Support num_padding_lsyers == 2 when applies inbalanced pp. Please set `args.pipeline_layers` for VLLMModule."
+
             for _index in range(-1, num_padding - 1):
                 rank_sizes[_index] -= 1
         assert len(rank_sizes) == pipeline_world_size
 
-        # set evn variable VLLM_PP_LAYER_PARTITION
+        # set env variable VLLM_PP_LAYER_PARTITION
         vllm_pp_layer_partition = ",".join([str(ele) for ele in rank_sizes])
         if os.getenv("VLLM_PP_LAYER_PARTITION", None) is not None:
             env_vllm_pp_layer_partition = os.getenv("VLLM_PP_LAYER_PARTITION", None)
