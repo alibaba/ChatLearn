@@ -3,8 +3,10 @@ set -x
 
 [ -z "$MEGATRON" ] && export MEGATRON=path-to-megatron
 [ -z "$CHATLEARN" ] && export CHATLEARN=path-to-chatlearn
-[ -z "$TP" ] && export TP=4
+[ -z "$num_gpu" ] && export num_gpu=8
 [ -z "$PP" ] && export PP=2
+[ -z "$EP" ] && export EP=1
+[ -z "$TP" ] && export TP=4
 [ -z "$VOCAB_FILE" ] && export VOCAB_FILE=path-to-tokenizer
 [ -z "$LOAD" ] && export LOAD=path-to-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
@@ -39,6 +41,14 @@ elif [[ $model_size == "llama2"* ]]; then
     configs=configs/llama2/test_vllm_policy.yaml
   fi
   export tokenizer_model=$VOCAB_FILE
+elif [[ $model_size == "mixtral"* ]]; then
+  if [[ "$backend" == "megatron" ]]; then
+    configs=configs/mixtral/test_policy.yaml
+  else
+    echo "ERROR: mixtral model support megatron backend currently."
+    exit 1
+  fi
+  export tokenizer_model=$VOCAB_FILE
 else
   echo "unexpected model_type $model_size."
   exit 1
@@ -55,10 +65,12 @@ log_file=${output_dir}/log_${RANK}.log
 
 export batch_generation_min_prompt_length=32
 
-generation_batch_size=64 \
+
+generation_batch_size=${generation_batch_size:-64} \
 num_gpu=${num_gpu:-8} \
-policy_tp=$TP \
 policy_pp=$PP \
+policy_ep=$EP \
+policy_tp=$TP \
 eval_data_path=$DATASET_PATH \
 policy_inference_load=$LOAD \
 python tests/test_policy_generation.py -c $configs 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}

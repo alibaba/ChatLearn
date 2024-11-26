@@ -28,6 +28,7 @@ try:
     from chatlearn.utils.megatron_utils import build_pipeline_layer_name_mapping
     from chatlearn.models.megatron.memory_manager import create_trainer_memory_manager, InferenceMemoryManager
 except ImportError:
+    print("Megatron is not imported, setting mpu to None.")
     mpu = None
 from .torch_module import TorchModule
 

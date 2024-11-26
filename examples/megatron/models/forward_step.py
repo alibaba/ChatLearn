@@ -151,7 +151,7 @@ def _with_pipelining_forward_step(model, tokens, position_ids, attention_mask,
             recv_buffer = None
         if inference_config_master is not None and "DPO_labels" in inference_config_master:
             for key, value in inference_config_master.items():
-                inference_config[key] = value[start:end, ...]
+                inference_config[key] = value[start:end, ...] if value is not None else None
         output = _forward_step_helper(model, tokens2use, position_ids2use,
                                       attention_mask, recv_buffer=recv_buffer,
                                       pooling_sequence_index=pooling_sequence_index2use,

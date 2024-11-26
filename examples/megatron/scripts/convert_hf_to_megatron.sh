@@ -21,7 +21,11 @@ export PYTHONPATH=${megatron}:${chatlearn}
 load_dir=${LOAD_PATH}
 save_dir=${SAVE_PATH}
 tokenizer_model=${TOKENIZER_MODEL}
-model_size=${model_size:-llama2-7B}
+if [[ $model == 'gpt_llama' ]]; then
+    model_size=${model_size:-llama2-7B}
+elif [[ $model == 'mixtral' ]]; then
+    model_size=${model_size:-mixtral-8x7B}
+fi
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 
@@ -54,7 +58,7 @@ elif [[ ${model} == 'mixtral' ]]; then
     cd ${megatron}
     python tools/checkpoint/convert.py \
         --model-type GPT \
-        --loader loader_mixtral_hf \
+        --loader mixtral_hf \
         --saver mcore \
         --target-tensor-parallel-size ${tp} \
         --target-pipeline-parallel-size ${pp} \

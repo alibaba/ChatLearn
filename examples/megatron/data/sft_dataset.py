@@ -57,6 +57,10 @@ class SFTDataset(torch.utils.data.Dataset):
         self.pad_id = self.tokenizer.pad_token_id if hasattr(self.tokenizer, 'pad_token_id') else self.tokenizer.pad_id
         self.bos_id = self.tokenizer.bos_token_id if hasattr(self.tokenizer, 'bos_token_id') else self.tokenizer.bos_id
         self.eos_id = self.tokenizer.eod
+        # The pad_id for Llama2Tokenizer is -1. It will cause out-of-bound index for embedding calculation.
+        # Thus, we hardcode it as 0 here.
+        if self.pad_id == -1:
+            self.pad_id = 0
 
     def __len__(self):
         return len(self.dataset)

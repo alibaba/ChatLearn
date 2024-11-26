@@ -87,27 +87,31 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             log_rank_0('Call offload_weights when already offloaded. Ignore it.')
             return
 
-        optimizer = self._optimizer
+        optimizer_list = self.get_optimizer_list()
 
         if self._use_distributed_optimizer:
-            optimizer.shard_float16_groups.clear()
-            optimizer.shard_fp32_groups.clear()
+            for optimizer in optimizer_list:
+                optimizer.shard_float16_groups.clear()
+                optimizer.shard_fp32_groups.clear()
 
         if self._group_flat_weights is None:
-            if self._use_distributed_optimizer:
-                self._group_flat_weights = self._flat_param_groups(
-                    [
-                        optimizer.model_float16_groups,
-                        optimizer.model_fp32_groups,
-                    ],
-                )
-            else:
-                self._group_flat_weights = self._flat_param_groups(
-                    [
-                        optimizer.float16_groups,
-                        optimizer.fp32_from_fp32_groups,
-                    ],
-                )
+            self._group_flat_weights = []
+
+            for optimizer in optimizer_list:
+                if self._use_distributed_optimizer:
+                    self._group_flat_weights.extend(self._flat_param_groups(
+                        [
+                            optimizer.model_float16_groups,
+                            optimizer.model_fp32_groups,
+                        ],
+                    ))
+                else:
+                    self._group_flat_weights.extend(self._flat_param_groups(
+                        [
+                            optimizer.float16_groups,
+                            optimizer.fp32_from_fp32_groups,
+                        ],
+                    ))
 
         for flat_weights in self._group_flat_weights:
             flat_weights.copy_to_primary_store()
@@ -124,7 +128,7 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             log_rank_0('Call onload_weights when already onloaded. Ignore it.')
             return
 
-        optimizer = self._optimizer
+        optimizer_list = self.get_optimizer_list()
 
         for flat_weights in self._group_flat_weights:
             flat_weights.copy_to_gpu_buffer()
@@ -148,55 +152,56 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             self._weights_offloaded = False
             return
 
-        shard_float16_groups = optimizer.shard_float16_groups
-        shard_fp32_groups = optimizer.shard_fp32_groups
-        param_gbuf_map = optimizer.model_param_gbuf_map
-        opt_group_ranges = optimizer.opt_group_ranges
-        model_gbuf_ranges = optimizer.model_gbuf_ranges
+        for optimizer in optimizer_list:
+            shard_float16_groups = optimizer.shard_float16_groups
+            shard_fp32_groups = optimizer.shard_fp32_groups
+            param_gbuf_map = optimizer.model_param_gbuf_map
+            opt_group_ranges = optimizer.opt_group_ranges
+            model_gbuf_ranges = optimizer.model_gbuf_ranges
 
-        # Rebuild shard_float16_groups and shard_fp32_groups,
-        # see Megatron DistributedOptimizer#build_model_and_main_param_groups.
-        for _, group_range in enumerate(opt_group_ranges):
-            shard_float16_params_this_group = []
-            shard_fp32_params_this_group = []
-            shard_float16_groups.append(shard_float16_params_this_group)
-            shard_fp32_groups.append(shard_fp32_params_this_group)
+            # Rebuild shard_float16_groups and shard_fp32_groups,
+            # see Megatron DistributedOptimizer#build_model_and_main_param_groups.
+            for _, group_range in enumerate(opt_group_ranges):
+                shard_float16_params_this_group = []
+                shard_fp32_params_this_group = []
+                shard_float16_groups.append(shard_float16_params_this_group)
+                shard_fp32_groups.append(shard_fp32_params_this_group)
 
-            for model_param in group_range["params"]:
-                assert model_param.requires_grad
-                if self._megatron_version == MegatronVersion.V2:
-                    model_index, dtype, bucket_index = param_gbuf_map[model_param]
-                    gbuf_range = model_gbuf_ranges[model_index][dtype][bucket_index]
-                    param_range = gbuf_range["param_map"][model_param]["param"]
-                elif self._megatron_version == MegatronVersion.V1:
-                    model_index, dtype = param_gbuf_map[model_param]
-                    gbuf_range = model_gbuf_ranges[model_index][dtype]
-                    param_range = gbuf_range["param_map"][model_param]["param"]
+                for model_param in group_range["params"]:
+                    assert model_param.requires_grad
+                    if self._megatron_version == MegatronVersion.V2:
+                        model_index, dtype, bucket_index = param_gbuf_map[model_param]
+                        gbuf_range = model_gbuf_ranges[model_index][dtype][bucket_index]
+                        param_range = gbuf_range["param_map"][model_param]["param"]
+                    elif self._megatron_version == MegatronVersion.V1:
+                        model_index, dtype = param_gbuf_map[model_param]
+                        gbuf_range = model_gbuf_ranges[model_index][dtype]
+                        param_range = gbuf_range["param_map"][model_param]["param"]
 
-                # fp16, bf16 params.
-                if model_param.type() in ['torch.cuda.HalfTensor', 'torch.cuda.BFloat16Tensor']:
-                    shard_model_param = model_param.detach().view(-1)[param_range.start : param_range.end]
-                    tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
-                    if hasattr(model_param, 'shared'):
-                        shard_model_param.shared = model_param.shared
+                    # fp16, bf16 params.
+                    if model_param.type() in ['torch.cuda.HalfTensor', 'torch.cuda.BFloat16Tensor']:
+                        shard_model_param = model_param.detach().view(-1)[param_range.start : param_range.end]
+                        tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
+                        if hasattr(model_param, 'shared'):
+                            shard_model_param.shared = model_param.shared
 
-                    shard_float16_params_this_group.append(shard_model_param)
+                        shard_float16_params_this_group.append(shard_model_param)
 
-                # fp32 params.
-                elif model_param.type() == 'torch.cuda.FloatTensor':
-                    shard_model_param = model_param.view(-1)[param_range.start : param_range.end]
-                    shard_fp32_params_this_group.append(shard_model_param)
-                    tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
-                    if hasattr(model_param, 'shared'):
-                        shard_model_param.shared = model_param.shared
-                else:
-                    raise TypeError(
-                        'Wrapped parameters must be one of '
-                        'torch.cuda.FloatTensor,  '
-                        'torch.cuda.HalfTensor, or '
-                        'torch.cuda.BFloat16Tensor. '
-                        'Received {}'.format(model_param.type())
-                    )
+                    # fp32 params.
+                    elif model_param.type() == 'torch.cuda.FloatTensor':
+                        shard_model_param = model_param.view(-1)[param_range.start : param_range.end]
+                        shard_fp32_params_this_group.append(shard_model_param)
+                        tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
+                        if hasattr(model_param, 'shared'):
+                            shard_model_param.shared = model_param.shared
+                    else:
+                        raise TypeError(
+                            'Wrapped parameters must be one of '
+                            'torch.cuda.FloatTensor,  '
+                            'torch.cuda.HalfTensor, or '
+                            'torch.cuda.BFloat16Tensor. '
+                            'Received {}'.format(model_param.type())
+                        )
 
         self._weights_offloaded = False
 
@@ -208,16 +213,17 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             log_rank_0('Call free_grad_buffers when already freed. Ignore it.')
             return
 
-        optimizer = self._optimizer
+        optimizer_list = self.get_optimizer_list()
         grad_dtype_to_params = self._grad_dtype_to_params
 
-        # This is necessary, but don't know why.
-        optimizer.zero_grad(True)
+        for optimizer in optimizer_list:
+            # This is necessary, but don't know why.
+            optimizer.zero_grad(True)
 
-        if self._use_distributed_optimizer:
-            # Release param_buffers because they share storage with grad_buffers.
-            # Note: param_buffers are only available in DistributedOptimizer.
-            optimizer.param_buffers.clear()
+            if self._use_distributed_optimizer:
+                # Release param_buffers because they share storage with grad_buffers.
+                # Note: param_buffers are only available in DistributedOptimizer.
+                optimizer.param_buffers.clear()
 
         # Release grad_buffers, including buckets in GradBuffer for newer Megatron version.
         # Release `main_grad` of parameters.
@@ -249,7 +255,7 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             log_rank_0('Call build_grad_buffers when already built. Ignore it.')
             return
 
-        optimizer = self._optimizer
+        optimizer_list = self.get_optimizer_list()
         params_dtype = self._params_dtype
         grad_dtype_to_params = self._grad_dtype_to_params
 
@@ -283,31 +289,33 @@ class TrainerMemoryManagerV1V2(BaseTrainerMemoryManager):
             return
 
         # Re-allocate param_buffers, see Megatron DistributedOptimizer#__init__.
-        optimizer.param_buffers = []
-        for _, _ in enumerate(optimizer.models):
-            current_param_buffers = {}
-            for dtype, grad_buffer in self.get_grad_buffers().items():
-                current_param_buffers[dtype] = []
-                if self._megatron_version == MegatronVersion.V2:
-                    for bucket in grad_buffer.buckets:
+        # pylint: disable=too-many-nested-blocks
+        for optimizer in optimizer_list:
+            optimizer.param_buffers = []
+            for _, _ in enumerate(optimizer.models):
+                current_param_buffers = {}
+                for dtype, grad_buffer in self.get_grad_buffers().items():
+                    current_param_buffers[dtype] = []
+                    if self._megatron_version == MegatronVersion.V2:
+                        for bucket in grad_buffer.buckets:
+                            try:
+                                storage = bucket.data.storage()._untyped()
+                            # pylint: disable-next=bare-except
+                            except:
+                                storage = bucket.data.storage().untyped()
+
+                            param_buffer = torch.tensor([], dtype=params_dtype, device=bucket.data.device).set_(storage)
+                            param_buffer = param_buffer[bucket.offset : bucket.offset + bucket.data.numel()]
+                            current_param_buffers[dtype].append(param_buffer)
+                    elif self._megatron_version == MegatronVersion.V1:
                         try:
-                            storage = bucket.data.storage()._untyped()
+                            storage = grad_buffer.data.storage()._untyped()
                         # pylint: disable-next=bare-except
                         except:
-                            storage = bucket.data.storage().untyped()
-
-                        param_buffer = torch.tensor([], dtype=params_dtype, device=bucket.data.device).set_(storage)
-                        param_buffer = param_buffer[bucket.offset : bucket.offset + bucket.data.numel()]
-                        current_param_buffers[dtype].append(param_buffer)
-                elif self._megatron_version == MegatronVersion.V1:
-                    try:
-                        storage = grad_buffer.data.storage()._untyped()
-                    # pylint: disable-next=bare-except
-                    except:
-                        storage = grad_buffer.data.storage().untyped()
-                    param_buffer = torch.tensor([], dtype=params_dtype, device=grad_buffer.data.device).set_(storage)
-                    param_buffer = param_buffer[: grad_buffer.numel_padded]
-                    current_param_buffers[dtype] = param_buffer
-            optimizer.param_buffers.append(current_param_buffers)
+                            storage = grad_buffer.data.storage().untyped()
+                        param_buffer = torch.tensor([], dtype=params_dtype, device=grad_buffer.data.device).set_(storage)
+                        param_buffer = param_buffer[: grad_buffer.numel_padded]
+                        current_param_buffers[dtype] = param_buffer
+                optimizer.param_buffers.append(current_param_buffers)
 
         self._grad_buffers_freed = False

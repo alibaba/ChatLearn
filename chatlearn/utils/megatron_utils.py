@@ -170,15 +170,20 @@ def load_checkpoint(*_args, **kwargs):
     args = get_args()
     target_tp = args.tensor_model_parallel_size
     target_pp = args.pipeline_model_parallel_size
+    target_ep = args.expert_model_parallel_size
     state_dict, _, _ = _load_base_checkpoint(args.load, rank0=True)
     args.iteration = state_dict['iteration']
     checkpoint_args = state_dict['args']
     checkpoint_tp = checkpoint_args.tensor_model_parallel_size
     checkpoint_pp = checkpoint_args.pipeline_model_parallel_size
-    if target_tp != checkpoint_tp or target_pp != checkpoint_pp:
+    checkpoint_ep = checkpoint_args.expert_model_parallel_size
+    if target_tp != checkpoint_tp or target_pp != checkpoint_pp or target_ep != checkpoint_ep:
         script_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "../tools/megatron_checkpoint_utils.py")
         save_dir = args.load[:-1] if args.load.endswith("/") else args.load
-        save_dir = save_dir + f"-transform-tp{target_tp}-pp{target_pp}"
+        if target_ep is None or target_ep == 1:
+            save_dir = save_dir + f"-transform-tp{target_tp}-pp{target_pp}"
+        else:
+            save_dir = save_dir + f"-transform_tp{target_tp}-pp{target_pp}-ep{target_ep}"
         if not os.path.exists(save_dir):
             # use last rank so we can determin model_type by whether last pipeline stage contains pooler_head
             if torch.distributed.get_rank() == (torch.distributed.get_world_size() - 1):

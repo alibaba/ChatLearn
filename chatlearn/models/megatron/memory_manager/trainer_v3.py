@@ -78,16 +78,15 @@ class TrainerMemoryManagerV3(BaseTrainerMemoryManager):
             log_rank_0('Call offload_weights when already offloaded. Ignore it.')
             return
 
-        optimizer = self._optimizer
-
-        # TODO(jiqi): support expert parallel params
+        optimizer_list = self.get_optimizer_list()
 
         # In the V3 version, when distributed optimizer is used, parameter data are managed together with
         # gradients in buffers.
         if self._use_distributed_optimizer:
-            optimizer.shard_float16_groups.clear()
-            optimizer.shard_fp32_groups.clear()
-            optimizer.pbuf_view_items.clear()
+            for optimizer in optimizer_list:
+                optimizer.shard_float16_groups.clear()
+                optimizer.shard_fp32_groups.clear()
+                optimizer.pbuf_view_items.clear()
 
             if self._group_flat_weights is None:
                 self._group_flat_weights = []
@@ -109,12 +108,14 @@ class TrainerMemoryManagerV3(BaseTrainerMemoryManager):
                     bucket.param_data = None
         else:
             if self._group_flat_weights is None:
-                self._group_flat_weights = self._flat_param_groups(
-                    [
-                        optimizer.float16_groups,
-                        optimizer.fp32_from_fp32_groups,
-                    ],
-                )
+                self._group_flat_weights = []
+                for optimizer in optimizer_list:
+                    self._group_flat_weights.extend(self._flat_param_groups(
+                        [
+                            optimizer.float16_groups,
+                            optimizer.fp32_from_fp32_groups,
+                        ],
+                    ))
 
         # Offload param_data of buffers
         for flat_weights in self._group_flat_weights:
@@ -132,7 +133,7 @@ class TrainerMemoryManagerV3(BaseTrainerMemoryManager):
             log_rank_0('Call onload_weights when already onloaded. Ignore it.')
             return
 
-        optimizer = self._optimizer
+        optimizer_list = self.get_optimizer_list()
 
         # Onload param_data of buffers
         for flat_weights in self._group_flat_weights:
@@ -172,52 +173,53 @@ class TrainerMemoryManagerV3(BaseTrainerMemoryManager):
             self._weights_offloaded = False
             return
 
-        optimizer.pbuf_view_items = optimizer._get_model_param_buffer_dp_views()
+        for optimizer in optimizer_list:
+            optimizer.pbuf_view_items = optimizer._get_model_param_buffer_dp_views()
 
-        shard_float16_groups = optimizer.shard_float16_groups
-        shard_fp32_groups = optimizer.shard_fp32_groups
-        param_gbuf_map = optimizer.model_param_gbuf_map
-        opt_group_ranges = optimizer.opt_group_ranges
-        model_gbuf_ranges = optimizer.gbuf_ranges
+            shard_float16_groups = optimizer.shard_float16_groups
+            shard_fp32_groups = optimizer.shard_fp32_groups
+            param_gbuf_map = optimizer.model_param_gbuf_map
+            opt_group_ranges = optimizer.opt_group_ranges
+            model_gbuf_ranges = optimizer.gbuf_ranges
 
-        # Rebuild shard_float16_groups and shard_fp32_groups,
-        # see Megatron DistributedOptimizer#build_model_and_main_param_groups.
-        for _, group_range in enumerate(opt_group_ranges):
-            shard_float16_params_this_group = []
-            shard_fp32_params_this_group = []
-            shard_float16_groups.append(shard_float16_params_this_group)
-            shard_fp32_groups.append(shard_fp32_params_this_group)
+            # Rebuild shard_float16_groups and shard_fp32_groups,
+            # see Megatron DistributedOptimizer#build_model_and_main_param_groups.
+            for _, group_range in enumerate(opt_group_ranges):
+                shard_float16_params_this_group = []
+                shard_fp32_params_this_group = []
+                shard_float16_groups.append(shard_float16_params_this_group)
+                shard_fp32_groups.append(shard_fp32_params_this_group)
 
-            for model_param in group_range["params"]:
-                assert model_param.requires_grad
-                gbuf_index, dtype, bucket_index = param_gbuf_map[model_param]
-                gbuf_range = model_gbuf_ranges[gbuf_index][dtype][bucket_index]
-                param_range = gbuf_range["param_map"][model_param]["param"]
+                for model_param in group_range["params"]:
+                    assert model_param.requires_grad
+                    gbuf_index, dtype, bucket_index = param_gbuf_map[model_param]
+                    gbuf_range = model_gbuf_ranges[gbuf_index][dtype][bucket_index]
+                    param_range = gbuf_range["param_map"][model_param]["param"]
 
-                # fp16, bf16 params.
-                if model_param.type() in ['torch.cuda.HalfTensor', 'torch.cuda.BFloat16Tensor']:
-                    shard_model_param = model_param.detach().view(-1)[param_range.start : param_range.end]
-                    tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
-                    if hasattr(model_param, 'shared'):
-                        shard_model_param.shared = model_param.shared
+                    # fp16, bf16 params.
+                    if model_param.type() in ['torch.cuda.HalfTensor', 'torch.cuda.BFloat16Tensor']:
+                        shard_model_param = model_param.detach().view(-1)[param_range.start : param_range.end]
+                        tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
+                        if hasattr(model_param, 'shared'):
+                            shard_model_param.shared = model_param.shared
 
-                    shard_float16_params_this_group.append(shard_model_param)
+                        shard_float16_params_this_group.append(shard_model_param)
 
-                # fp32 params.
-                elif model_param.type() == 'torch.cuda.FloatTensor':
-                    shard_model_param = model_param.view(-1)[param_range.start : param_range.end]
-                    shard_fp32_params_this_group.append(shard_model_param)
-                    tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
-                    if hasattr(model_param, 'shared'):
-                        shard_model_param.shared = model_param.shared
-                else:
-                    raise TypeError(
-                        'Wrapped parameters must be one of '
-                        'torch.cuda.FloatTensor,  '
-                        'torch.cuda.HalfTensor, or '
-                        'torch.cuda.BFloat16Tensor. '
-                        'Received {}'.format(model_param.type())
-                    )
+                    # fp32 params.
+                    elif model_param.type() == 'torch.cuda.FloatTensor':
+                        shard_model_param = model_param.view(-1)[param_range.start : param_range.end]
+                        shard_fp32_params_this_group.append(shard_model_param)
+                        tensor_parallel.copy_tensor_model_parallel_attributes(shard_model_param, model_param)
+                        if hasattr(model_param, 'shared'):
+                            shard_model_param.shared = model_param.shared
+                    else:
+                        raise TypeError(
+                            'Wrapped parameters must be one of '
+                            'torch.cuda.FloatTensor,  '
+                            'torch.cuda.HalfTensor, or '
+                            'torch.cuda.BFloat16Tensor. '
+                            'Received {}'.format(model_param.type())
+                        )
 
         self._weights_offloaded = False
 
@@ -229,10 +231,11 @@ class TrainerMemoryManagerV3(BaseTrainerMemoryManager):
             log_rank_0('Call free_grad_buffers when already freed. Ignore it.')
             return
 
-        optimizer = self._optimizer
+        optimizer_list = self.get_optimizer_list()
 
-        # This is necessary, but don't know why.
-        optimizer.zero_grad(True)
+        for optimizer in optimizer_list:
+            # This is necessary, but don't know why.
+            optimizer.zero_grad(True)
 
         # Remove references from params
         for p, buffer in self._model.param_to_buffer.items():

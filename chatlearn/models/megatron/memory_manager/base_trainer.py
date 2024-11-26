@@ -27,6 +27,7 @@ from chatlearn.utils.megatron_import_helper import (
     MixedPrecisionOptimizer,
     DistributedOptimizer,
     Float16OptimizerWithFloat16Params,
+    ChainedOptimizer,
 )
 
 
@@ -92,34 +93,58 @@ class BaseTrainerMemoryManager(ABC):
         self._use_distributed_optimizer = use_distributed_optimizer
         self._bucket_size_mb = bucket_size_mb
 
+        def sanity_check(single_optimizer):
+            assert isinstance(
+                single_optimizer, (MixedPrecisionOptimizer,)
+            ), f'Only support optimizer type MixedPrecisionOptimizer and its subclasses, current type is {str(type(optimizer))}.'
+
+            if self._use_distributed_optimizer:
+                assert isinstance(single_optimizer, DistributedOptimizer)
+            else:
+                log_rank_0('Current optimizer is Float16OptimizerWithFloat16Params')
+                assert isinstance(single_optimizer, Float16OptimizerWithFloat16Params)
+
         assert isinstance(
             model, (DistributedDataParallel,)
         ), f'Only support model type DistributedDataParallel, current type is {str(type(model))}.'
-        assert isinstance(
-            optimizer, (MixedPrecisionOptimizer,)
-        ), f'Only support optimizer type MixedPrecisionOptimizer and its subclasses, current type is {str(type(optimizer))}.'
-
-        # sanity check
-        if self._use_distributed_optimizer:
-            assert isinstance(optimizer, DistributedOptimizer)
+        if isinstance(optimizer, ChainedOptimizer):
+            for single_optimizer in optimizer.chained_optimizers:
+                sanity_check(single_optimizer)
+            self._is_chained_optimizer = True
         else:
-            log_rank_0('Current optimizer is Float16OptimizerWithFloat16Params')
-            assert isinstance(optimizer, Float16OptimizerWithFloat16Params)
+            sanity_check(optimizer)
+            self._is_chained_optimizer = False
 
         self._main_weights_offloaded = False
         self._group_flat_main_weights: Optional[List[BucketizedFlatTensors]] = None
 
         self._megatron_version = get_megatron_version()
 
-    def _optimizer_load_state_bucket_into_device(self, device):
+    def get_optimizer_list(self):
+        if self._is_chained_optimizer:
+            optimizer_list = self._optimizer.chained_optimizers
+        else:
+            optimizer_list = [self._optimizer]
+        return optimizer_list
+
+    def _optimizer_load_state_bucket_into_device(self, device, optimizer=None):
         """put the state bucket onto a device"""
-        state_dict = self._optimizer.optimizer.state_dict()
-        for tensors in state_dict['state'].values():
-            keys = list(tensors.keys())
-            for key in keys:
-                # compatible with transformer_engine v1.10, state['master_param']=None
-                if tensors[key] is not None:
-                    tensors[key] = tensors[key].to(device=device, non_blocking=True)
+        if optimizer is not None:
+            if isinstance(optimizer, ChainedOptimizer):
+                optimizer_list = optimizer.chained_optimizers
+            else:
+                optimizer_list = [optimizer]
+        else:
+            optimizer_list = self.get_optimizer_list()
+
+        for single_optimizer in optimizer_list:
+            state_dict = single_optimizer.optimizer.state_dict()
+            for tensors in state_dict['state'].values():
+                keys = list(tensors.keys())
+                for key in keys:
+                    # compatible with transformer_engine v1.10, state['master_param']=None
+                    if tensors[key] is not None:
+                        tensors[key] = tensors[key].to(device=device, non_blocking=True)
         # make sure the loading is finished before returning
         torch.cuda.synchronize()
 
@@ -154,12 +179,16 @@ class BaseTrainerMemoryManager(ABC):
             return
 
         if self._group_flat_main_weights is None:
-            if self._use_distributed_optimizer:
-                self._group_flat_main_weights = self._flat_param_groups(
-                    [self._optimizer.shard_fp32_from_float16_groups]
-                )
-            else:
-                self._group_flat_main_weights = self._flat_param_groups([self._optimizer.fp32_from_float16_groups])
+            self._group_flat_main_weights = []
+            optimizer_list = self.get_optimizer_list()
+
+            for optimizer in optimizer_list:
+                if self._use_distributed_optimizer:
+                    self._group_flat_main_weights.extend(self._flat_param_groups(
+                        [optimizer.shard_fp32_from_float16_groups]
+                    ))
+                else:
+                    self._group_flat_main_weights.extend(self._flat_param_groups([optimizer.fp32_from_float16_groups]))
 
         for flat_main_weights in self._group_flat_main_weights:
             flat_main_weights.copy_to_primary_store()

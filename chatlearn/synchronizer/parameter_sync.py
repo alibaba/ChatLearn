@@ -300,7 +300,8 @@ class ParameterSyncGroup:
         if local_src_ranks[0] is None or dst_ranks is None:
             if self._debug:
                 logger.warning(
-                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, make sure they have values in real application.")
+                    f"DEBUG MODE! src_ranks {local_src_ranks} or dst_ranks: {dst_ranks} is None, "
+                    "make sure they have values in real application.")
                 return
             else:
                 raise Exception(f"src_ranks {local_src_ranks} or dst_ranks {dst_ranks} should not be None")

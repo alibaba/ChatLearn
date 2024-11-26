@@ -1,0 +1,6 @@
+includes:
+  - base_inference.yaml
+  - policy_shared.yaml
+
+parallel_output: True
+pipeline_model_parallel_size: ${ref_pp:1}

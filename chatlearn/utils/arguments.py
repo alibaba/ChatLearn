@@ -207,7 +207,7 @@ class ModelConfig(BaseConfig):
     tensor_model_parallel_size: int = None
     #: [optional] pipeline model parallel size
     pipeline_model_parallel_size: int = None
-    #: [optional] expert model parallel size for Megatron-Core
+    #: [optional] expert model parallel size
     expert_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
