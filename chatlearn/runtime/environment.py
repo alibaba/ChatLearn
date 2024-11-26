@@ -76,7 +76,8 @@ class Environment(Executor):
 
             if isinstance(model.model, VLLMModuleV2):
                 for replica in model_node.model.replicas:
-                    replica.model.setup_vllm(replica.all_actors)
+                    ret = replica.vllm_engine.setup_vllm.remote(replica.all_actors)
+                    future.wait(ret)
 
     @property
     def sample_per_episode(self):
