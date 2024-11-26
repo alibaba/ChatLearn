@@ -661,12 +661,13 @@ class ParameterSyncGroup:
             src_names = filter_fn(src_names)
             dst_names = filter_fn(dst_names)
 
+        synchronizer = get_synchronizer(self.src_model, self.dst_model)
         if should_map_name:
-            src_names, dst_names = self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+            src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         else:
             # For router experts which need to regroup expert first in trainer actors.
-            self.synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
-        future.wait(send_actor.set_synchronizer.remote(self.synchronizer))
+            synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         if param_group != "routed" and self.tp_num_mapping > 1:
