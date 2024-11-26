@@ -607,19 +607,13 @@ class ParameterSyncGroup:
             refs.append(ref)
         future.wait(refs, return_output=True)
 
-    def sync_allgather(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
+    def sync_allgather(self, actors, group_name, requires_grad=None, filter_fn=None):
         for actor in actors:
-            self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group, should_map_name=False)
+            self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
         for actor in actors:
-            if param_group == "routed":
-                # sync_allgather is applicable for routed weights in QWen only.
-                ref = actor.allgather_routed_expert_parameter.remote(group_name, pipe_stage)
-            else:
-                raise RuntimeError(
-                    f"expect param_group for allgather is `routed`, got `{param_group}`"
-                )
+            ref = actor.allgather_routed_expert_parameter.remote(group_name, pipe_stage)
             refs.append(ref)
         future.wait(refs, return_output=True)
 
@@ -762,7 +756,7 @@ class ParameterSyncGroup:
             self.collective_groups.append(finalized_group_name)
         return actor_groups, finalized_group_name
 
-    def create_allgather_group(self, actor_groups, group_name=None, param_group="default"):
+    def create_allgather_group(self, actor_groups, group_name=None):
         # Use self.actor2rank to ensure a globally unique number within a param_group.
         actor_ranks = '_'.join([str(self.actor2rank[actor]) for actor in actor_groups])
         # Always include self.group_name to ensure the name of a param_group is unique.
@@ -770,7 +764,7 @@ class ParameterSyncGroup:
             group_name = self.group_name
         elif not group_name.startswith(self.group_name + "_"):
             group_name = self.group_name + "_" + group_name
-        finalized_group_name = f"{group_name}_{param_group}_among_{actor_ranks}"
+        finalized_group_name = f"{group_name}_routed_among_{actor_ranks}"
         logger.debug(f"finalized_group_name is {finalized_group_name}")
         logger.debug(f"current collevtive_groups is {self.collective_groups}")
         if finalized_group_name not in self.collective_groups:
@@ -838,15 +832,15 @@ class ParameterSyncGroup:
 
     def sync_allgather_multi_threads(
         self, send_actors, max_workers=1, requires_grad=None,
-        group_name=None, filter_fn=None, param_group="default"
+        group_name=None, filter_fn=None
     ):
         send_actors_to_allgather_routed_experts = send_actors[0]
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for allgather_actors in send_actors_to_allgather_routed_experts:
-                actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name, param_group=param_group)
+                actor_groups, finalized_group_name = self.create_allgather_group(allgather_actors, group_name=group_name)
                 futures.append(executor.submit(
-                    self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                    self.sync_allgather, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn
                 ))
             for _future in concurrent.futures.as_completed(futures):
                 try:
@@ -1251,8 +1245,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 max_workers=1,
                 requires_grad=requires_grad,
                 group_name=self.group_name + "_allgather",
-                filter_fn=self.routed_experts_filter,
-                param_group="routed")
+                filter_fn=self.routed_experts_filter)
 
             # sync everything to inference model
             send_actors_list = [self.sorted_send_actors]
