@@ -165,58 +165,60 @@ class PPOPolicy(TestTorchModule):
     def tensor_and_expert_model_parallel_size(self):
         return 8
 
+def test_hep_eptp_vllm_tp_dst_ep1_tp2_pp1_src_ep4_tp2_pp1():
+    # tuples: (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp)
+    tuples = (1, 2, 1,
+            4, 2, 1)
 
-# tuples: (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp)
-tuples = (1, 2, 1,
-          4, 2, 1)
+    chatlearn.init()
+    for _, model_config in chatlearn.get_args().models.items():
+        model_config.num_gpu = 8
+    chatlearn.get_args().models['policy'].expert_model_parallel_size = tuples[0]
+    chatlearn.get_args().models['policy'].tensor_model_parallel_size = tuples[1]
+    chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[2]
+    chatlearn.get_args().models['ppo_policy'].expert_model_parallel_size = tuples[3]
+    chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[4]
+    chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[5]
 
-chatlearn.init()
-for _, model_config in chatlearn.get_args().models.items():
-    model_config.num_gpu = 8
-chatlearn.get_args().models['policy'].expert_model_parallel_size = tuples[0]
-chatlearn.get_args().models['policy'].tensor_model_parallel_size = tuples[1]
-chatlearn.get_args().models['policy'].pipeline_model_parallel_size = tuples[2]
-chatlearn.get_args().models['ppo_policy'].expert_model_parallel_size = tuples[3]
-chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = tuples[4]
-chatlearn.get_args().models['ppo_policy'].pipeline_model_parallel_size = tuples[5]
+    chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
 
-chatlearn.get_args().runtime_args.colocation = [["policy", "ppo_policy"]]
+    policy = PolicyModel("policy")
+    ppo_policy = PPOPolicy("ppo_policy")
 
-policy = PolicyModel("policy")
-ppo_policy = PPOPolicy("ppo_policy")
+    os.environ['QWEN_VERSION'] = "qwen_moe_v1" # enable ParameterSyncGroupwithHEP
 
-os.environ['QWEN_VERSION'] = "qwen_moe_v1" # enable ParameterSyncGroupwithHEP
+    engine = CustomEngine(policy, ppo_policy)
+    engine.setup()
+    param_sync_group = engine.model_manager.parameter_sync_groups["ppo_policy2policy"]
 
-engine = CustomEngine(policy, ppo_policy)
-engine.setup()
-param_sync_group = engine.model_manager.parameter_sync_groups["ppo_policy2policy"]
+    # Judge num mappings
+    assert param_sync_group.ep_num_mapping == tuples[0] / tuples[3]
+    assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 
-# Judge num mappings
-assert param_sync_group.ep_num_mapping == tuples[0] / tuples[3]
-assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
+    # Judge allgather actors
+    allgather_actors = param_sync_group.send_actors_to_allgather_routed_experts
+    actor2rank = param_sync_group.actor2rank
 
-# Judge allgather actors
-allgather_actors = param_sync_group.send_actors_to_allgather_routed_experts
-actor2rank = param_sync_group.actor2rank
+    assert len(allgather_actors) == 1
+    assert len(allgather_actors[0]) == 8 # all src ranks should all-gather routed experts
+    assert len(actor2rank) == 16 # all of the 16 actors should have rank
+    assert len(set(list(actor2rank.values()))) == len(actor2rank) # all ranks should be unique
 
-assert len(allgather_actors) == 1
-assert len(allgather_actors[0]) == 8 # all src ranks should all-gather routed experts
-assert len(actor2rank) == 16 # all of the 16 actors should have rank
-assert len(set(list(actor2rank.values()))) == len(actor2rank) # all ranks should be unique
+    allgather_actor_ranks = []
+    for actor in allgather_actors[0]:
+        allgather_actor_ranks.append(actor2rank[actor])
 
-allgather_actor_ranks = []
-for actor in allgather_actors[0]:
-    allgather_actor_ranks.append(actor2rank[actor])
+    assert allgather_actor_ranks == [0, 1, 2, 3, 4, 5, 6, 7]
 
-assert allgather_actor_ranks == [0, 1, 2, 3, 4, 5, 6, 7]
+    # Judge src->dst rank mappings
+    comm_pairs = []
 
-# Judge src->dst rank mappings
-comm_pairs = []
+    for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings.items():
+        for dst_rank in dst_ranks:
+            comm_pairs.append((actor2rank[src_rank], actor2rank[dst_rank]))
 
-for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings.items():
-    for dst_rank in dst_ranks:
-        comm_pairs.append((actor2rank[src_rank], actor2rank[dst_rank]))
+    assert comm_pairs == [(0, 8), (1, 9), (2, 10), (3, 11), (4, 12), (5, 13), (6, 14), (7, 15)]
 
-assert comm_pairs == [(0, 8), (1, 9), (2, 10), (3, 11), (4, 12), (5, 13), (6, 14), (7, 15)]
+    print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
 
-print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
+test_hep_eptp_vllm_tp_dst_ep1_tp2_pp1_src_ep4_tp2_pp1()
