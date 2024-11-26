@@ -17,6 +17,7 @@ Test:
 1. trainer_tp < inference_tp
 2. trainer_tp can divide inference_tp
 3. trainer_tp * trainer_ep == inference_tp * inference_ep
+4. HEP is enabled for both trainer and inference.
 
 Current test case: 
 (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp) = (1, 4, 1, 4, 1, 1).
@@ -273,7 +274,7 @@ actor2rank = param_sync_group.actor2rank
 
 # test for actors to create_group_experts_regrouping
 send_actors = []
-for actors in param_sync_group.send_actors_to_regroup_experts:
+for actors in param_sync_group.send_actors_to_allgather_routed_experts:
     send_actors.append([actor2rank[actor] for actor in actors])
 assert send_actors == [[4, 5, 6, 7], [0, 1, 2, 3]]
 

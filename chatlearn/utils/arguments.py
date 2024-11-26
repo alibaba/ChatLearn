@@ -502,6 +502,9 @@ class Config(BaseConfig):
         assert self.runtime_args.train_global_batch_size % self.runtime_args.train_micro_batch_size == 0, \
             f"train_global_batch_size should be times of train_micro_batch_size," \
             f"but got {self.runtime_args.train_global_batch_size}/{self.runtime_args.train_micro_batch_size}"
+        assert self.runtime_args.train_global_batch_size <= self.runtime_args.sample_per_episode, \
+            "train_global_batch_size should be less than or equal to sample_per_episode, " \
+            f"got {self.runtime_args.train_global_batch_size} and {self.runtime_args.sample_per_episode}"
         assert self.runtime_args.stream_data_loader_type.lower() in ["fixed", "dynamic"]
         assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
         assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)

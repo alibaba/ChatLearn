@@ -146,8 +146,8 @@ class ParameterSyncMap:
         return self._to_fix_shared_expert_ordering
 
     @property
-    def to_regroup_experts_dict(self):
-        return self._to_regroup_experts_dict
+    def to_allgather_roututed_experts_dict(self):
+        return self._to_allgather_routed_experts_dict
 
     @property
     def to_fix_act_ordering_dict(self):
@@ -195,7 +195,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
-        self._to_regroup_experts_dict = None
+        self._to_allgather_routed_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
             "modules": [
@@ -283,7 +283,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
-        self._to_regroup_experts_dict = None
+        self._to_allgather_routed_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
             "modules": [
@@ -421,7 +421,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             ],
             "layer_re": self.layer_re
         }
-        self._to_regroup_experts_dict = {
+        self._to_allgather_routed_experts_dict = {
             "modules": [
                 "mlp.experts.dense_h_to_4h",
                 "mlp.experts.dense_4h_to_h",
@@ -1147,6 +1147,8 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     tp_size = megatron_args.tensor_model_parallel_size
     pp_size = megatron_args.pipeline_model_parallel_size
+    ep_size = megatron_args.moe_expert_model_parallel_size
+    hep_size = tp_size * ep_size
     # The number of heads.
     heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
@@ -1309,6 +1311,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
             # w2_weight as well.
             out_name = func_map[op_name]
             moe_num_experts = megatron_args.moe_num_experts
+            local_num_experts = moe_num_experts // hep_size
             if "dense_h_to_4h" in op_name:
                 params_list = []
                 for rank in range(tp_size):
@@ -1319,7 +1322,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                 val_list = []
                 for params in params_list:
                     params = params.view((moe_num_experts, -1, hf_config.hidden_size)).contiguous()
-                    params = params.reshape((moe_num_experts // tp_size * 2, -1, hf_config.hidden_size))
+                    params = params.reshape((local_num_experts * 2, -1, hf_config.hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
                     params = params.reshape(params.shape[0] // 2, -1, hf_config.hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
@@ -1335,7 +1338,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                     params_list.append(params)
                 val_list = []
                 for params in params_list:
-                    params = params.reshape((moe_num_experts // tp_size, -1, hf_config.hidden_size))
+                    params = params.reshape((local_num_experts, -1, hf_config.hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
                     val_list.append(params)
                 val = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()

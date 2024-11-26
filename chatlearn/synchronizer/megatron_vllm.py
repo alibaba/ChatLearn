@@ -24,6 +24,7 @@ from chatlearn.utils.utils import get_use_legacy_models
 from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering
 from chatlearn.utils.vllm_utils import split_attn_state
 from chatlearn.utils.vllm_utils import Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
+from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
 from .base import BaseSync
 
 class MegatronVllmSync(BaseSync):
@@ -156,48 +157,68 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def regroup_experts_from_all_tp_ranks(self, name, params_to_sync, tp_rank, group_name):
-        to_regroup_experts_dict = self.sync_map.to_regroup_experts_dict
-        if to_regroup_experts_dict is None:
-            return params_to_sync_list
-        layer_re = self.sync_map.to_regroup_experts_dict["layer_re"]
-        to_regroup_modules_list = to_regroup_experts_dict["modules"]
+    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, tp_rank):
+        """
+        This function is applicable for synchronizing parameters from QWen with HEP enabled
+        to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
+        Thus, the function will all-gather across EP size * TP size routed experts.
+        """
+        if self.sync_map._to_allgather_routed_experts_dict is None:
+            return params_to_sync
+
+        to_allgather_routed_experts_dict = self.sync_map._to_allgather_routed_experts_dict
+        layer_re = to_allgather_routed_experts_dict["layer_re"]
+        to_regroup_modules_list = to_allgather_routed_experts_dict["modules"]
 
         m = layer_re.match(name)
-        if m is not None:
-            op_name = m.group(2)
-            if op_name in to_regroup_modules_list:
-                tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-                moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
-                hidden_size = self.src_module_args.args_dict["hidden_size"]
-                output_tensor_list = [
-                    torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device) \
-                    for _ in range(tp_size)
-                ]
-                col.allgather(output_tensor_list, params_to_sync, group_name)
-                val_list = []
-                if "dense_h_to_4h" in op_name:
-                    # w13_weight
-                    for params in output_tensor_list:
-                        # regroup among difference tp slices
-                        params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
-                        params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
-                        params = params.chunk(tp_size, dim=1)[tp_rank]
-                        # reorder w1 and w3
-                        params = params.reshape(params.shape[0] // 2, -1, hidden_size)
-                        params_right, params_left = params.chunk(2, dim=1)
-                        params = torch.cat([params_left, params_right], dim=1)
-                        val_list.append(params)
-                    params_to_sync = torch.cat(val_list, dim=0).contiguous()
-                else:
-                    # w2_weight
-                    for params in output_tensor_list:
-                        params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
-                        params = params.chunk(tp_size, dim=1)[tp_rank]
-                        val_list.append(params)
-                    params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
-                return params_to_sync, True
-        return params_to_sync, False
+        if m is None:
+            return params_to_sync, False
+
+        op_name = m.group(2)
+        if op_name in to_regroup_modules_list:
+            tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
+            ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
+            hep_size = tp_size * ep_size
+            moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+            local_num_experts = moe_num_experts // hep_size
+            hidden_size = self.src_module_args.args_dict["hidden_size"]
+            output_tensor_list = [
+                torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device)
+                for _ in range(hep_size)
+            ]
+            col.allgather(output_tensor_list, params_to_sync, group_name)
+            val_list = []
+            if "dense_h_to_4h" in op_name:
+                # w13_weight
+                for params in output_tensor_list:
+                    params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
+                    params = params.reshape((local_num_experts * 2, -1, hidden_size))
+                    params = params.chunk(tp_size, dim=1)[tp_rank]
+                    params = params.reshape(params.shape[0] // 2, -1, hidden_size)
+                    params_right, params_left = params.chunk(2, dim=1)
+                    params = torch.cat([params_left, params_right], dim=1)
+                    val_list.append(params)
+                params_to_sync = torch.cat(val_list, dim=0).contiguous()
+            else:
+                # w2_weight
+                for params in output_tensor_list:
+                    params = params.reshape((local_num_experts, -1, hidden_size))
+                    params = params.chunk(tp_size, dim=1)[tp_rank]
+                    val_list.append(params)
+                params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
+            return params_to_sync, True
+        else:
+            return params_to_sync, False
+
+    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
+        megatron_version = get_megatron_version()
+        if megatron_version == MegatronVersion.V4:
+            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, tp_rank)
+        else:
+            raise NotImplementedError(
+                "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
+                "Please export `QWEN_VERSION` as `qwen_moe_v1`."
+            )
 
     def transform_parameters(self, params_to_sync_list):
         """
