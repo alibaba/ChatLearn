@@ -29,7 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+    from chatlearn.models.vllm_module_v2 import VLLMModuleV2, VLLMWokerWrapper
 
 RAY_REMOTE = "remote"
 
@@ -113,22 +113,22 @@ class DistActor:
             results.append(res)
         return results
 
-    def _create_actor(self, num_gpus, placement_group, group_index, **kwargs):
+    def _create_actor(self, cls, num_gpus, placement_group, group_index, **kwargs):
         scheduling_strategy = PlacementGroupSchedulingStrategy(
             placement_group=placement_group,
             placement_group_bundle_index=group_index,
         )
         # use max_concurrency=1 to make sure only one task execute at one time
-        actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(self.model.__class__) \
-            .options(scheduling_strategy=scheduling_strategy,
-                     max_concurrency=1) \
+        actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(cls) \
+            .options(scheduling_strategy=scheduling_strategy) \
             .remote(self.model.name, self.model.global_args, self.replica_id, **kwargs)
         actor.set_error_signal.remote(self.error_signal)
         actor.set_storage.remote(self.storage)
         self.all_actors.append(actor)
+        return actor
 
     def create_actor(self, num_gpus, placement_group, group_index):
-        return self._create_actor(num_gpus, placement_group, group_index)
+        return self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
 
     def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
         refs = []
@@ -229,6 +229,10 @@ class DistTorchActor(DistActor):
 class DistVLLMActor(DistTorchActor):
     """DistVLLMActor"""
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.vllm_engine = None
+
     def create_actor(self, num_gpus, placement_group, group_index):
         kwargs = {
             "worker_module_name": "vllm.worker.worker",
@@ -236,15 +240,26 @@ class DistVLLMActor(DistTorchActor):
             "worker_class_fn": None,
             "trust_remote_code": True,
         }
-        self._create_actor(num_gpus, placement_group, group_index, **kwargs)
+        self._create_actor(VLLMWokerWrapper, num_gpus, placement_group, group_index, **kwargs)
+
+    def create_engine_actor(self, num_gpus, placement_group, group_index):
+        self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
+        self.model.engine = self.vllm_engine
 
     def add_remote_func(self):
         for func_name, _ in inspect.getmembers(self.master):
             # ray.actor.ActorMethod
-            if func_name.startswith('_') or func_name == "timer_summary" or func_name == "peak_memory":
+            if func_name.startswith('_') or func_name in ["timer_summary", "peak_memory", "model_setup"]:
                 continue
             dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
+
+    def model_setup(self):
+        return [self.vllm_engine.setup.remote()]
+
+    @property
+    def master(self):
+        return self.vllm_engine
 
     def timer_summary(self, e2e_cost=None):
         """

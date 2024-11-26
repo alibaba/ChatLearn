@@ -190,19 +190,21 @@ class ModelManager:
     def set_func_decorator(self, model):
         if is_decorated(model.name):
             return
+        # decorate async method here will raise cannot serialize coroutine object error
+        call_funcs = model.call_funcs if not isinstance(model, VLLMModuleV2) else []
 
         model_cls = model.__class__
-        for func_name in model.call_funcs:
+        for func_name in call_funcs:
             trainable = func_name in model.trainable_funcs
             decorate_class_func(model_cls, func_name, preprocess_compute, trainable)
 
-        for func_name in ["save_checkpoint", "model_setup"] + model.call_funcs:
+        for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
 
         # public user function
         # TODO: use decorator to annotate
         for func_name in ["save_checkpoint", "model_setup", "onload", "offload", "build_dataset",
-                          "_build_dataloader", "generate_vllm", "init"] + model.call_funcs:
+                          "_build_dataloader", "generate_vllm", "init"] + call_funcs:
             decorate_class_func(model_cls, func_name, monitor_error, func_name)
         set_decorated(model.name)
 
@@ -338,6 +340,11 @@ class ModelManager:
             num_gpus = 1.0 / len(replicas)
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
+                if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
+                    num_gpus = num_gpus / 2
+                    replica.create_engine_actor(num_gpus, placement_group, group)
+                    # we do not want to add engine actor to all_actors
+                    replica.all_actors.pop()
                 replica.create_actor(num_gpus, placement_group, group)
 
         models_to_revert = self._find_param_recv_models(gpu_models)
