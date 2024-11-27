@@ -196,7 +196,7 @@ class MegatronVllmSync(BaseSync):
                     params = output_tensor_list.pop(0)
                     # regroup among difference tp slices
                     params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
-                    params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
+                    params = params.reshape((local_num_experts * 2, -1, hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
                     # reorder w1 and w3
                     params = params.reshape(params.shape[0] // 2, -1, hidden_size)
@@ -220,7 +220,7 @@ class MegatronVllmSync(BaseSync):
                 # w2_weight
                 while output_tensor_list:
                     params = output_tensor_list.pop(0)
-                    params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
+                    params = params.reshape((local_num_experts, -1, hidden_size))
                     chunked_params = params.chunk(tp_size, dim=1)[tp_rank].contiguous()
                     if tp_count == tp_rank:
                         del params_to_sync
