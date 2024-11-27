@@ -142,7 +142,7 @@ class VLLMPolicyInference(VLLMModule):
             "loss_mask": loss_mask}
 
 class VLLMPolicyInferenceAsync(VLLMPolicyInference):
-    """VLLMPolicyInferenceAsync"""
+    """VLLMPolicyInferenceAsync is the model for VLLMModuleV2, which uses async generate API"""
 
     async def eval_forward(self, data, iteration=0): # pylint: disable=invalid-overridden-method
         return await self._forward_step(data, iteration, True)
