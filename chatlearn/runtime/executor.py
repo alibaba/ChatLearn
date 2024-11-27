@@ -198,23 +198,24 @@ class Executor:
         kwargs = {}
 
         replica_num = len(model.replicas)
-        last_step_start = max(self.batch_per_episode - replica_num, 0)
-        is_last_batch = step_num >= last_step_start
-        kwargs["is_last_batch"] = is_last_batch
-        if to_empty_cache is not None:
-            kwargs["to_empty_cache"] = to_empty_cache
-        if to_onload is not None:
-            kwargs["to_onload"] = to_onload
-        if to_offload is not None:
-            kwargs["to_offload"] = to_offload
-        if is_eval is not None:
-            kwargs["is_eval"] = is_eval
         output = []
         if isinstance(replica.model, VLLMModuleV2):
             mb, query = get_next_data()
             assert isinstance(query, list)
-            output.append((getattr(replica.model, func_name)(*query, **kwargs), mb))
+            ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
+            output.append((ret, mb))
         else:
+            last_step_start = max(self.batch_per_episode - replica_num, 0)
+            is_last_batch = step_num >= last_step_start
+            kwargs["is_last_batch"] = is_last_batch
+            if to_empty_cache is not None:
+                kwargs["to_empty_cache"] = to_empty_cache
+            if to_onload is not None:
+                kwargs["to_onload"] = to_onload
+            if to_offload is not None:
+                kwargs["to_offload"] = to_offload
+            if is_eval is not None:
+                kwargs["is_eval"] = is_eval
             for _, actors in replica.dp_rank_to_actors.items():
                 mb, query = get_next_data()
                 assert isinstance(query, list)
