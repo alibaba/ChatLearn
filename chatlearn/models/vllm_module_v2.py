@@ -178,7 +178,7 @@ class VLLMModuleV2(TorchModule):
 
 
 class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
-    """VLLMModule is the class for vLLM models.
+    """VLLMWokerWrapper is the class for vLLM workers.
 
     Args
     ----
@@ -208,3 +208,17 @@ class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
         """
         self._peak_memory = max(self._peak_memory, torch.cuda.max_memory_allocated() / (1024 ** 3))
         return self._peak_memory
+
+    @property
+    def data_parallel_size(self):
+        """
+        :meta private:
+        """
+        return 1
+
+    @property
+    def data_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return 0
