@@ -25,7 +25,7 @@ from chatlearn import EvalEngine
 # pylint: disable=invalid-envvar-default,bad-exception-cause,ungrouped-imports,wrong-import-position
 if os.getenv("ENABLE_VLLM", False):
     try:
-        from examples.megatron.models.vllm_policy_inference import VLLMPolicyInference as PolicyModel
+        from examples.megatron.models import VLLMPolicyInference as PolicyModel
     except Exception as e:
         raise RuntimeError("Cannot import vllm, please set vllm python path or install vllm first.") from e
 else:

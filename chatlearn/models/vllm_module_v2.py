@@ -34,33 +34,22 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from .torch_module import TorchModule
 
 
-class VLLMModuleV2(TorchModule, RayWorkerWrapper):
-    """VLLMModule is the class for vLLM models.
-
-    Args
-    ----
-    name : str
-        model name
-    """
+class VLLMModuleV2(TorchModule):
+    """VLLMModuleV2"""
 
     def __init__(self, *args, **kwargs):
-        # avoid overwrite methods
-        methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
-        methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
-        common_methods = methods_class1.intersection(methods_class2)
-        # common method is '__init__'
-        assert common_methods == {'__init__'}, \
-            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
-        TorchModule.__init__(self, *args)
+        super().__init__(*args, **kwargs)
         self.local_rank = 0
         os.environ['LOCAL_RANK'] = '0'
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
         os.environ['VLLM_HOST_IP'] = self.get_address()
         self.engine = None
+        self.tokenizer = None
 
     def setup(self):
         """Set up model and load checkpoint"""
+        super().setup()
         tokenizer = AutoTokenizer.from_pretrained(self.model_args['tokenizer'])
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
@@ -160,21 +149,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             sampling_params.use_beam_search = self.model_args.get("use_beam_search")
         return sampling_params
 
-    @property
-    def data_parallel_size(self):
-        """
-        :meta private:
-        """
-        return 1
-
-    @property
-    def data_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return 0
-
-    async def _generate_vllm(self, query, is_eval):
+    async def generate_vllm(self, query, is_eval):
         prompts = query['prompt']
         seq_len = self.model_args.get("seq_length")
         final_outputs = []
@@ -194,18 +169,38 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                 sampling_param.max_tokens = max_tokens
             task = asyncio.create_task(self.generate_one_sample(prompt, sampling_param, request_id))
             tasks.append(task)
-        final_outputs = await asyncio.gather(*tasks)
+        outputs = await asyncio.gather(*tasks)
+        final_outputs = sorted(outputs, key=lambda x: int(x.request_id))
         return final_outputs
-
-    def generate_vllm(self, data, is_eval):
-        loop = asyncio.get_event_loop()
-
-        outputs = loop.run_until_complete(self._generate_vllm(data, is_eval))
-        outputs = sorted(outputs, key=lambda x: int(x.request_id))
-        return outputs
 
     def is_last_rank(self):
         return True
+
+
+class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
+    """VLLMWokerWrapper is the class for vLLM workers.
+
+    Args
+    ----
+    name : str
+        model name
+    """
+
+    def __init__(self, *args, **kwargs):
+        # avoid overwrite methods
+        methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
+        methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
+        common_methods = methods_class1.intersection(methods_class2)
+        # common method is '__init__'
+        assert common_methods == {'__init__'}, \
+            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
+        TorchModule.__init__(self, *args)
+        self.local_rank = 0
+        os.environ['LOCAL_RANK'] = '0'
+        if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
+            RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        os.environ['VLLM_HOST_IP'] = self.get_address()
+        self.engine = None
 
     def peak_memory(self):
         """
@@ -213,3 +208,17 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         self._peak_memory = max(self._peak_memory, torch.cuda.max_memory_allocated() / (1024 ** 3))
         return self._peak_memory
+
+    @property
+    def data_parallel_size(self):
+        """
+        :meta private:
+        """
+        return 1
+
+    @property
+    def data_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return 0
