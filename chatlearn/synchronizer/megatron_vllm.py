@@ -188,8 +188,8 @@ class MegatronVllmSync(BaseSync):
                 for _ in range(hep_size)
             ]
             col.allgather(output_tensor_list, params_to_sync, group_name)
+            del params_to_sync
             val_list = []
-            tp_count = 0
             if "dense_h_to_4h" in op_name:
                 # w13_weight
                 while output_tensor_list:
@@ -201,20 +201,11 @@ class MegatronVllmSync(BaseSync):
                     # reorder w1 and w3
                     params = params.reshape(params.shape[0] // 2, -1, hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
-                    if tp_count == tp_rank:
-                        del params_to_sync
                     del params
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    torch.cuda.reset_peak_memory_stats()
                     params = torch.cat([params_left, params_right], dim=1)
                     del params_left
                     del params_right
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    torch.cuda.reset_peak_memory_stats()
                     val_list.append(params)
-                    tp_count += 1
                 params_to_sync = torch.cat(val_list, dim=0).contiguous()
             else:
                 # w2_weight
@@ -222,19 +213,10 @@ class MegatronVllmSync(BaseSync):
                     params = output_tensor_list.pop(0)
                     params = params.reshape((local_num_experts, -1, hidden_size))
                     chunked_params = params.chunk(tp_size, dim=1)[tp_rank].contiguous()
-                    if tp_count == tp_rank:
-                        del params_to_sync
                     del params
-                    torch.cuda.empty_cache()
-                    gc.collect()
-                    torch.cuda.reset_peak_memory_stats()
                     val_list.append(chunked_params)
-                    tp_count += 1
                 params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
             del val_list
-            torch.cuda.empty_cache()
-            gc.collect()
-            torch.cuda.reset_peak_memory_stats()
             return params_to_sync, True
         else:
             return params_to_sync, False
