@@ -14,7 +14,6 @@
 # ==============================================================================
 """megatron to vllm synchronizer"""
 
-import gc
 from abc import abstractmethod
 import operator
 from functools import reduce
