@@ -14,6 +14,7 @@
 # ==============================================================================
 """megatron to vllm synchronizer"""
 
+import gc
 from abc import abstractmethod
 import operator
 from functools import reduce
@@ -188,24 +189,52 @@ class MegatronVllmSync(BaseSync):
             ]
             col.allgather(output_tensor_list, params_to_sync, group_name)
             val_list = []
+            tp_count = 0
             if "dense_h_to_4h" in op_name:
                 # w13_weight
-                for params in output_tensor_list:
+                while output_tensor_list:
+                    params = output_tensor_list.pop(0)
+                    # regroup among difference tp slices
                     params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
-                    params = params.reshape((local_num_experts * 2, -1, hidden_size))
+                    params = params.reshape((moe_num_experts // tp_size * 2, -1, hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
+                    # reorder w1 and w3
                     params = params.reshape(params.shape[0] // 2, -1, hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
+                    if tp_count == tp_rank:
+                        del params_to_sync
+                    del params
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    torch.cuda.reset_peak_memory_stats()
                     params = torch.cat([params_left, params_right], dim=1)
+                    del params_left
+                    del params_right
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    torch.cuda.reset_peak_memory_stats()
                     val_list.append(params)
+                    tp_count += 1
                 params_to_sync = torch.cat(val_list, dim=0).contiguous()
             else:
                 # w2_weight
-                for params in output_tensor_list:
-                    params = params.reshape((local_num_experts, -1, hidden_size))
-                    params = params.chunk(tp_size, dim=1)[tp_rank]
-                    val_list.append(params)
+                while output_tensor_list:
+                    params = output_tensor_list.pop(0)
+                    params = params.reshape((moe_num_experts // tp_size, -1, hidden_size))
+                    chunked_params = params.chunk(tp_size, dim=1)[tp_rank].contiguous()
+                    if tp_count == tp_rank:
+                        del params_to_sync
+                    del params
+                    torch.cuda.empty_cache()
+                    gc.collect()
+                    torch.cuda.reset_peak_memory_stats()
+                    val_list.append(chunked_params)
+                    tp_count += 1
                 params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
+            del val_list
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.reset_peak_memory_stats()
             return params_to_sync, True
         else:
             return params_to_sync, False
