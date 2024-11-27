@@ -1067,7 +1067,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 else:
                     self.build_rank_mapping_for_ep()
             else:
-                raise NotImplementedError("ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same.")
+                self.build_rank_mapping_for_ep(add_recv_actor_fn=self.add_recv_actor_for_routed_experts)
+                self.build_rank_mapping_for_params_except_routed_expert()
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 self.build_rank_mapping()
@@ -1123,6 +1124,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 is_first_time_set_send_actors = False
 
             src_replica_ranks_group = split_ranks_by_ep_and_tp_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
+            # Since dst replica is vllm and it doesn't have ep, the function will organize dst_replica_ranks_group as [pp[tp]] naturally.
             dst_replica_ranks_group = split_ranks_by_ep_and_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
 
             if is_first_time_set_send_actors:
@@ -1132,18 +1134,21 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_ep_and_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
-                src_tp_group = src_ep_and_tp_group[src_replica_ranks2offset[tuple(src_replica_ranks)]]
-                # dst_replica does not have ep currently, so we extract from dst_replica_ranks_group[0]
-                if len(dst_replica_ranks_group) > 1:
-                    raise NotImplementedError("ChatLearn does not support expert parallel for inference/generation currently.")
-                assert len(src_tp_group) == len(dst_replica_ranks_group[0][j]), (
-                    "expect the length of send_ranks and recv_ranks being the same, "
-                    f"got {len(src_tp_group)} and {len(dst_replica_ranks_group[0][j])}"
+                first_src_tp_group = src_ep_and_tp_group[0]
+                assert len(dst_replica_ranks_group[j][0]) % len(first_src_tp_group) == 0, (
+                    "TP size of dst model should be times of src model, "
+                    f"but got {len(dst_replica_ranks_group[j][0])} and {len(first_src_tp_group)}"
                 )
-                for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[0][j]):
+                len_dst_div_src = len(dst_replica_ranks_group[j][0]) // len(first_src_tp_group)
+                concated_src_tp_group = []
+                offset = src_replica_ranks2offset[tuple(src_replica_ranks)]
+                # cycled concatenate src tp group to ensure len(concat_src_tp_group) == len(dst_replica_ranks_group[0][j])
+                for k in range(len_dst_div_src):
+                    concated_src_tp_group.extend(src_ep_and_tp_group[int((offset + k) % len(src_ep_and_tp_group))])
+                for src_rank, dst_rank in zip(concated_src_tp_group, dst_replica_ranks_group[j][0]):
                     add_recv_actor_fn(src_rank, dst_rank)
                 src_replica_ranks2offset[tuple(src_replica_ranks)] = int(
-                    (src_replica_ranks2offset[tuple(src_replica_ranks)] + 1) % len(src_ep_and_tp_group)
+                    (src_replica_ranks2offset[tuple(src_replica_ranks)] + len_dst_div_src) % len(src_ep_and_tp_group)
                 )
 
         if self._debug:
@@ -1228,7 +1233,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
-    def _synchronize_all_moe_parameters(self, requires_grad=None, validate=False):
+    def _synchronize_all_moe_parameters_vllm(self, requires_grad=None, validate=False):
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
@@ -1260,7 +1265,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             )
         else:
             raise NotImplementedError(
-                "for models with HEP enabled, ChatLearn supports concurrent_comm only"
+                "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
             )
 
         assert len(actor_mappings_list) == 1
@@ -1274,26 +1279,48 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def _synchronize_routed_experts(self, requires_grad=None, validate=False):
-        assert self.hep_num_mapping == 1, (
-            "Currently, _synchronize_routed_experts requires EP x TP for src model is equal to that for dst model"
-        )
-
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:
-            send_actors_list = [self.sorted_send_actors_for_routed_experts]
-            actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
-            self._multi_thread_sync_for_tp_num_mapping_eq_1(
-                send_actors_list,
-                actor_mappings_list,
-                requires_grad=requires_grad,
-                filter_fn=self.routed_experts_filter,
-                param_group="routed",
-            )
+            if self.dst_model.use_vllm_backend:
+                # allgather routed experts only
+                send_actors_to_allgather_routed_experts = [self.send_actors_to_allgather_routed_experts]
+                self.sync_allgather_multi_threads(
+                    send_actors_to_allgather_routed_experts,
+                    max_workers=1,
+                    requires_grad=requires_grad,
+                    group_name=self.group_name + "_allgather",
+                    filter_fn=self.routed_experts_filter)
+
+                # sync only routed experts to inference model
+                send_actors_list = [self.sorted_send_actors]
+                actor_mappings_list = [self.send_recv_actor_mappings]
+                self._multi_thread_sync_for_tp_num_mapping_eq_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=self.routed_experts_filter,
+                    param_group="routed"
+                )
+            else:
+                send_actors_list = [self.sorted_send_actors_for_routed_experts]
+                actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
+                self._multi_thread_sync_for_tp_num_mapping_eq_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=self.routed_experts_filter,
+                    param_group="routed",
+                )
         else:
+            if self.dst_model.use_vllm_backend:
+                raise NotImplementedError(
+                    "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
+                )
+
             actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
             self._single_thread_sync(
                 self.send_recv_actor_mappings_for_routed_experts,
@@ -1372,7 +1399,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     def sync(self, requires_grad=None, validate=False):
         if self.dst_model.use_vllm_backend:
             if self.tp_num_mapping == 1:
-                self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
+                self._synchronize_all_moe_parameters_vllm(requires_grad=requires_grad, validate=validate)
                 return
             else:
                 raise NotImplementedError(
