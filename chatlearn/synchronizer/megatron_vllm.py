@@ -187,25 +187,35 @@ class MegatronVllmSync(BaseSync):
                 for _ in range(hep_size)
             ]
             col.allgather(output_tensor_list, params_to_sync, group_name)
+            del params_to_sync
             val_list = []
             if "dense_h_to_4h" in op_name:
                 # w13_weight
-                for params in output_tensor_list:
+                while output_tensor_list:
+                    params = output_tensor_list.pop(0)
+                    # regroup among difference tp slices
                     params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
                     params = params.reshape((local_num_experts * 2, -1, hidden_size))
                     params = params.chunk(tp_size, dim=1)[tp_rank]
+                    # reorder w1 and w3
                     params = params.reshape(params.shape[0] // 2, -1, hidden_size)
                     params_right, params_left = params.chunk(2, dim=1)
+                    del params
                     params = torch.cat([params_left, params_right], dim=1)
+                    del params_left
+                    del params_right
                     val_list.append(params)
                 params_to_sync = torch.cat(val_list, dim=0).contiguous()
             else:
                 # w2_weight
-                for params in output_tensor_list:
+                while output_tensor_list:
+                    params = output_tensor_list.pop(0)
                     params = params.reshape((local_num_experts, -1, hidden_size))
-                    params = params.chunk(tp_size, dim=1)[tp_rank]
-                    val_list.append(params)
+                    chunked_params = params.chunk(tp_size, dim=1)[tp_rank].contiguous()
+                    del params
+                    val_list.append(chunked_params)
                 params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
+            del val_list
             return params_to_sync, True
         else:
             return params_to_sync, False
