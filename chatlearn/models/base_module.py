@@ -30,7 +30,7 @@ from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
-from chatlearn.utils.dist_utils import bucket_tensors_two_stage, coalesced_comm_dense_two_stage
+from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
@@ -675,7 +675,10 @@ class BaseModule:
             parameters_to_sync = self._parameters_to_sync
         parameters_shape = []
         for name, param in parameters_to_sync[pipe_stage]:
-            parameters_shape.append((name, param.shape))
+            if self._expert_sync_buffer and name in self._expert_sync_buffer:
+                parameters_shape.append((name, self._expert_sync_buffer[name].shape))
+            else:
+                parameters_shape.append((name, param.shape))
         return parameters_shape
 
     def get_parameter(self, name):
@@ -692,8 +695,11 @@ class BaseModule:
             if name0 == name:
                 if name in self._expert_sync_buffer:
                     param = self._expert_sync_buffer[name]
+                    regroup_routed_experts = True
+                else:
+                    regroup_routed_experts = False
                 if regroup:
-                    param = self._synchronizer.regroup_params_to_sync(name, param.data, self._tp_division[name])
+                    param = self._synchronizer.regroup_params_to_sync(name, param.data, self._tp_division[name], regroup_routed_experts)
                 if to_cpu:
                     param = param.cpu()
                 return param
@@ -728,7 +734,7 @@ class BaseModule:
 
     def allgather_routed_expert_parameter(self, group_name, pipe_stage=0):
         for name, param in self._parameters_to_sync[pipe_stage]:
-            param, state = self._synchronizer.allgather_routed_experts(
+            param, state = self._synchronizer.regroup_routed_experts(
                 name,
                 param,
                 group_name,
@@ -802,14 +808,22 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                self._logger.debug(f"Adding {name} to sync for if branch from src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
                 tensors.append(self._sync_buffer[buffer_rank % self.tp_num_mapping][idx])
+                self._logger.info(
+                    f"Adding {name}({tensors[-1].shape}) to sync for if branch from "
+                    f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
+                )
+                self._logger.info(
+                    f"len(sync_buffer) = {len(self._sync_buffer)}, {buffer_rank % self.tp_num_mapping}, "
+                    f"len(sync_buffer[x]) = {len(self._sync_buffer[buffer_rank % self.tp_num_mapping])}, {idx}"
+                )
                 buffer_num.append(1)
                 idx += 1
             del self._sync_buffer[buffer_rank % self.tp_num_mapping]
         else:
+            idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                self._logger.debug(f"Adding {name} to sync for else branch from src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
+                idx += 1
                 param_data = param.data
                 if rank and self._buffer_num and not stage2:
                     assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
@@ -817,29 +831,47 @@ class BaseModule:
                 elif stage2:
                     buffer_num.append(1)
                 else:
-                    # regroup src_tensor by tp_rank.
-                    param_data = self._synchronizer.regroup_params_to_sync(name, param_data, self._tp_division[name])
+                    if self._expert_sync_buffer and name in self._expert_sync_buffer:
+                        param_data = self._expert_sync_buffer[name]
+                        regroup_routed_experts = True # For Qwen2vLLM
+                    else:
+                        regroup_routed_experts = False # For Qwen2Qwen with hep_num_mapping == 1
+                    # regroup src_tensor by tp_rank
+                    param_data = self._synchronizer.regroup_params_to_sync(
+                        name, param_data, self._tp_division[name], regroup_routed_experts
+                    )
+                    # delete self._expert_sync_buffer[name] to save gpu mem
+                    if regroup_routed_experts and name in self._expert_sync_buffer:
+                        del self._expert_sync_buffer[name]
                     buffer_num.append(1)
                 tensors.append(param_data)
+                self._logger.info(
+                    f"Adding {name}({tensors[-1].shape}) to sync for else branch from "
+                    f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
 
         assert len(tensors) > 0
-        dense_buckets, sparse_bucket = bucket_tensors_two_stage(
+        bucket_generator = bucket_tensors_two_stage_generator(
             tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
-            buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
+            buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2
+        )
+        dense_bucket_num = 0
+        sparse_bucket_num = 0
+        for bucket_or_tensor, is_dense in bucket_generator:
+            if is_dense:
+                index = 0 if stage2 else (to_rank % self.tp_num_mapping)
+                all_buffers = coalesced_comm_dense_two_stage(
+                    bucket_or_tensor, col.broadcast, rank,
+                    extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
+                    stage2=stage2, index=index)
+                if tensor_changed and not stage2:
+                    for key, value in all_buffers.items():
+                        self._sync_buffer[key] += value
+                dense_bucket_num += 1
+            else:
+                col.broadcast(bucket_or_tensor, src_rank, group_name)
+                sparse_bucket_num += 1
 
-        for bucket in dense_buckets:
-            index = 0 if stage2 else (to_rank % self.tp_num_mapping)
-            all_buffers = coalesced_comm_dense_two_stage(
-                bucket, col.broadcast, rank,
-                extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
-                stage2=stage2, index=index)
-            if tensor_changed and not stage2:
-                for key, value in all_buffers.items():
-                    self._sync_buffer[key] += value
-
-        for param in sparse_bucket:
-            col.broadcast(param, src_rank, group_name)
+        log_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
         self.empty_cache()
 

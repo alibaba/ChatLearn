@@ -609,6 +609,7 @@ class ParameterSyncGroup:
 
     def sync_allgather(self, actors, group_name, requires_grad=None, filter_fn=None):
         for actor in actors:
+            # Currently, only routed experts are to be all-gathered.
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
@@ -800,36 +801,53 @@ class ParameterSyncGroup:
     def sync_broadcast_multi_threads(
         self, sorted_send_actors, send_recv_actor_mappings, max_workers=1, requires_grad=None,
         group_name=None, stage2=False, filter_fn=None, param_group="default"):
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for send_actor in sorted_send_actors:
-                recv_actors = send_recv_actor_mappings[send_actor]
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    if stage2:
-                        for idx, recv_actor in enumerate(recv_actors):
-                            group_name_with_idx = f"{group_name}_{idx}"
-                            actor_groups, finalized_group_name = self.create_broadcast_group(
-                                send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
-                            )
-                            futures.append(executor.submit(
-                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
-                            ))
-                    else:
+        for send_actor in sorted_send_actors:
+            recv_actors = send_recv_actor_mappings[send_actor]
+            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                if stage2:
+                    for idx, recv_actor in enumerate(recv_actors):
+                        group_name_with_idx = f"{group_name}_{idx}"
                         actor_groups, finalized_group_name = self.create_broadcast_group(
-                            send_actor, recv_actors, group_name=group_name, param_group=param_group
+                            send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
                         )
-                        futures.append(executor.submit(
-                            self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
-                        ))
+                        self.sync_broadcast_two_stage(actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group)
                 else:
-                    raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    traceback.print_exc()
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+                    actor_groups, finalized_group_name = self.create_broadcast_group(
+                        send_actor, recv_actors, group_name=group_name, param_group=param_group
+                    )
+                    self.sync_broadcast_two_stage(actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group)
+            else:
+                raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        #     futures = []
+        #     for send_actor in sorted_send_actors:
+        #         recv_actors = send_recv_actor_mappings[send_actor]
+        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+        #             if stage2:
+        #                 for idx, recv_actor in enumerate(recv_actors):
+        #                     group_name_with_idx = f"{group_name}_{idx}"
+        #                     actor_groups, finalized_group_name = self.create_broadcast_group(
+        #                         send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+        #                     )
+        #                     futures.append(executor.submit(
+        #                         self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
+        #                     ))
+        #             else:
+        #                 actor_groups, finalized_group_name = self.create_broadcast_group(
+        #                     send_actor, recv_actors, group_name=group_name, param_group=param_group
+        #                 )
+        #                 futures.append(executor.submit(
+        #                     self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
+        #                 ))
+        #         else:
+        #             raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+        #     for _future in concurrent.futures.as_completed(futures):
+        #         try:
+        #             _future.result()
+        #         except Exception as e:
+        #             traceback.print_exc()
+        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+        #     concurrent.futures.wait(futures)
 
     def sync_allgather_multi_threads(
         self, send_actors, max_workers=1, requires_grad=None,
@@ -1142,7 +1160,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 len_dst_div_src = len(dst_replica_ranks_group[j][0]) // len(first_src_tp_group)
                 concated_src_tp_group = []
                 offset = src_replica_ranks2offset[tuple(src_replica_ranks)]
-                # cycled concatenate src tp group to ensure len(concat_src_tp_group) == len(dst_replica_ranks_group[0][j])
+                # cycled concatenate src tp group to ensure len(concat_src_tp_group) == len(dst_replica_ranks_group[j][0])
                 for k in range(len_dst_div_src):
                     concated_src_tp_group.extend(src_ep_and_tp_group[int((offset + k) % len(src_ep_and_tp_group))])
                 for src_rank, dst_rank in zip(concated_src_tp_group, dst_replica_ranks_group[j][0]):
@@ -1152,9 +1170,17 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 )
 
         if self._debug:
-            for k, v_list in self.send_recv_actor_mappings.items():
-                for v in v_list:
-                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+            def debug_msg_for_actor_mappings(actor_mapping):
+                if actor_mapping is None:
+                    return
+
+                for k, v_list in actor_mapping.items():
+                    for v in v_list:
+                        logger.debug(f"actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+
+            debug_msg_for_actor_mappings(self.send_recv_actor_mappings)
+            debug_msg_for_actor_mappings(self.send_recv_actor_mappings_for_routed_experts)
+
             for allgather_actors in self.send_actors_to_allgather_routed_experts:
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
                 logger.debug(f"allgather actors: {cat_str}")
@@ -1233,7 +1259,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_send_recv_param_names()
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
-    def _synchronize_all_moe_parameters_vllm(self, requires_grad=None, validate=False):
+    def _synchronize_all_moe_parameters(self, requires_grad=None, validate=False):
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
@@ -1242,7 +1268,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         actor_mappings_list : List = []
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
-            assert self.tp_num_mapping == 1
 
             # allgather routed experts only
             send_actors_to_allgather_routed_experts = [self.send_actors_to_allgather_routed_experts]
@@ -1254,15 +1279,26 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 filter_fn=self.routed_experts_filter)
 
             # sync everything to inference model
-            send_actors_list = [self.sorted_send_actors]
-            actor_mappings_list = [self.send_recv_actor_mappings]
-            self._multi_thread_sync_for_tp_num_mapping_eq_1(
-                send_actors_list,
-                actor_mappings_list,
-                requires_grad=requires_grad,
-                filter_fn=None,
-                param_group="default"
-            )
+            if self.tp_num_mapping == 1:
+                send_actors_list = [self.sorted_send_actors]
+                actor_mappings_list = [self.send_recv_actor_mappings]
+                self._multi_thread_sync_for_tp_num_mapping_eq_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=None,
+                    param_group="default"
+                )
+            elif self.tp_num_mapping > 1:
+                send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+                actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                self._multi_thread_sync_for_tp_num_mapping_gt_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=None,
+                    param_group="default"
+                )
         else:
             raise NotImplementedError(
                 "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
@@ -1285,42 +1321,16 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:
-            if self.dst_model.use_vllm_backend:
-                # allgather routed experts only
-                send_actors_to_allgather_routed_experts = [self.send_actors_to_allgather_routed_experts]
-                self.sync_allgather_multi_threads(
-                    send_actors_to_allgather_routed_experts,
-                    max_workers=1,
-                    requires_grad=requires_grad,
-                    group_name=self.group_name + "_allgather",
-                    filter_fn=self.routed_experts_filter)
-
-                # sync only routed experts to inference model
-                send_actors_list = [self.sorted_send_actors]
-                actor_mappings_list = [self.send_recv_actor_mappings]
-                self._multi_thread_sync_for_tp_num_mapping_eq_1(
-                    send_actors_list,
-                    actor_mappings_list,
-                    requires_grad=requires_grad,
-                    filter_fn=self.routed_experts_filter,
-                    param_group="routed"
-                )
-            else:
-                send_actors_list = [self.sorted_send_actors_for_routed_experts]
-                actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
-                self._multi_thread_sync_for_tp_num_mapping_eq_1(
-                    send_actors_list,
-                    actor_mappings_list,
-                    requires_grad=requires_grad,
-                    filter_fn=self.routed_experts_filter,
-                    param_group="routed",
-                )
+            send_actors_list = [self.sorted_send_actors_for_routed_experts]
+            actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
+            self._multi_thread_sync_for_tp_num_mapping_eq_1(
+                send_actors_list,
+                actor_mappings_list,
+                requires_grad=requires_grad,
+                filter_fn=self.routed_experts_filter,
+                param_group="routed",
+            )
         else:
-            if self.dst_model.use_vllm_backend:
-                raise NotImplementedError(
-                    "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
-                )
-
             actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
             self._single_thread_sync(
                 self.send_recv_actor_mappings_for_routed_experts,
@@ -1398,13 +1408,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def sync(self, requires_grad=None, validate=False):
         if self.dst_model.use_vllm_backend:
-            if self.tp_num_mapping == 1:
-                self._synchronize_all_moe_parameters_vllm(requires_grad=requires_grad, validate=validate)
-                return
-            else:
-                raise NotImplementedError(
-                    "ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same."
-                )
+            self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 # synchronization is the same as base class when applying Qwen + Qwen
