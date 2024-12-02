@@ -557,6 +557,7 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
+                breakpoint()
                 self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn, param_group)
             else:
                 self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
@@ -698,15 +699,17 @@ class ParameterSyncGroup:
             dst_names = filter_fn(dst_names)
 
         synchronizer = get_synchronizer(self.src_model, self.dst_model)
-        if should_map_name:
-            src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
-        else:
-            # For router experts which need to regroup expert first in trainer actors.
-            synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        if not self.src_model.use_vllm_backend:
+            if should_map_name:
+                src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+            else:
+                # For router experts which need to regroup expert first in trainer actors.
+                synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
-        if param_group != "routed" and self.tp_num_mapping > 1:
+        if self.tp_num_mapping > 1 and ((not self.dst_model.use_vllm_backend and param_group != "routed") or self.dst_model.use_vllm_backend):
             key = (recv_actor, recv_actor)
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = (dst_names, dst_names)
@@ -723,9 +726,9 @@ class ParameterSyncGroup:
         return src_names, dst_names
 
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True):
-        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
+        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor, param_group), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
-        logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
+        logger.info(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if self.synchronizer.is_parameter_changed:
             refs = []
@@ -881,20 +884,50 @@ class ParameterSyncGroup:
             self.collective_groups = []
 
     def check_and_fuse_lora(self, enable_lora, actor_mapping):
-        assert isinstance(actor_mapping, Dict)
-        for send_actor in actor_mapping:
-            if enable_lora:
-                ref = send_actor.fuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check fuse lora layer fail."
+        send_actors_set = set()
+
+        def check_and_fuse_lora_internal(actor_mapping_item):
+            for send_actor in actor_mapping_item:
+                if enable_lora and send_actor not in send_actors_set:
+                    ref = send_actor.fuse_lora_layer.remote()
+                    state = future.get([ref])
+                    assert state, "Check fuse lora layer fail."
+                    send_actors_set.add(send_actor)
+
+        if isinstance(actor_mapping, List):
+            for actor_mapping_item in actor_mapping:
+                if actor_mapping_item is None:
+                    continue
+                check_and_fuse_lora_internal(actor_mapping_item)
+        elif isinstance(actor_mapping, Dict):
+            if actor_mapping is None:
+                return
+            check_and_fuse_lora_internal(actor_mapping)
+        else:
+            raise ValueError("unrecognized type for actor_mapping, expect: List or Dict")
 
     def check_and_unfuse_lora(self, enable_lora, actor_mapping):
-        assert isinstance(actor_mapping, Dict)
-        for send_actor in actor_mapping:
-            if self._enable_lora:
-                ref = send_actor.unfuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check unfuse lora layer fail."
+        send_actors_set = set()
+        
+        def check_and_unfuse_lora_internal(actor_mapping_item):
+            for send_actor in actor_mapping_item:
+                if self._enable_lora and send_actor not in send_actors_set:
+                    ref = send_actor.unfuse_lora_layer.remote()
+                    state = future.get([ref])
+                    assert state, "Check unfuse lora layer fail."
+                    send_actors_set.add(send_actor)
+
+        if isinstance(actor_mapping, List):
+            for actor_mapping_item in actor_mapping:
+                if actor_mapping_item is None:
+                    continue
+                check_and_unfuse_lora_internal(actor_mapping_item)
+        elif isinstace(actor_mapping, Dict):
+            if actor_mapping is None:
+                return
+            check_and_unfuse_lora_internal(actor_mapping)
+        else:
+            raise ValueError("unrecognized type for actor_mapping, expect: List or Dict")
 
     def validate_sync_results_parallel(self, actor_mappings_list:List, requires_grad=None, validate=False, filter_fn=None, param_group="default"):
         if self._debug or validate:
@@ -952,6 +985,7 @@ class ParameterSyncGroup:
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
             group_name=group_name, stage2=False, filter_fn=filter_fn, param_group=param_group
         )
+
         # stage 2
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
@@ -1262,10 +1296,20 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     def _synchronize_all_moe_parameters(self, requires_grad=None, validate=False):
         self.check_and_setup_collective_group()
 
-        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+        send_actors_list : List = [
+            self.sorted_send_actors_for_routed_experts,
+            self.sorted_send_actors,
+            self.sorted_send_actors_stage2
+        ]
+        actor_mappings_list : List = [
+            self.send_recv_actor_mappings_for_routed_experts,
+            self.send_recv_actor_mappings,
+            self.send_recv_actor_mappings_stage2,
+            self.send_actors_to_allgather_routed_experts,
+        ]
 
-        send_actors_list : List = []
-        actor_mappings_list : List = []
+        self.check_and_fuse_lora(self._enable_lora, actor_mappings_list)
+        
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
@@ -1290,15 +1334,26 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     param_group="default"
                 )
             elif self.tp_num_mapping > 1:
+                # Synchronize parameters with two groups (routed experts and params except routed experts)
+                # to reduce gpu memory footprint.
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
                 self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad,
-                    filter_fn=None,
-                    param_group="default"
+                    filter_fn=self.routed_experts_filter,
+                    param_group="routed"
                 )
+                breakpoint()
+                self._multi_thread_sync_for_tp_num_mapping_gt_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=self.params_except_routed_expert_filter,
+                    param_group="except_routed"
+                )
+
         else:
             raise NotImplementedError(
                 "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"

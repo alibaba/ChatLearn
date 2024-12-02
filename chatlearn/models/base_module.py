@@ -808,7 +808,10 @@ class BaseModule:
         if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
             idx = 0
             for name, param in parameters_to_sync[pipe_stage]:
-                tensors.append(self._sync_buffer[buffer_rank % self.tp_num_mapping][idx])
+                value = self._sync_buffer[buffer_rank % self.tp_num_mapping][idx]
+                for i in range(len(value)):
+                    value[i] = value[i].cuda() # save gpu memory # restore from cpu
+                tensors.append(value)
                 self._logger.info(
                     f"Adding {name}({tensors[-1].shape}) to sync for if branch from "
                     f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
@@ -819,6 +822,7 @@ class BaseModule:
                 )
                 buffer_num.append(1)
                 idx += 1
+                del self._sync_buffer[buffer_rank % self.tp_num_mapping][idx]
             del self._sync_buffer[buffer_rank % self.tp_num_mapping]
         else:
             idx = 0
@@ -865,6 +869,8 @@ class BaseModule:
                     stage2=stage2, index=index)
                 if tensor_changed and not stage2:
                     for key, value in all_buffers.items():
+                        for i in range(len(value)):
+                            value[i] = value[i].cpu() # save gpu memory
                         self._sync_buffer[key] += value
                 dense_bucket_num += 1
             else:
