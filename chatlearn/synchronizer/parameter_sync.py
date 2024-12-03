@@ -708,7 +708,7 @@ class ParameterSyncGroup:
             src_names = filter_fn(src_names)
             dst_names = filter_fn(dst_names)
 
-        synchronizer = get_synchronizer(self.actor2model[send_actor], self.actor2model[recv_actor])
+        synchronizer = get_synchronizer(self.src_model, self.dst_model)
         if should_map_name:
             src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         else:

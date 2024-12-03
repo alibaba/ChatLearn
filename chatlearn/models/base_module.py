@@ -699,7 +699,13 @@ class BaseModule:
                 else:
                     regroup_routed_experts = False
                 if regroup:
-                    param = self._synchronizer.regroup_params_to_sync(name, param.data, self._tp_division[name], regroup_routed_experts)
+                    param = self._synchronizer.regroup_params_to_sync(
+                        name,
+                        param.data,
+                        self.tensor_model_parallel_size(),
+                        self._tp_division[name], 
+                        regroup_routed_experts
+                    )
                 if to_cpu:
                     param = param.cpu()
                 return param
@@ -803,57 +809,61 @@ class BaseModule:
             self._sync_buffer = defaultdict(list)
             parameters_to_sync = self._parameters_to_sync
 
-        tensors = []
-        buffer_num = []
-        if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
-            idx = 0
-            for name, param in parameters_to_sync[pipe_stage]:
-                value = self._sync_buffer[buffer_rank % self.tp_num_mapping][idx].cuda() # restore from cpu
-                tensors.append(value)
-                self._logger.info(
-                    f"Adding {name}({tensors[-1].shape}) to sync for if branch from "
-                    f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
-                )
-                self._logger.info(
-                    f"len(sync_buffer) = {len(self._sync_buffer)}, {buffer_rank % self.tp_num_mapping}, "
-                    f"len(sync_buffer[x]) = {len(self._sync_buffer[buffer_rank % self.tp_num_mapping])}, {idx}"
-                )
-                buffer_num.append(1)
-                idx += 1
-            del self._sync_buffer[buffer_rank % self.tp_num_mapping]
-        else:
-            idx = 0
-            for name, param in parameters_to_sync[pipe_stage]:
-                idx += 1
-                param_data = param.data
-                if rank and self._buffer_num and not stage2:
-                    assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
-                    buffer_num.append(self._buffer_num[name])
-                elif stage2:
-                    buffer_num.append(1)
-                else:
-                    if self._expert_sync_buffer and name in self._expert_sync_buffer:
-                        param_data = self._expert_sync_buffer[name]
-                        regroup_routed_experts = True # For Qwen2vLLM
-                    else:
-                        regroup_routed_experts = False # For Qwen2Qwen with hep_num_mapping == 1
-                    # regroup src_tensor by tp_rank
-                    param_data = self._synchronizer.regroup_params_to_sync(
-                        name, param_data, self._tp_division[name], regroup_routed_experts
+        def tensor_generator():
+            if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
+                idx = 0
+                for name, param in parameters_to_sync[pipe_stage]:
+                    value = self._sync_buffer[buffer_rank % self.tp_num_mapping][idx].cuda() # restore from cpu
+                    self._logger.info(
+                        f"Adding {name}({value.shape}) to sync for if branch from "
+                        f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
                     )
-                    # delete self._expert_sync_buffer[name] to save gpu mem
-                    if regroup_routed_experts and name in self._expert_sync_buffer:
-                        del self._expert_sync_buffer[name]
-                    buffer_num.append(1)
-                tensors.append(param_data)
-                self._logger.info(
-                    f"Adding {name}({tensors[-1].shape}) to sync for else branch from "
-                    f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
+                    self._logger.info(
+                        f"len(sync_buffer) = {len(self._sync_buffer)}, {buffer_rank % self.tp_num_mapping}, "
+                        f"len(sync_buffer[x]) = {len(self._sync_buffer[buffer_rank % self.tp_num_mapping])}, {idx}"
+                    )
+                    buffer_num = 1
+                    idx += 1
+                    yield value, buffer_num
+                del self._sync_buffer[buffer_rank % self.tp_num_mapping]
+            else:
+                idx = 0
+                for name, param in parameters_to_sync[pipe_stage]:
+                    idx += 1
+                    param_data = param.data
+                    if rank and self._buffer_num and not stage2:
+                        assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
+                        buffer_num = self._buffer_num[name]
+                    elif stage2:
+                        buffer_num = 1
+                    else:
+                        if self._expert_sync_buffer and name in self._expert_sync_buffer:
+                            param_data = self._expert_sync_buffer[name]
+                            del param
+                            regroup_routed_experts = True # For Qwen2vLLM
+                        else:
+                            regroup_routed_experts = False # For Qwen2Qwen with hep_num_mapping == 1
+                        # regroup src_tensor by tp_rank
+                        param_data = self._synchronizer.regroup_params_to_sync(
+                            name,
+                            param_data,
+                            self.tensor_model_parallel_size(),
+                            self._tp_division[name],
+                            regroup_routed_experts
+                        )
+                        # delete self._expert_sync_buffer[name] to save gpu mem
+                        if regroup_routed_experts and name in self._expert_sync_buffer:
+                            del self._expert_sync_buffer[name]
+                        buffer_num = 1
+                    self._logger.info(
+                        f"Adding {name}({param_data.shape}) to sync for else branch from "
+                        f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
+                    yield param_data, buffer_num
+                    
 
-        assert len(tensors) > 0
         bucket_generator = bucket_tensors_two_stage_generator(
-            tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
-            buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2
+            tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
+            stage2=stage2, tensor_changed=tensor_changed and not stage2
         )
         dense_bucket_num = 0
         sparse_bucket_num = 0
