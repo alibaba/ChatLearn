@@ -50,6 +50,7 @@ class ParameterSyncGroup:
         self.send_recv_actor_mappings_stage2 = defaultdict(list)
         self.recv_send_actor_mappings_stage2 = defaultdict(list)
         self.actor2rank = {}
+        self.actor2model = {}
         self._debug = get_args().runtime_args.debug
         self._num_src_pipeline_stage = None
         self._num_dst_pipeline_stage = None
@@ -185,6 +186,10 @@ class ParameterSyncGroup:
         if actor not in self.actor2rank:
             self.actor2rank[actor] = rank
 
+    def insert_actor2model(self, actor, model):
+        if actor not in self.actor2model:
+            self.actor2model[actor] = model
+
     def add_allgather_actor(self, model, ranks_group: List):
         for replica_ranks_group in ranks_group:
             if isinstance(replica_ranks_group[0], list):
@@ -192,16 +197,20 @@ class ParameterSyncGroup:
                     for rank in tp_ranks:
                         actor = model.get_actor(rank)
                         self.insert_actor2rank(actor, rank)
+                        self.insert_actor2model(actor, model)
             else:
                 for rank in replica_ranks_group:
                     actor = model.get_actor(rank)
                     self.insert_actor2rank(actor, rank)
+                    self.insert_actor2model(actor, model)
 
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
         self.insert_actor2rank(src_actor, src_rank)
+        self.insert_actor2model(src_actor, self.src_model)
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.insert_actor2rank(dst_actor, dst_rank)
+        self.insert_actor2model(dst_actor, self.dst_model)
 
         src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
         dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
@@ -557,7 +566,6 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                breakpoint()
                 self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn, param_group)
             else:
                 self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
@@ -698,19 +706,17 @@ class ParameterSyncGroup:
             src_names = filter_fn(src_names)
             dst_names = filter_fn(dst_names)
 
-        synchronizer = get_synchronizer(self.src_model, self.dst_model)
-        if not self.src_model.use_vllm_backend:
-            if should_map_name:
-                src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
-            else:
-                # For router experts which need to regroup expert first in trainer actors.
-                synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
-
+        synchronizer = get_synchronizer(self.actor2model[send_actor], self.actor2model[recv_actor])
+        if should_map_name:
+            src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        else:
+            # For router experts which need to regroup expert first in trainer actors.
+            synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         if self.tp_num_mapping > 1 and ((not self.dst_model.use_vllm_backend and param_group != "routed") or self.dst_model.use_vllm_backend):
-            key = (recv_actor, recv_actor)
+            key = (recv_actor, recv_actor, param_group)
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = (dst_names, dst_names)
             else:
@@ -1345,7 +1351,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     filter_fn=self.routed_experts_filter,
                     param_group="routed"
                 )
-                breakpoint()
+                self.clear_cache(
+                    sorted_send_actors_list=[],
+                    rank_mapping_list=actor_mappings_list
+                )
+
                 self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
@@ -1353,15 +1363,16 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     filter_fn=self.params_except_routed_expert_filter,
                     param_group="except_routed"
                 )
-
+                self.clear_cache(
+                    sorted_send_actors_list=[],
+                    rank_mapping_list=actor_mappings_list
+                )
         else:
             raise NotImplementedError(
                 "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
             )
 
-        assert len(actor_mappings_list) == 1
-
-        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+        self.check_and_unfuse_lora(self._enable_lora, actor_mappings_list)
 
         self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
 
