@@ -703,7 +703,7 @@ class BaseModule:
                         name,
                         param.data,
                         self.tensor_model_parallel_size(),
-                        self._tp_division[name], 
+                        self._tp_division[name],
                         regroup_routed_experts
                     )
                 if to_cpu:
@@ -859,7 +859,6 @@ class BaseModule:
                         f"Adding {name}({param_data.shape}) to sync for else branch from "
                         f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
                     yield param_data, buffer_num
-                    
 
         bucket_generator = bucket_tensors_two_stage_generator(
             tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
