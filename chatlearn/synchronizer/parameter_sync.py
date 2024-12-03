@@ -229,9 +229,11 @@ class ParameterSyncGroup:
 
     def add_recv_actor_stage2(self, src_rank, dst_rank):
         src_actor = self.dst_model.get_actor(src_rank)
-        self.actor2rank[src_actor] = src_rank
+        self.insert_actor2rank(src_actor, src_rank)
+        self.insert_actor2model(src_actor, self.dst_model)
         dst_actor = self.dst_model.get_actor(dst_rank)
-        self.actor2rank[dst_actor] = dst_rank
+        self.insert_actor2rank(dst_actor, dst_rank)
+        self.insert_actor2model(dst_actor, self.dst_model)
 
         src_gpu = future.get(src_actor.get_visible_gpus.remote())
         dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
@@ -715,7 +717,8 @@ class ParameterSyncGroup:
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
-        if self.tp_num_mapping > 1 and ((not self.dst_model.use_vllm_backend and param_group != "routed") or self.dst_model.use_vllm_backend):
+        dst_model = self.actor2model[recv_actor]
+        if self.tp_num_mapping > 1 and ((not dst_model.use_vllm_backend and param_group != "routed") or dst_model.use_vllm_backend):
             key = (recv_actor, recv_actor, param_group)
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = (dst_names, dst_names)
@@ -991,7 +994,6 @@ class ParameterSyncGroup:
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
             group_name=group_name, stage2=False, filter_fn=filter_fn, param_group=param_group
         )
-
         # stage 2
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
