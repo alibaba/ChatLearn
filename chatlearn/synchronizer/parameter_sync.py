@@ -230,7 +230,7 @@ class ParameterSyncGroup:
     def add_recv_actor_stage2(self, src_rank, dst_rank):
         src_actor = self.dst_model.get_actor(src_rank)
         self.insert_actor2rank(src_actor, src_rank)
-        self.insert_actor2model(src_actor, self.dst_model)
+        self.insert_actor2model(src_actor, self.dst_model) # stage 2 sends from dst_model to dst_model
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.insert_actor2rank(dst_actor, dst_rank)
         self.insert_actor2model(dst_actor, self.dst_model)
@@ -1229,9 +1229,11 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
-        self.actor2rank[src_actor] = src_rank
+        self.insert_actor2rank(src_actor, src_rank)
+        self.insert_actor2model(src_actor, self.src_model)
         dst_actor = self.dst_model.get_actor(dst_rank)
-        self.actor2rank[dst_actor] = dst_rank
+        self.insert_actor2rank(dst_actor, dst_rank)
+        self.insert_actor2model(dst_actor, self.dst_model)
 
         src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
         dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
