@@ -123,7 +123,6 @@ def unflatten_dense_tensors(flat_tensors, tensors, sizes, num_ranks):
     return all_buffers
 
 
-
 def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
     """
     coalesced communication for dense parameters

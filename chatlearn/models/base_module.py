@@ -745,7 +745,7 @@ class BaseModule:
                 name,
                 param,
                 group_name,
-                tp_rank=self.tensor_parallel_rank()
+                self.tensor_and_expert_parallel_group()
             )
             if state:
                 self._expert_sync_buffer.pop(name, "Not Found.")

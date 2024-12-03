@@ -157,7 +157,7 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def regroup_routed_experts_from_hep(self, name, params_to_sync, group_name, tp_rank):
+    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, comm_group):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
@@ -183,48 +183,56 @@ class MegatronVllmSync(BaseSync):
             moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
             local_num_experts = moe_num_experts // hep_size
             hidden_size = self.src_module_args.args_dict["hidden_size"]
-            output_tensor_list = [
-                torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device)
-                for _ in range(hep_size)
-            ]
-            col.allgather(output_tensor_list, params_to_sync, group_name)
-            del params_to_sync
-            val_list = []
             if "dense_h_to_4h" in op_name:
                 # w13_weight
-                while output_tensor_list:
-                    params = output_tensor_list.pop(0)
-                    # regroup among difference tp slices
-                    params = params.view((moe_num_experts, -1, hidden_size)).contiguous()
-                    params = params.reshape((local_num_experts * 2, -1, hidden_size))
-                    params = params.chunk(tp_size, dim=1)[tp_rank]
-                    # reorder w1 and w3
-                    params = params.reshape(params.shape[0] // 2, -1, hidden_size)
-                    params_right, params_left = params.chunk(2, dim=1)
-                    del params
-                    params = torch.cat([params_left, params_right], dim=1)
-                    del params_left
-                    del params_right
-                    val_list.append(params)
-                params_to_sync = torch.cat(val_list, dim=0).contiguous()
+                # regroup among difference tp slices
+                param = params_to_sync.view((moe_num_experts, -1, hidden_size))
+                param = param.reshape((local_num_experts * 2, -1, hidden_size))
+                params = list(param.chunk(hep_size, dim=1))
+                # reorder w1 and w3
+                params_list = []
+                while params:
+                    param = params.pop(0)
+                    param = param.reshape(param.shape[0] // 2, -1, hidden_size)
+                    param_right, param_left = param.chunk(2, dim=1)
+                    del param
+                    param = torch.cat([param_left, param_right], dim=1)
+                    del param_left
+                    del param_right
+                    params_list.append(param)
+                del params_to_sync
+                output = [
+                    torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
+                    for i in range(hep_size)
+                ]
+                torch.distributed.all_to_all(output, params_list, group=comm_group)
+                del params_list
+                params_to_sync = torch.cat(output, dim=0).contiguous()
+                del output
             else:
                 # w2_weight
-                while output_tensor_list:
-                    params = output_tensor_list.pop(0)
-                    params = params.reshape((local_num_experts, -1, hidden_size))
-                    chunked_params = params.chunk(tp_size, dim=1)[tp_rank].contiguous()
-                    del params
-                    val_list.append(chunked_params)
-                params_to_sync = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
-            del val_list
+                param = params_to_sync.view((local_num_experts, -1, hidden_size))
+                params = list(param.chunk(hep_size, dim=1))
+                params_list = [ele.contiguous() for ele in params]
+                del param
+                del params
+                del params_to_sync
+                output = [
+                    torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
+                    for i in range(hep_size)
+                ]
+                torch.distributed.all_to_all(output, params_list, group=comm_group)
+                del params_list
+                params_to_sync = torch.cat(output, dim=0).transpose(1, 2).contiguous()
+                del output
             return params_to_sync, True
         else:
             return params_to_sync, False
 
-    def regroup_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
+    def allgather_routed_experts(self, name, params_to_sync, group_name, comm_group): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.regroup_routed_experts_from_hep(name, params_to_sync, group_name, tp_rank)
+            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, comm_group)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
