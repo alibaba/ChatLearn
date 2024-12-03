@@ -928,7 +928,7 @@ class ParameterSyncGroup:
                 if actor_mapping_item is None:
                     continue
                 check_and_unfuse_lora_internal(actor_mapping_item)
-        elif isinstace(actor_mapping, Dict):
+        elif isinstance(actor_mapping, Dict):
             if actor_mapping is None:
                 return
             check_and_unfuse_lora_internal(actor_mapping)
