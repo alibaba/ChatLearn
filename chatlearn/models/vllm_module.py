@@ -572,7 +572,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self.model.eval()
         self.worker.model_runner.model = self.model.model
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            self.worker.model_runner._base_model_runner.model = self.model.model
+            from vllm.worker.multi_step_worker import MultiStepWorker
+            if isinstance(self.worker, MultiStepWorker):
+                self.worker.model_runner._base_model_runner.model = self.model.model
         if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             self.worker.device = torch.device(f"cuda:{torch.cuda.current_device()}")
             self.worker.init_gpu_memory = torch.cuda.mem_get_info()[0]
