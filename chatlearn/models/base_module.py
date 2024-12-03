@@ -866,7 +866,7 @@ class BaseModule:
                     stage2=stage2, index=index)
                 if tensor_changed and not stage2:
                     for key, value in all_buffers.items():
-                        for i in range(len(value)):
+                        for i, _ in enumerate(value):
                             value[i] = value[i].cpu() # save gpu memory
                         self._sync_buffer[key] += value
                 dense_bucket_num += 1

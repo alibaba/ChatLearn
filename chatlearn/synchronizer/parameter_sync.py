@@ -914,7 +914,7 @@ class ParameterSyncGroup:
 
     def check_and_unfuse_lora(self, enable_lora, actor_mapping):
         send_actors_set = set()
-        
+
         def check_and_unfuse_lora_internal(actor_mapping_item):
             for send_actor in actor_mapping_item:
                 if self._enable_lora and send_actor not in send_actors_set:
@@ -1315,7 +1315,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         ]
 
         self.check_and_fuse_lora(self._enable_lora, actor_mappings_list)
-        
+
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
