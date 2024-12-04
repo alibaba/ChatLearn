@@ -16,6 +16,7 @@ eval_temperature: ${eval_temperature:1.0}
 eval_top_k: ${eval_top_k:-1}
 eval_top_p: ${eval_top_p:0.9}
 
+apply_replica_id_to_seed: ${apply_replica_id_to_seed:True}
 
 # sample config
 # stop_token_list: stop token string list, not token ids.
