@@ -21,7 +21,7 @@ from typing import List
 
 import yaml
 
-from chatlearn.utils.constant import LORA_LAYER, RAY_PG_STRATEGY, PARAM_SYNC_COMM_TYPE
+from chatlearn.utils.constant import LORA_LAYER, RAY_PG_STRATEGY, PARAM_SYNC_COMM_TYPE, ROUTER_EXPERT_REGROUPING_COMM_TYPE
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -310,6 +310,8 @@ class RuntimeConfig(BaseConfig):
     param_sync_comm_type: str = PARAM_SYNC_COMM_TYPE.BROADCAST.value
     #: parameter sync max workers
     param_sync_max_workers: int = None
+    #: communication type to regroup router experts, allgather/alltoall
+    router_expert_regrouping_comm_type: str = ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
     #: if `max_relay_episode` is set to 0, then relay is disabled
     max_relay_episode: int = 0

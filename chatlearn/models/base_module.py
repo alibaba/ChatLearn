@@ -750,6 +750,18 @@ class BaseModule:
                 self._expert_sync_buffer.pop(name, "Not Found.")
                 self._expert_sync_buffer[name] = param
 
+    def allgather_routed_expert_parameter(self, group_name, pipe_stage=0):
+        for name, param in self._parameters_to_sync[pipe_stage]:
+            param, state = self._synchronizer.allgather_routed_experts(
+                name,
+                param,
+                group_name,
+                tp_rank=self.tensor_parallel_rank()
+            )
+            if state:
+                self._expert_sync_buffer.pop(name, "Not Found.")
+                self._expert_sync_buffer[name] = param
+
     def broadcast_parameter(self, rank, src_rank, group_name, pipe_stage=0):
         """
         :meta private:
