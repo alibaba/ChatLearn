@@ -151,6 +151,8 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self._init_tokenizer()
         elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             engine_args.max_seq_len_to_capture = self.model_args.get("max_context_len_to_capture", 8192)
+            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+                engine_args.num_scheduler_steps = self.model_args.get("num_scheduler_steps", 1)
             engine_config = \
                 engine_args.create_engine_config()
             self.cache_config = engine_config.cache_config
@@ -166,19 +168,35 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             self.input_processor = INPUT_REGISTRY.create_input_processor(
                 self.model_config)
 
-            self.worker = Worker(
-                self.model_config,
-                self.parallel_config,
-                self.scheduler_config,
-                self.device_config,
-                self.cache_config,
-                self.load_config,
-                local_rank=0,
-                rank=0,
-                distributed_init_method=None,
-                lora_config=self.lora_config,
-                is_driver_worker=True,
-            )
+            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3 and self.scheduler_config.is_multi_step:
+                from vllm.worker.multi_step_worker import MultiStepWorker
+                self.worker = MultiStepWorker(
+                    self.model_config,
+                    self.parallel_config,
+                    self.scheduler_config,
+                    self.device_config,
+                    self.cache_config,
+                    self.load_config,
+                    local_rank=0,
+                    rank=0,
+                    distributed_init_method=None,
+                    lora_config=self.lora_config,
+                    is_driver_worker=True,
+                )
+            else:
+                self.worker = Worker(
+                    self.model_config,
+                    self.parallel_config,
+                    self.scheduler_config,
+                    self.device_config,
+                    self.cache_config,
+                    self.load_config,
+                    local_rank=0,
+                    rank=0,
+                    distributed_init_method=None,
+                    lora_config=self.lora_config,
+                    is_driver_worker=True,
+                )
             self.tokenizer = self._init_tokenizer()
             self.detokenizer = Detokenizer(self.tokenizer)
 
@@ -280,6 +298,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 ]
 
                 def get_tokenizer_for_seq(sequence):
+                    tokenizer_group = self.get_tokenizer_group()
                     assert tokenizer_group, ("tokenizer_group cannot be None, "
                                             "make sure skip_tokenizer_init is False")
                     return tokenizer_group.get_lora_tokenizer(sequence.lora_request)
@@ -552,6 +571,10 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             assert hasattr(self, "model")
             self.model.eval()
         self.worker.model_runner.model = self.model.model
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            from vllm.worker.multi_step_worker import MultiStepWorker
+            if isinstance(self.worker, MultiStepWorker):
+                self.worker.model_runner._base_model_runner.model = self.model.model
         if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
             self.worker.device = torch.device(f"cuda:{torch.cuda.current_device()}")
             self.worker.init_gpu_memory = torch.cuda.mem_get_info()[0]
@@ -640,7 +663,49 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         while step_outputs:
             schedule_query = None
             if self.is_last_rank():
-                schedule_query = self.schedule()
+                # support multi step schedule.
+                virtual_engine = 0
+                cached_outputs = self.cached_scheduler_outputs[virtual_engine]
+                seq_group_metadata_list = cached_outputs.seq_group_metadata_list
+                scheduler_outputs = cached_outputs.scheduler_outputs
+                allow_async_output_proc = False
+
+                ctx = self.scheduler_contexts[virtual_engine]
+
+                # Clear outputs for each new scheduler iteration
+                ctx.request_outputs.clear()
+
+                # Skip the scheduler if there are any remaining steps in the seq groups.
+                # This ensures that the scheduler is only called again when the current
+                # batch has completed.
+                if not self._has_remaining_steps(seq_group_metadata_list):
+                    # Schedule iteration
+                    scheduler_outputs = self.schedule()
+                    seq_group_metadata_list = scheduler_outputs["seq_group_metadata_list"]
+
+                    ctx.seq_group_metadata_list = seq_group_metadata_list
+                    ctx.scheduler_outputs = scheduler_outputs
+
+                    # Maybe switch from async mode to sync mode
+                    if not allow_async_output_proc and len(ctx.output_queue) > 0:
+                        self._process_model_outputs(ctx=ctx)
+
+                    if (self.scheduler_config.is_multi_step
+                            and scheduler_outputs["num_lookahead_slots"] > 0):
+                        # cache the scheduler outputs for the next iteration if we have
+                        # lookahead slots
+                        self._cache_scheduler_outputs_for_multi_step(
+                            virtual_engine, seq_group_metadata_list, scheduler_outputs,
+                            allow_async_output_proc)
+
+                assert seq_group_metadata_list is not None
+                assert scheduler_outputs is not None
+
+                schedule_query = scheduler_outputs
+                if len(scheduler_outputs) == 0:
+                    if len(ctx.output_queue) > 0:
+                        self._process_model_outputs(ctx=ctx)
+
             schedule_query = broadcast_var_object_dict(schedule_query, torch.distributed.get_world_size()-1)
             output = self.execute_step(schedule_query)
             if self.is_last_rank():
@@ -732,16 +797,15 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                                     is_first_step_output=is_first_step_output)
 
                     self._process_model_outputs(ctx=ctx)
+                    if not self.has_unfinished_requests():
+                        # Drain async postprocessor (if exists)
+                        if len(ctx.output_queue) > 0:
+                            self._process_model_outputs(ctx=ctx)
+                        assert len(ctx.output_queue) == 0
+                    step_outputs = ctx.request_outputs
                 else:
                     # Multi-step case
-                    return ctx.request_outputs
-
-                if not self.has_unfinished_requests():
-                    # Drain async postprocessor (if exists)
-                    if len(ctx.output_queue) > 0:
-                        self._process_model_outputs(ctx=ctx)
-                    assert len(ctx.output_queue) == 0
-                step_outputs = ctx.request_outputs
+                    step_outputs = ctx.request_outputs
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
         done = 0
@@ -782,44 +846,48 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                 )
                 output = self.worker.execute_model(execute_model_req=execute_model_req)
             else:
-                # For llm_engine, there is no pipeline parallel support, so the engine
-                # used is always 0.
-                virtual_engine = 0
+                if len(data) > 0:
+                    # For llm_engine, there is no pipeline parallel support, so the engine
+                    # used is always 0.
+                    virtual_engine = 0
 
-                # These are cached outputs from previous iterations. None if on first
-                # iteration
-                seq_group_metadata_list = data["seq_group_metadata_list"]
-                allow_async_output_proc = False
+                    # These are cached outputs from previous iterations. None if on first
+                    # iteration
+                    seq_group_metadata_list = data["seq_group_metadata_list"]
+                    allow_async_output_proc = False
 
-                assert seq_group_metadata_list is not None
-                finished_requests_ids = data["finished_requests_ids"]
+                    assert seq_group_metadata_list is not None
+                    finished_requests_ids = data["finished_requests_ids"]
 
-                # Check if we have a cached last_output from the previous iteration.
-                # For supporting PP this is probably the best way to pass the
-                # sampled_token_ids, as a separate broadcast over all the PP stages
-                # will cause one virtual engine's microbatch to block the pipeline.
-                last_sampled_token_ids = None
+                    # Check if we have a cached last_output from the previous iteration.
+                    # For supporting PP this is probably the best way to pass the
+                    # sampled_token_ids, as a separate broadcast over all the PP stages
+                    # will cause one virtual engine's microbatch to block the pipeline.
+                    last_sampled_token_ids = None
 
-                execute_model_req = ExecuteModelRequest(
-                    seq_group_metadata_list=seq_group_metadata_list,
-                    blocks_to_swap_in=data["blocks_to_swap_in"],
-                    blocks_to_swap_out=data["blocks_to_swap_out"],
-                    blocks_to_copy=data["blocks_to_copy"],
-                    num_lookahead_slots=data["num_lookahead_slots"],
-                    running_queue_size=data["running_queue_size"],
-                    finished_requests_ids=finished_requests_ids,
-                    # We use ExecuteModelRequest to pass the last sampled_token_ids
-                    # to each of the non-last PP stages for in-place prepare_input.
-                    last_sampled_token_ids=last_sampled_token_ids)
+                    execute_model_req = ExecuteModelRequest(
+                        seq_group_metadata_list=seq_group_metadata_list,
+                        blocks_to_swap_in=data["blocks_to_swap_in"],
+                        blocks_to_swap_out=data["blocks_to_swap_out"],
+                        blocks_to_copy=data["blocks_to_copy"],
+                        num_lookahead_slots=data["num_lookahead_slots"],
+                        running_queue_size=data["running_queue_size"],
+                        finished_requests_ids=finished_requests_ids,
+                        # We use ExecuteModelRequest to pass the last sampled_token_ids
+                        # to each of the non-last PP stages for in-place prepare_input.
+                        last_sampled_token_ids=last_sampled_token_ids)
 
-                if allow_async_output_proc:
-                    execute_model_req.async_callback = self.async_callbacks[
-                        virtual_engine]
-                output = self.worker.execute_model(execute_model_req=execute_model_req)
+                    if allow_async_output_proc:
+                        execute_model_req.async_callback = self.async_callbacks[
+                            virtual_engine]
+                    output = self.worker.execute_model(execute_model_req=execute_model_req)
+                else:
+                    # No outputs in this case
+                    output = []
         else:
             raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
 
-        if hasattr(self, "scheduler_outputs"):
+        if self.is_last_rank() and hasattr(self, "scheduler_outputs"):
             return self.process_model_outputs(output, seq_group_metadata_list=data["seq_group_metadata_list"])
 
         return output
