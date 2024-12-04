@@ -156,19 +156,19 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts_from_hep(self, name, params_to_sync, comm_group):
+    def alltoall_routed_experts_from_hep(self, name, params_to_sync, comm_group):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
         Thus, the function will all-gather across EP size * TP size routed experts and slice
         them to TP size partitions.
         """
-        if self.sync_map._to_regroup_routed_experts_dict is None:
+        if self.sync_map._to_alltoall_routed_experts_dict is None:
             return params_to_sync
 
-        to_regroup_routed_experts_dict = self.sync_map._to_regroup_routed_experts_dict
-        layer_re = to_regroup_routed_experts_dict["layer_re"]
-        to_regroup_modules_list = to_regroup_routed_experts_dict["modules"]
+        to_alltoall_routed_experts_dict = self.sync_map._to_alltoall_routed_experts_dict
+        layer_re = to_alltoall_routed_experts_dict["layer_re"]
+        to_regroup_modules_list = to_alltoall_routed_experts_dict["modules"]
 
         m = layer_re.match(name)
         if m is None:
@@ -228,10 +228,10 @@ class MegatronVllmSync(BaseSync):
         else:
             return params_to_sync, False
 
-    def allgather_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
+    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.allgather_routed_experts_from_hep(name, params_to_sync, comm_group)
+            return self.alltoall_routed_experts_from_hep(name, params_to_sync, comm_group)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
