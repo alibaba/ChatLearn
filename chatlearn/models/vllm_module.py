@@ -600,14 +600,14 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         :meta private:
         """
-        return self._num_replica
+        return 1
 
     @property
     def data_parallel_rank(self):
         """
         :meta private:
         """
-        return self.replica_id
+        return 0
 
     def tensor_parallel_rank(self):
         """
