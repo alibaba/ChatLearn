@@ -108,6 +108,11 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             self.set_vllm_pp_layer_partition()
 
+        if self.model_args.get("apply_replica_id_as_seed", True):
+            seed = self.model_args.get("seed", 0) + self.replica_id
+        else:
+            seed = self.model_args.get("seed", 0)
+
         engine_args = EngineArgs(
             model=self.model_args.get("tokenizer"),
             tokenizer=self.model_args.get("tokenizer"),
@@ -119,7 +124,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             quantization=self.model_args.get("quantization", None),
             revision=self.model_args.get("revision", None),
             tokenizer_revision=self.model_args.get("tokenizer_revision", None),
-            seed=self.model_args.get("seed", 0) + self.replica_id,
+            seed=seed,
             gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
             block_size=self.model_args.get("block_size"),
             swap_space=self.model_args.get("swap_space"),
