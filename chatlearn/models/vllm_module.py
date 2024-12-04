@@ -119,7 +119,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             quantization=self.model_args.get("quantization", None),
             revision=self.model_args.get("revision", None),
             tokenizer_revision=self.model_args.get("tokenizer_revision", None),
-            seed=self.model_args.get("seed", 0),
+            seed=self.model_args.get("seed", 0) + self.replica_id,
             gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
             block_size=self.model_args.get("block_size"),
             swap_space=self.model_args.get("swap_space"),
@@ -595,14 +595,14 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         :meta private:
         """
-        return 1
+        return self._num_replica
 
     @property
     def data_parallel_rank(self):
         """
         :meta private:
         """
-        return 0
+        return self.replica_id
 
     def tensor_parallel_rank(self):
         """
