@@ -737,7 +737,7 @@ class ParameterSyncGroup:
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor, param_group), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
-        logger.info(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
+        logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         if self.synchronizer.is_parameter_changed:
             refs = []
@@ -1352,24 +1352,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad,
-                    filter_fn=self.routed_experts_filter,
-                    param_group="routed"
-                )
-                self.clear_cache(
-                    sorted_send_actors_list=[],
-                    rank_mapping_list=actor_mappings_list
-                )
-
-                self._multi_thread_sync_for_tp_num_mapping_gt_1(
-                    send_actors_list,
-                    actor_mappings_list,
-                    requires_grad=requires_grad,
-                    filter_fn=self.params_except_routed_expert_filter,
-                    param_group="except_routed"
-                )
-                self.clear_cache(
-                    sorted_send_actors_list=[],
-                    rank_mapping_list=actor_mappings_list
                 )
         else:
             raise NotImplementedError(

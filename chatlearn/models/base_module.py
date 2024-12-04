@@ -814,11 +814,11 @@ class BaseModule:
                 idx = 0
                 for name, param in parameters_to_sync[pipe_stage]:
                     value = self._sync_buffer[buffer_rank % self.tp_num_mapping][idx].cuda() # restore from cpu
-                    self._logger.info(
+                    self._logger.debug(
                         f"Adding {name}({value.shape}) to sync for if branch from "
                         f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
                     )
-                    self._logger.info(
+                    self._logger.debug(
                         f"len(sync_buffer) = {len(self._sync_buffer)}, {buffer_rank % self.tp_num_mapping}, "
                         f"len(sync_buffer[x]) = {len(self._sync_buffer[buffer_rank % self.tp_num_mapping])}, {idx}"
                     )
@@ -839,7 +839,6 @@ class BaseModule:
                     else:
                         if self._expert_sync_buffer and name in self._expert_sync_buffer:
                             param_data = self._expert_sync_buffer[name]
-                            del param
                             regroup_routed_experts = True # For Qwen2vLLM
                         else:
                             regroup_routed_experts = False # For Qwen2Qwen with hep_num_mapping == 1
@@ -851,15 +850,16 @@ class BaseModule:
                             self._tp_division[name],
                             regroup_routed_experts
                         )
-                        # delete self._expert_sync_buffer[name] to save gpu mem
+                        # move self._expert_sync_buffer[name] to cpu mem to save gpu mem
                         if regroup_routed_experts and name in self._expert_sync_buffer:
+                            cpu_expert = self._expert_sync_buffer[name].cpu()
                             del self._expert_sync_buffer[name]
+                            self._expert_sync_buffer[name] = cpu_expert
                         buffer_num = 1
-                    self._logger.info(
+                    self._logger.debug(
                         f"Adding {name}({param_data.shape}) to sync for else branch from "
                         f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
                     yield param_data, buffer_num
-                    
 
         bucket_generator = bucket_tensors_two_stage_generator(
             tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
@@ -876,9 +876,12 @@ class BaseModule:
                     stage2=stage2, index=index)
                 if tensor_changed and not stage2:
                     for key, value in all_buffers.items():
+                        cpu_value = []
                         for i, _ in enumerate(value):
-                            value[i] = value[i].cpu() # save gpu memory
-                        self._sync_buffer[key] += value
+                            cpu_value.append(value[i].cpu()) # save gpu memory
+                        del value
+                        self._sync_buffer[key] += cpu_value
+                    del all_buffers
                 dense_bucket_num += 1
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
