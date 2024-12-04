@@ -17,7 +17,6 @@
 from abc import abstractmethod
 import operator
 from functools import reduce
-import ray.util.collective as col
 import torch
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
@@ -157,7 +156,7 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, comm_group):
+    def allgather_routed_experts_from_hep(self, name, params_to_sync, comm_group):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
@@ -229,10 +228,10 @@ class MegatronVllmSync(BaseSync):
         else:
             return params_to_sync, False
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, comm_group): # pylint: disable=unused-argument
+    def allgather_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, comm_group)
+            return self.allgather_routed_experts_from_hep(name, params_to_sync, comm_group)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
