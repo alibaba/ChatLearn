@@ -877,8 +877,8 @@ class BaseModule:
                 if tensor_changed and not stage2:
                     for key, value in all_buffers.items():
                         cpu_value = []
-                        for i, _ in enumerate(value):
-                            cpu_value.append(value[i].cpu()) # save gpu memory
+                        for tensor in value:
+                            cpu_value.append(tensor.cpu()) # save gpu memory
                         del value
                         self._sync_buffer[key] += cpu_value
                     del all_buffers
