@@ -108,7 +108,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             self.set_vllm_pp_layer_partition()
 
-        if self.model_args.get("apply_replica_id_as_seed", True):
+        if self.model_args.get("apply_replica_id_to_seed", True):
             seed = self.model_args.get("seed", 0) + self.replica_id
         else:
             seed = self.model_args.get("seed", 0)
