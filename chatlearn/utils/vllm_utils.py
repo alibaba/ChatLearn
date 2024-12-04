@@ -146,6 +146,10 @@ class ParameterSyncMap:
         return self._to_fix_shared_expert_ordering
 
     @property
+    def to_allgather_roututed_experts_dict(self):
+        return self._to_allgather_routed_experts_dict
+
+    @property
     def to_alltoall_roututed_experts_dict(self):
         return self._to_alltoall_routed_experts_dict
 
@@ -195,6 +199,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
+        self._to_allgather_routed_experts_dict = None
         self._to_alltoall_routed_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
@@ -283,6 +288,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
+        self._to_allgather_routed_experts_dict = None
         self._to_alltoall_routed_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
@@ -418,6 +424,13 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             "modules": [
                 "attention.query_key_value",
                 "self_attention.query_key_value"
+            ],
+            "layer_re": self.layer_re
+        }
+        self._to_allgather_routed_experts_dict = {
+            "modules": [
+                "mlp.experts.dense_h_to_4h",
+                "mlp.experts.dense_4h_to_h",
             ],
             "layer_re": self.layer_re
         }
