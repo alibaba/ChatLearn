@@ -199,6 +199,7 @@ def test_hep_tp_vllm_tp_dst_ep1_tp4_pp1_src_ep1_tp4_pp1():
     alltoall_actors = param_sync_group.send_actors_to_alltoall_routed_experts
     actor2rank = param_sync_group.actor2rank
 
+    assert not param_sync_group.send_actors_to_allgather_routed_experts
     assert len(alltoall_actors) == 2
     assert len(alltoall_actors[0]) == 4 # prev 4 src ranks should all-to-all routed experts
     assert len(alltoall_actors[1]) == 4 # last 4 src ranks should all-to-all routed experts
