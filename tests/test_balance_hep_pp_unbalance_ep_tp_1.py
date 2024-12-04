@@ -274,9 +274,10 @@ actor2rank = param_sync_group.actor2rank
 
 # test for actors to create_group_experts_regrouping
 send_actors = []
-for actors in param_sync_group.send_actors_to_alltoall_routed_experts:
+for actors in param_sync_group.send_actors_to_allgather_routed_experts:
     send_actors.append([actor2rank[actor] for actor in actors])
 assert send_actors == [[4, 5, 6, 7], [0, 1, 2, 3]]
+assert not param_sync_group.send_actors_to_alltoall_routed_experts
 
 # Judge routed experts and parameters except routed experts
 comm_pair_routed_experts = []
