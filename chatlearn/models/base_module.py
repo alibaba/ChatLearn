@@ -703,7 +703,7 @@ class BaseModule:
                         name,
                         param.data,
                         self.tensor_model_parallel_size(),
-                        self._tp_division[name], 
+                        self._tp_division[name],
                         regroup_routed_experts
                     )
                 if to_cpu:
