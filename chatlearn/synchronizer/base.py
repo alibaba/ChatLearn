@@ -49,7 +49,13 @@ class BaseSync:
         """
         allgather routed expert params 
         """
-        return params_to_sync
+        return params_to_sync, False
+
+    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
+        """
+        alltoall routed expert params
+        """
+        return params_to_sync, False
 
     def transform_parameters(self, params_to_sync_list):
         """
