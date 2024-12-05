@@ -164,7 +164,7 @@ class MegatronVllmSync(BaseSync):
         Thus, the function will all-gather across EP size * TP size routed experts.
         """
         if self.sync_map._to_allgather_routed_experts_dict is None:
-            return params_to_sync
+            return params_to_sync, False
 
         to_allgather_routed_experts_dict = self.sync_map._to_allgather_routed_experts_dict
         layer_re = to_allgather_routed_experts_dict["layer_re"]
@@ -237,7 +237,7 @@ class MegatronVllmSync(BaseSync):
         Thus, the function will all-to-all across EP size * TP size routed experts.
         """
         if self.sync_map._to_alltoall_routed_experts_dict is None:
-            return params_to_sync
+            return params_to_sync, False
 
         to_alltoall_routed_experts_dict = self.sync_map._to_alltoall_routed_experts_dict
         layer_re = to_alltoall_routed_experts_dict["layer_re"]
