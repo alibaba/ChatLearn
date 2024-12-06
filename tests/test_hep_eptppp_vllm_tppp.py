@@ -15,7 +15,7 @@
 """
 Test:
 1. trainer_tp = inference_tp
-2. trainer_pp > inference_pp
+2. trainer_pp = inference_pp
 2. trainer_ep > 1 while inference_ep = 1
 3. HEP is enabled for trainer but disabled for inference.
 
