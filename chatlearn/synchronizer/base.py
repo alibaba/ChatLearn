@@ -45,11 +45,11 @@ class BaseSync:
         """
         return src_names, dst_names
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
+    def regroup_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
         """
         allgather routed expert params 
         """
-        return params_to_sync
+        return params_to_sync, False
 
     def transform_parameters(self, params_to_sync_list):
         """
@@ -57,7 +57,7 @@ class BaseSync:
         """
         return params_to_sync_list
 
-    def regroup_params_to_sync(self, name, param_data, tp_division):
+    def regroup_params_to_sync(self, name, param_data, tp_division, regroup_routed_experts=False):
         """
         :meta private:
         """
@@ -87,7 +87,7 @@ class BaseSync:
                 start = idx * col_offset
                 end =  start + col_offset
                 param_data_list.append(param_data[:,start:end])
-            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+            param_data = torch.concat(param_data_list, dim=0).contiguous().view(param_data_shape)
             del param_data_list
         if (
             "mlp.dense_h_to_4h" in name
@@ -104,7 +104,32 @@ class BaseSync:
                 w2_end = w2_start + row_offset
                 param_data_list.append(
                     torch.concat([param_data[w1_start:w1_end,:], param_data[w2_start:w2_end,:]], dim=0))
-            param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
+            param_data = torch.concat(param_data_list, dim=0).contiguous().view(param_data_shape)
             del param_data_list
+
+        #   src -> dst: src_tp_size * [e, h, w] -> dst_tp_size * [e, h, w // tp_division]
+        #       'mlp.experts.dense_4h_to_h' in QWen-MoE model when training with QWen+vLLM
+        #   src -> dst: src_tp_size * [e, w, h] -> dst_tp_size * [e, w // tp_division, h]
+        #       'mlp.experts.dense_h_to_4h in QWen-MoE model when training with QWen+vLLM
+        if regroup_routed_experts:
+            if "mlp.experts.dense_4h_to_h" in name:
+                param_data_list = []
+                height_offset = param_data_shape[2] // tp_division
+                for height_idx in range(tp_division):
+                    height_start = height_idx * height_offset
+                    height_end = height_start + height_offset
+                    param_data_list.append(param_data[:, :, height_start:height_end])
+                param_data = torch.concat(param_data_list, dim=0).contiguous().view(param_data_shape)
+                del param_data_list
+            elif "mlp.experts.dense_h_to_4h" in name:
+                param_data_list = []
+                param_data = param_data.reshape(param_data_shape[0] * 2, -1, param_data_shape[2])
+                col_offset = param_data.shape[1] // tp_division
+                for idx in range(tp_division):
+                    start = idx * col_offset
+                    end = start + col_offset
+                    param_data_list.append(param_data[:, start:end, :])
+                param_data = torch.concat(param_data_list, dim=0).contiguous().view(param_data_shape)
+                del param_data_list
 
         return param_data

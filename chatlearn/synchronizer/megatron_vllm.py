@@ -157,18 +157,19 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts_from_hep(self, name, params_to_sync, group_name, tp_rank):
+    def regroup_routed_experts_from_hep(self, name, params_to_sync, group_name, tp_rank):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
-        Thus, the function will all-gather across EP size * TP size routed experts.
+        Thus, the function will all-gather across EP size * TP size routed experts and slice
+        them to TP size partitions.
         """
-        if self.sync_map._to_allgather_routed_experts_dict is None:
+        if self.sync_map._to_regroup_routed_experts_dict is None:
             return params_to_sync
 
-        to_allgather_routed_experts_dict = self.sync_map._to_allgather_routed_experts_dict
-        layer_re = to_allgather_routed_experts_dict["layer_re"]
-        to_regroup_modules_list = to_allgather_routed_experts_dict["modules"]
+        to_regroup_routed_experts_dict = self.sync_map._to_regroup_routed_experts_dict
+        layer_re = to_regroup_routed_experts_dict["layer_re"]
+        to_regroup_modules_list = to_regroup_routed_experts_dict["modules"]
 
         m = layer_re.match(name)
         if m is None:
@@ -220,10 +221,10 @@ class MegatronVllmSync(BaseSync):
         else:
             return params_to_sync, False
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
+    def regroup_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.allgather_routed_experts_from_hep(name, params_to_sync, group_name, tp_rank)
+            return self.regroup_routed_experts_from_hep(name, params_to_sync, group_name, tp_rank)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-gathering routed experts for Megatron-LM, but supports QWen with HEP enabled. "
@@ -300,9 +301,9 @@ class MegatronVllmSync(BaseSync):
                     del param_data_list
         return param_data
 
-    def regroup_params_to_sync(self, name, param_data, tp_division):
+    def regroup_params_to_sync(self, name, param_data, tp_division, regroup_routed_experts=False):
         param_data = self.regroup_qkv_tp_slices(name, param_data, tp_division)
-        return super().regroup_params_to_sync(name, param_data, tp_division)
+        return super().regroup_params_to_sync(name, param_data, tp_division, regroup_routed_experts)
 
 class MegatronVllmQWenSync(MegatronVllmSync):
     """qwen"""

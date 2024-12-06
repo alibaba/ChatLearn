@@ -50,6 +50,7 @@ class ParameterSyncGroup:
         self.send_recv_actor_mappings_stage2 = defaultdict(list)
         self.recv_send_actor_mappings_stage2 = defaultdict(list)
         self.actor2rank = {}
+        self.actor2model = {}
         self._debug = get_args().runtime_args.debug
         self._num_src_pipeline_stage = None
         self._num_dst_pipeline_stage = None
@@ -185,6 +186,10 @@ class ParameterSyncGroup:
         if actor not in self.actor2rank:
             self.actor2rank[actor] = rank
 
+    def insert_actor2model(self, actor, model):
+        if actor not in self.actor2model:
+            self.actor2model[actor] = model
+
     def add_allgather_actor(self, model, ranks_group: List):
         for replica_ranks_group in ranks_group:
             if isinstance(replica_ranks_group[0], list):
@@ -192,16 +197,24 @@ class ParameterSyncGroup:
                     for rank in tp_ranks:
                         actor = model.get_actor(rank)
                         self.insert_actor2rank(actor, rank)
+                        self.insert_actor2model(actor, model)
             else:
                 for rank in replica_ranks_group:
                     actor = model.get_actor(rank)
                     self.insert_actor2rank(actor, rank)
+                    self.insert_actor2model(actor, model)
+
+    # pylint: disable=unused-argument
+    def empty_add_recv_actor(self, src_rank, dst_rank):
+        return
 
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
         self.insert_actor2rank(src_actor, src_rank)
+        self.insert_actor2model(src_actor, self.src_model)
         dst_actor = self.dst_model.get_actor(dst_rank)
         self.insert_actor2rank(dst_actor, dst_rank)
+        self.insert_actor2model(dst_actor, self.dst_model)
 
         src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
         dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
@@ -220,9 +233,11 @@ class ParameterSyncGroup:
 
     def add_recv_actor_stage2(self, src_rank, dst_rank):
         src_actor = self.dst_model.get_actor(src_rank)
-        self.actor2rank[src_actor] = src_rank
+        self.insert_actor2rank(src_actor, src_rank)
+        self.insert_actor2model(src_actor, self.dst_model) # stage 2 sends from dst_model to dst_model
         dst_actor = self.dst_model.get_actor(dst_rank)
-        self.actor2rank[dst_actor] = dst_rank
+        self.insert_actor2rank(dst_actor, dst_rank)
+        self.insert_actor2model(dst_actor, self.dst_model)
 
         src_gpu = future.get(src_actor.get_visible_gpus.remote())
         dst_gpu = future.get(dst_actor.get_visible_gpus.remote())
@@ -399,6 +414,18 @@ class ParameterSyncGroup:
                 for s_idx, src_rank in enumerate(src_tp_group):
                     offset = s_idx * self.tp_num_mapping + start
                     dst_rank = dst_replica_ranks_group[j][offset]
+                    # to avoid gpu collision. Performance may be affected because multiple sends could
+                    # correspond to a single receive in some rare cases, leading to a bandwidth bottleneck.
+                    src_actor = self.src_model.get_actor(src_rank)
+                    dst_actor = self.dst_model.get_actor(dst_rank)
+                    if self.is_same_gpu(src_actor, dst_actor):
+                        logger.warning(
+                            f"ChatLearn detects that src_rank:{src_rank} and dst_rank:{dst_rank} shares the same cuda device. "
+                            "The behavior is not allowed in NCCL. Thus, ChatLearn switches the dst_rank to the next legal one. "
+                            "However, it may cause performance issue when multiple source ranks correspond to a single dest rank."
+                        )
+                        offset = s_idx * self.tp_num_mapping + (start + 1) % self.tp_num_mapping
+                        dst_rank = dst_replica_ranks_group[j][offset]
                     add_recv_actor_stage1_fn(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
 
@@ -609,6 +636,7 @@ class ParameterSyncGroup:
 
     def sync_allgather(self, actors, group_name, requires_grad=None, filter_fn=None):
         for actor in actors:
+            # Currently, only routed experts are to be all-gathered.
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
@@ -705,8 +733,9 @@ class ParameterSyncGroup:
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
-        if param_group != "routed" and self.tp_num_mapping > 1:
-            key = (recv_actor, recv_actor)
+        dst_model = self.actor2model[recv_actor]
+        if self.tp_num_mapping > 1 and ((not dst_model.use_vllm_backend and param_group != "routed") or dst_model.use_vllm_backend):
+            key = (recv_actor, recv_actor, param_group)
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = (dst_names, dst_names)
             else:
@@ -722,7 +751,7 @@ class ParameterSyncGroup:
         return src_names, dst_names
 
     def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True):
-        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor), \
+        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor, param_group), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
@@ -863,20 +892,50 @@ class ParameterSyncGroup:
             self.collective_groups = []
 
     def check_and_fuse_lora(self, enable_lora, actor_mapping):
-        assert isinstance(actor_mapping, Dict)
-        for send_actor in actor_mapping:
-            if enable_lora:
-                ref = send_actor.fuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check fuse lora layer fail."
+        send_actors_set = set()
+
+        def check_and_fuse_lora_internal(actor_mapping_item):
+            for send_actor in actor_mapping_item:
+                if enable_lora and send_actor not in send_actors_set:
+                    ref = send_actor.fuse_lora_layer.remote()
+                    state = future.get([ref])
+                    assert state, "Check fuse lora layer fail."
+                    send_actors_set.add(send_actor)
+
+        if isinstance(actor_mapping, List):
+            for actor_mapping_item in actor_mapping:
+                if actor_mapping_item is None:
+                    continue
+                check_and_fuse_lora_internal(actor_mapping_item)
+        elif isinstance(actor_mapping, Dict):
+            if actor_mapping is None:
+                return
+            check_and_fuse_lora_internal(actor_mapping)
+        else:
+            raise ValueError("unrecognized type for actor_mapping, expect: List or Dict")
 
     def check_and_unfuse_lora(self, enable_lora, actor_mapping):
-        assert isinstance(actor_mapping, Dict)
-        for send_actor in actor_mapping:
-            if self._enable_lora:
-                ref = send_actor.unfuse_lora_layer.remote()
-                state = future.get([ref])
-                assert state, "Check unfuse lora layer fail."
+        send_actors_set = set()
+
+        def check_and_unfuse_lora_internal(actor_mapping_item):
+            for send_actor in actor_mapping_item:
+                if self._enable_lora and send_actor not in send_actors_set:
+                    ref = send_actor.unfuse_lora_layer.remote()
+                    state = future.get([ref])
+                    assert state, "Check unfuse lora layer fail."
+                    send_actors_set.add(send_actor)
+
+        if isinstance(actor_mapping, List):
+            for actor_mapping_item in actor_mapping:
+                if actor_mapping_item is None:
+                    continue
+                check_and_unfuse_lora_internal(actor_mapping_item)
+        elif isinstance(actor_mapping, Dict):
+            if actor_mapping is None:
+                return
+            check_and_unfuse_lora_internal(actor_mapping)
+        else:
+            raise ValueError("unrecognized type for actor_mapping, expect: List or Dict")
 
     def validate_sync_results_parallel(self, actor_mappings_list:List, requires_grad=None, validate=False, filter_fn=None, param_group="default"):
         if self._debug or validate:
@@ -1066,8 +1125,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     self.build_rank_mapping()
                 else:
                     self.build_rank_mapping_for_ep()
+            elif self.tp_num_mapping > 1:
+                self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
+                self.build_rank_mapping_two_stage()
             else:
-                raise NotImplementedError("ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same.")
+                raise NotImplementedError(
+                    f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
+                    f"to smaller tp size ({self.num_dst_tensor_parallel}) currently."
+                )
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 self.build_rank_mapping()
@@ -1123,42 +1188,59 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 is_first_time_set_send_actors = False
 
             src_replica_ranks_group = split_ranks_by_ep_and_tp_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
+            # Since dst replica is vllm and it doesn't have ep, the function will organize dst_replica_ranks_group as [pp[tp]] naturally.
             dst_replica_ranks_group = split_ranks_by_ep_and_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
 
             if is_first_time_set_send_actors:
                 self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
                 self.add_allgather_actor(self.src_model, src_replica_ranks_group)
 
+            if add_recv_actor_fn is self.empty_add_recv_actor:
+                continue
+
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_ep_and_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
-                src_tp_group = src_ep_and_tp_group[src_replica_ranks2offset[tuple(src_replica_ranks)]]
-                # dst_replica does not have ep currently, so we extract from dst_replica_ranks_group[0]
-                if len(dst_replica_ranks_group) > 1:
-                    raise NotImplementedError("ChatLearn does not support expert parallel for inference/generation currently.")
-                assert len(src_tp_group) == len(dst_replica_ranks_group[0][j]), (
-                    "expect the length of send_ranks and recv_ranks being the same, "
-                    f"got {len(src_tp_group)} and {len(dst_replica_ranks_group[0][j])}"
+                first_src_tp_group = src_ep_and_tp_group[0]
+                assert len(dst_replica_ranks_group[j][0]) % len(first_src_tp_group) == 0, (
+                    "TP size of dst model should be times of src model, "
+                    f"but got {len(dst_replica_ranks_group[j][0])} and {len(first_src_tp_group)}"
                 )
-                for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[0][j]):
+                len_dst_div_src = len(dst_replica_ranks_group[j][0]) // len(first_src_tp_group)
+                concated_src_tp_group = []
+                offset = src_replica_ranks2offset[tuple(src_replica_ranks)]
+                # cycled concatenate src tp group to ensure len(concat_src_tp_group) == len(dst_replica_ranks_group[j][0])
+                for k in range(len_dst_div_src):
+                    concated_src_tp_group.extend(src_ep_and_tp_group[int((offset + k) % len(src_ep_and_tp_group))])
+                for src_rank, dst_rank in zip(concated_src_tp_group, dst_replica_ranks_group[j][0]):
                     add_recv_actor_fn(src_rank, dst_rank)
                 src_replica_ranks2offset[tuple(src_replica_ranks)] = int(
-                    (src_replica_ranks2offset[tuple(src_replica_ranks)] + 1) % len(src_ep_and_tp_group)
+                    (src_replica_ranks2offset[tuple(src_replica_ranks)] + len_dst_div_src) % len(src_ep_and_tp_group)
                 )
 
         if self._debug:
-            for k, v_list in self.send_recv_actor_mappings.items():
-                for v in v_list:
-                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+            def debug_msg_for_actor_mappings(actor_mapping):
+                if actor_mapping is None:
+                    return
+
+                for k, v_list in actor_mapping.items():
+                    for v in v_list:
+                        logger.debug(f"actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+
+            debug_msg_for_actor_mappings(self.send_recv_actor_mappings)
+            debug_msg_for_actor_mappings(self.send_recv_actor_mappings_for_routed_experts)
+
             for allgather_actors in self.send_actors_to_allgather_routed_experts:
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
                 logger.debug(f"allgather actors: {cat_str}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
-        self.actor2rank[src_actor] = src_rank
+        self.insert_actor2rank(src_actor, src_rank)
+        self.insert_actor2model(src_actor, self.src_model)
         dst_actor = self.dst_model.get_actor(dst_rank)
-        self.actor2rank[dst_actor] = dst_rank
+        self.insert_actor2rank(dst_actor, dst_rank)
+        self.insert_actor2model(dst_actor, self.dst_model)
 
         src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
         dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
@@ -1231,13 +1313,20 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     def _synchronize_all_moe_parameters(self, requires_grad=None, validate=False):
         self.check_and_setup_collective_group()
 
-        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+        send_actors_list : List = [
+            self.sorted_send_actors,
+            self.sorted_send_actors_stage2
+        ]
+        actor_mappings_list : List = [
+            self.send_recv_actor_mappings,
+            self.send_recv_actor_mappings_stage2,
+            self.send_actors_to_allgather_routed_experts,
+        ]
 
-        send_actors_list : List = []
-        actor_mappings_list : List = []
+        self.check_and_fuse_lora(self._enable_lora, actor_mappings_list)
+
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
-            assert self.tp_num_mapping == 1
 
             # allgather routed experts only
             send_actors_to_allgather_routed_experts = [self.send_actors_to_allgather_routed_experts]
@@ -1249,23 +1338,38 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 filter_fn=self.routed_experts_filter)
 
             # sync everything to inference model
-            send_actors_list = [self.sorted_send_actors]
-            actor_mappings_list = [self.send_recv_actor_mappings]
-            self._multi_thread_sync_for_tp_num_mapping_eq_1(
-                send_actors_list,
-                actor_mappings_list,
-                requires_grad=requires_grad,
-                filter_fn=None,
-                param_group="default"
-            )
+            if self.tp_num_mapping == 1:
+                send_actors_list = [self.sorted_send_actors]
+                actor_mappings_list = [self.send_recv_actor_mappings]
+                self._multi_thread_sync_for_tp_num_mapping_eq_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=None,
+                    param_group="default"
+                )
+            elif self.tp_num_mapping > 1:
+                send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+                actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                self._multi_thread_sync_for_tp_num_mapping_gt_1(
+                    send_actors_list,
+                    actor_mappings_list,
+                    requires_grad=requires_grad,
+                    filter_fn=None,
+                    param_group="default"
+                )
+            else:
+                raise NotImplementedError(
+                    f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
+                    f"to smaller tp size ({self.num_dst_tensor_parallel}) currently."
+                )
+
         else:
             raise NotImplementedError(
-                "for models with HEP enabled, ChatLearn supports concurrent_comm only"
+                "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
             )
 
-        assert len(actor_mappings_list) == 1
-
-        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+        self.check_and_unfuse_lora(self._enable_lora, actor_mappings_list)
 
         self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
 
@@ -1274,10 +1378,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def _synchronize_routed_experts(self, requires_grad=None, validate=False):
-        assert self.hep_num_mapping == 1, (
-            "Currently, _synchronize_routed_experts requires EP x TP for src model is equal to that for dst model"
-        )
-
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
@@ -1371,13 +1471,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def sync(self, requires_grad=None, validate=False):
         if self.dst_model.use_vllm_backend:
-            if self.tp_num_mapping == 1:
-                self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
-                return
-            else:
-                raise NotImplementedError(
-                    "ChatLearn cannot synchronize Qwen parameters to vLLM parameters currently when TP sizes are not the same."
-                )
+            self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 # synchronization is the same as base class when applying Qwen + Qwen
