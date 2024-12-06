@@ -819,10 +819,6 @@ class BaseModule:
                         f"Adding {name}({value.shape}) to sync for if branch from "
                         f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
                     )
-                    self._logger.debug(
-                        f"len(sync_buffer) = {len(self._sync_buffer)}, {buffer_rank % self.tp_num_mapping}, "
-                        f"len(sync_buffer[x]) = {len(self._sync_buffer[buffer_rank % self.tp_num_mapping])}, {idx}"
-                    )
                     buffer_num = 1
                     idx += 1
                     yield value, buffer_num
@@ -858,7 +854,8 @@ class BaseModule:
                         buffer_num = 1
                     self._logger.debug(
                         f"Adding {name}({param_data.shape}) to sync for else branch from "
-                        f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}")
+                        f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
+                    )
                     yield param_data, buffer_num
 
         bucket_generator = bucket_tensors_two_stage_generator(
@@ -887,7 +884,7 @@ class BaseModule:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
 
-        log_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
+        debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
         self.empty_cache()
 

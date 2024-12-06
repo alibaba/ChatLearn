@@ -829,53 +829,36 @@ class ParameterSyncGroup:
     def sync_broadcast_multi_threads(
         self, sorted_send_actors, send_recv_actor_mappings, max_workers=1, requires_grad=None,
         group_name=None, stage2=False, filter_fn=None, param_group="default"):
-        for send_actor in sorted_send_actors:
-            recv_actors = send_recv_actor_mappings[send_actor]
-            if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                if stage2:
-                    for idx, recv_actor in enumerate(recv_actors):
-                        group_name_with_idx = f"{group_name}_{idx}"
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for send_actor in sorted_send_actors:
+                recv_actors = send_recv_actor_mappings[send_actor]
+                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                    if stage2:
+                        for idx, recv_actor in enumerate(recv_actors):
+                            group_name_with_idx = f"{group_name}_{idx}"
+                            actor_groups, finalized_group_name = self.create_broadcast_group(
+                                send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+                            )
+                            futures.append(executor.submit(
+                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
+                            ))
+                    else:
                         actor_groups, finalized_group_name = self.create_broadcast_group(
-                            send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+                            send_actor, recv_actors, group_name=group_name, param_group=param_group
                         )
-                        self.sync_broadcast_two_stage(actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group)
+                        futures.append(executor.submit(
+                            self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
+                        ))
                 else:
-                    actor_groups, finalized_group_name = self.create_broadcast_group(
-                        send_actor, recv_actors, group_name=group_name, param_group=param_group
-                    )
-                    self.sync_broadcast_two_stage(actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group)
-            else:
-                raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
-        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        #     futures = []
-        #     for send_actor in sorted_send_actors:
-        #         recv_actors = send_recv_actor_mappings[send_actor]
-        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-        #             if stage2:
-        #                 for idx, recv_actor in enumerate(recv_actors):
-        #                     group_name_with_idx = f"{group_name}_{idx}"
-        #                     actor_groups, finalized_group_name = self.create_broadcast_group(
-        #                         send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
-        #                     )
-        #                     futures.append(executor.submit(
-        #                         self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
-        #                     ))
-        #             else:
-        #                 actor_groups, finalized_group_name = self.create_broadcast_group(
-        #                     send_actor, recv_actors, group_name=group_name, param_group=param_group
-        #                 )
-        #                 futures.append(executor.submit(
-        #                     self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
-        #                 ))
-        #         else:
-        #             raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
-        #     for _future in concurrent.futures.as_completed(futures):
-        #         try:
-        #             _future.result()
-        #         except Exception as e:
-        #             traceback.print_exc()
-        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-        #     concurrent.futures.wait(futures)
+                    raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    traceback.print_exc()
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
 
     def sync_allgather_multi_threads(
         self, send_actors, max_workers=1, requires_grad=None,
@@ -1211,6 +1194,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             if is_first_time_set_send_actors:
                 self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
                 self.add_allgather_actor(self.src_model, src_replica_ranks_group)
+
+            if add_recv_actor_fn is self.empty_add_recv_actor:
+                continue
 
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_ep_and_tp_group in enumerate(src_replica_ranks_group):
