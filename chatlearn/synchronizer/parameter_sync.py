@@ -1314,12 +1314,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self.check_and_setup_collective_group()
 
         send_actors_list : List = [
-            self.sorted_send_actors_for_routed_experts,
             self.sorted_send_actors,
             self.sorted_send_actors_stage2
         ]
         actor_mappings_list : List = [
-            self.send_recv_actor_mappings_for_routed_experts,
             self.send_recv_actor_mappings,
             self.send_recv_actor_mappings_stage2,
             self.send_actors_to_allgather_routed_experts,

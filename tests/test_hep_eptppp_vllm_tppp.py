@@ -20,7 +20,7 @@ Test:
 3. HEP is enabled for trainer but disabled for inference.
 
 Current test case: 
-(dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp) = (1, 2, 1, 2, 2, 2).
+(dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp) = (1, 4, 2, 2, 2, 2).
 """
 
 import os
@@ -110,7 +110,8 @@ class MockParameterSyncGroupwithHEP(ParameterSyncGroupwithHEP):
         self.ep_num_mapping = self.num_dst_expert_parallel / self.num_src_expert_parallel
         self.hep_num_mapping = self.num_dst_hyper_expert_parallel / self.num_src_hyper_expert_parallel
 
-        self.build_rank_mapping_for_ep()
+        self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor)
+        self.build_rank_mapping_two_stage()
 
 
 class PolicyModel(TestTorchModule):
@@ -124,23 +125,25 @@ class PolicyModel(TestTorchModule):
 
     @property
     def data_parallel_size(self):
-        return 4
+        return 1
 
     @property
     def data_parallel_rank(self):
-        return int(self._get_rank() // 2)
+        return 0
 
     def tensor_parallel_rank(self):
-        return int(self._get_rank() % 2)
+        return int(self._get_rank() % 4)
 
     def expert_parallel_rank(self):
         return 0
 
     def pipeline_parallel_rank(self):
-        return 0
+        if self._get_rank() < 4:
+            return 0
+        return 1
 
     def tensor_and_expert_model_parallel_size(self):
-        return 2
+        return 4
 
 
 class PPOPolicy(TestTorchModule):
@@ -167,9 +170,9 @@ class PPOPolicy(TestTorchModule):
     def tensor_and_expert_model_parallel_size(self):
         return 4
 
-def test_hep_eptppp_vllm_tp_dst_ep1_tp2_pp1_src_ep2_tp2_pp2():
+def test_hep_eptppp_vllm_tp_dst_ep1_tp4_pp2_src_ep2_tp2_pp2():
     # tuples: (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp)
-    tuples = (1, 2, 1,
+    tuples = (1, 4, 2,
               2, 2, 2)
 
     chatlearn.init()
@@ -216,19 +219,20 @@ def test_hep_eptppp_vllm_tp_dst_ep1_tp2_pp1_src_ep2_tp2_pp2():
     assert allgather_actor_ranks == [[0, 1, 2, 3], [4, 5, 6, 7]]
 
     # Judge src->dst rank mappings
-    comm_pairs = []
+    comm_pairs_for_except_routed_experts_stage1 = []
+    comm_pairs_for_except_routed_experts_stage2 = []
 
     for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings.items():
         for dst_rank in dst_ranks:
-            comm_pairs.append((actor2rank[src_rank], actor2rank[dst_rank]))
+            comm_pairs_for_except_routed_experts_stage1.append((actor2rank[src_rank], actor2rank[dst_rank]))
 
-    assert comm_pairs == [
-        (0, 8), (0, 10), (0, 12), (0, 14),
-        (1, 9), (1, 11), (1, 13), (1, 15),
-        (6, 8), (6, 10), (6, 12), (6, 14),
-        (7, 9), (7, 11), (7, 13), (7, 15)
-    ]
+    for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings_stage2.items():
+        for dst_rank in dst_ranks:
+            comm_pairs_for_except_routed_experts_stage2.append((actor2rank[src_rank], actor2rank[dst_rank]))
+
+    assert comm_pairs_for_except_routed_experts_stage1 == [(0, 8), (1, 10), (4, 13), (5, 15)]
+    assert comm_pairs_for_except_routed_experts_stage2 == [(8, 9), (10, 11), (13, 12), (15, 14)]
 
     print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
 
-test_hep_eptppp_vllm_tp_dst_ep1_tp2_pp1_src_ep2_tp2_pp2()
+test_hep_eptppp_vllm_tp_dst_ep1_tp4_pp2_src_ep2_tp2_pp2()

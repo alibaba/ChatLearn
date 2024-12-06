@@ -111,8 +111,8 @@ class MockParameterSyncGroupwithHEP(ParameterSyncGroupwithHEP):
         self.ep_num_mapping = self.num_dst_expert_parallel / self.num_src_expert_parallel
         self.hep_num_mapping = self.num_dst_hyper_expert_parallel / self.num_src_hyper_expert_parallel
 
-        self.build_rank_mapping_for_ep(add_recv_actor_fn=self.add_recv_actor_for_routed_experts)
-        self.build_rank_mapping_for_params_except_routed_expert()
+        self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor)
+        self.build_rank_mapping_two_stage()
 
 
 class PolicyModel(TestTorchModule):
@@ -216,13 +216,8 @@ def test_hep_ep_vllm_tp_dst_ep1_tp4_pp1_src_ep4_tp1_pp1():
     assert allgather_actor_ranks == [[4, 5, 6, 7], [0, 1, 2, 3]] # due to the cycled iterator when tp size == 1
 
     # Judge src->dst rank mappings
-    comm_pairs_for_routed_experts = []
     comm_pairs_for_except_routed_experts_stage1 = []
     comm_pairs_for_except_routed_experts_stage2 = []
-
-    for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings_for_routed_experts.items():
-        for dst_rank in dst_ranks:
-            comm_pairs_for_routed_experts.append((actor2rank[src_rank], actor2rank[dst_rank]))
     
     for src_rank, dst_ranks in param_sync_group.send_recv_actor_mappings.items():
         for dst_rank in dst_ranks:
@@ -232,10 +227,6 @@ def test_hep_ep_vllm_tp_dst_ep1_tp4_pp1_src_ep4_tp1_pp1():
         for dst_rank in dst_ranks:
             comm_pairs_for_except_routed_experts_stage2.append((actor2rank[src_rank], actor2rank[dst_rank]))
 
-    assert comm_pairs_for_routed_experts == [
-        (4, 8), (5, 9), (6, 10), (7, 11),
-        (0, 12), (1, 13), (2, 14), (3, 15)
-    ] # due to the cycled iterator when tp size == 1
     assert comm_pairs_for_except_routed_experts_stage1 == [(0, 8), (1, 12)]
     assert comm_pairs_for_except_routed_experts_stage2 == [
         (8, 9), (8, 10), (8, 11),
