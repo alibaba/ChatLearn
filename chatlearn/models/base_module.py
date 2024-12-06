@@ -840,7 +840,7 @@ class BaseModule:
                     else:
                         if self._expert_sync_buffer and name in self._expert_sync_buffer:
                             param_data = self._expert_sync_buffer[name]
-                            regroup_routed_experts = True # For routed experts in Qwen2vLLM 
+                            regroup_routed_experts = True # For routed experts in Qwen2vLLM
                         else:
                             regroup_routed_experts = False
                         # regroup src_tensor by tp_rank

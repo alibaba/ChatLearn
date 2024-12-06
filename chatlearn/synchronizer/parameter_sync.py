@@ -204,6 +204,7 @@ class ParameterSyncGroup:
                     self.insert_actor2rank(actor, rank)
                     self.insert_actor2model(actor, model)
 
+    # pylint: disable=unused-argument
     def empty_add_recv_actor(self, src_rank, dst_rank):
         return
 
