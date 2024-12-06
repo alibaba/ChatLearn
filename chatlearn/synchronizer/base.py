@@ -57,7 +57,7 @@ class BaseSync:
         """
         return params_to_sync_list
 
-    def regroup_params_to_sync(self, name, param_data, src_tp_size, tp_division, regroup_routed_experts=False):
+    def regroup_params_to_sync(self, name, param_data, tp_division, regroup_routed_experts=False):
         """
         :meta private:
         """
@@ -114,15 +114,11 @@ class BaseSync:
         if regroup_routed_experts:
             if "mlp.experts.dense_4h_to_h" in name:
                 param_data_list = []
-                row_offset = param_data_shape[0] // src_tp_size
                 height_offset = param_data_shape[2] // tp_division
-                for row_idx in range(src_tp_size):
-                    row_start = row_idx * row_offset
-                    row_end = row_start + row_offset
-                    for height_idx in range(tp_division):
-                        height_start = height_idx * height_offset
-                        height_end = height_start + height_offset
-                        param_data_list.append(param_data[row_start:row_end,:,height_start:height_end])
+                for height_idx in range(tp_division):
+                    height_start = height_idx * height_offset
+                    height_end = height_start + height_offset
+                    param_data_list.append(param_data[:, :, height_start:height_end])
                 param_data = torch.concat(param_data_list, dim=0).contiguous().view(param_data_shape)
                 del param_data_list
             elif "mlp.experts.dense_h_to_4h" in name:

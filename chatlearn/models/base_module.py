@@ -702,12 +702,13 @@ class BaseModule:
                     param = self._synchronizer.regroup_params_to_sync(
                         name,
                         param.data,
-                        self.tensor_model_parallel_size(),
                         self._tp_division[name],
                         regroup_routed_experts
                     )
                 if to_cpu:
                     param = param.cpu()
+                else:
+                    param = param.cuda()
                 return param
 
     def get_parameter_to_sync_names(self, pipe_stage):
@@ -839,14 +840,13 @@ class BaseModule:
                     else:
                         if self._expert_sync_buffer and name in self._expert_sync_buffer:
                             param_data = self._expert_sync_buffer[name]
-                            regroup_routed_experts = True # For Qwen2vLLM
+                            regroup_routed_experts = True # For routed experts in Qwen2vLLM 
                         else:
-                            regroup_routed_experts = False # For Qwen2Qwen with hep_num_mapping == 1
+                            regroup_routed_experts = False
                         # regroup src_tensor by tp_rank
                         param_data = self._synchronizer.regroup_params_to_sync(
                             name,
                             param_data,
-                            self.tensor_model_parallel_size(),
                             self._tp_division[name],
                             regroup_routed_experts
                         )

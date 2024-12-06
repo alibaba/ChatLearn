@@ -68,10 +68,10 @@ def bucket_tensors_two_stage_generator(tensor_generator, bucket_size_mb, stage2=
     size_limit = bucket_size_mb * 1024 * 1024
     buf_dict = defaultdict(lambda: [[], 0])
     for tensor, buffer_num in tensor_generator():
-        buffer_multiple = 1 if stage2 else buffer_num
         if tensor.is_sparse:
             yield tensor, False
             continue
+        buffer_multiple = 1 if stage2 else buffer_num
         t = tensor.type()
         # expand buffer size of dst ranks which recv tensor from trainer.
         size = tensor.numel() * tensor.element_size() * buffer_multiple

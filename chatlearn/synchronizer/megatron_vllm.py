@@ -301,9 +301,9 @@ class MegatronVllmSync(BaseSync):
                     del param_data_list
         return param_data
 
-    def regroup_params_to_sync(self, name, param_data, src_tp_size, tp_division, regroup_routed_experts=False):
+    def regroup_params_to_sync(self, name, param_data, tp_division, regroup_routed_experts=False):
         param_data = self.regroup_qkv_tp_slices(name, param_data, tp_division)
-        return super().regroup_params_to_sync(name, param_data, src_tp_size, tp_division, regroup_routed_experts)
+        return super().regroup_params_to_sync(name, param_data, tp_division, regroup_routed_experts)
 
 class MegatronVllmQWenSync(MegatronVllmSync):
     """qwen"""

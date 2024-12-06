@@ -204,6 +204,9 @@ class ParameterSyncGroup:
                     self.insert_actor2rank(actor, rank)
                     self.insert_actor2model(actor, model)
 
+    def empty_add_recv_actor(self, src_rank, dst_rank):
+        return
+
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
         self.insert_actor2rank(src_actor, src_rank)
@@ -410,6 +413,18 @@ class ParameterSyncGroup:
                 for s_idx, src_rank in enumerate(src_tp_group):
                     offset = s_idx * self.tp_num_mapping + start
                     dst_rank = dst_replica_ranks_group[j][offset]
+                    # to avoid gpu collision. Performance may be affected because multiple sends could
+                    # correspond to a single receive in some rare cases, leading to a bandwidth bottleneck.
+                    src_actor = self.src_model.get_actor(src_rank)
+                    dst_actor = self.dst_model.get_actor(dst_rank)
+                    if self.is_same_gpu(src_actor, dst_actor):
+                        logger.warning(
+                            f"ChatLearn detects that src_rank:{src_rank} and dst_rank:{dst_rank} shares the same cuda device. "
+                            "The behavior is not allowed in NCCL. Thus, ChatLearn switches the dst_rank to the next legal one. "
+                            "However, it may cause performance issue when multiple source ranks correspond to a single dest rank."
+                        )
+                        offset = s_idx * self.tp_num_mapping + (start + 1) % self.tp_num_mapping
+                        dst_rank = dst_replica_ranks_group[j][offset]
                     add_recv_actor_stage1_fn(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
 
@@ -1126,9 +1141,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     self.build_rank_mapping()
                 else:
                     self.build_rank_mapping_for_ep()
+            elif self.tp_num_mapping > 1:
+                self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
+                self.build_rank_mapping_two_stage()
             else:
-                self.build_rank_mapping_for_ep(add_recv_actor_fn=self.add_recv_actor_for_routed_experts)
-                self.build_rank_mapping_for_params_except_routed_expert()
+                raise NotImplementedError(
+                    f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
+                    f"to smaller tp size ({self.num_dst_tensor_parallel}) currently."
+                )
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 self.build_rank_mapping()
@@ -1344,15 +1364,21 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     param_group="default"
                 )
             elif self.tp_num_mapping > 1:
-                # Synchronize parameters with two groups (routed experts and params except routed experts)
-                # to reduce gpu memory footprint.
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
                 self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
                     requires_grad=requires_grad,
+                    filter_fn=None,
+                    param_group="default"
                 )
+            else:
+                raise NotImplementedError(
+                    f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
+                    f"to smaller tp size ({self.num_dst_tensor_parallel}) currently."
+                )
+
         else:
             raise NotImplementedError(
                 "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
