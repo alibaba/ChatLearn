@@ -146,20 +146,12 @@ class ParameterSyncMap:
         return self._to_fix_shared_expert_ordering
 
     @property
-<<<<<<< HEAD
-<<<<<<< HEAD
-    def to_regroup_roututed_experts_dict(self):
-        return self._to_regroup_routed_experts_dict
-=======
-=======
     def to_allgather_roututed_experts_dict(self):
         return self._to_allgather_routed_experts_dict
 
     @property
->>>>>>> 9f80ae0 (fix comment.)
     def to_alltoall_roututed_experts_dict(self):
         return self._to_alltoall_routed_experts_dict
->>>>>>> e06c719 (rename allgather to alltoall.)
 
     @property
     def to_fix_act_ordering_dict(self):
