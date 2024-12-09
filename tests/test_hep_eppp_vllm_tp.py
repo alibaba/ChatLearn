@@ -275,7 +275,7 @@ class PPOPolicy(TestTorchModule):
 
         for name, shape in ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["dp"].items():
             # params should be identical across different ranks in current setting.
-            offset = self.tensor_parallel_rank()
+            offset = self.pipeline_parallel_rank() * self.data_parallel_size + self.data_parallel_rank
             tensor = torch.arange(0 + offset, shape[0] * shape[1] + offset).reshape(shape).to(torch.float32).cuda()
             tmp[name] = tensor
 
