@@ -46,55 +46,23 @@ trainer_params = {}
 inference_params = {}
 
 # TP rank to weights
+inf_name_shape_dict = {
+    "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_0" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_1" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_2" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_3" : [1, 2, 8],
+    "mlp.shared_experts.dense_h_to_4h.weight" : [4, 16],
+    "mlp.shared_experts.dense_4h_to_h.weight" : [16, 4]
+}
 ParamsToSync_Inference = {
-    0 : {
-        "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_0" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_1" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_2" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_3" : [1, 2, 8],
-        "mlp.shared_experts.dense_h_to_4h.weight" : [4, 16],
-        "mlp.shared_experts.dense_4h_to_h.weight" : [16, 4]
-    },
-    1 : {
-        "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_0" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_1" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_2" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_3" : [1, 2, 8],
-        "mlp.shared_experts.dense_h_to_4h.weight" : [4, 16],
-        "mlp.shared_experts.dense_4h_to_h.weight" : [16, 4]
-    },
-    2 : {
-        "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_0" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_1" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_2" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_3" : [1, 2, 8],
-        "mlp.shared_experts.dense_h_to_4h.weight" : [4, 16],
-        "mlp.shared_experts.dense_4h_to_h.weight" : [16, 4]
-    },
-    3 : {
-        "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_0" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_1" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_2" : [1, 2, 8],
-        "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 2],
-        "mlp.experts.dense_4h_to_h.weight_3" : [1, 2, 8],
-        "mlp.shared_experts.dense_h_to_4h.weight" : [4, 16],
-        "mlp.shared_experts.dense_4h_to_h.weight" : [16, 4]
-    }
+    0 : inf_name_shape_dict,
+    1 : inf_name_shape_dict,
+    2 : inf_name_shape_dict,
+    3 : inf_name_shape_dict
 }
 
 # EP rank to weights and TP rank to weights

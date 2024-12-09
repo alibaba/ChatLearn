@@ -41,6 +41,93 @@ from chatlearn.schedule.resource_manager import ResourceManager
 from chatlearn.schedule.model_manager import ModelManager
 from chatlearn.synchronizer.parameter_sync import ParameterSyncGroupwithHEP
 
+trainer_params = {}
+inference_params = {}
+
+# TP rank to weights
+inf_name_shape_dict = {
+    "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_0" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_1" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_2" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_3" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_4" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_4" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_5" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_5" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_6" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_6" : [1, 2, 8],
+    "mlp.experts.dense_h_to_4h.weight_7" : [1, 8, 2],
+    "mlp.experts.dense_4h_to_h.weight_7" : [1, 2, 8],
+    "mlp.shared_experts.dense_h_to_4h.weight_0" : [4, 16],
+    "mlp.shared_experts.dense_4h_to_h.weight_0" : [16, 4],
+    "mlp.shared_experts.dense_h_to_4h.weight_1" : [4, 16],
+    "mlp.shared_experts.dense_4h_to_h.weight_1" : [16, 4]
+}
+ParamsToSync_Inference = {
+    0 : inf_name_shape_dict,
+    1 : inf_name_shape_dict,
+    2 : inf_name_shape_dict,
+    3 : inf_name_shape_dict
+}
+
+# PP and EP rank to weights
+ParamsToSync_Trainer = {
+    "pp" : {
+        0 : {
+            "ep" : {
+                0 : {
+                    "mlp.experts.dense_h_to_4h.weight_0" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_0" : [1, 8, 8]
+                },
+                1 : {
+                    "mlp.experts.dense_h_to_4h.weight_1" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_1" : [1, 8, 8]
+                },
+                2 : {
+                    "mlp.experts.dense_h_to_4h.weight_2" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_2" : [1, 8, 8]
+                },
+                3 : {
+                    "mlp.experts.dense_h_to_4h.weight_3" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_3" : [1, 8, 8]
+                }
+            },
+            "dp" : {
+                "mlp.shared_experts.dense_h_to_4h.weight_0" : [16, 16],
+                "mlp.shared_experts.dense_4h_to_h.weight_0" : [16, 16]
+            }
+        },
+        1 : {
+            "ep" : {
+                0 : {
+                    "mlp.experts.dense_h_to_4h.weight_4" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_4" : [1, 8, 8]
+                },
+                1 : {
+                    "mlp.experts.dense_h_to_4h.weight_5" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_5" : [1, 8, 8]
+                },
+                2 : {
+                    "mlp.experts.dense_h_to_4h.weight_6" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_6" : [1, 8, 8]
+                },
+                3 : {
+                    "mlp.experts.dense_h_to_4h.weight_7" : [1, 8, 8],
+                    "mlp.experts.dense_4h_to_h.weight_7" : [1, 8, 8]
+                }
+            },
+            "dp" : {
+                "mlp.shared_experts.dense_h_to_4h.weight_1" : [16, 16],
+                "mlp.shared_experts.dense_4h_to_h.weight_1" : [16, 16]
+            }
+        }
+    }
+}
+
 
 class TestTorchModule(TorchModule):
 
@@ -116,6 +203,38 @@ class MockParameterSyncGroupwithHEP(ParameterSyncGroupwithHEP):
 
 class PolicyModel(TestTorchModule):
 
+    def model_setup(self):
+        super().model_setup()
+        tmp = {}
+        for name, shape in ParamsToSync_Inference[self.tensor_parallel_rank()].items():
+            tensor = torch.rand(shape).cuda()
+            tmp[name] = tensor
+        global inference_params
+        inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
+        self._named_parameters = tmp
+
+    def get_parameter_names(self, requires_grad=True):
+        return list(ParamsToSync_Inference[self.tensor_parallel_rank()].keys())
+
+    @property
+    def named_parameters(self):
+        """
+        :meta private:
+        """
+        return self._named_parameters
+
+    def get_parameter(self, name):
+        return inference_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
+
+    def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+        if parameters_to_sync is None:
+            parameters_to_sync = self._parameters_to_sync
+        all_params = []
+        for name in trainable_param_names:
+            tensor = self.named_parameters[name]
+            all_params.append((name, tensor))
+        parameters_to_sync[pipe_stage] = all_params
+
     def forward_step(self, data, iteration):
         print("policy forward =========", flush=True)
         query = data["query"]
@@ -145,6 +264,51 @@ class PolicyModel(TestTorchModule):
 
 
 class PPOPolicy(TestTorchModule):
+
+    def model_setup(self):
+        super().model_setup()
+        tmp = {}
+
+        for name, shape in ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["ep"][self.expert_parallel_rank()].items():
+            tensor = torch.rand(shape).cuda()
+            tmp[name] = tensor
+
+        for name, shape in ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["dp"].items():
+            # params should be identical across different ranks in current setting.
+            offset = self.tensor_parallel_rank()
+            tensor = torch.arange(0 + offset, shape[0] * shape[1] + offset).reshape(shape).to(torch.float32).cuda()
+            tmp[name] = tensor
+
+        global trainer_params
+        trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
+        self._named_parameters = tmp
+
+
+    def get_parameter_names(self, requires_grad=True):
+        return list(ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["ep"][self.expert_parallel_rank()].keys()) \
+            + list(ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["dp"].keys())
+
+    def build_pipeline_layer_name_mapping(self, num_target_pipe_stage, target_pipe_rank, tgt_layer_offset, requires_grad=True):
+        dst_src_mappings = {}
+
+        src_ep_names = ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["ep"][self.expert_parallel_rank()].keys()
+        for key, value in zip(src_ep_names, src_ep_names):
+            dst_src_mappings[key] = value
+
+        src_tp_names = ParamsToSync_Trainer["pp"][self.pipeline_parallel_rank()]["dp"].keys()
+        for key, value in zip(src_tp_names, src_tp_names):
+            dst_src_mappings[key] = value
+        return dst_src_mappings
+
+    @property
+    def named_parameters(self):
+        """
+        :meta private:
+        """
+        return self._named_parameters
+
+    def get_parameter(self, name):
+        return trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"][name]
 
     @property
     def data_parallel_size(self):
@@ -235,5 +399,9 @@ def test_hep_ep_vllm_tp_dst_ep1_tp4_pp1_src_ep4_tp1_pp2():
     ]
 
     print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")
+
+    engine.model_manager.sync_parameters(requires_grad=False, validate=True)
+    print(f"pass parameter sync validation for hyper expert parallel and vllm.")
+
 
 test_hep_ep_vllm_tp_dst_ep1_tp4_pp1_src_ep4_tp1_pp2()
