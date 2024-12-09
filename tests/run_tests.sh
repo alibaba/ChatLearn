@@ -160,7 +160,7 @@ elif [ "$1" == "test_hep" ]; then
   run_test python test_hep_tp_vllm_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eptp_vllm_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eptppp_vllm_tp.py -c "configs/test_param_sync.yaml"
-  # # Test TP, EP, PP neq for megatron2vllm
+  # Test TP, EP, PP neq for megatron2vllm
   run_test python test_hep_ep_vllm_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eptp_vllm_tp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eppp_vllm_tp.py -c "configs/test_param_sync.yaml"
