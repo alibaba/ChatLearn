@@ -128,7 +128,7 @@ class PolicyModel(TestTorchModule):
 
     @property
     def data_parallel_rank(self):
-        return int(self._get_rank() // 2)
+        return int(self._get_rank() // 4)
 
     def tensor_parallel_rank(self):
         return int(self._get_rank() % 4)
@@ -151,7 +151,7 @@ class PPOPolicy(TestTorchModule):
 
     @property
     def data_parallel_rank(self):
-        return int(self._get_rank() // 2)
+        return int(self._get_rank() // 4)
 
     def tensor_parallel_rank(self):
         return int(self._get_rank() % 4)

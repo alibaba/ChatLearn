@@ -53,43 +53,48 @@ def bucket_tensors(tensors, bucket_size_mb):
     return dense_buckets, sparse_bucket
 
 
-def bucket_tensors_two_stage(tensors, bucket_size_mb, buffer_num=None, tensor_changed=False):
+def bucket_tensors_two_stage_generator(tensor_generator, bucket_size_mb, stage2=False, tensor_changed=False):
     """Group tensors into chunks. We seperate sparse and dense tensor,
     each containing tensors of same type up to certain byte limit in total size.
 
     Args:
-        tensors (Sequence): A sequence of tensors to be separated into chunks.
+        tensor_generator (Generator): A generator of tensors to be separated into chunks.
         size_limit (int): The limit of each chunk in bytes.
 
-    Return:
-        dense_buckets: Blocks of tensors of same type and within size_limit.
-        sparse_bucket: A list of sparse tensors
+    Yield:
+        bucket_or_tensor: a bucket of tensor with same type and within size_limit, or a sparse tensor.
+        is_dense: whether the bucket_or_tensor is a dense-tensor bucket or sparse tensor.
     """
     size_limit = bucket_size_mb * 1024 * 1024
     buf_dict = defaultdict(lambda: [[], 0])
-    dense_buckets = []
-    sparse_bucket = []
-    for idx, tensor in enumerate(tensors):
-        buffer_multiple = 1 if buffer_num is None else buffer_num[idx]
+    for tensor, buffer_num in tensor_generator():
         if tensor.is_sparse:
-            sparse_bucket.append(tensor)
+            yield tensor, False
             continue
+        buffer_multiple = 1 if stage2 else buffer_num
         t = tensor.type()
         # expand buffer size of dst ranks which recv tensor from trainer.
         size = tensor.numel() * tensor.element_size() * buffer_multiple
         buf_and_size = buf_dict[t]
         if size_limit > 0 and buf_and_size[1] + size > size_limit and buf_and_size[1] > 0: # pylint: disable=chained-comparison
-            dense_buckets.append(buf_and_size[0])
+            yield buf_and_size[0], True
             buf_and_size = buf_dict[t] = [[], 0]
-        buf_and_size[0].append((torch.empty(size=[tensor.numel() * buffer_multiple],
-                                      dtype=tensor.dtype,
-                                      device=tensor.device) if (tensor_changed and buffer_multiple > 1) else tensor,
-                                      [size // tensor.element_size(), buffer_multiple, tensor]))
+        if tensor_changed and buffer_multiple > 1:
+            empty_or_curr_tensor = torch.empty(
+                size=[tensor.numel() * buffer_multiple],
+                dtype=tensor.dtype,
+                device=tensor.device
+            )
+        else:
+            empty_or_curr_tensor = tensor
+        buf_and_size[0].append((
+            empty_or_curr_tensor,
+            [size // tensor.element_size(), buffer_multiple, tensor]
+        ))
         buf_and_size[1] += size
     for buf, size in buf_dict.values():
         if len(buf) > 0:
-            dense_buckets.append(buf)
-    return dense_buckets, sparse_bucket
+            yield buf, True
 
 
 def unflatten_dense_tensors(flat_tensors, tensors, sizes, num_ranks):
@@ -147,6 +152,7 @@ def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_c
         orig_tensor_ele += size[2].numel()
         num_ranks = max(num_ranks, size[1])
     flat_tensors = _flatten_dense_tensors(all_tensors)
+    del all_tensors
     comm_call(flat_tensors, *extra_args)
     if tensor_changed:
         index = 0 if stage2 else index
