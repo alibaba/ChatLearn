@@ -1250,7 +1250,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
                 elif self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
                     self.set_send_actors_to_alltoall_routed_experts(src_replica_ranks_group)
-                self.add_alltoall_or_allgather_actor(self.src_model, src_replica_ranks_group)
+                self.add_allgather_or_alltoall_actor(self.src_model, src_replica_ranks_group)
 
             if add_recv_actor_fn is self.empty_add_recv_actor:
                 continue
