@@ -1254,7 +1254,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             if add_recv_actor_fn is self.empty_add_recv_actor:
                 continue
-                
 
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_ep_and_tp_group in enumerate(src_replica_ranks_group):
