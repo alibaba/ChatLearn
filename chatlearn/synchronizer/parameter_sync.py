@@ -29,7 +29,7 @@ from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
-from chatlearn.utils.constant import ROUTER_EXPERT_REGROUPING_COMM_TYPE
+from chatlearn.utils.constant import ROUTED_EXPERT_REGROUPING_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
@@ -79,16 +79,15 @@ class ParameterSyncGroup:
         self._is_collective_group_created = True
         self.collective_groups = []
         self.src_dp_size = future.get(self.src_model.replicas[0].all_actors[0].get_data_parallel_size.remote())
-        self.send_actors_to_allgather_routed_experts = None
-        self.send_actors_to_alltoall_routed_experts = None
-        self._comm_type_to_regroup_router_experts = get_args().runtime_args.router_expert_regrouping_comm_type
-        assert self._comm_type_to_regroup_router_experts in \
-            [ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER, ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL], \
-            f"Only support 'allgather' or 'alltoall' for router expert regrouping, while {self._comm_type_to_regroup_router_experts}"
-        if self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
+        self.send_actors_to_regroup_routed_experts = None
+        self._comm_type_to_regroup_routed_experts = get_args().runtime_args.routed_expert_regrouping_comm_type
+        assert self._comm_type_to_regroup_routed_experts in \
+            [ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER, ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL], \
+            f"Only support 'allgather' or 'alltoall' for routed expert regrouping, while {self._comm_type_to_regroup_routed_experts}"
+        if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
             if self.num_dst_tensor_parallel != self.num_src_tensor_parallel:
-                logger.warning("Only support ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL when src tp eqs dst tp, use 'allgather' instead.")
-                self._comm_type_to_regroup_router_experts = ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER
+                logger.warning("Only support ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL when src tp eqs dst tp, use 'allgather' instead.")
+                self._comm_type_to_regroup_routed_experts = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER
         self.sorted_send_actors = None
         self.sorted_send_actors_stage2 = None
 
@@ -200,7 +199,7 @@ class ParameterSyncGroup:
         if actor not in self.actor2model:
             self.actor2model[actor] = model
 
-    def add_allgather_or_alltoall_actor(self, model, ranks_group: List):
+    def add_routed_experts_regrouping_actor(self, model, ranks_group: List):
         for replica_ranks_group in ranks_group:
             if isinstance(replica_ranks_group[0], list):
                 for tp_ranks in replica_ranks_group:
@@ -262,30 +261,17 @@ class ParameterSyncGroup:
         self.send_recv_actor_mappings_stage2[src_actor].append(dst_actor)
         self.recv_send_actor_mappings_stage2[dst_actor].append(src_actor)
 
-    def set_send_actors_to_allgather_routed_experts(self, src_replica_ranks_group):
-        if self.send_actors_to_allgather_routed_experts is None:
-            self.send_actors_to_allgather_routed_experts = []
+    def set_send_actors_to_regroup_routed_experts(self, src_replica_ranks_group):
+        if self.send_actors_to_regroup_routed_experts is None:
+            self.send_actors_to_regroup_routed_experts = []
         for src_replica_ranks in src_replica_ranks_group:
-            self.send_actors_to_allgather_routed_experts.append([])
+            self.send_actors_to_regroup_routed_experts.append([])
             if isinstance(src_replica_ranks[0], list):
                 for src_tp_ranks in src_replica_ranks:
-                    self.send_actors_to_allgather_routed_experts[-1].extend(
+                    self.send_actors_to_regroup_routed_experts[-1].extend(
                         [self.src_model.get_actor(src_rank) for src_rank in src_tp_ranks])
             else:
-                self.send_actors_to_allgather_routed_experts[-1].extend(
-                    [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
-
-    def set_send_actors_to_alltoall_routed_experts(self, src_replica_ranks_group):
-        if self.send_actors_to_alltoall_routed_experts is None:
-            self.send_actors_to_alltoall_routed_experts = []
-        for src_replica_ranks in src_replica_ranks_group:
-            self.send_actors_to_alltoall_routed_experts.append([])
-            if isinstance(src_replica_ranks[0], list):
-                for src_tp_ranks in src_replica_ranks:
-                    self.send_actors_to_alltoall_routed_experts[-1].extend(
-                        [self.src_model.get_actor(src_rank) for src_rank in src_tp_ranks])
-            else:
-                self.send_actors_to_alltoall_routed_experts[-1].extend(
+                self.send_actors_to_regroup_routed_experts[-1].extend(
                     [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def get_src_and_dst_dp_ranks(self):
@@ -337,10 +323,7 @@ class ParameterSyncGroup:
             src_replica_ranks = next(replica_rank_iter)
             src_replica_ranks_group = split_ranks_by_tp_and_ep_size(src_replica_ranks, self.num_src_tensor_parallel, self.num_src_expert_parallel)
             dst_replica_ranks_group = split_ranks_by_tp_and_ep_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
-            if self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
-                self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
-            elif self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
-                self.set_send_actors_to_alltoall_routed_experts(src_replica_ranks_group)
+            self.set_send_actors_to_regroup_routed_experts(src_replica_ranks_group)
             pipe_map_interval = self.num_src_pipeline_stage // self.num_dst_pipeline_stage
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 j = i // pipe_map_interval
@@ -507,8 +490,7 @@ class ParameterSyncGroup:
     def clear_cache(self, sorted_send_actors_list=None, rank_mapping_list=None):
         if sorted_send_actors_list is None:
             sorted_send_actors_list = [
-                self.send_actors_to_allgather_routed_expert,
-                self.send_actors_to_alltoall_routed_expert,
+                self.send_actors_to_regroup_routed_experts,
                 self.sorted_send_actors,
                 self.sorted_send_actors_stage2
             ]
@@ -662,6 +644,7 @@ class ParameterSyncGroup:
         future.wait(refs, return_output=True)
 
     def sync_allgather(self, actors, group_name, requires_grad=None, filter_fn=None):
+        # Currently, only routed experts are to be all-gathered.
         for actor in actors:
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
@@ -672,8 +655,8 @@ class ParameterSyncGroup:
         future.wait(refs, return_output=True)
 
     def sync_alltoall(self, actors, requires_grad=None, filter_fn=None):
+        # Currently, only routed experts are to be synced with all-to-all.
         for actor in actors:
-            # Currently, only routed experts are to be all-gathered.
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
@@ -765,7 +748,7 @@ class ParameterSyncGroup:
         if should_map_name:
             src_names, dst_names = synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         else:
-            # For router experts which need to regroup expert first in trainer actors.
+            # For routed experts which need to regroup expert first in trainer actors.
             synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
@@ -1246,11 +1229,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             dst_replica_ranks_group = split_ranks_by_ep_and_tp_size(dst_replica_ranks, self.num_dst_tensor_parallel, self.num_dst_expert_parallel)
 
             if is_first_time_set_send_actors:
-                if self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
-                    self.set_send_actors_to_allgather_routed_experts(src_replica_ranks_group)
-                elif self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
-                    self.set_send_actors_to_alltoall_routed_experts(src_replica_ranks_group)
-                self.add_allgather_or_alltoall_actor(self.src_model, src_replica_ranks_group)
+                self.set_send_actors_to_regroup_routed_experts(src_replica_ranks_group)
+                self.add_routed_experts_regrouping_actor(self.src_model, src_replica_ranks_group)
 
             if add_recv_actor_fn is self.empty_add_recv_actor:
                 continue
@@ -1287,18 +1267,12 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings)
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings_for_routed_experts)
 
-            for allgather_actors in self.send_actors_to_allgather_routed_experts:
-                cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
-                logger.debug(f"allgather actors: {cat_str}")
+            for regroup_actors in self.send_actors_to_regroup_routed_experts:
+                cat_str = "_".join(str(self.actor2rank[actor]) for actor in regroup_actors)
+                logger.debug(f"{self._comm_type_to_regroup_routed_experts} actors: {cat_str}")
             for k, v_list in self.send_recv_actor_mappings.items():
                 for v in v_list:
                     logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
-            for allgather_actors in self.send_actors_to_allgather_routed_experts:
-                cat_str = "_".join(str(self.actor2rank[actor]) for actor in allgather_actors)
-                logger.debug(f"allgather actors: {cat_str}")
-            for alltoall_actors in self.send_actors_to_alltoall_routed_experts:
-                cat_str = "_".join(str(self.actor2rank[actor]) for actor in alltoall_actors)
-                logger.debug(f"alltoall actors: {cat_str}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1362,8 +1336,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             sorted_send_actors_list = [
             self.sorted_send_actors,
             self.sorted_send_actors_stage2,
-            self.send_actors_to_allgather_routed_expert,
-            self.send_actors_to_alltoall_routed_experts,
+            self.send_actors_to_regroup_routed_experts,
             self.sorted_send_actors_for_routed_experts
         ]
         if rank_mapping_list is None:
@@ -1387,7 +1360,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         actor_mappings_list : List = [
             self.send_recv_actor_mappings,
             self.send_recv_actor_mappings_stage2,
-            self.send_actors_to_allgather_routed_experts,
+            self.send_actors_to_regroup_routed_experts,
         ]
 
         self.check_and_fuse_lora(self._enable_lora, actor_mappings_list)
@@ -1395,20 +1368,18 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
-            if self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
+            if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
-                send_actors_to_allgather_routed_experts = [self.send_actors_to_allgather_routed_experts]
                 self.sync_allgather_multi_threads(
-                    send_actors_to_allgather_routed_experts,
+                    self.send_actors_to_regroup_routed_experts,
                     max_workers=1,
                     requires_grad=requires_grad,
                     group_name=self.group_name + "_allgather",
                     filter_fn=self.routed_experts_filter)
-            elif self._comm_type_to_regroup_router_experts == ROUTER_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
+            elif self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
                 # alltoall routed experts only
-                send_actors_to_alltoall_routed_experts = [self.send_actors_to_alltoall_routed_experts]
                 self.sync_alltoall_multi_threads(
-                    send_actors_to_alltoall_routed_experts,
+                    self.send_actors_to_regroup_routed_experts,
                     max_workers=1,
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter)
@@ -1559,8 +1530,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             self.clear_cache(
                 sorted_send_actors_list = [
-                    self.send_actors_to_allgather_routed_experts,
-                    self.send_actors_to_alltoall_routed_experts,
+                    self.send_actors_to_regroup_routed_experts,
                     self.sorted_send_actors_for_routed_experts
                 ],
                 rank_mapping_list=[

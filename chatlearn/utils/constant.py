@@ -59,7 +59,7 @@ class PARAM_SYNC_COMM_TYPE(str, Enum):
     P2P = "p2p"
 
 
-class ROUTER_EXPERT_REGROUPING_COMM_TYPE(str, Enum):
-    """communication type of router expert regrouping."""
-    ALLGATHER = "allgather"
+class ROUTED_EXPERT_REGROUPING_COMM_TYPE(str, Enum):
+    """communication type of routed expert regrouping."""
     ALLTOALL = "alltoall"
+    ALLGATHER = "allgather"
