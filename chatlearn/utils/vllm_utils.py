@@ -1356,7 +1356,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                     val_list.append(params)
                 val = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
             else:
-                raise RuntimeError(f"only support router weight name 'dense_h_to_4h' or 'dense_4h_to_h' for qwen2_moe. while {op_name}.")
+                raise RuntimeError(f"only support routed weight name 'dense_h_to_4h' or 'dense_4h_to_h' for qwen2_moe. while {op_name}.")
             output_state_dict[layer_name + out_name] = val
 
         # Transpose the weights.

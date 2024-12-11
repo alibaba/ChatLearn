@@ -1371,7 +1371,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
                 self.sync_allgather_multi_threads(
-                    self.send_actors_to_regroup_routed_experts,
+                    [self.send_actors_to_regroup_routed_experts],
                     max_workers=1,
                     requires_grad=requires_grad,
                     group_name=self.group_name + "_allgather",
@@ -1379,7 +1379,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             elif self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
                 # alltoall routed experts only
                 self.sync_alltoall_multi_threads(
-                    self.send_actors_to_regroup_routed_experts,
+                    [self.send_actors_to_regroup_routed_experts],
                     max_workers=1,
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter)
