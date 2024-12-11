@@ -770,7 +770,6 @@ class BaseModule:
         for name, param in self._parameters_to_sync[pipe_stage]:
             if self._expert_sync_buffer and name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
                 tensors.append(self._expert_sync_buffer[name])
-                del self._expert_sync_buffer[name]
             else:
                 tensors.append(param.data)
 

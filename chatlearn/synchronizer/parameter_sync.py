@@ -90,7 +90,7 @@ class ParameterSyncGroup:
                 self._comm_type_to_regroup_routed_experts = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER
         self.sorted_send_actors = None
         self.sorted_send_actors_stage2 = None
-        self.actor2synchronizer = dict()
+        self.actor2synchronizer = {}
 
         self.setup_collective_group()
 
