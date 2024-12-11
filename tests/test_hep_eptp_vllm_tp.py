@@ -196,10 +196,10 @@ def test_hep_eptp_vllm_tp_dst_ep1_tp2_pp1_src_ep4_tp2_pp1():
     assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 
     # Judge alltoall actors
-    alltoall_actors = param_sync_group.send_actors_to_alltoall_routed_experts
+    alltoall_actors = param_sync_group.send_actors_to_regroup_routed_experts
     actor2rank = param_sync_group.actor2rank
 
-    assert not param_sync_group.send_actors_to_allgather_routed_experts
+    assert param_sync_group._comm_type_to_regroup_routed_experts == "alltoall"
     assert len(alltoall_actors) == 1
     assert len(alltoall_actors[0]) == 8 # all src ranks should all-to-all routed experts
     assert len(actor2rank) == 16 # all of the 16 actors should have rank
