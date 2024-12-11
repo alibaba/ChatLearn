@@ -675,7 +675,7 @@ class BaseModule:
             parameters_to_sync = self._parameters_to_sync
         parameters_shape = []
         for name, param in parameters_to_sync[pipe_stage]:
-            if self._expert_sync_buffer and name in self._expert_sync_buffer:
+            if self._expert_sync_buffer and name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
                 parameters_shape.append((name, self._expert_sync_buffer[name].shape))
             else:
                 parameters_shape.append((name, param.shape))
@@ -693,7 +693,7 @@ class BaseModule:
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
-                if name in self._expert_sync_buffer:
+                if name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
                     param = self._expert_sync_buffer[name]
                     regroup_routed_experts = True
                 else:
@@ -768,8 +768,9 @@ class BaseModule:
         """
         tensors = []
         for name, param in self._parameters_to_sync[pipe_stage]:
-            if self._expert_sync_buffer and name in self._expert_sync_buffer:
+            if self._expert_sync_buffer and name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
                 tensors.append(self._expert_sync_buffer[name])
+                del self._expert_sync_buffer[name]
             else:
                 tensors.append(param.data)
 

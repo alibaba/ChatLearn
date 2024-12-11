@@ -90,6 +90,7 @@ class ParameterSyncGroup:
                 self._comm_type_to_regroup_routed_experts = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER
         self.sorted_send_actors = None
         self.sorted_send_actors_stage2 = None
+        self.actor2synchronizer = dict()
 
         self.setup_collective_group()
 
@@ -750,6 +751,7 @@ class ParameterSyncGroup:
         else:
             # For routed experts which need to regroup expert first in trainer actors.
             synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
+        self.actor2synchronizer[send_actor] = synchronizer
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
@@ -1082,7 +1084,21 @@ class ParameterSyncGroup:
                 for recv_actor in recv_actors:
                     self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group)
 
+    def recover_synchronizer(self):
+        refs = []
+        for actor, synchronizer in self.actor2synchronizer.items():
+            refs.append(actor.set_synchronizer.remote(synchronizer))
+        future.wait(refs)
+
+    def reset_synchronizer(self):
+        refs = []
+        for actor, _ in self.actor2synchronizer.items():
+            refs.append(actor.set_synchronizer.remote(None))
+        future.wait(refs)
+
     def sync(self, requires_grad=None, validate=False):
+        self.recover_synchronizer()
+
         self.check_and_setup_collective_group()
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
@@ -1120,6 +1136,8 @@ class ParameterSyncGroup:
         self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
 
         self.check_and_destroy_collective_group()
+
+        self.reset_synchronizer()
 
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
@@ -1422,6 +1440,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         self.check_and_destroy_collective_group()
 
+        self.reset_synchronizer()
+
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 
     def _synchronize_routed_experts(self, requires_grad=None, validate=False):
@@ -1518,12 +1538,15 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def sync(self, requires_grad=None, validate=False):
         if self.dst_model.use_vllm_backend:
+            self.recover_synchronizer()
             self._synchronize_all_moe_parameters(requires_grad=requires_grad, validate=validate)
         else:
             if self.ep_num_mapping == 1 and self.tp_num_mapping == 1:
                 # synchronization is the same as base class when applying Qwen + Qwen
                 super().sync(requires_grad, validate)
                 return
+
+            self.recover_synchronizer()
 
             # First, synchronize routed experts.
             self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
@@ -1540,6 +1563,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             # Then, synchronize parameters except routed experts
             self._synchronize_params_except_routed_experts(requires_grad=requires_grad, validate=validate)
+
+            self.reset_synchronizer()
 
             self.clear_cache(
                 sorted_send_actors_list = [
