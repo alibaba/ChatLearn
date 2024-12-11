@@ -739,9 +739,20 @@ class BaseModule:
         for param in sparse_bucket:
             func(param, rank, group_name)
 
+    def alltoall_routed_expert_parameter(self, pipe_stage=0):
+        for name, param in self._parameters_to_sync[pipe_stage]:
+            param, state = self._synchronizer.alltoall_routed_experts(
+                name,
+                param,
+                self.tensor_and_expert_parallel_group()
+            )
+            if state:
+                self._expert_sync_buffer.pop(name, "Not Found.")
+                self._expert_sync_buffer[name] = param
+
     def allgather_routed_expert_parameter(self, group_name, pipe_stage=0):
         for name, param in self._parameters_to_sync[pipe_stage]:
-            param, state = self._synchronizer.regroup_routed_experts(
+            param, state = self._synchronizer.allgather_routed_experts(
                 name,
                 param,
                 group_name,

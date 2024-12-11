@@ -195,20 +195,21 @@ def test_hep_eptp_vllm_tp_dst_ep1_tp2_pp1_src_ep4_tp2_pp1():
     assert param_sync_group.ep_num_mapping == tuples[0] / tuples[3]
     assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 
-    # Judge allgather actors
-    allgather_actors = param_sync_group.send_actors_to_allgather_routed_experts
+    # Judge alltoall actors
+    alltoall_actors = param_sync_group.send_actors_to_regroup_routed_experts
     actor2rank = param_sync_group.actor2rank
 
-    assert len(allgather_actors) == 1
-    assert len(allgather_actors[0]) == 8 # all src ranks should all-gather routed experts
+    assert param_sync_group._comm_type_to_regroup_routed_experts == "alltoall"
+    assert len(alltoall_actors) == 1
+    assert len(alltoall_actors[0]) == 8 # all src ranks should all-to-all routed experts
     assert len(actor2rank) == 16 # all of the 16 actors should have rank
     assert len(set(list(actor2rank.values()))) == len(actor2rank) # all ranks should be unique
 
-    allgather_actor_ranks = []
-    for actor in allgather_actors[0]:
-        allgather_actor_ranks.append(actor2rank[actor])
+    alltoall_actor_ranks = []
+    for actor in alltoall_actors[0]:
+        alltoall_actor_ranks.append(actor2rank[actor])
 
-    assert allgather_actor_ranks == [0, 1, 2, 3, 4, 5, 6, 7]
+    assert alltoall_actor_ranks == [0, 1, 2, 3, 4, 5, 6, 7]
 
     # Judge src->dst rank mappings
     comm_pairs = []

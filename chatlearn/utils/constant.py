@@ -52,7 +52,14 @@ class RAY_PG_STRATEGY(Enum):
     PACK = "PACK"
     SPREAD = "SPREAD"
 
+
 class PARAM_SYNC_COMM_TYPE(str, Enum):
     """parameter sync communication type"""
     BROADCAST = "broadcast"
     P2P = "p2p"
+
+
+class ROUTED_EXPERT_REGROUPING_COMM_TYPE(str, Enum):
+    """communication type of routed expert regrouping."""
+    ALLTOALL = "alltoall"
+    ALLGATHER = "allgather"

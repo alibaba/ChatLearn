@@ -146,8 +146,12 @@ class ParameterSyncMap:
         return self._to_fix_shared_expert_ordering
 
     @property
-    def to_regroup_roututed_experts_dict(self):
-        return self._to_regroup_routed_experts_dict
+    def to_allgather_roututed_experts_dict(self):
+        return self._to_allgather_routed_experts_dict
+
+    @property
+    def to_alltoall_roututed_experts_dict(self):
+        return self._to_alltoall_routed_experts_dict
 
     @property
     def to_fix_act_ordering_dict(self):
@@ -195,7 +199,8 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
-        self._to_regroup_routed_experts_dict = None
+        self._to_allgather_routed_experts_dict = None
+        self._to_alltoall_routed_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
             "modules": [
@@ -283,7 +288,8 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
-        self._to_regroup_routed_experts_dict = None
+        self._to_allgather_routed_experts_dict = None
+        self._to_alltoall_routed_experts_dict = None
         self._to_fix_act_ordering_dict = None
         self._to_fix_qkv_ordering_dict = {
             "modules": [
@@ -421,7 +427,14 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             ],
             "layer_re": self.layer_re
         }
-        self._to_regroup_routed_experts_dict = {
+        self._to_allgather_routed_experts_dict = {
+            "modules": [
+                "mlp.experts.dense_h_to_4h",
+                "mlp.experts.dense_4h_to_h",
+            ],
+            "layer_re": self.layer_re
+        }
+        self._to_alltoall_routed_experts_dict = {
             "modules": [
                 "mlp.experts.dense_h_to_4h",
                 "mlp.experts.dense_4h_to_h",
@@ -1343,7 +1356,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
                     val_list.append(params)
                 val = torch.cat(val_list, dim=0).transpose(1, 2).contiguous()
             else:
-                raise RuntimeError(f"only support router weight name 'dense_h_to_4h' or 'dense_4h_to_h' for qwen2_moe. while {op_name}.")
+                raise RuntimeError(f"only support routed weight name 'dense_h_to_4h' or 'dense_4h_to_h' for qwen2_moe. while {op_name}.")
             output_state_dict[layer_name + out_name] = val
 
         # Transpose the weights.

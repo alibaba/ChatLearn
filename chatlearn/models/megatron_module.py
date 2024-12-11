@@ -207,6 +207,12 @@ class MegatronModule(TorchModule):
         """
         return mpu.get_tensor_model_parallel_rank()
 
+    def tensor_and_expert_parallel_group(self):
+        """
+        :meta private:
+        """
+        return mpu.get_tensor_and_expert_parallel_group()
+
     def expert_parallel_rank(self):
         """
         :meta private:

@@ -329,9 +329,10 @@ def test_hep_eptp_vllm_tp_dst_ep1_tp4_pp1_src_ep2_tp2_pp1():
     assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 
     # Judge allgather actors
-    allgather_actors = param_sync_group.send_actors_to_allgather_routed_experts
+    allgather_actors = param_sync_group.send_actors_to_regroup_routed_experts
     actor2rank = param_sync_group.actor2rank
 
+    assert param_sync_group._comm_type_to_regroup_routed_experts == "allgather"
     assert len(allgather_actors) == 2
     assert len(allgather_actors[0]) == 4 # first 4 src ranks should all-gather routed experts
     assert len(allgather_actors[1]) == 4 # last 4 src ranks should all-gather routed experts

@@ -197,9 +197,10 @@ def test_hep_ep_vllm_tp_dst_ep1_tp4_pp2_src_ep2_tp1_pp4():
     assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 
     # Judge allgather actors
-    allgather_actors = param_sync_group.send_actors_to_allgather_routed_experts
+    allgather_actors = param_sync_group.send_actors_to_regroup_routed_experts
     actor2rank = param_sync_group.actor2rank
 
+    assert param_sync_group._comm_type_to_regroup_routed_experts == "allgather"
     assert len(allgather_actors) == 4
     for i in range(len(allgather_actors)):
         assert len(allgather_actors[i]) == 2
