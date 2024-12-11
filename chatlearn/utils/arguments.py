@@ -552,8 +552,8 @@ class Config(BaseConfig):
                 assert model_args.zero_size == 1 or model_args.zero_size is None
                 assert model_args.num_gpu % (
                     model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size) == 0, \
-                    "num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size " \
-                    f"for {model_name} model, but got num_gpu = {model_args.num_gpu}" \
+                    "num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size * expert_model_parallel_size " \
+                    f"for {model_name} model, but got num_gpu = {model_args.num_gpu}, " \
                     f"tensor_model_parallel_size = {model_args.tensor_model_parallel_size}, " \
                     f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}, and "\
                     f"expert_model_parallel_size = {model_args.expert_model_parallel_size}."
