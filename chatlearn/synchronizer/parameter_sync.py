@@ -777,11 +777,12 @@ class ParameterSyncGroup:
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
-        if self.synchronizer.is_parameter_changed:
-            refs = []
-            refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
-            refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
-            future.get(refs)
+
+        refs = []
+        refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
+        refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
+        future.get(refs)
+
         return src_names, dst_names
 
     def create_broadcast_group(self, send_actor, recv_actors, group_name=None, param_group="default"):
