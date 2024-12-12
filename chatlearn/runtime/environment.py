@@ -214,7 +214,7 @@ class MCTSEnv(Environment):
         return out_queue
 
 class SPRLEnv(Environment):
-    """SPRL Env"""
+    """SPRL(Self-Play Reinforcement Learning) Env"""
 
     def __init__(self, model_flow, sprl):
         super().__init__(model_flow)
@@ -253,8 +253,8 @@ class SPRLEnv(Environment):
             for model_group in self.model_flow.flow_topology:
                 for model_node in model_group:
                     model = model_node.model
-                    assert not model.is_colocate, "colocation is currently not supported in MCTSEnv"
-                    assert not model.enable_offload, "offload is currently not supported in MCTSEnv"
+                    assert not model.is_colocate, "colocation is currently not supported in SPRLEnv"
+                    assert not model.enable_offload, "offload is currently not supported in SPRLEnv"
                     if model in model_to_replica:
                         replica = model_to_replica[model]
                     else:
