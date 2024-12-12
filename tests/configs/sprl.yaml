@@ -1,0 +1,59 @@
+runtime_env:
+    platform: DLC
+    excludes:
+        - "*pt"
+        - "logs"
+        - "tensorboards"
+        - ".nfs*"
+        - "mypipe"
+        - "*.pt.trace.json"
+        - "*.nsys-rep"
+
+models:
+    sprl:
+        model_config_file: model.yaml
+        num_cpu: 1
+        cpu_per_process: 1
+        trainable: False
+    actor:
+        model_config_file: model.yaml
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
+
+    critic:
+        model_config_file: model.yaml
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
+
+    value:
+        model_config_file: model.yaml
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
+
+    prm:
+        model_config_file: model.yaml
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
+
+
+runtime:
+    generation_batch_size: ${generation_batch_size:1}
+    num_episode: ${num_episode:2}
+    sample_per_episode: ${sample_per_episode:4}
+    train_global_batch_size: ${train_global_batch_size:1}
+    train_micro_batch_size: ${train_micro_batch_size:1}
+    num_training_epoch: 1
+    save_episode_interval: ${save_episode_interval:1000}
+    query_key: ${query_key:query}
+    data_path: ${data_path:/path/to/data}
+    training_data_num_limit: ${training_data_num_limit:-1}
+    eval_episode_interval: ${eval_episode_interval:0}
+    eval_data_num_limit: 20
+    nsys: False
+    free_sync_collective_group: ${free_sync_collective_group:False}
+    param_sync_comm_type: ${param_sync_comm_type:broadcast}
+    validate_param_sync: ${validate_param_sync:False}
