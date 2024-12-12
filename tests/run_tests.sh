@@ -63,6 +63,7 @@ function run_test {
 
 function run_all_tests {
   run_test python train_o1.py -c configs/o1.yaml
+  run_test python train_sprl.py -c configs/sprl.yaml
   run_test python test_model_flow.py -c "configs/rlhf.yaml"
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_data_input.py -c "configs/exp.yaml"
@@ -135,6 +136,8 @@ if [ "$1" == "" ]; then
   fi
 elif [ "$1" == "test_o1" ]; then
   run_test python train_o1.py -c configs/o1.yaml
+elif [ "$1" == "test_sprl" ]; then
+  run_test python train_sprl.py -c configs/sprl.yaml
 elif [ "$1" == "test_data" ]; then
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"

@@ -213,4 +213,68 @@ class MCTSEnv(Environment):
             self.get_all_merged_data(data, out_queue, encode=False)
         return out_queue
 
+class SPRLEnv(Environment):
+    """SPRL Env"""
+
+    def __init__(self, model_flow, sprl):
+        super().__init__(model_flow)
+        self.max_iteration_per_sample = self.args.max_iteration_per_sample
+        self.sprl = sprl
+
+    def sprl_loop(self, max_iteration, encoded_data, data_queues, mb, replica_data_list, sprl):
+        future.wait(sprl.reset())
+        for i in range(max_iteration):
+            for data_queue in data_queues:
+                data_queue.put(encoded_data)
+            for replica, model_node in replica_data_list:
+                in_queue = model_node.get_input_queues()
+                func_name = model_node.func_name
+                # TODO: we will consider colocation/offload later
+                to_empty_cache = False
+                to_onload = False
+                to_offload = False
+                self.generate_step_one_model(model_node, replica, in_queue, model_node.out_queues, i, func_name, to_empty_cache,
+                                             is_eval=self.is_eval, to_onload=to_onload, to_offload=to_offload, micro_batch_index=mb)
+            should_stop = future.get(sprl.should_stop())
+            assert len(should_stop) == 1
+            if should_stop[0]:
+                break
+
+    def execute(self, is_eval):
+        data_queues, out_queue = self.setup_queues()
+        data_producer_iter = cycle(iter(self.models[0].replicas))
+        args = []
+        for mb in range(self.batch_per_episode):
+            current_data_producer = next(data_producer_iter)
+            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
+            encoded_data = encode_data(mb, query)
+            replica_data_list = []
+            model_to_replica = {}
+            for model_group in self.model_flow.flow_topology:
+                for model_node in model_group:
+                    model = model_node.model
+                    assert not model.is_colocate, "colocation is currently not supported in MCTSEnv"
+                    assert not model.enable_offload, "offload is currently not supported in MCTSEnv"
+                    if model in model_to_replica:
+                        replica = model_to_replica[model]
+                    else:
+                        replica = self._next_model(model)
+                        model_to_replica[model] = replica
+                    replica_data_list.append((replica, model_node))
+            sprl = [replica_data[0] for replica_data in replica_data_list if replica_data[0].model is self.sprl]
+            assert len(sprl) > 0
+            sprl = sprl[0]
+            args.append((self.max_iteration_per_sample, encoded_data, data_queues, mb, replica_data_list, sprl))
+        # not support execute_in_parallel now.
+        for arg in args:
+            self.sprl_loop(*arg)
+        data = [None] * len(self.model_flow.return_model_nodes)
+        for model_node in self.model_flow.model_nodes:
+            if model_node in self.model_flow.return_model_nodes:
+                # let the results order follow model_node order
+                data[self.model_flow.return_model_nodes.index(model_node)] = model_node.out_queues[-1]
+        if data:
+            self.get_all_merged_data(data, out_queue, encode=False)
+        return out_queue
+
 # pylint: disable=not-callable
