@@ -736,22 +736,26 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     return tp_state_dicts
 
 
-def load_state_dict(args):
-    # Load original state dict from Megatron-LM checkpoint.
+def load_rank0_state_dict(args):
+    # Load rank0 state dict from Megatron-LM checkpoint.
     possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
 
     for root, dirnames, _ in os.walk(args["load"]):
         for dirname in dirnames:
-            if dirname in possible_sub_dirs:
-                sub_dir = os.path.join(root, dirname)
-                if os.path.exists(sub_dir):
-                    rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
-                    args["load"] = root
-                    rank0_checkpoint_path = rank0_checkpoint_name[0]
+            if dirname not in possible_sub_dirs:
+                continue
+            sub_dir = os.path.join(root, dirname)
+            if not os.path.exists(sub_dir):
+                continue
+            rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
+            if len(rank0_checkpoint_name) == 0:
+                continue
+            args["load"] = root
+            rank0_checkpoint_path = rank0_checkpoint_name[0]
 
     print(f"Loading Megatron checkpoint arguments from: {rank0_checkpoint_path}")
-    state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")
-    return state_dict
+    rank0_state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")
+    return rank0_state_dict
 
 
 def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=None):
@@ -764,7 +768,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     tp_rank = mpu.get_tensor_model_parallel_rank()
     pp_rank = get_pipeline_model_parallel_rank()
 
-    state_dict = load_state_dict(args)
+    state_dict = load_rank0_state_dict(args)
 
     megatron_args = state_dict.get("args", None)
     if "checkpoint_version" in state_dict.keys():
@@ -944,7 +948,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     pp_rank = get_pipeline_model_parallel_rank()
     assert pp_rank == 0, "pipeline parallelism for mcore inference not supported for now."
 
-    state_dict = load_state_dict(args)
+    state_dict = load_rank0_state_dict(args)
 
     megatron_args = state_dict.get("args", None)
     if "checkpoint_version" in state_dict.keys():
@@ -1130,7 +1134,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
     tp_rank = mpu.get_tensor_model_parallel_rank()
     pp_rank = get_pipeline_model_parallel_rank()
 
-    state_dict = load_state_dict(args)
+    state_dict = load_rank0_state_dict(args)
     megatron_args = state_dict.get("args", None)
     if "checkpoint_version" in state_dict.keys():
         checkpoint_version = state_dict["checkpoint_version"]
@@ -1147,8 +1151,13 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     tp_size = megatron_args.tensor_model_parallel_size
     pp_size = megatron_args.pipeline_model_parallel_size
-    ep_size = megatron_args.moe_expert_model_parallel_size
-    hep_size = tp_size * ep_size
+    if hasattr(megatron_args, "moe_expert_model_parallel_size"):
+        ep_size = megatron_args.moe_expert_model_parallel_size
+        hep_size = tp_size * ep_size
+    else:
+        ep_size = 1
+        hep_size = tp_size
+
     # The number of heads.
     heads = hf_config.num_attention_heads // tp_size
     # The hidden_size per head.
