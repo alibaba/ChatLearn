@@ -29,6 +29,9 @@ max_num_batched_tokens: ${max_num_batched_tokens:32768}
 max_paddings: ${max_paddings:512}
 num_scheduler_steps: ${num_scheduler_steps:1}
 
+# engine config
+enforce_eager: ${enforce_eager:False}
+
 # cache config
 block_size: ${cache_block_size:16}
 gpu_memory_utilization: ${gpu_memory_utilization:0.5}
