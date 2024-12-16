@@ -17,7 +17,7 @@
 
 import torch
 
-# pylint: disable=unused-import,wildcard-import
+# pylint: disable=unused-import,wildcard-import,unused-argument
 from vllm.model_executor.model_loader import loader
 from vllm.model_executor.model_loader.loader import device_loading_context, _initialize_model
 from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
@@ -74,7 +74,6 @@ def init(self, load_config):
     self.load_config = load_config
 
 loader.DummyModelLoader.__init__ = init
-
 
 # add ckpt loading of megatron format 
 def load_model(self, *, model_config,
