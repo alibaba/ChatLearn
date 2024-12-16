@@ -18,7 +18,6 @@ import importlib
 import os
 from .. import is_vllm_v2
 
-# pylint: disable=uungrouped-imports
 
 if is_vllm_v2():
     if importlib.util.find_spec("vllm"):
@@ -29,7 +28,7 @@ if is_vllm_v2():
 else:
     if importlib.util.find_spec("vllm"):
         import vllm
-        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion # pylint: disable=uungrouped-imports
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             from chatlearn.models.vllm.hooks import sampler
         elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
