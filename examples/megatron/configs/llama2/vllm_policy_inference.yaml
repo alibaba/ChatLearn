@@ -30,7 +30,7 @@ max_paddings: ${max_paddings:512}
 num_scheduler_steps: ${num_scheduler_steps:1}
 
 # engine config
-enforce_eager: ${enforce_eager:False}
+enforce_eager: ${enforce_eager:True}
 
 # cache config
 block_size: ${cache_block_size:16}
