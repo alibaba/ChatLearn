@@ -1491,9 +1491,12 @@ def _load_base_checkpoint(load_dir, rank0=False):
     return state_dict, checkpoint_name, release
 
 
-def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True):
+def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True, model_args=None):
     """"Transform parallel strategy for checkpoint if needed."""
-    args = model.model_args
+    if model_args is not None:
+        args = model_args
+    else:
+        args = model.model_args
     if args.get("adaptive_parallel_strategy_on_checkpoint"):
         load_dir = args[load_arg]
         target_tp = args.get("tensor_model_parallel_size")
@@ -1522,16 +1525,20 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
             torch.distributed.barrier()
             args[load_arg] = save_dir
             print_rank_0(f"Using transformed checkpoint {save_dir}")
-    return vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg=load_arg, strict=strict)
+    return vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg=load_arg, strict=strict, model_args=model_args)
 
 
-def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True):
+def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True, model_args=None):
     """Load a model checkpoint and return the iteration.
     strict (bool): whether to strictly enforce that the keys in
         :attr:`state_dict` of the checkpoint match the names of
         parameters and buffers in model.
     """
-    args = model.model_args
+    if model_args is not None:
+        args = model_args
+    else:
+        args = model.model_args
+
     load_dir = args[load_arg]
 
     model = [unwrap_model(model)]
