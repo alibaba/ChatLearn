@@ -75,7 +75,8 @@ def init(self, load_config):
 
 loader.DummyModelLoader.__init__ = init
 
-# add ckpt loading of megatron format 
+
+# add ckpt loading of megatron format
 def load_model(self, *, model_config,
                 device_config,
                 lora_config,
