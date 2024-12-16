@@ -18,16 +18,18 @@ import importlib
 import os
 from .. import is_vllm_v2
 
-from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+# pylint: disable=uungrouped-imports
 
 if is_vllm_v2():
     if importlib.util.find_spec("vllm"):
         from . import ray_gpu_executor
+        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             from chatlearn.models.vllm.hooks import input_preprocess
 else:
     if importlib.util.find_spec("vllm"):
         import vllm
+        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
             from chatlearn.models.vllm.hooks import sampler
         elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
