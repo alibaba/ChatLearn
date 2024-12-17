@@ -812,6 +812,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Convert.
     print("Start to convert...")
+    prefix_name = "model" if is_vllm_v2() else "model.model"
 
     # Embeddings
     print("Converting embeddings")
@@ -838,7 +839,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     elif word_embeddings is not None:
         # After training with megatron, word_embeddings is stored differently
         word_embeddings = word_embeddings.to(hf_config.torch_dtype)
-        output_state_dict["model.model.embed_tokens.weight"] = word_embeddings
+        output_state_dict[f"{prefix_name}.embed_tokens.weight"] = word_embeddings
         # Reset the vocab size
         hf_config.vocab_size = word_embeddings.shape[0]
 
@@ -879,7 +880,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         # Is it a weight or a bias?
         weight_or_bias = m.group(3)
         # The name of the layer.
-        layer_name = f"model.model.layers.{layer_idx}"
+        layer_name = f"{prefix_name}.layers.{layer_idx}"
 
         params = val.to(hf_config.torch_dtype)
 
@@ -935,7 +936,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
     if "final_norm.weight" in params or "final_layernorm.weight" in params:
         print("Converting final layernorm")
         final_norm_weight =  params["final_norm.weight"] if "final_norm.weight" in params else params["final_layernorm.weight"]
-        output_state_dict["model.model.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
+        output_state_dict[f"{prefix_name}.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
 
     # For LM head, transformers' wants the matrix to weight embeddings.
     params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
@@ -943,7 +944,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         assert not params, "weight name of lm_head expect 'model.language_model.output_layer.weight'."
     elif params is not None:
         print("Converting LM head")
-        output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+        output_state_dict["lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"] = params.to(hf_config.torch_dtype)
 
     # It should be done!
     print("Conversion from Megatron-LM to Transformers is done!")
@@ -993,6 +994,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
 
     # Convert.
     print("Start to convert...")
+    prefix_name = "model" if is_vllm_v2() else "model.model"
 
     # Embeddings
     print("Converting embeddings")
@@ -1025,7 +1027,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     # Convert and store the word embeddings.
     word_embeddings = tp_state_dicts[tp_rank]['model'].get("embedding.word_embeddings.weight", None)
     word_embeddings = word_embeddings.to(hf_config.torch_dtype)
-    output_state_dict["model.model.embed_tokens.weight"] = word_embeddings
+    output_state_dict[f"{prefix_name}.embed_tokens.weight"] = word_embeddings
     # Reset the vocab size
     hf_config.vocab_size = word_embeddings.shape[0]
 
@@ -1051,7 +1053,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
         # Is it a weight or a bias?
         weight_or_bias = layer_match_res.group(3)
         # The name of the layer
-        layer_name = f"model.model.layers.{layer_idx}"
+        layer_name = f"{prefix_name}.layers.{layer_idx}"
 
         params = val.to(hf_config.torch_dtype)
 
@@ -1112,12 +1114,12 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     # The final layernorm.
     print("Converting final layernorm")
     final_norm_weight = tp_state_dicts[0]['model'].get("decoder.final_layernorm.weight", None)
-    output_state_dict["model.model.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
+    output_state_dict[f"{prefix_name}.norm.weight"] = final_norm_weight.to(hf_config.torch_dtype)
 
     # For LM head, transformers' wants the matrix to weight embeddings.
     print("Converting LM head")
     params = tp_state_dicts[tp_rank]['model'].get('output_layer.weight', None)
-    output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+    output_state_dict["lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"] = params.to(hf_config.torch_dtype)
 
     # It should be done!
     print("Conversion from Megatron-Core to Transformers is done!")

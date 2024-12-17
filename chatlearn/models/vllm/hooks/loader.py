@@ -22,6 +22,7 @@ from vllm.model_executor.model_loader import loader
 from vllm.model_executor.model_loader.loader import device_loading_context, _initialize_model
 from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
+from vllm.model_executor.models import llama
 from vllm.model_executor.models import qwen2
 
 from chatlearn.utils.vllm_import_helper import LlamaForCausalLM
@@ -87,6 +88,8 @@ def load_model(self, *, model_config,
         if self.load_config.model_loader_extra_config.get("need_load_ckpt", True):
             qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
             qwen2.Qwen2ForCausalLM.load_weights = load_weights
+            llama.LlamaForCausalLM.load_state_dict = load_state_dict
+            llama.LlamaForCausalLM.load_weights = load_weights
             model.load_weights(self.load_config.model_loader_extra_config)
         else:
             # For accurate performance evaluation, we assign
