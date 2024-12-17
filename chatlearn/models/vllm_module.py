@@ -131,7 +131,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             max_num_batched_tokens=self.model_args.get("max_num_batched_tokens"),
             max_num_seqs=self.model_args.get("micro_batch_size"),
             max_model_len=self.model_args.get("seq_length"),
-            enforce_eager=self.model_args.get("enforce_eager", False),
+            enforce_eager=self.model_args.get("enforce_eager", True),
             disable_custom_all_reduce=True
         )
 
