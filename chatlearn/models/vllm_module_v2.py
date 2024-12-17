@@ -31,6 +31,7 @@ from vllm.usage.usage_lib import UsageContext
 from vllm.utils import FlexibleArgumentParser
 
 from chatlearn.utils.global_vars import set_vllm_actors
+from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from .torch_module import TorchModule
 
 
@@ -54,6 +55,21 @@ class VLLMModuleV2(TorchModule):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
+    def _init_args(self, args):
+        # scheduler config
+        args.max_num_seqs = self.module_args.generation_batch_size
+        args.max_num_batched_tokens = self.model_args.get("max_num_batched_tokens")
+        args.num_scheduler_steps = self.model_args.get("num_scheduler_steps", 1)
+
+        # model config
+        args.max_seq_len = self.model_args.get("seq_length")
+
+        # logger config
+        args.disable_log_requests = True
+
+        # engine config
+        args.enforce_eager = self.model_args.get("enforce_eager", False)
+
     def setup_vllm(self, workers):
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
@@ -73,6 +89,7 @@ class VLLMModuleV2(TorchModule):
                          "--disable_custom_all_reduce"]
         sys.argv = vllm_sys_argv
         args = parser.parse_args()
+        self._init_args(args)
         engine_args = AsyncEngineArgs.from_cli_args(args)
         self.engine = self.from_engine_args(engine_args)
 
@@ -149,25 +166,54 @@ class VLLMModuleV2(TorchModule):
             sampling_params.use_beam_search = self.model_args.get("use_beam_search")
         return sampling_params
 
+    def convert_v1_inputs(self, prompts, prompt_token_ids):
+        num_requests = len(prompts)
+        assert num_requests == len(prompt_token_ids), \
+            ("The lengths of prompts and prompt_token_ids must be the same.")
+
+        inputs = []
+        for i in range(num_requests):
+            if prompts[i] is None:
+                assert isinstance(prompt_token_ids[i], List[int]), \
+                    f"Expect prompt_token_ids[{i}] is List[int] when prompt is None, while {prompt_token_ids[i]}."
+            if prompt_token_ids[i] is None:
+                assert isinstance(prompts[i], str), \
+                    f"Expect prompts[{i}] is a string when prompt_token_ids is None, while {prompts[i]}."
+            item = TextTokensPrompt(
+                prompt=prompts[i],
+                prompt_token_ids=prompt_token_ids[i])
+            inputs.append(item)
+
+        return inputs
+
     async def generate_vllm(self, query, is_eval):
-        prompts = query['prompt']
+        prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
+        input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
+
+        prompts = query[prompt_key]
+        prompts_token_ids = query[input_ids_key]
         seq_len = self.model_args.get("seq_length")
         final_outputs = []
         tasks = []
         for i, prompt in enumerate(prompts):
             request_id = i
+            prompt_token_ids = prompts_token_ids[i]
             if 'sampling_param' in query:
                 sampling_param = query['sampling_param'][i]
             else:
                 sampling_param = self._get_sampling_params(is_eval)
                 if not self.model_args.get("new_token_limit", False):
-                    prompt_token_ids = query['input_ids'][i]
                     max_tokens = seq_len - len(prompt_token_ids)
                 else:
                     max_tokens = self.model_args.get("max_new_tokens")
                     assert max_tokens < seq_len, "max_new_tokens must less than seq length."
                 sampling_param.max_tokens = max_tokens
-            task = asyncio.create_task(self.generate_one_sample(prompt, sampling_param, request_id))
+            inputs = self.convert_v1_inputs(
+                prompts=[prompt],
+                prompt_token_ids=[prompt_token_ids],
+            )[0]
+
+            task = asyncio.create_task(self.generate_one_sample(inputs, sampling_param, request_id))
             tasks.append(task)
         outputs = await asyncio.gather(*tasks)
         final_outputs = sorted(outputs, key=lambda x: int(x.request_id))
