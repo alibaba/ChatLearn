@@ -30,6 +30,7 @@ import numpy as np
 import torch
 import torch.distributed
 
+from chatlearn.models.vllm import is_vllm_v2
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.utils import get_use_legacy_models
 
@@ -1136,7 +1137,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         final_norm = "ln_f"
         func_map = megatron_qwen_to_transformers
     elif qwen_version == QwenVersion.v_2:
-        prefix_name = "model.model."
+        prefix_name = "model." if is_vllm_v2() else "model.model."
         embed_name = "embed_tokens"
         layer_prefix = "layers"
         final_norm = "norm"
@@ -1393,15 +1394,16 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # For LM head, transformers' wants the matrix to weight embeddings.
     print("Converting LM head")
+    lm_head_name = "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
     if megatron_args.untie_embeddings_and_output_weights:
         if hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts:
             params = get_element_from_dict_by_path(final_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
         else:
             params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
         if (isinstance(params, dict) and len(params.keys())) or (params is not None and not isinstance(params, dict)):
-            output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+            output_state_dict[lm_head_name] = params.to(hf_config.torch_dtype)
     elif pp_rank == 0 or (pp_rank == pp_size - 1) or (hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts):
-        output_state_dict["model.lm_head.weight"] = word_embeddings
+        output_state_dict[lm_head_name] = word_embeddings
 
     # It should be done!
     print("Conversion from Megatron-LM to Transformers is done!")
