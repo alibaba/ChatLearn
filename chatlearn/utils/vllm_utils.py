@@ -30,6 +30,7 @@ import numpy as np
 import torch
 import torch.distributed
 
+from chatlearn.models.vllm import is_vllm_v2
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.utils import get_use_legacy_models
 
@@ -1136,7 +1137,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         final_norm = "ln_f"
         func_map = megatron_qwen_to_transformers
     elif qwen_version == QwenVersion.v_2:
-        prefix_name = "model.model."
+        prefix_name = "model." if is_vllm_v2() else "model.model."
         embed_name = "embed_tokens"
         layer_prefix = "layers"
         final_norm = "norm"
@@ -1393,15 +1394,16 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # For LM head, transformers' wants the matrix to weight embeddings.
     print("Converting LM head")
+    lm_head_name = "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
     if megatron_args.untie_embeddings_and_output_weights:
         if hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts:
             params = get_element_from_dict_by_path(final_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
         else:
             params = get_element_from_dict_by_path(tp_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
         if (isinstance(params, dict) and len(params.keys())) or (params is not None and not isinstance(params, dict)):
-            output_state_dict["model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+            output_state_dict[lm_head_name] = params.to(hf_config.torch_dtype)
     elif pp_rank == 0 or (pp_rank == pp_size - 1) or (hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts):
-        output_state_dict["model.lm_head.weight"] = word_embeddings
+        output_state_dict[lm_head_name] = word_embeddings
 
     # It should be done!
     print("Conversion from Megatron-LM to Transformers is done!")
@@ -1491,9 +1493,12 @@ def _load_base_checkpoint(load_dir, rank0=False):
     return state_dict, checkpoint_name, release
 
 
-def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True):
+def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True, model_args=None):
     """"Transform parallel strategy for checkpoint if needed."""
-    args = model.model_args
+    if model_args is not None:
+        args = model_args
+    else:
+        args = model.model_args
     if args.get("adaptive_parallel_strategy_on_checkpoint"):
         load_dir = args[load_arg]
         target_tp = args.get("tensor_model_parallel_size")
@@ -1522,16 +1527,20 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
             torch.distributed.barrier()
             args[load_arg] = save_dir
             print_rank_0(f"Using transformed checkpoint {save_dir}")
-    return vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg=load_arg, strict=strict)
+    return vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg=load_arg, strict=strict, model_args=model_args)
 
 
-def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True):
+def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', strict=True, model_args=None):
     """Load a model checkpoint and return the iteration.
     strict (bool): whether to strictly enforce that the keys in
         :attr:`state_dict` of the checkpoint match the names of
         parameters and buffers in model.
     """
-    args = model.model_args
+    if model_args is not None:
+        args = model_args
+    else:
+        args = model.model_args
+
     load_dir = args[load_arg]
 
     model = [unwrap_model(model)]
