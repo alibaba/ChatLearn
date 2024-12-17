@@ -17,7 +17,7 @@
 
 import torch
 
-# pylint: disable=unused-import,wildcard-import
+# pylint: disable=unused-import,wildcard-import,unused-argument
 from vllm.model_executor.model_loader import loader
 from vllm.model_executor.model_loader.loader import device_loading_context, _initialize_model
 from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
@@ -43,7 +43,7 @@ def load_weights(self, model_args):
     load_checkpoint(self, None, None, model_args=model_args)
     torch.distributed.barrier()
 
-def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disable=unused-argument
+def load_state_dict(self, state_dict, strict=True, assign=False):
     qwen_version = None
     if isinstance(self, LlamaForCausalLM):
         use_legacy_models = get_use_legacy_models(self.model_args)
