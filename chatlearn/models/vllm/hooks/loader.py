@@ -17,7 +17,7 @@
 
 import torch
 
-# pylint: disable=unused-import,wildcard-import,unused-argument
+# pylint: disable=unused-import,wildcard-import
 from vllm.model_executor.model_loader import loader
 from vllm.model_executor.model_loader.loader import device_loading_context, _initialize_model
 from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
@@ -37,7 +37,6 @@ from chatlearn.utils.vllm_utils import (
     load_checkpoint
 )
 
-
 def load_weights(self, model_args):
     torch.distributed.barrier()
     self.model_args = model_args
@@ -55,7 +54,7 @@ def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disa
     elif isinstance(self, QWenLMHeadModel):
         qwen_version = 1.0
         convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm
-    elif isinstance(self, Qwen2ForCausalLM) or (Qwen2MoeForCausalLM is not None and isinstance(self.model, Qwen2MoeForCausalLM)):
+    elif isinstance(self, Qwen2ForCausalLM) or (Qwen2MoeForCausalLM is not None and isinstance(self, Qwen2MoeForCausalLM)):
         qwen_version = 2.0
         convert_state_dict_internal = convert_qwen_state_dict_from_megatron_to_vllm
     else:
@@ -63,10 +62,7 @@ def load_state_dict(self, state_dict, strict=True, assign=False): # pylint: disa
             support [LlamaForCausalLM, QWenLMHeadModel, Qwen2ForCausalLM, Qwen2MoeForCausalLM] only, while {self}")
 
     state_dict = convert_state_dict_internal(self.model_args, self.config, qwen_version=qwen_version)
-    super().load_state_dict(state_dict, strict=strict)
-
-qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
-qwen2.Qwen2ForCausalLM.load_weights = load_weights
+    super(type(self), self).load_state_dict(state_dict, strict=strict)
 
 
 def init(self, load_config):
@@ -89,9 +85,11 @@ def load_model(self, *, model_config,
                                         lora_config, cache_config,
                                         scheduler_config)
         if self.load_config.model_loader_extra_config.get("need_load_ckpt", True):
+            qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
+            qwen2.Qwen2ForCausalLM.load_weights = load_weights
             model.load_weights(self.load_config.model_loader_extra_config)
         else:
-            # NOTE(woosuk): For accurate performance evaluation, we assign
+            # For accurate performance evaluation, we assign
             # random values to the weights.
             initialize_dummy_weights(model)
 

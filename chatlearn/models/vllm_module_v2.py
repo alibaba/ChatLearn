@@ -24,6 +24,7 @@ import torch
 from transformers import AutoTokenizer
 from vllm import SamplingParams
 from vllm.config import EngineConfig
+from vllm.config import LoadFormat
 from vllm.executor.ray_utils import RayWorkerWrapper
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -67,6 +68,12 @@ class VLLMModuleV2(TorchModule):
         # logger config
         args.disable_log_requests = True
 
+        # load format: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
+        args.load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
+        if args.load_format == LoadFormat.DUMMY:
+            args.model_loader_extra_config = self.model_args
+        self.model_args["need_load_ckpt"] = self.src_parameter_model is None
+
         # engine config
         args.enforce_eager = self.model_args.get("enforce_eager", False)
 
@@ -81,7 +88,7 @@ class VLLMModuleV2(TorchModule):
         if self.model_args.get("fp16", False):
             dtype = "float16"
         vllm_sys_argv = ["",
-                         f"--model={self.model_args['load']}",
+                         f"--model={self.model_args['tokenizer']}",
                          f"--tensor_parallel_size={self.module_args.tensor_model_parallel_size}",
                          f"--pipeline_parallel_size={self.module_args.pipeline_model_parallel_size}",
                          f"--dtype={dtype}",
