@@ -25,6 +25,8 @@ if is_vllm_v2():
         from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             from chatlearn.models.vllm.hooks import input_preprocess
+            from chatlearn.models.vllm.hooks import async_llm_engine
+            from chatlearn.models.vllm.hooks import llm
             from chatlearn.models.vllm.hooks import loader
 else:
     if importlib.util.find_spec("vllm"):

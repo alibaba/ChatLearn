@@ -138,7 +138,9 @@ def preprocess_compute(func, trainable):
             self.onload()
         generation_batch_size = self.module_args.generation_batch_size
         final_results = None
+        print(f"debug 11111111")
         if not trainable and generation_batch_size:
+            print(f"debug 22222")
             # split into micro-batches if generation_batch_size < input_batch, then concat the results
             # this happens when different models have difference batch sizes
             input_batch = 0
@@ -150,6 +152,7 @@ def preprocess_compute(func, trainable):
             else:
                 input_data = None
             if input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
+                print(f"debug aaaaaa")
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []
@@ -161,12 +164,15 @@ def preprocess_compute(func, trainable):
                     self._iteration += 1
                     ret = utils.to_device('cpu', ret)
                     results.append(ret)
+                print(f"debug results: {results}")
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
-                    or isinstance(self, VLLMModuleV2):
+                        or isinstance(self, VLLMModuleV2):
                     final_results = concat_along_batch(results)
             else:
+                print(f"debug bbbbbb")
+                print(f"debug ret: {ret}")
                 if 'iteration' in inspect.signature(func).parameters:
                     kwargs["iteration"] = self._iteration
                 ret = func(self, *args, **kwargs)
@@ -176,9 +182,10 @@ def preprocess_compute(func, trainable):
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
-                    or isinstance(self, VLLMModuleV2):
+                        or isinstance(self, VLLMModuleV2):
                     final_results = ret
         else:
+            print(f"debug 3333")
             if 'iteration' in inspect.signature(func).parameters:
                 kwargs["iteration"] = self._train_iteration
             self._train_iteration += 1
