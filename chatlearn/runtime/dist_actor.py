@@ -255,7 +255,7 @@ class DistVLLMActor(DistTorchActor):
             setattr(self, func_name, dist_call)
 
     def model_setup(self):
-        return [self.vllm_engine.setup.remote()]
+        return [self.vllm_engine.model_setup.remote()]
 
     @property
     def master(self):
