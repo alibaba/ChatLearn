@@ -190,8 +190,7 @@ class ModelManager:
     def set_func_decorator(self, model):
         if is_decorated(model.name):
             return
-        # decorate async method here will raise cannot serialize coroutine object error
-        call_funcs = model.call_funcs if not isinstance(model, VLLMModuleV2) else []
+        call_funcs = model.call_funcs
 
         model_cls = model.__class__
         for func_name in call_funcs:

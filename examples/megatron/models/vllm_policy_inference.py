@@ -21,10 +21,11 @@ import random
 import torch
 import torch.nn.functional as F
 
+from chatlearn.models.vllm import is_vllm_v2
 from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 from .utils import get_loss_mask
 
-if os.environ.get("ENABLE_VLLM_V2"):
+if is_vllm_v2():
     from chatlearn import VLLMModuleV2 as VLLMModule
 else:
     from chatlearn import VLLMModule
