@@ -16,7 +16,7 @@
 
 from typing import Dict, Optional
 
-# pylint: disable=unused-import,wildcard-import,unused-argument
+# pylint: disable=unused-import,wildcard-import,unused-argument,not-callable
 from vllm.config import EngineConfig
 from vllm.engine import async_llm_engine
 from vllm.engine.arg_utils import AsyncEngineArgs
@@ -34,7 +34,6 @@ def from_engine_args(
 ) -> "AsyncLLMEngine":
     """Creates an async LLM engine from the engine arguments."""
     # Create the engine configs.
-    print(f"debug aaaaa async_llm_engine.")
     if engine_config is None:
         engine_config = engine_args.create_engine_config()
 

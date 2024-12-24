@@ -14,25 +14,15 @@
 # ==============================================================================
 """VLLM module v2"""
 
-import asyncio
 import inspect
 import os
-import sys
-import json
-from typing import Optional
 
 import torch
 from transformers import AutoTokenizer
 from vllm import SamplingParams
-from vllm.config import EngineConfig
 from vllm.config import LoadFormat
 from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
-from vllm.engine.async_llm_engine import AsyncLLMEngine
-from vllm.engine.arg_utils import AsyncEngineArgs
-from vllm.usage.usage_lib import UsageContext
-from vllm.utils import Counter
-from vllm.utils import FlexibleArgumentParser
 
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
@@ -156,9 +146,6 @@ class VLLMModuleV2(TorchModule):
 
         return inputs
 
-    async def generate_all(self, prompts, sampling_params):
-        pass
-
     async def generate_vllm(self, query, is_eval):
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
@@ -167,11 +154,9 @@ class VLLMModuleV2(TorchModule):
         prompts_token_ids = query[input_ids_key]
         seq_len = self.model_args.get("seq_length")
         final_outputs = []
-        tasks = []
         parsed_prompts = []
         sampling_params = []
         for i, prompt in enumerate(prompts):
-            request_id = i
             prompt_token_ids = prompts_token_ids[i]
             if 'sampling_param' in query:
                 sampling_param = query['sampling_param'][i]

@@ -53,8 +53,6 @@ def init(
     Note: if enforce_eager is unset (enforce_eager is None)
     it defaults to False.
     '''
-    print(f"debug aaaaa llm")
-
     if "disable_log_stats" not in kwargs:
         kwargs["disable_log_stats"] = True
 
