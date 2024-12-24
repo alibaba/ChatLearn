@@ -181,7 +181,6 @@ def forward_step(data_iterator, model):
 
     # Get the batch.
     timers('batch-generator', log_level=2).start()
-    global stimer
     with stimer(bdata=True):
         tokens, labels, loss_mask, attention_mask, position_ids = get_batch(
             data_iterator)
@@ -212,4 +211,3 @@ if __name__ == "__main__":
     pretrain(train_valid_test_datasets_provider, model_provider,
              ModelType.encoder_or_decoder,
              forward_step)
-
