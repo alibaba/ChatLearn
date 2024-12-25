@@ -25,22 +25,43 @@ from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.global_vars import set_vllm_actors
+from chatlearn.utils.vllm_import_helper import parallel_state
+from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from .torch_module import TorchModule
 
 
-class VLLMModuleV2(TorchModule):
+class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """VLLMModuleV2"""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        TorchModule.__init__(self, *args)
+        # avoid overwrite methods
+        methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
+        methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
+        common_methods = methods_class1.intersection(methods_class2)
+        # common method is '__init__'
+        assert common_methods == {'__init__'}, \
+            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
+        # TorchModule.__init__(self, *args)
         self.local_rank = 0
         os.environ['LOCAL_RANK'] = '0'
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
         os.environ['VLLM_HOST_IP'] = self.get_address()
-        self.llm_engine = None
+
+    # def __init__(self, *args, **kwargs):
+    #     super().__init__(*args, **kwargs)
+        # self.local_rank = 0
+        # os.environ['LOCAL_RANK'] = '0'
+        # if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
+        #     RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        # os.environ['VLLM_HOST_IP'] = self.get_address()
+        # self.llm_engine = None
         self.tokenizer = None
+        self._tp_rank = None
+        self._pp_rank = None
+        self._model = None
 
     def setup(self):
         """Set up model and load checkpoint"""
@@ -51,7 +72,8 @@ class VLLMModuleV2(TorchModule):
 
     def setup_vllm(self, workers):
         # setup vllm engine in rank 0
-        os.environ['VLLM_HOST_IP'] = self.get_address()
+        # os.environ['VLLM_HOST_IP'] = self.get_address()
+        print(f"debug 1111 workers: {[id(ele) for ele in workers]} {workers}")
         set_vllm_actors(workers)
 
         dtype = self.model_args.get("dtype", "bfloat16")
@@ -146,7 +168,13 @@ class VLLMModuleV2(TorchModule):
 
         return inputs
 
+    async def generate_all(self, prompts, sampling_params):
+        pass
+
     async def generate_vllm(self, query, is_eval):
+        print(f"debug aaaa tensor_parallel_rank: {id(self)} {self}")
+        print(f"tensor_parallel_rank: {self.tensor_parallel_rank()}", flush=True)
+        print(f"debug aaaa pipeline_parallel_rank: {id(self)} {self} {self.pipeline_parallel_rank()}", flush=True)
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
@@ -154,9 +182,11 @@ class VLLMModuleV2(TorchModule):
         prompts_token_ids = query[input_ids_key]
         seq_len = self.model_args.get("seq_length")
         final_outputs = []
+        tasks = []
         parsed_prompts = []
         sampling_params = []
         for i, prompt in enumerate(prompts):
+            request_id = i
             prompt_token_ids = prompts_token_ids[i]
             if 'sampling_param' in query:
                 sampling_param = query['sampling_param'][i]
@@ -180,37 +210,45 @@ class VLLMModuleV2(TorchModule):
             sampling_params,
             use_tqdm=True,
         )
+        print(f"debug aaaa tensor_parallel_rank: {self.tensor_parallel_rank()}", flush=True)
+        print(f"debug aaaa pipeline_parallel_rank: {self.pipeline_parallel_rank()}", flush=True)
         final_outputs = sorted(outputs, key=lambda x: int(x.request_id))
         return final_outputs
 
     def is_last_rank(self):
         return True
 
+    def num_layers(self):
+        """
+        :meta private:
+        """
+        return self.llm.llm_engine.model_config.hf_config.num_hidden_layers
 
-class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
-    """VLLMWokerWrapper is the class for vLLM workers.
 
-    Args
-    ----
-    name : str
-        model name
-    """
+# class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
+#     """VLLMWokerWrapper is the class for vLLM workers.
 
-    def __init__(self, *args, **kwargs):
-        # avoid overwrite methods
-        methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
-        methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
-        common_methods = methods_class1.intersection(methods_class2)
-        # common method is '__init__'
-        assert common_methods == {'__init__'}, \
-            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
-        TorchModule.__init__(self, *args)
-        self.local_rank = 0
-        os.environ['LOCAL_RANK'] = '0'
-        if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-            RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
-        os.environ['VLLM_HOST_IP'] = self.get_address()
-        self.llm_engine = None
+#     Args
+#     ----
+#     name : str
+#         model name
+#     """
+
+    # def __init__(self, *args, **kwargs):
+    #     # avoid overwrite methods
+    #     methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
+    #     methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
+    #     common_methods = methods_class1.intersection(methods_class2)
+    #     # common method is '__init__'
+    #     assert common_methods == {'__init__'}, \
+    #         f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
+    #     TorchModule.__init__(self, *args)
+    #     self.local_rank = 0
+    #     os.environ['LOCAL_RANK'] = '0'
+    #     if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
+    #         RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+    #     os.environ['VLLM_HOST_IP'] = self.get_address()
+        # self.llm_engine = None
 
     def peak_memory(self):
         """
@@ -232,3 +270,31 @@ class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         return 0
+
+    @property
+    def model(self):
+        if self._model is None:
+            # breakpoint()
+            # if self.worker is not None:
+            self._model = self.worker.model_runner.model
+            # print(f"debug 1111 self.llm: {self.llm}")
+        return self._model
+    def set_tp_pp_ranks(self, tp_rank, pp_rank):
+        """
+        :meta private:
+        """
+        print(f"aaaa debug set_tp_pp_ranks: {tp_rank} {pp_rank}", flush=True)
+        self._tp_rank = tp_rank
+        self._pp_rank = pp_rank
+
+    def tensor_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return self._tp_rank
+
+    def pipeline_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return self._pp_rank

@@ -309,8 +309,8 @@ class ParameterSyncGroup:
             replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
             replica_rank_iter = cycle(iter(src_dp_ranks))
-        logger.debug(f"src_dp_ranks: {src_dp_ranks}")
-        logger.debug(f"dst_dp_ranks: {dst_dp_ranks}")
+        logger.info(f"src_dp_ranks: {src_dp_ranks}")
+        logger.info(f"dst_dp_ranks: {dst_dp_ranks}")
 
         assert self.num_src_pipeline_stage % self.num_dst_pipeline_stage == 0
 
@@ -635,11 +635,16 @@ class ParameterSyncGroup:
 
     def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
         send_actor = actors[0]
+        # breakpoint()
         for recv_actor in actors[1:]:
+            is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
+            print(f"is_the_same_gpu: {is_the_same_gpu} for {send_actor} -> {recv_actor}")
             self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         refs = []
+        # breakpoint()
         for rank, actor in enumerate(actors):
+            print(f"broadcast from 0 to {rank}")
             ref = actor.broadcast_parameter.remote(rank, 0, group_name, pipe_stage)
             refs.append(ref)
         future.wait(refs, return_output=True)
@@ -703,7 +708,9 @@ class ParameterSyncGroup:
 
     def get_actor_tp_rank(self, actor):
         def inner_func():
-            return future.get(actor.tensor_parallel_rank.remote())
+            rank = future.get(actor.tensor_parallel_rank.remote())
+            print(f"actor: {actor} rank: {rank}", flush=True)
+            return rank
         return utils.get_or_cache(self._actor2tp, actor, inner_func)
 
     def get_actor_ep_rank(self, actor):
@@ -777,6 +784,9 @@ class ParameterSyncGroup:
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
         logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
+
+        print(f"set_sync_param_names: src_names {len(src_names)} {src_names}")
+        print(f"set_sync_param_names: dst_names {len(dst_names)} {dst_names}")
 
         refs = []
         refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
@@ -1045,33 +1055,43 @@ class ParameterSyncGroup:
         self, send_actors_list:List, actor_mappings_list:List,
         requires_grad=None, filter_fn=None, param_group="default"
     ):
+        # breakpoint()
         assert len(send_actors_list) == 1 and len(actor_mappings_list) == 1
         send_actors = send_actors_list[0]
         actor_mappings = actor_mappings_list[0]
 
+        # breakpoint()
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
+        # breakpoint()
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
 
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
+        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        #     futures = []
+        #     for send_actor in sorted_send_actors:
+        #         recv_actors = actor_mappings[send_actor]
+        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+        #             actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
+        #             futures.append(executor.submit(
+        #                 self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+        #             ))
+        #         else:
+        #             for recv_actor in recv_actors:
+        #                 futures.append(executor.submit(
+        #                     self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
+        #                 ))
+        #     for _future in concurrent.futures.as_completed(futures):
+        #         try:
+        #             _future.result()œ
+        #         except Exception as e:
+        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+        #     concurrent.futures.wait(futures)
+        if True:
             for send_actor in sorted_send_actors:
                 recv_actors = actor_mappings[send_actor]
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                    futures.append(executor.submit(
-                        self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
-                    ))
-                else:
-                    for recv_actor in recv_actors:
-                        futures.append(executor.submit(
-                            self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
-                        ))
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+                # breakpoint()
+                print(f"send from {self.actor2rank[send_actor]} to {[self.actor2rank[ele] for ele in recv_actors]}")
+                actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
+                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
         assert len(actor_mappings_list) == 1
@@ -1098,16 +1118,22 @@ class ParameterSyncGroup:
         future.wait(refs)
 
     def sync(self, requires_grad=None, validate=False):
+        print(f"debug position 1")
         self.recover_synchronizer()
+        print(f"debug position 2")
 
         self.check_and_setup_collective_group()
+        print(f"debug position 3")
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+        print(f"debug position 4")
 
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:
+            print(f"debug position 5.1")
             if self.tp_num_mapping > 1:
+                print(f"debug position 6.1")
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
                 self._multi_thread_sync_for_tp_num_mapping_gt_1(
@@ -1116,6 +1142,7 @@ class ParameterSyncGroup:
                     requires_grad=requires_grad
                 )
             else:
+                print(f"debug position 6.2")
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
                 self._multi_thread_sync_for_tp_num_mapping_eq_1(
@@ -1124,21 +1151,26 @@ class ParameterSyncGroup:
                     requires_grad=requires_grad
                 )
         else:
+            print(f"debug position 5.2")
             actor_mappings_list = [self.send_recv_actor_mappings]
             self._single_thread_sync(
                 actor_mappings_list,
                 requires_grad=requires_grad
             )
-
+        print(f"debug position 7")
         assert len(actor_mappings_list) >= 1
 
         self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
+        print(f"debug position 8")
 
         self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
+        print(f"debug position 9")
 
         self.check_and_destroy_collective_group()
+        print(f"debug position 10")
 
         self.reset_synchronizer()
+        print(f"debug position 11")
 
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
 

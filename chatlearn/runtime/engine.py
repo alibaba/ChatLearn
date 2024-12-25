@@ -228,9 +228,6 @@ class Engine(BaseEngine):
                 executor.update_models(self.remote_models)
         if self.env:
             self.env.set_dataset(self._dataset)
-        self.model_manager.build_parameter_group()
-        self.model_manager.start_error_monitor()
-
     def set_dataset(self, dataset):
         """
         Set prompt dataset.
@@ -282,6 +279,8 @@ class Engine(BaseEngine):
         for executor in self._executors:
             if executor:
                 executor.setup()
+        self.model_manager.build_parameter_group()
+        self.model_manager.start_error_monitor()
         self.timers("setup").stop()
         logger.info(f"{LOG_START} {self._name} setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
@@ -293,6 +292,7 @@ class Engine(BaseEngine):
                                                self.runtime_args.max_relay_episode,
                                                self.runtime_args.relay_episode_offset)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
+        # breakpoint()
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('After first param sync'))
         self._data_loader = data_loader

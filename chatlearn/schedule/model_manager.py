@@ -175,12 +175,22 @@ class ModelManager:
                 sync_group: ParameterSyncGroup = sync_group
 
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
+                print(f"sync from {src_model} to {dst_model}", flush=True)
+                # breakpoint()
                 refs = src_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
+                print(f"having onload {src_model}", flush=True)
+                # breakpoint()
+
                 refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
+                print(f"having onload {dst_model}", flush=True)
+                # breakpoint()
 
+                print(f"sync_group {sync_group} start to sync from {src_model} to {dst_model}", flush=True)
+                # breakpoint()
                 sync_group.sync(requires_grad, validate)
+                # breakpoint()
 
                 refs = src_model.offload()
                 future.wait(refs)
@@ -344,7 +354,10 @@ class ModelManager:
                     replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
-                replica.create_actor(num_gpus, placement_group, group)
+                if isinstance(replica.model, VLLMModuleV2):
+                    replica.create_actor(num_gpus, placement_group, group, use_ray_vllm_worker=not replica.all_actors)
+                else:
+                    replica.create_actor(num_gpus, placement_group, group)
 
         models_to_revert = self._find_param_recv_models(gpu_models)
         for model in gpu_models:

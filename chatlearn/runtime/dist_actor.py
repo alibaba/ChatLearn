@@ -29,7 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2, VLLMWokerWrapper
+    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 
 RAY_REMOTE = "remote"
 
@@ -233,15 +233,24 @@ class DistVLLMActor(DistTorchActor):
         super().__init__(*args, **kwargs)
         self.vllm_engine = None
 
-    def create_actor(self, num_gpus, placement_group, group_index):
+    def create_actor(self, num_gpus, placement_group, group_index, use_ray_vllm_worker=False):
         kwargs = {
             "worker_module_name": "vllm.worker.worker",
             "worker_class_name": "Worker",
             "worker_class_fn": None,
             "trust_remote_code": True,
         }
-        self._create_actor(VLLMWokerWrapper, num_gpus, placement_group, group_index, **kwargs)
-
+        # if self.vllm_engine is None:
+        #     self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
+        #     self.model.engine = self.vllm_engine
+        # else:
+        #     self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
+        # if use_ray_vllm_worker:
+        #     from vllm.executor.ray_utils import RayWorkerWrapper
+        #     self.all_actors.append(RayWorkerWrapper(**kwargs))
+        # else:
+        self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
+        # return self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
         self.model.engine = self.vllm_engine

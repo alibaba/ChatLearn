@@ -64,7 +64,8 @@ models:
 
 runtime:
   colocation:
-    - policy,ppo_policy,reward,reference,value,ppo_value
+    - policy
+    - ppo_policy,reward,reference,value,ppo_value
   generation_batch_size: ${generation_batch_size:4}
   train_micro_batch_size: ${train_micro_batch_size:2}
   train_global_batch_size: ${train_global_batch_size:512}

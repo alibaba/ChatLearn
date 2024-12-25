@@ -28,6 +28,7 @@ if is_vllm_v2():
             from chatlearn.models.vllm.hooks import async_llm_engine
             from chatlearn.models.vllm.hooks import llm
             from chatlearn.models.vllm.hooks import loader
+            from chatlearn.models.vllm.hooks import worker_base
 else:
     if importlib.util.find_spec("vllm"):
         import vllm

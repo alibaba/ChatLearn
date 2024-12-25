@@ -76,6 +76,7 @@ class Environment(Executor):
 
             if isinstance(model.model, VLLMModuleV2):
                 for replica in model_node.model.replicas:
+                    print(f"debug 1111 replica.all_actors: {[id(ele) for ele in replica.all_actors]} {replica.all_actors}")
                     ret = replica.vllm_engine.setup_vllm.remote(replica.all_actors)
                     future.wait(ret)
 
