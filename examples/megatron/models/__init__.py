@@ -22,11 +22,7 @@ from .value_trainer import ValueTrainer
 from .reward_inference import RewardInference
 from .reference import PolicyReference
 try:
-    from chatlearn.models.vllm import is_vllm_v2
-    if is_vllm_v2():
-        from .vllm_policy_inference import VLLMPolicyInferenceAsync as VLLMPolicyInference
-    else:
-        from .vllm_policy_inference import VLLMPolicyInference
+    from .vllm_policy_inference import VLLMPolicyInference
 except ImportError:
     print("Cannot import VLLMPolicyInference")
     VLLMPolicyInference = None

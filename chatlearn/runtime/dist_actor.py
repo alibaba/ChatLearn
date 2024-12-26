@@ -29,7 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2, VLLMWokerWrapper
+    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 
 RAY_REMOTE = "remote"
 
@@ -240,7 +240,7 @@ class DistVLLMActor(DistTorchActor):
             "worker_class_fn": None,
             "trust_remote_code": True,
         }
-        self._create_actor(VLLMWokerWrapper, num_gpus, placement_group, group_index, **kwargs)
+        self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)

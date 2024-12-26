@@ -25,22 +25,58 @@ from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.global_vars import set_vllm_actors
+from chatlearn.utils.vllm_import_helper import parallel_state
+from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
+from chatlearn.utils.vllm_utils import initialize_vllm
 from .torch_module import TorchModule
 
 
-class VLLMModuleV2(TorchModule):
+class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """VLLMModuleV2"""
 
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        TorchModule.__init__(self, *args)
+        # avoid overwrite methods
+        methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
+        methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
+        common_methods = methods_class1.intersection(methods_class2)
+        # common method is '__init__'
+        assert common_methods == {'__init__'}, \
+            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
-        os.environ['LOCAL_RANK'] = '0'
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
         os.environ['VLLM_HOST_IP'] = self.get_address()
-        self.llm_engine = None
+
         self.tokenizer = None
+        self._model = None
+
+    def add_extra_args(self, parser):
+        """
+        Add extra arguments for vllm.
+
+        Args
+        ----
+        parser : ArgumentParser
+            Add extra arguments.
+        """
+        group = parser.add_argument_group(title='vLLM extra arguments')
+        group.add_argument('--distributed-backend', default='nccl',
+                           choices=['nccl', 'gloo'],
+                           help='Which backend to use for distributed training.')
+        group.add_argument('--distributed-timeout-minutes', type=int, default=10,
+                           help='Timeout minutes for torch.distributed.')
+        return parser
+
+    def init(self):
+        """
+        :meta private:
+        """
+        parallel_state.set_custom_all_reduce(False)
+        initialize_vllm(extra_args_provider=self.add_extra_args,
+                        ignore_unknown_args=True,
+                        args_dict=self.model_args)
 
     def setup(self):
         """Set up model and load checkpoint"""
@@ -146,14 +182,13 @@ class VLLMModuleV2(TorchModule):
 
         return inputs
 
-    async def generate_vllm(self, query, is_eval):
+    def generate_vllm(self, query, is_eval):
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
         prompts = query[prompt_key]
         prompts_token_ids = query[input_ids_key]
         seq_len = self.model_args.get("seq_length")
-        final_outputs = []
         parsed_prompts = []
         sampling_params = []
         for i, prompt in enumerate(prompts):
@@ -180,37 +215,16 @@ class VLLMModuleV2(TorchModule):
             sampling_params,
             use_tqdm=True,
         )
-        final_outputs = sorted(outputs, key=lambda x: int(x.request_id))
-        return final_outputs
+        return outputs
 
     def is_last_rank(self):
         return True
 
-
-class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
-    """VLLMWokerWrapper is the class for vLLM workers.
-
-    Args
-    ----
-    name : str
-        model name
-    """
-
-    def __init__(self, *args, **kwargs):
-        # avoid overwrite methods
-        methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
-        methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
-        common_methods = methods_class1.intersection(methods_class2)
-        # common method is '__init__'
-        assert common_methods == {'__init__'}, \
-            f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
-        TorchModule.__init__(self, *args)
-        self.local_rank = 0
-        os.environ['LOCAL_RANK'] = '0'
-        if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-            RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
-        os.environ['VLLM_HOST_IP'] = self.get_address()
-        self.llm_engine = None
+    def num_layers(self):
+        """
+        :meta private:
+        """
+        return self.llm.llm_engine.model_config.hf_config.num_hidden_layers
 
     def peak_memory(self):
         """
@@ -232,3 +246,23 @@ class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         return 0
+
+    @property
+    def model(self):
+        if self._model is None:
+            assert self.worker is not None, \
+                "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
+            self._model = self.worker.model_runner.model
+        return self._model
+
+    def tensor_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return parallel_state.get_tensor_model_parallel_rank()
+
+    def pipeline_parallel_rank(self):
+        """
+        :meta private:
+        """
+        return get_pipeline_model_parallel_rank()

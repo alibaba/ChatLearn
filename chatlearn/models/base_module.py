@@ -675,7 +675,8 @@ class BaseModule:
             parameters_to_sync = self._parameters_to_sync
         parameters_shape = []
         for name, param in parameters_to_sync[pipe_stage]:
-            if self._expert_sync_buffer and name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
+            if self._expert_sync_buffer and name in self._expert_sync_buffer and \
+                    self._synchronizer and self._synchronizer.is_parameter_changed:
                 parameters_shape.append((name, self._expert_sync_buffer[name].shape))
             else:
                 parameters_shape.append((name, param.shape))
@@ -693,12 +694,13 @@ class BaseModule:
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
             if name0 == name:
-                if name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
+                if name in self._expert_sync_buffer and self._synchronizer and \
+                        self._synchronizer.is_parameter_changed:
                     param = self._expert_sync_buffer[name]
                     regroup_routed_experts = True
                 else:
                     regroup_routed_experts = False
-                if regroup:
+                if regroup and self._synchronizer:
                     param = self._synchronizer.regroup_params_to_sync(
                         name,
                         param.data,
@@ -740,6 +742,7 @@ class BaseModule:
             func(param, rank, group_name)
 
     def alltoall_routed_expert_parameter(self, pipe_stage=0):
+        assert self._synchronizer is not None
         for name, param in self._parameters_to_sync[pipe_stage]:
             param, state = self._synchronizer.alltoall_routed_experts(
                 name,
@@ -751,6 +754,7 @@ class BaseModule:
                 self._expert_sync_buffer[name] = param
 
     def allgather_routed_expert_parameter(self, group_name, pipe_stage=0):
+        assert self._synchronizer is not None
         for name, param in self._parameters_to_sync[pipe_stage]:
             param, state = self._synchronizer.allgather_routed_experts(
                 name,
@@ -768,7 +772,8 @@ class BaseModule:
         """
         tensors = []
         for name, param in self._parameters_to_sync[pipe_stage]:
-            if self._expert_sync_buffer and name in self._expert_sync_buffer and self._synchronizer.is_parameter_changed:
+            if self._expert_sync_buffer and name in self._expert_sync_buffer and \
+                    (self._synchronizer and self._synchronizer.is_parameter_changed):
                 tensors.append(self._expert_sync_buffer[name])
             else:
                 tensors.append(param.data)
