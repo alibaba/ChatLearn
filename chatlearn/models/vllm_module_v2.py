@@ -45,9 +45,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         # common method is '__init__'
         assert common_methods == {'__init__'}, \
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
-        # TorchModule.__init__(self, *args)
         self.local_rank = 0
-        # os.environ['LOCAL_RANK'] = '0'
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
         os.environ['VLLM_HOST_IP'] = self.get_address()
@@ -81,14 +79,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
                         args_dict=self.model_args)
-    def init_device(self):
-        return
-        self.worker.device = torch.device(f"cuda:{torch.cuda.current_device()}")
-        torch.cuda.set_device(self.device)
-        init_worker_distributed_environment(self.worker.parallel_config, self.worker.rank,
-                                            self.worker.distributed_init_method,
-                                            self.worker.local_rank)
-        # return self.worker.init_device()
 
     def setup(self):
         """Set up model and load checkpoint"""
@@ -100,7 +90,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     def setup_vllm(self, workers):
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
-        print(f"debug 1111 workers: {[id(ele) for ele in workers]} {workers}")
         set_vllm_actors(workers)
 
         dtype = self.model_args.get("dtype", "bfloat16")
@@ -196,9 +185,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         return inputs
 
     def generate_vllm(self, query, is_eval):
-        print(f"debug aaaa tensor_parallel_rank: {id(self)} {self}")
-        print(f"tensor_parallel_rank: {self.tensor_parallel_rank()}", flush=True)
-        print(f"debug aaaa pipeline_parallel_rank: {id(self)} {self} {self.pipeline_parallel_rank()}", flush=True)
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
@@ -233,8 +219,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             sampling_params,
             use_tqdm=True,
         )
-        print(f"debug aaaa tensor_parallel_rank: {self.tensor_parallel_rank()}", flush=True)
-        print(f"debug aaaa pipeline_parallel_rank: {self.pipeline_parallel_rank()}", flush=True)
         final_outputs = sorted(outputs, key=lambda x: int(x.request_id))
         return final_outputs
 
@@ -275,22 +259,15 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                 f"please set env variables `VLLM_USE_RAY_SPMD_WORKER` and `VLLM_USE_RAY_COMPILED_DAG` first."
             self._model = self.worker.model_runner.model
         return self._model
-    def set_tp_pp_ranks(self, tp_rank, pp_rank):
-        """
-        :meta private:
-        """
-        print(f"aaaa debug set_tp_pp_ranks: {tp_rank} {pp_rank}", flush=True)
-        self._tp_rank = tp_rank
-        self._pp_rank = pp_rank
 
     def tensor_parallel_rank(self):
         """
         :meta private:
         """
-        return self._tp_rank
+        return parallel_state.get_tensor_model_parallel_rank()
 
     def pipeline_parallel_rank(self):
         """
         :meta private:
         """
-        return self._pp_rank
+        return get_pipeline_model_parallel_rank()

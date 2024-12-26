@@ -1501,7 +1501,6 @@ def load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load', stri
         args = model_args
     else:
         args = model.model_args
-    print(f"debug adaptive_parallel_strategy_on_checkpoint: {args.get('adaptive_parallel_strategy_on_checkpoint')}")
     if args.get("adaptive_parallel_strategy_on_checkpoint"):
         load_dir = args[load_arg]
         target_tp = args.get("tensor_model_parallel_size")

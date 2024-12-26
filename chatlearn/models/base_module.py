@@ -39,22 +39,6 @@ from chatlearn.utils.utils import get_host_addr
 from chatlearn.launcher import dlc_utils
 
 
-from pynvml import nvmlInit, nvmlDeviceGetCount, nvmlDeviceGetHandleByIndex, nvmlDeviceGetComputeRunningProcesses, nvmlShutdown
-
-def get_gpu_usage():
-    nvmlInit()
-    device_count = nvmlDeviceGetCount()
-    gpu_usage = {}
-    for i in range(device_count):
-        handle = nvmlDeviceGetHandleByIndex(i)
-        processes = nvmlDeviceGetComputeRunningProcesses(handle)
-        for process in processes:
-            if process.pid == os.getpid():
-                gpu_usage[i] = process.pid
-    nvmlShutdown()
-    return gpu_usage
-
-
 class BaseModule:
     """BaseModule is the base class for Base models.
 
@@ -146,7 +130,6 @@ class BaseModule:
         self._sync_buffer = defaultdict(list)
         self._expert_sync_buffer = {}
         self._synchronizer = None
-        self.col_groups = {}
 
     def get_sync_buffer(self):
         return self._sync_buffer
@@ -502,8 +485,7 @@ class BaseModule:
         """
         self._group_names.append(group_name)
         self._world_size = world_size
-        # breakpoint()
-        self.col_groups[group_name] = col.init_collective_group(
+        col.init_collective_group(
             world_size, rank, backend=backend, group_name=group_name)
 
     def _destroy_collective_group(self, group_name):
@@ -635,7 +617,6 @@ class BaseModule:
         if self._synchronizer is not None:
             params_to_sync_list = self._synchronizer.transform_parameters(params_to_sync_list)
         parameters_to_sync[pipe_stage] = params_to_sync_list
-        print(f"{self} params_to_sync_list: {len(params_to_sync_list)} {[name for name,_ in params_to_sync_list]}")
         return parameters_to_sync
 
     def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
@@ -790,39 +771,19 @@ class BaseModule:
         :meta private:
         """
         tensors = []
-        # breakpoint()
-        print(f"debug from {src_rank} to {rank} self._parameters_to_sync[{pipe_stage}]: {len(self._parameters_to_sync[pipe_stage])} {self._parameters_to_sync[pipe_stage][0][0]}", flush=True)
-        print(f"{self} get_visible_gpus: {self.get_visible_gpus()}")
         for name, param in self._parameters_to_sync[pipe_stage]:
             if self._expert_sync_buffer and name in self._expert_sync_buffer and \
                     (self._synchronizer and self._synchronizer.is_parameter_changed):
                 tensors.append(self._expert_sync_buffer[name])
             else:
                 tensors.append(param.data)
-        # if src_rank != rank:
-        #     print(f"self.worker.device: {self.worker.device} current_device: {torch.cuda.current_device()} tensors[0].device: {tensors[0].device}")
-            
-        # breakpoint()
-        print(f"debug from {src_rank} to {rank} tensors: {len(tensors)} {[tensors[0].shape]}", flush=True)
-        print(f"debug get_gpu_usage {self}: {get_gpu_usage()}", flush=True)
-        tensor_device = tensors[0].device
-        print(f"debug tensor is on device {self}: {tensor_device}")
-        
 
         assert len(tensors) > 0
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
         debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
         tensor_changed = rank != src_rank
 
-        print(f"debug from {src_rank} to {rank} dense_buckets: {len(dense_buckets)} sparse_bucket: {len(sparse_bucket)}", flush=True)
-        # breakpoint()
-        print(f"self.col_groups: {self.col_groups}")
         for bucket in dense_buckets:
-            # for ele in bucket:
-            # breakpoint()
-            #     col.broadcast(ele, src_rank, group_name)
-                # coalesced_comm_dense([ele], col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
-
             coalesced_comm_dense(bucket, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
 
         for param in sparse_bucket:

@@ -240,13 +240,8 @@ class DistVLLMActor(DistTorchActor):
             "worker_class_fn": None,
             "trust_remote_code": True,
         }
-        # if self.vllm_engine is None:
-        #     self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
-        #     self.model.engine = self.vllm_engine
-        # else:
-        #     self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
-
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
+
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
         self.model.engine = self.vllm_engine

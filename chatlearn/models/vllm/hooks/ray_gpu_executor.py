@@ -27,7 +27,6 @@ from vllm.utils import (get_distributed_init_method,
                         get_ip, get_open_port, get_vllm_instance_id)
 
 from chatlearn.utils.global_vars import get_vllm_actors
-from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 
 logger = init_logger(__name__)
 
@@ -57,7 +56,6 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
     driver_ip = get_ip()
     # driver_actor_id = ray.get_runtime_context().get_actor_id()
     vllm_workers = get_vllm_actors()
-    print(f"debug 1111 self.workers 0: {[id(ele) for ele in vllm_workers]} {vllm_workers}")
     worker_wrapper_kwargs = self._get_worker_wrapper_args()
     if self.use_ray_spmd_worker:
         self.workers = vllm_workers
@@ -70,15 +68,11 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
                 # If the worker is on the same node as the driver, we use it
                 # as the resource holder for the driver process.
                 self.driver_dummy_worker = worker
-                # self.driver_worker = worker
                 self.driver_worker = RayWorkerWrapper(
-                    # worker.model.__class__,
                     **worker_wrapper_kwargs)
-                # ray.get(worker.set_driver_worker.remote(self.driver_worker))
             else:
                 # Else, added to the list of workers.
                 self.workers.append(worker)
-    print(f"debug 1111 self.workers 1: {[id(ele) for ele in self.workers]} {self.workers}")
     logger.debug("workers: %s", self.workers)
     logger.debug("driver_dummy_worker: %s", self.driver_dummy_worker)
     if not self.use_ray_spmd_worker and self.driver_dummy_worker is None:
@@ -110,17 +104,11 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
     # After sorting, the workers on the same node will be
     # close to each other, and the workers on the driver
     # node will be placed first.
-    # print(f"debug 1111 self.workers 2: {[id(ele) for ele in self.workers]} {self.workers}")
     self.workers = sorted(self.workers, key=sort_by_driver_then_worker_ip)
-    # print(f"debug 1111 self.workers 3: {[id(ele) for ele in self.workers]} {self.workers}")
 
     # Get the set of GPU IDs used on each node.
     worker_node_and_gpu_ids = self._run_workers("get_node_and_gpu_ids",
                                                 use_dummy_driver=True)
-    # worker_node_and_gpu_ids = [ray.get(worker.get_node_and_gpu_ids.remote()) for worker in self.workers]
-    # print(f"debug hahahaha self.driver_dummy_worker: {self.driver_dummy_worker}")
-    # worker_node_and_gpu_ids = self._run_workers("get_node_and_gpu_ids")
-    print(f"debug worker_node_and_gpu_ids: {worker_node_and_gpu_ids}")
 
     node_workers = defaultdict(list)  # node id -> list of worker ranks
     node_gpus = defaultdict(list)  # node id -> list of gpu ids
@@ -169,7 +157,6 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
         all_args_to_update_environment_variables)
 
     self._run_workers("update_environment_variables",
-                    #    use_dummy_driver=True,
                        all_args=self._get_env_vars_to_be_updated())
 
     if len(node_gpus) == 1:
@@ -195,21 +182,12 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
         ) for rank, (node_id, _) in enumerate(worker_node_and_gpu_ids)
     ]
     self._run_workers("init_worker", all_kwargs=init_worker_all_kwargs)
-
-    print(f"debug nanana init_device.....", flush=True)
-    print(f"debug 1111 self.workers 4: {[id(ele) for ele in self.workers]} {self.workers}")
-                    
+           
     self._run_workers("init_device")
-    from chatlearn.utils import future
-    refs = [self.workers[rank].init_device.remote() for rank in range(len(self.workers))]
-    future.wait(refs)
-
 
     self._run_workers("load_model",
-                    #   use_dummy_driver=True,
                       max_concurrent_workers=self.parallel_config.
                       max_parallel_loading_workers)
-    print(f"debug nanana load_model.....", flush=True)
     if self.use_ray_spmd_worker:
         for pp_rank in range(self.parallel_config.pipeline_parallel_size):
             self.pp_tp_workers.append([])
@@ -222,11 +200,6 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
                 assert len(self.pp_tp_workers[pp_rank]) == tp_rank
                 assert pp_rank < len(self.pp_tp_workers)
                 self.pp_tp_workers[pp_rank].append(self.workers[rank])
-
-    tp_pp_pairs = self._run_workers('get_tp_and_pp_rank')
-    print(f"debug tp_pp_pairs: {tp_pp_pairs}")
-    for worker, (tp_rank, pp_rank) in zip(self.workers, tp_pp_pairs):
-        ray.get(worker.set_tp_pp_ranks.remote(tp_rank, pp_rank))
 
     # This is the list of workers that are rank 0 of each TP group EXCEPT
     # global rank 0. These are the workers that will broadcast to the

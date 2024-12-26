@@ -24,7 +24,7 @@ from .reference import PolicyReference
 try:
     from chatlearn.models.vllm import is_vllm_v2
     if is_vllm_v2():
-        from .vllm_policy_inference import VLLMPolicyInferenceAsync as VLLMPolicyInference
+        from .vllm_policy_inference import VLLMPolicyInferenceV2 as VLLMPolicyInference
     else:
         from .vllm_policy_inference import VLLMPolicyInference
 except ImportError:

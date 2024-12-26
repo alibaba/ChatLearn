@@ -175,22 +175,12 @@ class ModelManager:
                 sync_group: ParameterSyncGroup = sync_group
 
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
-                print(f"sync from {src_model} to {dst_model}", flush=True)
-                # breakpoint()
                 refs = src_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
-                print(f"having onload {src_model}", flush=True)
-                # breakpoint()
-
                 refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
-                print(f"having onload {dst_model}", flush=True)
-                # breakpoint()
 
-                print(f"sync_group {sync_group} start to sync from {src_model} to {dst_model}", flush=True)
-                # breakpoint()
                 sync_group.sync(requires_grad, validate)
-                # breakpoint()
 
                 refs = src_model.offload()
                 future.wait(refs)

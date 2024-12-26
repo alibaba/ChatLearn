@@ -143,8 +143,8 @@ class VLLMPolicyInference(VLLMModule):
             "no_padded_query_ids": no_padded_query_ids, "logprobs": logprobs,
             "loss_mask": loss_mask}
 
-class VLLMPolicyInferenceAsync(VLLMPolicyInference):
-    """VLLMPolicyInferenceAsync is the model for VLLMModuleV2, which uses async generate API"""
+class VLLMPolicyInferenceV2(VLLMPolicyInference):
+    """VLLMPolicyInferenceV2 is the model for VLLMModuleV2, which uses llm generate API"""
 
     def eval_forward(self, data, iteration=0): # pylint: disable=invalid-overridden-method
         return self._forward_step(data, iteration, True)

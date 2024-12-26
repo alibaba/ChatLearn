@@ -24,7 +24,6 @@ from vllm.worker import worker_base
 from vllm.worker.worker_base import logger
 
 def get_tp_and_pp_rank(self):
-    print(f"debug get_tp_and_pp_rank...")
     return parallel_state.get_tensor_model_parallel_rank(), \
         parallel_state.get_pp_group().rank_in_group
 
@@ -39,8 +38,6 @@ def execute_method(self, method, *args, **kwargs):
                 target = self.worker
             else:
                 target = self
-        if method == "init_device":
-            print(f"debug target: {target} self.worker: {self.worker}")
         executor = getattr(target, method)
         return executor(*args, **kwargs)
     except Exception as e:
