@@ -192,7 +192,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         parsed_prompts = []
         sampling_params = []
         for i, prompt in enumerate(prompts):
-            request_id = i
             prompt_token_ids = prompts_token_ids[i]
             if 'sampling_param' in query:
                 sampling_param = query['sampling_param'][i]

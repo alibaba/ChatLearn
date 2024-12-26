@@ -156,7 +156,7 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
         all_args_to_update_environment_variables)
 
     self._run_workers("update_environment_variables",
-                     all_args=self._get_env_vars_to_be_updated())
+                      all_args=self._get_env_vars_to_be_updated())
 
     if len(node_gpus) == 1:
         # in single node case, we don't need to get the IP address.
