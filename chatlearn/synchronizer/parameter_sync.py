@@ -635,7 +635,6 @@ class ParameterSyncGroup:
     def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
         send_actor = actors[0]
         for recv_actor in actors[1:]:
-            is_the_same_gpu = self.is_same_gpu(send_actor, recv_actor)
             self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         refs = []
@@ -703,8 +702,7 @@ class ParameterSyncGroup:
 
     def get_actor_tp_rank(self, actor):
         def inner_func():
-            rank = future.get(actor.tensor_parallel_rank.remote())
-            return rank
+            return future.get(actor.tensor_parallel_rank.remote())
         return utils.get_or_cache(self._actor2tp, actor, inner_func)
 
     def get_actor_ep_rank(self, actor):
@@ -1053,35 +1051,26 @@ class ParameterSyncGroup:
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
 
-        # with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        #     futures = []
-        #     for send_actor in sorted_send_actors:
-        #         recv_actors = actor_mappings[send_actor]
-        #         if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-        #             actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-        #             futures.append(executor.submit(
-        #                 self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
-        #             ))
-        #         else:
-        #             for recv_actor in recv_actors:
-        #                 futures.append(executor.submit(
-        #                     self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
-        #                 ))
-        #     for _future in concurrent.futures.as_completed(futures):
-        #         try:
-        #             _future.result()œ
-        #         except Exception as e:
-        #             raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-        #     concurrent.futures.wait(futures)
-        if True:
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
             for send_actor in sorted_send_actors:
                 recv_actors = actor_mappings[send_actor]
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                    self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
+                    futures.append(executor.submit(
+                        self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
+                    ))
                 else:
                     for recv_actor in recv_actors:
-                        self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group)
+                        futures.append(executor.submit(
+                            self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
+                        ))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
         assert len(actor_mappings_list) == 1

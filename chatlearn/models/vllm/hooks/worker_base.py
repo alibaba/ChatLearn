@@ -14,20 +14,10 @@
 # ==============================================================================
 """Hooks of vllm-0.6.3 worker_base to update execute_method."""
 
-
-import inspect
-
 # pylint: disable=unused-import,wildcard-import
-from vllm.distributed import parallel_state
-from vllm.worker import worker
 from vllm.worker import worker_base
 from vllm.worker.worker_base import logger
 
-def get_tp_and_pp_rank(self):
-    return parallel_state.get_tensor_model_parallel_rank(), \
-        parallel_state.get_pp_group().rank_in_group
-
-worker.Worker.get_tp_and_pp_rank = get_tp_and_pp_rank
 
 def execute_method(self, method, *args, **kwargs):
     try:

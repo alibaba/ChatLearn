@@ -18,7 +18,6 @@ from collections import defaultdict
 from typing import Dict, List, Optional
 
 from vllm import envs
-from vllm.distributed import parallel_state
 from vllm.executor.ray_gpu_executor import RayGPUExecutor
 from vllm.executor.ray_utils import RayWorkerWrapper, ray
 
@@ -182,9 +181,8 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
         ) for rank, (node_id, _) in enumerate(worker_node_and_gpu_ids)
     ]
     self._run_workers("init_worker", all_kwargs=init_worker_all_kwargs)
-           
-    self._run_workers("init_device")
 
+    self._run_workers("init_device")
     self._run_workers("load_model",
                       max_concurrent_workers=self.parallel_config.
                       max_parallel_loading_workers)

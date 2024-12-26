@@ -28,9 +28,8 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
-from .torch_module import TorchModule
-from vllm.worker.worker import Worker
 from chatlearn.utils.vllm_utils import initialize_vllm
+from .torch_module import TorchModule
 
 
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
@@ -51,8 +50,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         os.environ['VLLM_HOST_IP'] = self.get_address()
 
         self.tokenizer = None
-        self._tp_rank = None
-        self._pp_rank = None
         self._model = None
 
     def add_extra_args(self, parser):
@@ -191,7 +188,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         prompts = query[prompt_key]
         prompts_token_ids = query[input_ids_key]
         seq_len = self.model_args.get("seq_length")
-        final_outputs = []
         parsed_prompts = []
         sampling_params = []
         for i, prompt in enumerate(prompts):
@@ -219,8 +215,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             sampling_params,
             use_tqdm=True,
         )
-        final_outputs = sorted(outputs, key=lambda x: int(x.request_id))
-        return final_outputs
+        return outputs
 
     def is_last_rank(self):
         return True
@@ -256,7 +251,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     def model(self):
         if self._model is None:
             assert self.worker is not None, \
-                f"please set env variables `VLLM_USE_RAY_SPMD_WORKER` and `VLLM_USE_RAY_COMPILED_DAG` first."
+                "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
             self._model = self.worker.model_runner.model
         return self._model
 
