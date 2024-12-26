@@ -142,18 +142,3 @@ class VLLMPolicyInference(VLLMModule):
         return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts,
             "no_padded_query_ids": no_padded_query_ids, "logprobs": logprobs,
             "loss_mask": loss_mask}
-
-class VLLMPolicyInferenceV2(VLLMPolicyInference):
-    """VLLMPolicyInferenceV2 is the model for VLLMModuleV2, which uses llm generate API"""
-
-    def eval_forward(self, data, iteration=0): # pylint: disable=invalid-overridden-method
-        return self._forward_step(data, iteration, True)
-
-    def _forward_step(self, data, iteration, is_eval): # pylint: disable=unused-argument,invalid-overridden-method
-        outputs = self.generate_vllm(data, is_eval)
-        if outputs is not None:
-            rets = self.decode_internal(outputs)
-            return rets
-
-    def forward_step(self, data, iteration=0): # pylint: disable=invalid-overridden-method
-        return self._forward_step(data, iteration, False)

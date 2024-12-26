@@ -69,6 +69,7 @@ class ParameterSyncGroup:
             if self.num_src_tensor_parallel % 2 == 1 and self.num_dst_tensor_parallel % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
+
         self.concurrent_comm = get_args().runtime_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
         # sync every n episodes, n = 0 for no param sync
@@ -1128,6 +1129,7 @@ class ParameterSyncGroup:
                 actor_mappings_list,
                 requires_grad=requires_grad
             )
+
         assert len(actor_mappings_list) >= 1
 
         self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)

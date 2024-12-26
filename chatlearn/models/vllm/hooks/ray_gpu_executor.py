@@ -20,7 +20,6 @@ from typing import Dict, List, Optional
 from vllm import envs
 from vllm.executor.ray_gpu_executor import RayGPUExecutor
 from vllm.executor.ray_utils import RayWorkerWrapper, ray
-
 from vllm.logger import init_logger
 from vllm.utils import (get_distributed_init_method,
                         get_ip, get_open_port, get_vllm_instance_id)
@@ -108,6 +107,7 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
     # Get the set of GPU IDs used on each node.
     worker_node_and_gpu_ids = self._run_workers("get_node_and_gpu_ids",
                                                 use_dummy_driver=True)
+    # worker_node_and_gpu_ids = self._run_workers("get_node_and_gpu_ids")
 
     node_workers = defaultdict(list)  # node id -> list of worker ranks
     node_gpus = defaultdict(list)  # node id -> list of gpu ids
@@ -156,7 +156,7 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
         all_args_to_update_environment_variables)
 
     self._run_workers("update_environment_variables",
-                       all_args=self._get_env_vars_to_be_updated())
+                     all_args=self._get_env_vars_to_be_updated())
 
     if len(node_gpus) == 1:
         # in single node case, we don't need to get the IP address.
@@ -186,6 +186,7 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
     self._run_workers("load_model",
                       max_concurrent_workers=self.parallel_config.
                       max_parallel_loading_workers)
+
     if self.use_ray_spmd_worker:
         for pp_rank in range(self.parallel_config.pipeline_parallel_size):
             self.pp_tp_workers.append([])
@@ -216,5 +217,6 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
             self.tp_driver_workers.append(worker)
         else:
             self.non_driver_workers.append(worker)
+
 
 RayGPUExecutor._init_workers_ray = _init_workers_ray

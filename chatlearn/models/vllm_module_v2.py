@@ -68,6 +68,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         group.add_argument('--distributed-timeout-minutes', type=int, default=10,
                            help='Timeout minutes for torch.distributed.')
         return parser
+
     def init(self):
         """
         :meta private:
