@@ -354,10 +354,7 @@ class ModelManager:
                     replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
-                if isinstance(replica.model, VLLMModuleV2):
-                    replica.create_actor(num_gpus, placement_group, group, use_ray_vllm_worker=not replica.all_actors)
-                else:
-                    replica.create_actor(num_gpus, placement_group, group)
+                replica.create_actor(num_gpus, placement_group, group)
 
         models_to_revert = self._find_param_recv_models(gpu_models)
         for model in gpu_models:

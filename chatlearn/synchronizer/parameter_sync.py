@@ -69,6 +69,7 @@ class ParameterSyncGroup:
             if self.num_src_tensor_parallel % 2 == 1 and self.num_dst_tensor_parallel % 2 == 1:
                 logger.warning("Only support PARAM_SYNC_COMM_TYPE.BROADCAST when TP SIZE is even number, use P2P instead")
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
+        print(f"self._comm_type: {self._comm_type} while expect {get_args().runtime_args.param_sync_comm_type}")
 
         self.concurrent_comm = get_args().runtime_args.concurrent_comm
         self._enable_lora = self.src_model.module_args.lora.enable_lora
@@ -117,8 +118,10 @@ class ParameterSyncGroup:
     def is_same_gpu(self, src_actor, dst_actor):
         src_gpu = self.get_or_cache(src_actor, "get_visible_gpus")
         dst_gpu = self.get_or_cache(dst_actor, "get_visible_gpus")
+        print(f"src_actor {src_actor} src_gpu: {src_gpu}, dst_actor: {dst_actor} dst_gpu: {dst_gpu}")
         src_address = self.get_or_cache(src_actor, "get_address")
         dst_address = self.get_or_cache(dst_actor, "get_address")
+        print(f"src_address: {src_address} dst_address: {dst_address}")
         return src_gpu == dst_gpu and src_address == dst_address
 
     @property
@@ -1088,10 +1091,14 @@ class ParameterSyncGroup:
         if True:
             for send_actor in sorted_send_actors:
                 recv_actors = actor_mappings[send_actor]
+                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 # breakpoint()
-                print(f"send from {self.actor2rank[send_actor]} to {[self.actor2rank[ele] for ele in recv_actors]}")
-                actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
+                    print(f"send from {self.actor2rank[send_actor]} to {[self.actor2rank[ele] for ele in recv_actors]}")
+                    actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
+                    self.sync_broadcast(actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group)
+                else:
+                    for recv_actor in recv_actors:
+                        self.sync_send_recv(send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group)
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
         assert len(actor_mappings_list) == 1

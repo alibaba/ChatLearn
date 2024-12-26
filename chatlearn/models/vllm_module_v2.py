@@ -29,6 +29,8 @@ from chatlearn.utils.vllm_import_helper import parallel_state
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from .torch_module import TorchModule
+from vllm.worker.worker import Worker
+from chatlearn.utils.vllm_utils import initialize_vllm
 
 
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
@@ -45,23 +47,48 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         # TorchModule.__init__(self, *args)
         self.local_rank = 0
-        os.environ['LOCAL_RANK'] = '0'
+        # os.environ['LOCAL_RANK'] = '0'
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
         os.environ['VLLM_HOST_IP'] = self.get_address()
 
-    # def __init__(self, *args, **kwargs):
-    #     super().__init__(*args, **kwargs)
-        # self.local_rank = 0
-        # os.environ['LOCAL_RANK'] = '0'
-        # if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-        #     RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
-        # os.environ['VLLM_HOST_IP'] = self.get_address()
-        # self.llm_engine = None
         self.tokenizer = None
         self._tp_rank = None
         self._pp_rank = None
         self._model = None
+
+    def add_extra_args(self, parser):
+        """
+        Add extra arguments for vllm.
+
+        Args
+        ----
+        parser : ArgumentParser
+            Add extra arguments.
+        """
+        group = parser.add_argument_group(title='vLLM extra arguments')
+        group.add_argument('--distributed-backend', default='nccl',
+                           choices=['nccl', 'gloo'],
+                           help='Which backend to use for distributed training.')
+        group.add_argument('--distributed-timeout-minutes', type=int, default=10,
+                           help='Timeout minutes for torch.distributed.')
+        return parser
+    def init(self):
+        """
+        :meta private:
+        """
+        parallel_state.set_custom_all_reduce(False)
+        initialize_vllm(extra_args_provider=self.add_extra_args,
+                        ignore_unknown_args=True,
+                        args_dict=self.model_args)
+    def init_device(self):
+        return
+        self.worker.device = torch.device(f"cuda:{torch.cuda.current_device()}")
+        torch.cuda.set_device(self.device)
+        init_worker_distributed_environment(self.worker.parallel_config, self.worker.rank,
+                                            self.worker.distributed_init_method,
+                                            self.worker.local_rank)
+        # return self.worker.init_device()
 
     def setup(self):
         """Set up model and load checkpoint"""
@@ -72,7 +99,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
     def setup_vllm(self, workers):
         # setup vllm engine in rank 0
-        # os.environ['VLLM_HOST_IP'] = self.get_address()
+        os.environ['VLLM_HOST_IP'] = self.get_address()
         print(f"debug 1111 workers: {[id(ele) for ele in workers]} {workers}")
         set_vllm_actors(workers)
 
@@ -168,10 +195,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         return inputs
 
-    async def generate_all(self, prompts, sampling_params):
-        pass
-
-    async def generate_vllm(self, query, is_eval):
+    def generate_vllm(self, query, is_eval):
         print(f"debug aaaa tensor_parallel_rank: {id(self)} {self}")
         print(f"tensor_parallel_rank: {self.tensor_parallel_rank()}", flush=True)
         print(f"debug aaaa pipeline_parallel_rank: {id(self)} {self} {self.pipeline_parallel_rank()}", flush=True)
@@ -182,7 +206,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         prompts_token_ids = query[input_ids_key]
         seq_len = self.model_args.get("seq_length")
         final_outputs = []
-        tasks = []
         parsed_prompts = []
         sampling_params = []
         for i, prompt in enumerate(prompts):
@@ -224,32 +247,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         return self.llm.llm_engine.model_config.hf_config.num_hidden_layers
 
-
-# class VLLMWokerWrapper(TorchModule, RayWorkerWrapper):
-#     """VLLMWokerWrapper is the class for vLLM workers.
-
-#     Args
-#     ----
-#     name : str
-#         model name
-#     """
-
-    # def __init__(self, *args, **kwargs):
-    #     # avoid overwrite methods
-    #     methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
-    #     methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
-    #     common_methods = methods_class1.intersection(methods_class2)
-    #     # common method is '__init__'
-    #     assert common_methods == {'__init__'}, \
-    #         f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
-    #     TorchModule.__init__(self, *args)
-    #     self.local_rank = 0
-    #     os.environ['LOCAL_RANK'] = '0'
-    #     if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-    #         RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
-    #     os.environ['VLLM_HOST_IP'] = self.get_address()
-        # self.llm_engine = None
-
     def peak_memory(self):
         """
         :meta private:
@@ -274,10 +271,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     @property
     def model(self):
         if self._model is None:
-            # breakpoint()
-            # if self.worker is not None:
+            assert self.worker is not None, \
+                f"please set env variables `VLLM_USE_RAY_SPMD_WORKER` and `VLLM_USE_RAY_COMPILED_DAG` first."
             self._model = self.worker.model_runner.model
-            # print(f"debug 1111 self.llm: {self.llm}")
         return self._model
     def set_tp_pp_ranks(self, tp_rank, pp_rank):
         """

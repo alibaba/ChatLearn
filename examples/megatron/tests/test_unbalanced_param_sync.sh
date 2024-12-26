@@ -38,7 +38,7 @@ if [[ "$model_size" == "llama2-7B" ]]; then
     fi
     export train_micro_batch_size=16
     export max_num_batched_tokens=65536
-    export gpu_memory_utilization=0.8
+    export gpu_memory_utilization=0.5
 
     export num_gpu_policy=4
     export num_gpu_ppo_policy=4

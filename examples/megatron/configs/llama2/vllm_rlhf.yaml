@@ -83,3 +83,4 @@ runtime:
   exp_name: ${exp_name:chatlearn}
   debug: ${debug:False}
   validate_param_sync: ${validate_param_sync:False}
+  param_sync_comm_type: ${param_sync_comm_type:broadcast}

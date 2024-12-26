@@ -200,6 +200,11 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
     print(f"debug 1111 self.workers 4: {[id(ele) for ele in self.workers]} {self.workers}")
                     
     self._run_workers("init_device")
+    from chatlearn.utils import future
+    refs = [self.workers[rank].init_device.remote() for rank in range(len(self.workers))]
+    future.wait(refs)
+
+
     self._run_workers("load_model",
                     #   use_dummy_driver=True,
                       max_concurrent_workers=self.parallel_config.
