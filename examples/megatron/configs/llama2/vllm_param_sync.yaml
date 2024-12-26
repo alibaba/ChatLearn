@@ -31,8 +31,7 @@ models:
 
 runtime:
   colocation:
-    - policy
-    - ppo_policy
+    - policy,ppo_policy
   generation_batch_size: ${generation_batch_size:4}
   train_micro_batch_size: ${train_micro_batch_size:2}
   train_global_batch_size: ${train_global_batch_size:512}
@@ -50,4 +49,3 @@ runtime:
   exp_name: ${exp_name:chatlearn}
   debug: ${debug:False}
   validate_param_sync: ${validate_param_sync:False}
-  param_sync_comm_type: ${param_sync_comm_type:broadcast}
