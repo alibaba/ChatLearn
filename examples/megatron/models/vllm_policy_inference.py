@@ -15,20 +15,21 @@
 """vllm policy inference"""
 
 import copy
-import os
 import random
 
 import torch
 import torch.nn.functional as F
 
+from chatlearn.models.vllm import is_vllm_v2
 from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 from .utils import get_loss_mask
 
-if os.environ.get("ENABLE_VLLM_V2"):
+# pylint: disable=ungrouped-imports
+if is_vllm_v2():
     from chatlearn import VLLMModuleV2 as VLLMModule
 else:
     from chatlearn import VLLMModule
-
+# pylint: enable=ungrouped-imports
 
 
 class VLLMPolicyInference(VLLMModule):
@@ -140,18 +141,3 @@ class VLLMPolicyInference(VLLMModule):
         return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts,
             "no_padded_query_ids": no_padded_query_ids, "logprobs": logprobs,
             "loss_mask": loss_mask}
-
-class VLLMPolicyInferenceAsync(VLLMPolicyInference):
-    """VLLMPolicyInferenceAsync is the model for VLLMModuleV2, which uses async generate API"""
-
-    async def eval_forward(self, data, iteration=0): # pylint: disable=invalid-overridden-method
-        return await self._forward_step(data, iteration, True)
-
-    async def _forward_step(self, data, iteration, is_eval): # pylint: disable=unused-argument,invalid-overridden-method
-        outputs = await self.generate_vllm(data, is_eval)
-        if outputs is not None:
-            rets = self.decode_internal(outputs)
-            return rets
-
-    async def forward_step(self, data, iteration=0): # pylint: disable=invalid-overridden-method
-        return await self._forward_step(data, iteration, False)

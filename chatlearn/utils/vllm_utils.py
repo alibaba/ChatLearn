@@ -180,7 +180,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
     """sync map:megatron to llama transformer"""
     def __init__(self, src_names, layer_offset):
         src_prefix = "module.module.language_model"
-        dst_prefix = "model.model"
+        dst_prefix = "model" if is_vllm_v2() else "model.model"
         # The regex to extract layer names.
         self.layer_re = re.compile(rf"{src_prefix}.encoder.layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
         self.src_prefix = src_prefix
@@ -196,7 +196,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
         }
         self._final_layer_sync_map = {
             f"{src_prefix}.encoder.final_norm.weight": f"{dst_prefix}.norm.weight",
-            f"{src_prefix}.output_layer.weight": "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
@@ -269,7 +269,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
     """sync map:megatron-core to llama transformer"""
     def __init__(self, src_names, layer_offset):
         src_prefix = "module.module"
-        dst_prefix = "model.model"
+        dst_prefix = "model" if is_vllm_v2() else "model.model"
         # The regex to extract layer names.
         self.layer_re = re.compile(rf"{src_prefix}.decoder.layers\.(\d+)\.([a-z0-9_.]+)[\._]([a-z]+)")
         self.src_prefix = src_prefix
@@ -285,7 +285,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
         }
         self._final_layer_sync_map = {
             f"{src_prefix}.decoder.final_layernorm.weight": f"{dst_prefix}.norm.weight",
-            f"{src_prefix}.output_layer.weight": "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
@@ -371,7 +371,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             mlp_dense_name = ".mlp.c_proj."
             final_norm = "ln_f"
         elif qwen_version == QwenVersion.v_2:
-            dst_prefix = "model.model"
+            dst_prefix = "model" if is_vllm_v2() else "model.model"
             embed_name = "embed_tokens"
             att_dense_name = ".self_attn.o_proj."
             self.layer_prefix = "layers"
@@ -407,7 +407,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
         self._final_layer_sync_map = {
             f"{src_prefix}.encoder.final_layernorm.bias": f"{dst_prefix}.{final_norm}.bias",
             f"{src_prefix}.encoder.final_layernorm.weight": f"{dst_prefix}.{final_norm}.weight",
-            f"{src_prefix}.output_layer.weight": "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
         }
         self._concat_params_dict = {
             "modules": ["mlp.w1", "mlp.w2"],

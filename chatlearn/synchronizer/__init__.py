@@ -17,6 +17,7 @@
 from transformers import AutoConfig
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.dist_actor import DistModel
 from .base import BaseSync
 from .megatron_megatron import MegatronMegatronSync
@@ -29,7 +30,7 @@ def get_synchronizer(src_model, dst_model):
     dst_model = dst_model.replicas[0].model
     if isinstance(src_model, MegatronModule) and isinstance(dst_model, MegatronModule):
         return MegatronMegatronSync(src_model, dst_model)
-    elif isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule):
+    elif isinstance(src_model, MegatronModule) and isinstance(dst_model, (VLLMModule, VLLMModuleV2)):
         config_dir = dst_model.module_args.args_dict["tokenizer"]
         config =  AutoConfig.from_pretrained(config_dir)
         model_class_name = config.architectures[0]
