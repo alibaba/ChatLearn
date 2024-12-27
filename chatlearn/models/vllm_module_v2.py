@@ -101,10 +101,16 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         else:
             model_loader_extra_config = None
 
+        if self.model_args.get("apply_replica_id_to_seed", True):
+            seed = self.model_args.get("seed", 0) + self.replica_id
+        else:
+            seed = self.model_args.get("seed", 0)
+
         self.llm = LLM(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
             max_seq_len_to_capture=self.model_args.get("seq_length"),
+            seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
             model_loader_extra_config=model_loader_extra_config,
