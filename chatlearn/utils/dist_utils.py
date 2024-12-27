@@ -27,7 +27,7 @@ def bucket_tensor_generator(tensor_generator, bucket_size_mb):
         tensor_generator (Generator): A generator of tensors to be separated into chunks.
         size_limit (int): The limit of each chunk in bytes.
 
-    Return:
+    Yield:
         dense_buckets: Blocks of tensors of same type and within size_limit.
         sparse_bucket: A list of sparse tensors
     """
