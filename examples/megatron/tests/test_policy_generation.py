@@ -32,7 +32,6 @@ else:
     from examples.megatron.models.old_policy_inference import PolicyInference as PolicyModel
 
 
-
 chatlearn.init()
 
 
@@ -46,7 +45,8 @@ engine = EvalEngine(eval_flow)
 
 args = chatlearn.get_args()
 k = {"math_coef": 0}
-num_limit = 2048
+num_limit=int(os.getenv("num_limit", "2048"))
+print("====num_limit:", num_limit, flush=True)
 train_prompts = get_prompts(args.runtime_args.get("eval_data_path"), num_limit=num_limit)
 
 policy_checkpoint = policy.model_args["load"]

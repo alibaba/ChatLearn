@@ -29,7 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2, VLLMWokerWrapper
+    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 
 RAY_REMOTE = "remote"
 
@@ -240,33 +240,35 @@ class DistVLLMActor(DistTorchActor):
             "worker_class_fn": None,
             "trust_remote_code": True,
         }
-        self._create_actor(VLLMWokerWrapper, num_gpus, placement_group, group_index, **kwargs)
+        self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
         self.model.engine = self.vllm_engine
 
+    def call_vllm_engine_remote_funcs(self, func_name, *args, **kwargs):
+        """
+        Call remote functions for vllm_engine.
+        """
+        results = []
+        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        results.append(res)
+        return results
+
     def add_remote_func(self):
         for func_name, _ in inspect.getmembers(self.master):
             # ray.actor.ActorMethod
-            if func_name.startswith('_') or func_name in ["timer_summary", "peak_memory", "model_setup"]:
+            if func_name.startswith('_') or func_name in ["peak_memory"]:
                 continue
-            dist_call = partial(self.call_remote_funcs, func_name)
+            if func_name in ["timer_summary", "model_setup"]:
+                dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
+            else: # needed to check for other call_funs.
+                dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
-
-    def model_setup(self):
-        return [self.vllm_engine.setup.remote()]
 
     @property
     def master(self):
         return self.vllm_engine
-
-    def timer_summary(self, e2e_cost=None):
-        """
-        :meta private:
-        """
-        if self.model._timers:
-            return self.model._timers.log(e2e_cost=e2e_cost)
 
     def peak_memory(self):
         return self.model.peak_memory()
