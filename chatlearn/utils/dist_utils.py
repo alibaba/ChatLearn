@@ -33,7 +33,7 @@ def bucket_tensor_generator(tensor_generator, bucket_size_mb):
     """
     size_limit = bucket_size_mb * 1024 * 1024
     buf_dict = defaultdict(lambda: [[], 0])
-    for tensor in tensor_generator:
+    for tensor in tensor_generator():
         if tensor.is_sparse:
             yield tensor, False
             continue
