@@ -790,7 +790,7 @@ class BaseModule:
                 coalesced_comm_dense(bucket_or_tensor, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
                 dense_bucket_num += 1
             else:
-                col.broadcast(param, src_rank, group_name)
+                col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
 
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, spase_bucket {sparse_bucket_num}", self._logger)
