@@ -47,3 +47,4 @@ tensor_model_parallel_size: ${policy_tp}
 pipeline_model_parallel_size: ${policy_pp}
 
 vllm_load_format: ${vllm_load_format:dummy}
+apply_replica_id_to_seed: ${apply_replica_id_to_seed:True}
