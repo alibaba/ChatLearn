@@ -125,7 +125,6 @@ def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
     coalesced communication for dense parameters
     """
     flat_tensors = _flatten_dense_tensors(bucket)
-    del bucket
     comm_call(flat_tensors, *extra_args)
     if tensor_changed:
         all_buffers = _unflatten_dense_tensors(flat_tensors, bucket)
