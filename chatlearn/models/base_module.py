@@ -25,7 +25,6 @@ from ray.util.collective.collective_group.base_collective_group import BaseGroup
 from ray.util.collective.collective_group.nccl_collective_group import NCCLGroup
 from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
-from torch.cuda import max_memory_allocated
 
 from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
@@ -826,7 +825,7 @@ class BaseModule:
         else:
             self._broadcast_parameter_opt_level_1(rank, src_rank, group_name, pipe_stage)
 
-    def _broadcast_parameter_two_stage_opt_level_0(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False): 
+    def _broadcast_parameter_two_stage_opt_level_0(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         debug_rank_0(">>>>>>>>>>>>>>broadcast parameter at memory optimization level 0")
         tensor_changed = rank != src_rank
 
@@ -892,7 +891,7 @@ class BaseModule:
 
         self.empty_cache()
 
-    def _broadcast_parameter_two_stage_opt_level_1(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False): 
+    def _broadcast_parameter_two_stage_opt_level_1(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         debug_rank_0(">>>>>>>>>>>>>>broadcast parameter at memory optimization level 1")
         tensor_changed = rank != src_rank
 
