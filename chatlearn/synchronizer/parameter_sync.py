@@ -23,7 +23,6 @@ from typing import List, Dict
 
 import torch
 from tqdm import tqdm
-import time
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
@@ -1390,7 +1389,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
-                start = time.perf_counter()
                 max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
                 self.sync_allgather_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
@@ -1398,20 +1396,16 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     requires_grad=requires_grad,
                     group_name=self.group_name + "_allgather",
                     filter_fn=self.routed_experts_filter)
-                logger.info(f"==============In _synchronize_all_moe_parameters, allgather elapsed {time.perf_counter() - start}s.")
             elif self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
                 # alltoall routed experts only
-                start = time.perf_counter()
                 max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
                 self.sync_alltoall_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
                     max_workers=max_workers,
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter)
-                logger.info(f"==============In _synchronize_all_moe_parameters, alltoall elapsed {time.perf_counter() - start}s.")
 
             # sync everything to inference model
-            start = time.perf_counter()
             if self.tp_num_mapping == 1:
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
@@ -1437,7 +1431,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
                     f"to smaller tp size ({self.num_dst_tensor_parallel}) currently."
                 )
-            logger.info(f"==============In _synchronize_all_moe_parameters, synchronizing everything elapsed {time.perf_counter() - start}s.")
 
         else:
             raise NotImplementedError(
