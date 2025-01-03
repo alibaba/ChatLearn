@@ -1391,9 +1391,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
+            max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
             if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
-                max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
                 self.sync_allgather_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
                     max_workers=max_workers,
@@ -1402,7 +1402,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     filter_fn=self.routed_experts_filter)
             elif self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
                 # alltoall routed experts only
-                max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
                 self.sync_alltoall_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
                     max_workers=max_workers,
