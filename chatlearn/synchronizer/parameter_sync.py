@@ -994,7 +994,7 @@ class ParameterSyncGroup:
             else:
                 execute_in_parallel(self.validate_sync_results, args)
 
-    def _calculate_max_workers(self, sorted_send_actors, actor_mapping):
+    def _calculate_max_workers(self, sorted_send_actors, actor_mappings=None):
         max_workers = get_args().runtime_args.param_sync_max_workers
         if max_workers is None:
             max_workers = max(self.src_model.total_gpu // 8, 1)
@@ -1002,6 +1002,10 @@ class ParameterSyncGroup:
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 max_workers = len(sorted_send_actors)
             else:
+                assert actor_mappings is not None, (
+                    "actor_mappings should not be None when max_workers is -1 and "
+                    "communication type for parameter synchronization is not broadcast."
+                )
                 max_workers = len(sorted_send_actors) * len(actor_mappings[sorted_send_actors[0]])
         return max_workers
 
@@ -1387,11 +1391,12 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
+            max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
             if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
                 self.sync_allgather_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
-                    max_workers=1,
+                    max_workers=max_workers,
                     requires_grad=requires_grad,
                     group_name=self.group_name + "_allgather",
                     filter_fn=self.routed_experts_filter)
@@ -1399,7 +1404,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 # alltoall routed experts only
                 self.sync_alltoall_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
-                    max_workers=1,
+                    max_workers=max_workers,
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter)
 
