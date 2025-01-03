@@ -255,13 +255,27 @@ class DistVLLMActor(DistTorchActor):
         results.append(res)
         return results
 
+    def call_vllm_engine_and_workers_remote_funcs(self, func_name, *args, **kwargs):
+        """
+        Call remote functions for vllm_engine + workers.
+        """
+        results = []
+        for actor in self.all_actors:
+            res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
+            results.append(res)
+        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        results.append(res)
+        return results
+
     def add_remote_func(self):
         for func_name, _ in inspect.getmembers(self.master):
             # ray.actor.ActorMethod
             if func_name.startswith('_') or func_name in ["peak_memory"]:
                 continue
-            if func_name in ["timer_summary", "model_setup"]:
+            if func_name in ["timer_summary"]:
                 dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
+            elif func_name in ["model_setup"]:
+                dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
             else: # needed to check for other call_funs.
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
