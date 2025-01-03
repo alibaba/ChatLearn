@@ -313,7 +313,7 @@ class RuntimeConfig(BaseConfig):
     #: communication type to regroup routed experts, allgather/alltoall
     routed_expert_regrouping_comm_type: str = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
     #: memory optimization level in synchronization to decide whether save gpu memory or persue faster execution runtime, 0/1
-    sync_memory_optimization_level: int = 0
+    sync_memory_optimization_level: int = 1
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
     #: if `max_relay_episode` is set to 0, then relay is disabled
     max_relay_episode: int = 0
@@ -512,6 +512,7 @@ class Config(BaseConfig):
         assert self.runtime_args.stream_data_loader_type.lower() in ["fixed", "dynamic"]
         assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
         assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)
+        assert self.runtime_args.sync_memory_optimization_level in [0, 1]
         for model_name, model_args in self.models.items():
             if model_args.num_gpu >= 1:
                 if model_args.gpu_per_process is None:

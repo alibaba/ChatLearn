@@ -31,7 +31,7 @@ from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
 from chatlearn.utils.dist_utils import bucket_tensors, bucket_tensor_generator, coalesced_comm_dense
-from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
+from chatlearn.utils.dist_utils import bucket_tensors_two_stage, bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
@@ -767,86 +767,133 @@ class BaseModule:
                 self._expert_sync_buffer.pop(name, "Not Found.")
                 self._expert_sync_buffer[name] = param
 
+    def _broadcast_parameter_opt_level_0(self, rank, src_rank, group_name, pipe_stage=0):
+        debug_rank_0(">>>>>>>>>>>>>>>>broadcast parameter at memory optimization level 0")
+        tensors = []
+        for name, param in self._parameters_to_sync[pipe_stage]:
+            if self._expert_sync_buffer and name in self._expert_sync_buffer and \
+                    (self._synchronizer and self._synchronizer.is_parameter_changed):
+                tensors.append(self._expert_sync_buffer[name])
+            else:
+                tensors.append(param.data)
+
+        assert len(tensors) > 0
+        dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        tensor_changed = rank != src_rank
+
+        for bucket in dense_buckets:
+            coalesced_comm_dense(bucket, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
+
+        for param in sparse_bucket:
+            col.broadcast(param, src_rank, group_name)
+        self.empty_cache()
+
+    def _broadcast_parameter_opt_level_1(self, rank, src_rank, group_name, pipe_stage=0):
+        debug_rank_0(">>>>>>>>>>>>>>broadcast parameter at memory optimization level 1")
+        def tensor_generator():
+            for name, param in self._parameters_to_sync[pipe_stage]:
+                if self._expert_sync_buffer and name in self._expert_sync_buffer:
+                    yield self._expert_sync_buffer[name]
+                    # move self._expert_sync_buffer[name] to cpu mem to save gpu mem
+                    cpu_expert = self._expert_sync_buffer[name].cpu()
+                    del self._expert_sync_buffer[name]
+                    self._expert_sync_buffer[name] = cpu_expert
+                else:
+                    yield param.data
+
+        bucket_generator = bucket_tensor_generator(tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
+        dense_bucket_num = 0
+        sparse_bucket_num = 0
+        tensor_changed = rank != src_rank
+        for bucket_or_tensor, is_dense in bucket_generator:
+            if is_dense:
+                coalesced_comm_dense(bucket_or_tensor, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
+                dense_bucket_num += 1
+            else:
+                col.broadcast(bucket_or_tensor, src_rank, group_name)
+                sparse_bucket_num += 1
+
+        debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, spase_bucket {sparse_bucket_num}", self._logger)
+        self.empty_cache()
+
     def broadcast_parameter(self, rank, src_rank, group_name, pipe_stage=0):
         """
         :meta private:
         """
         if self.runtime_args.sync_memory_optimization_level == 0:
-            log_rank_0(">>>>>>>>>>>>>>>>optimization level 0")
-            tensors = []
-            for name, param in self._parameters_to_sync[pipe_stage]:
-                if self._expert_sync_buffer and name in self._expert_sync_buffer and \
-                        (self._synchronizer and self._synchronizer.is_parameter_changed):
-                    tensors.append(self._expert_sync_buffer[name])
-                else:
-                    tensors.append(param.data)
-
-            assert len(tensors) > 0
-            dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-            debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
-            tensor_changed = rank != src_rank
-
-            for bucket in dense_buckets:
-                coalesced_comm_dense(bucket, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
-
-            for param in sparse_bucket:
-                col.broadcast(param, src_rank, group_name)
-            log_rank_0(f"memory footprint peak: {max_memory_allocated() / 1024 ** 3}")
-            self.empty_cache()
+            self._broadcast_parameter_opt_level_0(rank, src_rank, group_name, pipe_stage)
         else:
-            log_rank_0(">>>>>>>>>>>>>>optimization level 1")
-            def tensor_generator():
-                for name, param in self._parameters_to_sync[pipe_stage]:
-                    if self._expert_sync_buffer and name in self._expert_sync_buffer:
-                        yield self._expert_sync_buffer[name]
-                        # move self._expert_sync_buffer[name] to cpu mem to save gpu mem
-                        cpu_expert = self._expert_sync_buffer[name].cpu()
-                        del self._expert_sync_buffer[name]
-                        self._expert_sync_buffer[name] = cpu_expert
-                    else:
-                        yield param.data
+            self._broadcast_parameter_opt_level_1(rank, src_rank, group_name, pipe_stage)
 
-            bucket_generator = bucket_tensor_generator(tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-            dense_bucket_num = 0
-            sparse_bucket_num = 0
-            tensor_changed = rank != src_rank
-            for bucket_or_tensor, is_dense in bucket_generator:
-                if is_dense:
-                    coalesced_comm_dense(bucket_or_tensor, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
-                    dense_bucket_num += 1
+    def _broadcast_parameter_two_stage_opt_level_0(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False): 
+        debug_rank_0(">>>>>>>>>>>>>>broadcast parameter at memory optimization level 0")
+        tensor_changed = rank != src_rank
+
+        if stage2:
+            if tensor_changed:
+                parameters_to_sync = self._parameters_to_recv[to_rank]
+            else:
+                parameters_to_sync = self._parameters_to_send
+        else:
+            del self._sync_buffer
+            self._sync_buffer = defaultdict(list)
+            parameters_to_sync = self._parameters_to_sync
+
+        tensors = []
+        buffer_num = []
+        if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
+            idx = 0
+            for name, param in parameters_to_sync[pipe_stage]:
+                self._logger.debug(
+                    f"Adding {name} to sync for if branch from "
+                    f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
+                )
+                tensors.append(self._sync_buffer[buffer_rank % self.tp_num_mapping][idx])
+                buffer_num.append(1)
+                idx += 1
+            del self._sync_buffer[buffer_rank % self.tp_num_mapping]
+        else:
+            for name, param in parameters_to_sync[pipe_stage]:
+                self._logger.debug(
+                    f"Adding {name} to sync for else branch from "
+                    f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
+                )
+                param_data = param.data
+                if rank and self._buffer_num and not stage2:
+                    assert name in self._buffer_num, f"{name} in self._buffer_num for rank {rank}"
+                    buffer_num.append(self._buffer_num[name])
+                elif stage2:
+                    buffer_num.append(1)
                 else:
-                    col.broadcast(bucket_or_tensor, src_rank, group_name)
-                    sparse_bucket_num += 1
+                    # regroup src_tensor by tp_rank.
+                    param_data = self._synchronizer.regroup_params_to_sync(name, param_data, self._tp_division[name])
+                    buffer_num.append(1)
+                tensors.append(param_data)
 
-            debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, spase_bucket {sparse_bucket_num}", self._logger)
-            log_rank_0(f"memory footprint peak: {max_memory_allocated() / 1024 ** 3}")
-            self.empty_cache()
+        assert len(tensors) > 0
+        dense_buckets, sparse_bucket = bucket_tensors_two_stage(
+            tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
+            buffer_num=None if stage2 else buffer_num, tensor_changed=tensor_changed and not stage2)
+        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, sparse_bucket {len(sparse_bucket)}", self._logger)
 
-    def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
-        """
-        Arguments:
-            to_rank: receive rank in mapping from trainer to inference model.
-            buffer_rank: index which tensors of sync buffer to be sended in stage2.
-            rank: destination rank in communication group which enumerate receive ranks.
-            src_rank: source rank in communication group. always 0.
-            group_name: communication group name.
-            pipe_stage: pipeline stage. default 0.
-            stage2: bool. whether stage2 or not. default False.
-        Example: trainer_tp = 4, inference_tp = 8. pipeline_size = 1
-            stage1: [(from_rank, to_rank), ...] = [(0, 8), (1, 10), (2, 12), (3, 14)]
-            stage2: [(from_rank, to_rank), ...] = [(8, 9), (10, 11), (12, 13), (14, 15)]
+        for bucket in dense_buckets:
+            index = 0 if stage2 else (to_rank % self.tp_num_mapping)
+            all_buffers = coalesced_comm_dense_two_stage(
+                bucket, col.broadcast, rank,
+                extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
+                stage2=stage2, index=index)
+            if tensor_changed and not stage2:
+                for key, value in all_buffers.items():
+                    self._sync_buffer[key] += value
 
-            For stage1 pair (0, 8):
-                1. call broadcast func: (0 -> 0). src_rank: 0, rank: 0.
-                2. call broadcast func: (0 -> 8). src_rank: 0, rank: 1.
+        for param in sparse_bucket:
+            col.broadcast(param, src_rank, group_name)
 
-                After (0, 8), to_rank 8 received tensor slices of 8 and 9.
+        self.empty_cache()
 
-            For stage2 pair (8, 9):
-                1. call broadcast func: (8 -> 8). src_rank: 0, rank: 0.
-                2. call broadcast func: (8 -> 9). src_rank: 0, rank: 1.
-                In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
-        """
+    def _broadcast_parameter_two_stage_opt_level_1(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False): 
+        debug_rank_0(">>>>>>>>>>>>>>broadcast parameter at memory optimization level 1")
         tensor_changed = rank != src_rank
 
         if stage2:
@@ -936,6 +983,36 @@ class BaseModule:
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
         self.empty_cache()
+
+    def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
+        """
+        Arguments:
+            to_rank: receive rank in mapping from trainer to inference model.
+            buffer_rank: index which tensors of sync buffer to be sended in stage2.
+            rank: destination rank in communication group which enumerate receive ranks.
+            src_rank: source rank in communication group. always 0.
+            group_name: communication group name.
+            pipe_stage: pipeline stage. default 0.
+            stage2: bool. whether stage2 or not. default False.
+        Example: trainer_tp = 4, inference_tp = 8. pipeline_size = 1
+            stage1: [(from_rank, to_rank), ...] = [(0, 8), (1, 10), (2, 12), (3, 14)]
+            stage2: [(from_rank, to_rank), ...] = [(8, 9), (10, 11), (12, 13), (14, 15)]
+
+            For stage1 pair (0, 8):
+                1. call broadcast func: (0 -> 0). src_rank: 0, rank: 0.
+                2. call broadcast func: (0 -> 8). src_rank: 0, rank: 1.
+
+                After (0, 8), to_rank 8 received tensor slices of 8 and 9.
+
+            For stage2 pair (8, 9):
+                1. call broadcast func: (8 -> 8). src_rank: 0, rank: 0.
+                2. call broadcast func: (8 -> 9). src_rank: 0, rank: 1.
+                In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
+        """
+        if self.runtime_args.sync_memory_optimization_level == 0:
+            self._broadcast_parameter_two_stage_opt_level_0(to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage, stage2)
+        else:
+            self._broadcast_parameter_two_stage_opt_level_1(to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage, stage2)
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):
         """
