@@ -994,7 +994,7 @@ class ParameterSyncGroup:
             else:
                 execute_in_parallel(self.validate_sync_results, args)
 
-    def _calculate_max_workers(self, sorted_send_actors):
+    def _calculate_max_workers(self, sorted_send_actors, actor_mappings=None):
         max_workers = get_args().runtime_args.param_sync_max_workers
         if max_workers is None:
             max_workers = max(self.src_model.total_gpu // 8, 1)
@@ -1002,6 +1002,10 @@ class ParameterSyncGroup:
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 max_workers = len(sorted_send_actors)
             else:
+                assert actor_mappings is not None, (
+                    "actor_mappings should not be None when max_workers is -1 and "
+                    "communication type for parameter synchronization is not broadcast."
+                )
                 max_workers = len(sorted_send_actors) * len(actor_mappings[sorted_send_actors[0]])
         return max_workers
 
@@ -1027,7 +1031,7 @@ class ParameterSyncGroup:
 
         # stage 1
         sorted_send_actors_stage1 = list(actor_mappings_stage1.keys())
-        max_workers = self._calculate_max_workers(sorted_send_actors_stage1)
+        max_workers = self._calculate_max_workers(sorted_send_actors_stage1, actor_mappings_stage1)
         group_name = self.group_name + "_inter_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
@@ -1035,7 +1039,7 @@ class ParameterSyncGroup:
         )
         # stage 2
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
-        max_workers = self._calculate_max_workers(sorted_send_actors_stage2)
+        max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
         group_name = self.group_name + "_intra_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
@@ -1050,7 +1054,7 @@ class ParameterSyncGroup:
         actor_mappings = actor_mappings_list[0]
 
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
-        max_workers = self._calculate_max_workers(sorted_send_actors)
+        max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
