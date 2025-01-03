@@ -23,6 +23,7 @@ from typing import List, Dict
 
 import torch
 from tqdm import tqdm
+import time
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
@@ -994,7 +995,7 @@ class ParameterSyncGroup:
             else:
                 execute_in_parallel(self.validate_sync_results, args)
 
-    def _calculate_max_workers(self, sorted_send_actors, actor_mapping):
+    def _calculate_max_workers(self, sorted_send_actors):
         max_workers = get_args().runtime_args.param_sync_max_workers
         if max_workers is None:
             max_workers = max(self.src_model.total_gpu // 8, 1)
@@ -1027,7 +1028,7 @@ class ParameterSyncGroup:
 
         # stage 1
         sorted_send_actors_stage1 = list(actor_mappings_stage1.keys())
-        max_workers = self._calculate_max_workers(sorted_send_actors_stage1, actor_mappings_stage1)
+        max_workers = self._calculate_max_workers(sorted_send_actors_stage1)
         group_name = self.group_name + "_inter_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
@@ -1035,7 +1036,7 @@ class ParameterSyncGroup:
         )
         # stage 2
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
-        max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
+        max_workers = self._calculate_max_workers(sorted_send_actors_stage2)
         group_name = self.group_name + "_intra_comm"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
@@ -1050,7 +1051,7 @@ class ParameterSyncGroup:
         actor_mappings = actor_mappings_list[0]
 
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
-        max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
+        max_workers = self._calculate_max_workers(sorted_send_actors)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
@@ -1389,21 +1390,28 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
+                start = time.perf_counter()
+                max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
                 self.sync_allgather_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
-                    max_workers=1,
+                    max_workers=max_workers,
                     requires_grad=requires_grad,
                     group_name=self.group_name + "_allgather",
                     filter_fn=self.routed_experts_filter)
+                logger.info(f"==============In _synchronize_all_moe_parameters, allgather elapsed {time.perf_counter() - start}s.")
             elif self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
                 # alltoall routed experts only
+                start = time.perf_counter()
+                max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
                 self.sync_alltoall_multi_threads(
                     [self.send_actors_to_regroup_routed_experts],
-                    max_workers=1,
+                    max_workers=max_workers,
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter)
+                logger.info(f"==============In _synchronize_all_moe_parameters, alltoall elapsed {time.perf_counter() - start}s.")
 
             # sync everything to inference model
+            start = time.perf_counter()
             if self.tp_num_mapping == 1:
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
@@ -1429,6 +1437,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
                     f"to smaller tp size ({self.num_dst_tensor_parallel}) currently."
                 )
+            logger.info(f"==============In _synchronize_all_moe_parameters, synchronizing everything elapsed {time.perf_counter() - start}s.")
 
         else:
             raise NotImplementedError(
