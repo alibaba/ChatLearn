@@ -18,12 +18,15 @@ from collections import defaultdict
 import torch
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
+
 def bucket_tensors(tensors, bucket_size_mb):
     """Group tensors into chunks. We seperate sparse and dense tensor,
     each containing tensors of same type up to certain byte limit in total size.
+
     Args:
         tensors (Sequence): A sequence of tensors to be separated into chunks.
         size_limit (int): The limit of each chunk in bytes.
+
     Return:
         dense_buckets: Blocks of tensors of same type and within size_limit.
         sparse_bucket: A list of sparse tensors
