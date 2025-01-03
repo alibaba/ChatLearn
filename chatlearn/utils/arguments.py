@@ -312,6 +312,8 @@ class RuntimeConfig(BaseConfig):
     param_sync_max_workers: int = None
     #: communication type to regroup routed experts, allgather/alltoall
     routed_expert_regrouping_comm_type: str = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
+    #: memory optimization level in synchronization to decide whether save gpu memory or persue faster execution runtime, 0/1
+    sync_memory_optimization_level: int = 0
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
     #: if `max_relay_episode` is set to 0, then relay is disabled
     max_relay_episode: int = 0

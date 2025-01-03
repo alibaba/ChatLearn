@@ -17,6 +17,7 @@
 import concurrent.futures
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 import ray
 import ray.experimental.state.api
@@ -174,18 +175,24 @@ class ModelManager:
                     episode_offset % sync_group.frequency == 0:
                 sync_group: ParameterSyncGroup = sync_group
 
+                start = time.perf_counter()
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
                 refs = src_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
                 refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
                 future.wait(refs)
+                logger.info(f"============In sync_parameters, onload {sync_group} elapsed {time.perf_counter() - start} s")
 
+                start = time.perf_counter()
                 sync_group.sync(requires_grad, validate)
+                logger.info(f"============In sync_parameters, synchronizing {sync_group} elapsed {time.perf_counter() - start} s")
 
+                start = time.perf_counter()
                 refs = src_model.offload()
                 future.wait(refs)
                 refs = dst_model.offload()
                 future.wait(refs)
+                logger.info(f"============In sync_parameters, offload {sync_group} elapsed {time.perf_counter() - start} s")
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):

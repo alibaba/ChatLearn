@@ -25,11 +25,12 @@ from ray.util.collective.collective_group.base_collective_group import BaseGroup
 from ray.util.collective.collective_group.nccl_collective_group import NCCLGroup
 from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
+from torch.cuda import max_memory_allocated
 
 from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
-from chatlearn.utils.dist_utils import bucket_tensor_generator, coalesced_comm_dense
+from chatlearn.utils.dist_utils import bucket_tensors, bucket_tensor_generator, coalesced_comm_dense
 from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
@@ -770,31 +771,56 @@ class BaseModule:
         """
         :meta private:
         """
-        def tensor_generator():
+        if self.runtime_args.sync_memory_optimization_level == 0:
+            log_rank_0(">>>>>>>>>>>>>>>>optimization level 0")
+            tensors = []
             for name, param in self._parameters_to_sync[pipe_stage]:
-                if self._expert_sync_buffer and name in self._expert_sync_buffer:
-                    yield self._expert_sync_buffer[name]
-                    # move self._expert_sync_buffer[name] to cpu mem to save gpu mem
-                    cpu_expert = self._expert_sync_buffer[name].cpu()
-                    del self._expert_sync_buffer[name]
-                    self._expert_sync_buffer[name] = cpu_expert
+                if self._expert_sync_buffer and name in self._expert_sync_buffer and \
+                        (self._synchronizer and self._synchronizer.is_parameter_changed):
+                    tensors.append(self._expert_sync_buffer[name])
                 else:
-                    yield param.data
+                    tensors.append(param.data)
 
-        bucket_generator = bucket_tensor_generator(tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-        dense_bucket_num = 0
-        sparse_bucket_num = 0
-        tensor_changed = rank != src_rank
-        for bucket_or_tensor, is_dense in bucket_generator:
-            if is_dense:
-                coalesced_comm_dense(bucket_or_tensor, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
-                dense_bucket_num += 1
-            else:
-                col.broadcast(bucket_or_tensor, src_rank, group_name)
-                sparse_bucket_num += 1
+            assert len(tensors) > 0
+            dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
+            debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+            tensor_changed = rank != src_rank
 
-        debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, spase_bucket {sparse_bucket_num}", self._logger)
-        self.empty_cache()
+            for bucket in dense_buckets:
+                coalesced_comm_dense(bucket, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
+
+            for param in sparse_bucket:
+                col.broadcast(param, src_rank, group_name)
+            log_rank_0(f"memory footprint peak: {max_memory_allocated() / 1024 ** 3}")
+            self.empty_cache()
+        else:
+            log_rank_0(">>>>>>>>>>>>>>optimization level 1")
+            def tensor_generator():
+                for name, param in self._parameters_to_sync[pipe_stage]:
+                    if self._expert_sync_buffer and name in self._expert_sync_buffer:
+                        yield self._expert_sync_buffer[name]
+                        # move self._expert_sync_buffer[name] to cpu mem to save gpu mem
+                        cpu_expert = self._expert_sync_buffer[name].cpu()
+                        del self._expert_sync_buffer[name]
+                        self._expert_sync_buffer[name] = cpu_expert
+                    else:
+                        yield param.data
+
+            bucket_generator = bucket_tensor_generator(tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
+            dense_bucket_num = 0
+            sparse_bucket_num = 0
+            tensor_changed = rank != src_rank
+            for bucket_or_tensor, is_dense in bucket_generator:
+                if is_dense:
+                    coalesced_comm_dense(bucket_or_tensor, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
+                    dense_bucket_num += 1
+                else:
+                    col.broadcast(bucket_or_tensor, src_rank, group_name)
+                    sparse_bucket_num += 1
+
+            debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, spase_bucket {sparse_bucket_num}", self._logger)
+            log_rank_0(f"memory footprint peak: {max_memory_allocated() / 1024 ** 3}")
+            self.empty_cache()
 
     def broadcast_parameter_two_stage(self, to_rank, buffer_rank, rank, src_rank, group_name, pipe_stage=0, stage2=False):
         """
