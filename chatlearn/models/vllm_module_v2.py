@@ -126,8 +126,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             disable_log_requests=self.model_args.get("disable_log_requests", True),
             disable_log_stats=self.model_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            # TODO(jiangle.jl): support non-eager mode.
-            enforce_eager=True,
+            enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray")
         self.tokenizer = self.llm.llm_engine.tokenizer
