@@ -48,6 +48,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
             RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
         os.environ['VLLM_HOST_IP'] = self.get_address()
+
         self.tokenizer = None
         self._model = None
         self.set_vllm_pp_layer_partition()

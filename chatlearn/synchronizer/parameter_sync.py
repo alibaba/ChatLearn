@@ -1185,7 +1185,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 and get_args().runtime_args.routed_expert_regrouping_comm_type == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
             ):
                 raise NotImplementedError(
-                    "All-to-all routed expert weight is only supported when src TP size * src EP size = dst TP size. "
+                    "all-to-all routed expert weight is only supported when src TP size * src EP size = dst TP size. "
                     "Please consider setting `routed_expert_regrouping_comm_type` to allgather or adjusting the model's parallel size."
                 )
 
