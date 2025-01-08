@@ -82,3 +82,4 @@ runtime:
   exp_name: ${exp_name:chatlearn}
   debug: ${debug:False}
   validate_param_sync: ${validate_param_sync:False}
+  sync_memory_optimization_level: ${sync_memory_optimization_level:1}
