@@ -88,10 +88,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
-    def model_setup(self):
-        """Set up model and enable EMS(Efficient Memory Sharing)"""
-        super().model_setup()
-
     def setup_vllm(self, workers):
         if self.llm is not None: # for evaluator
             return
@@ -345,6 +341,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     def model_setup_for_workers(self):
         self.llm.llm_engine.model_executor._run_workers("model_setup")
 
+    # pylint: disable=unused-argument
     def offload_for_workers(self,
                             to_onload_weights=None,
                             to_build_grad_buffers=None,
