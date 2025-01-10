@@ -336,9 +336,9 @@ class ModelManager:
             gpu_to_replicas.append(colocate_models)
 
         for i, replicas in enumerate(gpu_to_replicas):
-            num_gpus = 1.0 / len(replicas)
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
+                num_gpus = 1.0 / len(replicas)
                 if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
                     num_gpus = num_gpus / 2
                     replica.create_engine_actor(num_gpus, placement_group, group)

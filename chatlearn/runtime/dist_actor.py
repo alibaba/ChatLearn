@@ -274,6 +274,12 @@ class DistVLLMActor(DistTorchActor):
                 continue
             if func_name in ["timer_summary"]:
                 dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
+            elif func_name in ["onload", "offload"]:
+                if func_name == "onload":
+                    new_func_name = "onload_for_workers"
+                else:
+                    new_func_name = "offload_for_workers"
+                dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
                 dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
             else: # needed to check for other call_funs.
