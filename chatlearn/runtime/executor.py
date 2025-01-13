@@ -271,8 +271,12 @@ class Executor:
         remote_refs = [item[0] for item in output]
         return out_queue, remote_refs
 
-    def compute_loop_one_model(self, model_node, num_batch, is_eval):
+    def compute_loop_one_model(self, model_node, num_batch=None):
         model = model_node.model
+        is_eval = self.is_eval
+
+        if num_batch is None:
+            num_batch = self.num_iteration(model)
 
         func_name = model_node.func_name
         if model_node.remote_objects_to_wait:
@@ -304,10 +308,10 @@ class Executor:
             logger.info(f"Sync {model} in the end of {self.__class__.__name__}")
             self._models_and_results_to_wait.append((model_node, results))
 
-    def compute_loop(self, out_queue, num_batch):
+    def compute_loop(self, out_queue, num_batch=None):
         for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
-                self.compute_loop_one_model(model_node, num_batch, self.is_eval)
+                self.compute_loop_one_model(model_node, num_batch)
 
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:

@@ -211,9 +211,9 @@ assert len(dp_rank_to_actors[0]) == 1
 assert len(dp_rank_to_actors[1]) == 1
 
 assert engine.env.batch_per_episode == 64
-assert engine.env.num_iteration == 8
+assert engine.env.num_iteration() == 8
 assert engine.trainer.batch_per_episode == 8
-assert engine.trainer.num_iteration == 8
+assert engine.trainer.num_iteration() == 8
 assert engine.trainer.num_micro_batch_per_dp == 1
 
 assert len(engine.env._dataset) == 512, len(engine.env._dataset)

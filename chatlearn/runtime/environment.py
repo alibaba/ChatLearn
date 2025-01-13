@@ -113,17 +113,27 @@ class Environment(Executor):
             self._batch_per_episode = num_batch + remainder
         return self._batch_per_episode
 
-    @property
-    def num_iteration(self):
-        if self.models[0].module_args.zero_size > 1:
-            assert self.batch_per_episode % self.models[0].module_args.zero_size == 0
-            return self.batch_per_episode // self.models[0].module_args.zero_size
-        elif self.models[0].module_args.expert_model_parallel_size > 1:
-            assert self.batch_per_episode % self.models[0].module_args.expert_model_parallel_size == 0, (
+    def num_iteration(self, model=None):
+        """Calculate the number of iterations for a model in the environment.
+
+        Args:
+            model: an model in environment. if None, use the first model. default: None.
+
+        Returns:
+            The number of iterations for the model in the environment
+        """
+        if model is None:
+            model = self.models[0]
+
+        if model.module_args.zero_size > 1:
+            assert self.batch_per_episode % model.module_args.zero_size == 0
+            return self.batch_per_episode // model.module_args.zero_size
+        elif model.module_args.expert_model_parallel_size > 1:
+            assert self.batch_per_episode % model.module_args.expert_model_parallel_size == 0, (
                 f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel " 
-                f"size ({self.models[0].module_args.expert_model_parallel_size})."
+                f"size ({model.module_args.expert_model_parallel_size})."
             )
-            return self.batch_per_episode // self.models[0].module_args.expert_model_parallel_size
+            return self.batch_per_episode // model.module_args.expert_model_parallel_size
         else:
             return self.batch_per_episode
 
@@ -137,7 +147,7 @@ class Environment(Executor):
             encoded_data = encode_data(mb, query)
             for data_queue in data_queues:
                 data_queue.put(encoded_data)
-        self.compute_loop(out_queue, self.num_iteration)
+        self.compute_loop(out_queue)
         return out_queue
 
     def make_experiences(self):

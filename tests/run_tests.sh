@@ -144,6 +144,7 @@ elif [ "$1" == "test_data" ]; then
   run_test python test_data_dp_ep.py -c "configs/rlhf.yaml"
   run_test python test_data_tp_ep.py -c "configs/rlhf.yaml"
   run_test python test_data_tp_ep_pp.py -c "configs/rlhf.yaml"
+  run_test python test_data_tp_2_ep.py -c "configs/rlhf.yaml"
 elif [ "$1" == "test_unbalance_tp" ]; then
   run_test python test_unbalance_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_unbalance_tp_1.py -c "configs/test_param_sync.yaml"
