@@ -31,7 +31,10 @@ from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
 from .torch_module import TorchModule
-from .megatron.memory_manager import InferenceMemoryManager
+try:
+    from .megatron.memory_manager import InferenceMemoryManager
+except ImportError:
+    InferenceMemoryManager = None
 
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """VLLMModuleV2"""
