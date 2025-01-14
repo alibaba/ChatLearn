@@ -372,11 +372,11 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         self.llm.llm_engine.model_executor._run_workers("empty_cache")
 
-   def empty_cuda_graph_for_workers(self):
-       """
-       call empty cuda_graph for all workers
-       """
-       self.llm.llm_engine.model_executor._run_workers("empty_cuda_graph")
+    def empty_cuda_graph_for_workers(self):
+        """
+        call empty cuda_graph for all workers
+        """
+        self.llm.llm_engine.model_executor._run_workers("empty_cuda_graph")
 
     def offload_weights(self):
         """
