@@ -418,7 +418,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if self.worker.model_runner.graph_runners is not None:
             len_graph_runners = len(self.worker.model_runner.graph_runners)
             for graph_runner in self.worker.model_runner.graph_runners:
-                for key, runner in graph_runner.items():
+                for _, runner in graph_runner.items():
                     runner.input_buffers = {}
                     runner.output_buffers = {}
                     runner._graph = None
