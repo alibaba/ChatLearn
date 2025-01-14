@@ -414,17 +414,17 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         super().empty_cache()
 
-   def empty_cuda_graph(self):
-       if self.worker.model_runner.graph_runners is not None:
-           len_graph_runners = len(self.worker.model_runner.graph_runners)
-           for graph_runner in self.worker.model_runner.graph_runners:
-               for key, runner in graph_runner.items():
-                   runner.input_buffers = {}
-                   runner.output_buffers = {}
-                   runner._graph = None
-           for i in range(len_graph_runners):
-               self.worker.model_runner.graph_runners[i] = {}
-               self.worker.model_runner.graph_memory_pool = None
+    def empty_cuda_graph(self):
+        if self.worker.model_runner.graph_runners is not None:
+            len_graph_runners = len(self.worker.model_runner.graph_runners)
+            for graph_runner in self.worker.model_runner.graph_runners:
+                for key, runner in graph_runner.items():
+                    runner.input_buffers = {}
+                    runner.output_buffers = {}
+                    runner._graph = None
+            for i in range(len_graph_runners):
+                self.worker.model_runner.graph_runners[i] = {}
+                self.worker.model_runner.graph_memory_pool = None
 
     def reinit_cache_engine(self):
         # reinit cache engine
