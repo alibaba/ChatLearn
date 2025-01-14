@@ -140,6 +140,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             distributed_executor_backend="ray")
         self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
         self.offload_for_workers()
+        self.empty_cuda_graph_for_workers()
         self.empty_cache_for_workers()
 
     def init_memory_manager(self):
@@ -371,6 +372,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         self.llm.llm_engine.model_executor._run_workers("empty_cache")
 
+   def empty_cuda_graph_for_workers(self):
+       """
+       call empty cuda_graph for all workers
+       """
+       self.llm.llm_engine.model_executor._run_workers("empty_cuda_graph")
+
     def offload_weights(self):
         """
         offload weights
@@ -406,6 +413,18 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.timers("gc").stop()
 
         super().empty_cache()
+
+   def empty_cuda_graph(self):
+       if self.worker.model_runner.graph_runners is not None:
+           len_graph_runners = len(self.worker.model_runner.graph_runners)
+           for graph_runner in self.worker.model_runner.graph_runners:
+               for key, runner in graph_runner.items():
+                   runner.input_buffers = {}
+                   runner.output_buffers = {}
+                   runner._graph = None
+           for i in range(len_graph_runners):
+               self.worker.model_runner.graph_runners[i] = {}
+               self.worker.model_runner.graph_memory_pool = None
 
     def reinit_cache_engine(self):
         # reinit cache engine

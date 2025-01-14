@@ -191,6 +191,7 @@ def preprocess_compute(func, trainable):
                 final_results = ret
         if to_empty_cache:
             if isinstance(self, VLLMModuleV2):
+                self.empty_cuda_graph_for_workers()
                 self.empty_cache_for_workers()
             else:
                 self.empty_cache()
