@@ -135,7 +135,10 @@ def preprocess_compute(func, trainable):
         is_eval = get_kwarg('is_eval')
 
         if to_onload:
-            self.onload()
+            if isinstance(self, VLLMModuleV2):
+                self.onload_for_workers()
+            else:
+                self.onload()
         generation_batch_size = self.module_args.generation_batch_size
         final_results = None
         if not trainable and generation_batch_size:
@@ -187,9 +190,16 @@ def preprocess_compute(func, trainable):
             if self.is_last_rank():
                 final_results = ret
         if to_empty_cache:
-            self.empty_cache()
+            if isinstance(self, VLLMModuleV2):
+                self.empty_cuda_graph_for_workers()
+                self.empty_cache_for_workers()
+            else:
+                self.empty_cache()
         if to_offload:
-            self.offload()
+            if isinstance(self, VLLMModuleV2):
+                self.offload_for_workers()
+            else:
+                self.offload()
         if is_last_batch and not is_eval:
             self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results
