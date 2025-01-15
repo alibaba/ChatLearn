@@ -14,6 +14,7 @@
 # ==============================================================================
 """VLLM module v2"""
 
+import gc
 import inspect
 import os
 
@@ -30,7 +31,10 @@ from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
 from .torch_module import TorchModule
-
+try:
+    from .megatron.memory_manager import InferenceMemoryManager
+except ImportError:
+    InferenceMemoryManager = None
 
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """VLLMModuleV2"""
@@ -50,6 +54,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         os.environ['VLLM_HOST_IP'] = self.get_address()
         self.tokenizer = None
         self._model = None
+        self.llm = None
         self.set_vllm_pp_layer_partition()
 
     def add_extra_args(self, parser):
@@ -79,13 +84,15 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                         args_dict=self.model_args)
 
     def setup(self):
-        """Set up model and load checkpoint"""
+        """Set up tokenizer."""
         super().setup()
         tokenizer = AutoTokenizer.from_pretrained(self.model_args['tokenizer'])
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
     def setup_vllm(self, workers):
+        if self.llm is not None: # for evaluator
+            return
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
         set_vllm_actors(workers)
@@ -130,7 +137,19 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray")
-        self.tokenizer = self.llm.llm_engine.tokenizer
+        self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
+        self.offload_for_workers()
+        self.empty_cuda_graph_for_workers()
+        self.empty_cache_for_workers()
+
+    def init_memory_manager(self):
+        if self.module_args.offload_weights:
+            if InferenceMemoryManager is None:
+                raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
+            self._memory_manager = InferenceMemoryManager(
+                self.model,
+                self.runtime_args.bucket_size_mb_in_memory_manager,
+            )
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -237,6 +256,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         return inputs
 
     def generate_vllm(self, query, is_eval):
+        self.reinit_cache_engine()
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
@@ -320,3 +340,93 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         return get_pipeline_model_parallel_rank()
+
+    def model_setup_for_workers(self):
+        self.llm.llm_engine.model_executor._run_workers("model_setup")
+
+    # pylint: disable=unused-argument
+    def offload_for_workers(self,
+                            to_onload_weights=None,
+                            to_build_grad_buffers=None,
+                            to_onload_main_weights=None,
+                            to_onload_optimizer_states=None):
+        """
+        call offload for all workers
+        """
+        self.llm.llm_engine.model_executor._run_workers("offload")
+
+    def onload_for_workers(self,
+                           to_onload_weights=None,
+                           to_build_grad_buffers=None,
+                           to_onload_main_weights=None,
+                           to_onload_optimizer_states=None):
+        """
+        call onload for all workers
+        """
+        self.llm.llm_engine.model_executor._run_workers("onload")
+
+    def empty_cache_for_workers(self):
+        """
+        call empty cache for all workers
+        """
+        self.llm.llm_engine.model_executor._run_workers("empty_cache")
+
+    def empty_cuda_graph_for_workers(self):
+        """
+        call empty cuda_graph for all workers
+        """
+        self.llm.llm_engine.model_executor._run_workers("empty_cuda_graph")
+
+    def offload_weights(self):
+        """
+        offload weights
+        """
+        if self.module_args.offload_weights:
+            self._memory_manager.offload_weights()
+
+    def onload_weights(self):
+        """
+        onload weights
+        """
+        if self.module_args.offload_weights:
+            self._memory_manager.onload_weights()
+
+    def empty_cache(self):
+        if self.worker.gpu_cache is not None:
+            for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
+                ele = None
+            self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
+
+        if hasattr(self.worker, "cache_engine") and self.worker.cache_engine is not None:
+            for c_e in self.worker.cache_engine:
+                c_e.cpu_cache = None
+                c_e.gpu_cache = None
+            self.worker.cache_engine = None
+
+        self.clear_cache()
+
+    def clear_cache(self):
+        if not self.timers("gc").started_:
+            self.timers("gc").start()
+        gc.collect()
+        self.timers("gc").stop()
+
+        super().empty_cache()
+
+    def empty_cuda_graph(self):
+        if self.worker.model_runner.graph_runners is not None:
+            len_graph_runners = len(self.worker.model_runner.graph_runners)
+            for graph_runner in self.worker.model_runner.graph_runners:
+                for _, runner in graph_runner.items():
+                    runner.input_buffers = {}
+                    runner.output_buffers = {}
+                    runner._graph = None
+            for i in range(len_graph_runners):
+                self.worker.model_runner.graph_runners[i] = {}
+                self.worker.model_runner.graph_memory_pool = None
+
+    def reinit_cache_engine(self):
+        # reinit cache engine
+        self.llm.llm_engine.model_executor._run_workers("clear_cache")
+        self.llm.llm_engine._initialize_kv_caches()
+        self.llm.llm_engine.model_executor._run_workers("clear_cache")
