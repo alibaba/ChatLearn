@@ -9,6 +9,8 @@ set -exo pipefail
 [ -z "$LOG_ROOT" ] && LOG_ROOT=$ROOT/logs
 [ -z "$TP_SIZE" ] && export TP_SIZE=1
 [ -z "$PP_SIZE" ] && export PP_SIZE=1
+[ -z "$NUM_PROMPTS" ] && export NUM_PROMPTS=16
+[ -z "$NUM_SAMPLING" ] && export NUM_SAMPLING=8
 
 # fix TypeError originated from get_device_name().replace() for vLLM v0.6.3
 sed -i "291c \ \ \ \ device_name = str(current_platform.get_device_name()).replace(\" \", \"_\")" \
@@ -50,8 +52,8 @@ benchmark_vllm(){
             --log-dir $LOG_ROOT/vllm_benchmark \
             --tensor-parallel-size $tp_size \
             --pipeline-parallel-size $pp_size \
-            --num-prompts 16 \
-            --num-sampling 8 \
+            --num-prompts $NUM_PROMPTS \
+            --num-sampling $NUM_SAMPLING \
             ${LLM_ENGINE_ARGS}
     else
         sleep ${sleep_time}
