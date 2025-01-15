@@ -174,6 +174,9 @@ class BaseModule:
         """
         assert not self._finalized, f"{self} is finalized, any change to the class should happen before finalize."
 
+    def get_runtime_args(self):
+        return self.runtime_args
+
     @property
     def runtime_args(self):
         """

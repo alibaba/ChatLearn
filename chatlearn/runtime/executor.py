@@ -200,7 +200,7 @@ class Executor:
         replica_num = len(model.replicas)
         output = []
         if isinstance(replica.model, VLLMModuleV2):
-            last_step_start = max(self.batch_per_episode - replica_num, 0)
+            last_step_start = max(self.num_iteration(model) - replica_num, 0)
             is_last_batch = step_num >= last_step_start
             kwargs["is_last_batch"] = is_last_batch
             if is_eval is not None:
@@ -216,7 +216,7 @@ class Executor:
             ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
             output.append((ret, mb))
         else:
-            last_step_start = max(self.batch_per_episode - replica_num, 0)
+            last_step_start = max(self.num_iteration(model) - replica_num, 0)
             is_last_batch = step_num >= last_step_start
             kwargs["is_last_batch"] = is_last_batch
             if to_empty_cache is not None:
@@ -282,8 +282,12 @@ class Executor:
         remote_refs = [item[0] for item in output]
         return out_queue, remote_refs
 
-    def compute_loop_one_model(self, model_node, num_batch, is_eval):
+    def compute_loop_one_model(self, model_node, num_batch=None):
         model = model_node.model
+        is_eval = self.is_eval
+
+        if num_batch is None:
+            num_batch = self.num_iteration(model)
 
         func_name = model_node.func_name
         if model_node.remote_objects_to_wait:
@@ -315,10 +319,10 @@ class Executor:
             logger.info(f"Sync {model} in the end of {self.__class__.__name__}")
             self._models_and_results_to_wait.append((model_node, results))
 
-    def compute_loop(self, out_queue, num_batch):
+    def compute_loop(self, out_queue, num_batch=None):
         for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
-                self.compute_loop_one_model(model_node, num_batch, self.is_eval)
+                self.compute_loop_one_model(model_node, num_batch)
 
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:
