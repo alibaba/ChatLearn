@@ -1180,6 +1180,15 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             f"greater or equal to expert parallel world size for inference ({self.num_dst_expert_parallel}) with HEP enabled."
         )
         if self.dst_model.use_vllm_backend:
+            if (
+                self.hep_num_mapping != 1
+                and get_args().runtime_args.routed_expert_regrouping_comm_type == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
+            ):
+                raise NotImplementedError(
+                    "all-to-all routed expert weight is only supported when src TP size * src EP size = dst TP size. "
+                    "Please consider setting `routed_expert_regrouping_comm_type` to allgather or adjusting the model's parallel size."
+                )
+
             if self.tp_num_mapping == 1:
                 if self.ep_num_mapping == 1:
                     self.build_rank_mapping()
