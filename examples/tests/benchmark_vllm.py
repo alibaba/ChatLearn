@@ -230,10 +230,10 @@ def benchmark_vllm(args):
     tp_size = args.tensor_parallel_size
     pp_size = args.pipeline_parallel_size
     enforce_eager = args.enforce_eager
-    model_name = args.model_name
     model_path = args.model_path
     tokenizer = AutoTokenizer.from_pretrained(model_path)
     num_prompts = args.num_prompts
+    num_scheduler_steps = args.num_scheduler_steps
 
     data_file = args.data
     with open(data_file) as f:
@@ -249,7 +249,8 @@ def benchmark_vllm(args):
         "enforce_eager": enforce_eager,
         "disable_custom_all_reduce": True,
         "distributed_executor_backend": "ray",
-        "gpu_memory_utilization": 0.85
+        "gpu_memory_utilization": 0.85,
+        "num_scheduler_steps": num_scheduler_steps,
     }
 
     if args.use_async_llm_engine:
@@ -309,6 +310,7 @@ if __name__ == "__main__":
     parser.add_argument('--enforce-eager', action='store_true')
     parser.add_argument('--vllm-use-ray-spmd-worker', action='store_true')
     parser.add_argument('--max-tokens', type=int, default=None)
+    parser.add_argument('--num-scheduler-steps', type=int, default=1)
     parser.add_argument('--experimental', action='store_true', help='Experimental benchmark method from `benchmark_throughput.py` in vLLM.')
 
     args = parser.parse_args()

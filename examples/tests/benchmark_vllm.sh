@@ -7,6 +7,8 @@ set -exo pipefail
 [ -z "$HF_LOAD" ] && export HF_LOAD=path-to-hf-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
 [ -z "$LOG_ROOT" ] && LOG_ROOT=$ROOT/logs
+[ -z "$TP_SIZE" ] && export TP_SIZE=1
+[ -z "$PP_SIZE" ] && export PP_SIZE=1
 
 # fix TypeError originated from get_device_name().replace() for vLLM v0.6.3
 sed -i "291c \ \ \ \ device_name = str(current_platform.get_device_name()).replace(\" \", \"_\")" \
@@ -56,4 +58,4 @@ benchmark_vllm(){
     fi
 }
 
-benchmark_vllm True 4 4
+benchmark_vllm True $TP_SIZE $PP_SIZE
