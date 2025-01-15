@@ -3,6 +3,7 @@ set -exo pipefail
 
 [ -z "$ROOT" ] && export ROOT=path-to-root-dir
 [ -z "$CHATLEARN" ] && export CHATLEARN=path-to-chatlearn
+[ -z "$MODEL_NAME" ] && export MODEL_NAME="MoE"
 [ -z "$HF_LOAD" ] && export HF_LOAD=path-to-hf-ckpt
 [ -z "$DATASET_PATH" ] && export DATASET_PATH=path-to-dataset-json
 [ -z "$LOG_ROOT" ] && LOG_ROOT=$ROOT/logs
@@ -41,7 +42,7 @@ benchmark_vllm(){
 
     if  [ ${RANK} == 0 ]; then
         python examples/tests/benchmark_vllm.py \
-            --model-name "QWen-MoE-Lite" \
+            --model-name $MODEL_NAME \
             --model-path $HF_LOAD \
             --data $DATASET_PATH \
             --log-dir $LOG_ROOT/vllm_benchmark \
