@@ -71,6 +71,7 @@ function run_all_tests {
   run_test python test_data_dp_ep.py -c "configs/rlhf.yaml"
   run_test python test_data_tp_ep.py -c "configs/rlhf.yaml"
   run_test python test_data_tp_ep_pp.py -c "configs/rlhf.yaml"
+  run_test python test_data_tp_2_ep.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_colocate_forward_train.py -c "configs/rlhf2.yaml"
   run_test python test_evaluator_multi.py -c "configs/test_eval2.yaml"
   run_test python test_rlhf_cpu.py -c "configs/rlhf_cpu.yaml"

@@ -200,6 +200,11 @@ class Executor:
         replica_num = len(model.replicas)
         output = []
         if isinstance(replica.model, VLLMModuleV2):
+            last_step_start = max(self.batch_per_episode - replica_num, 0)
+            is_last_batch = step_num >= last_step_start
+            kwargs["is_last_batch"] = is_last_batch
+            if is_eval is not None:
+                kwargs["is_eval"] = is_eval
             mb, query = get_next_data()
             assert isinstance(query, list)
             ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
