@@ -62,7 +62,8 @@ class Trainer(Executor):
                 batches += batches[:self.num_micro_batch_per_dp - len(batches)]
             return batches
 
-    def num_iteration(self):
+    # pylint: disable=unused-argument
+    def num_iteration(self, model=None):
         # Given that we have incorporated support for relay buffer and dynamic reward outputs,
         # the number of training data batches per episode may differ, hence we dynamically determine the total number of batches per episode.
         _sample_per_episode = ray.get(self._data_loader.total_samples.remote())

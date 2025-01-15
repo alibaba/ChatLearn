@@ -9,6 +9,7 @@ import chatlearn
 from chatlearn import RLHFEngine
 from chatlearn import TorchModule
 from chatlearn.utils import future
+from utils import assert_consumed_samples
 
 
 class CustomDataset(Dataset):
@@ -271,3 +272,9 @@ assert engine.trainer.num_iteration() == 32
 assert engine.trainer.num_micro_batch_per_dp == 4
 
 assert len(engine.env._dataset) == 2048, len(engine.env._dataset)
+
+assert_consumed_samples(
+    engine,
+    ['policy', 'reference', 'reward', 'value', 'ppo_policy', 'ppo_value'],
+    2048
+)

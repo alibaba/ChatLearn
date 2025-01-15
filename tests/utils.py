@@ -3,6 +3,7 @@ import copy
 from torch.utils.data import Dataset
 
 from chatlearn import TorchModule
+from chatlearn.utils import future
 
 
 class CustomDataset(Dataset):
@@ -94,3 +95,7 @@ def listdict_to_dictlist(ld, list_extend=True):
                 res[key].append(v)
 
     return res
+
+def assert_consumed_samples(engine, model_names, ground_truth:int):
+    for model_name in model_names:
+        assert future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples == ground_truth
