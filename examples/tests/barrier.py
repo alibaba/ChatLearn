@@ -21,7 +21,7 @@ import torch.distributed as dist
 parser = argparse.ArgumentParser(description="Barrier")
 parser.add_argument(
     '--timeout', type=int, default=None,
-    description="Timeout in minutes"
+    help="Timeout in minutes"
 )
 
 def main():
