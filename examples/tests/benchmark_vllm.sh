@@ -1,4 +1,4 @@
-#!/bin/bath
+#!/bin/bash
 set -exo pipefail
 
 [ -z "$ROOT" ] && export ROOT=path-to-root-dir
