@@ -27,7 +27,11 @@ parser.add_argument(
 def main():
     args = parser.parse_args()
 
-    timeout = timedelta(minutes=args.timeout)
+    if args.timeout is not None:
+        timeout = timedelta(minutes=args.timeout)
+    else:
+        timeout = None
+
     dist.init_process_group(backend="nccl", timeout=timeout)
     dist.destroy_process_group()
 
