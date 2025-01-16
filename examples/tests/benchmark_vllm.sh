@@ -20,6 +20,7 @@ set -exo pipefail
 [ -z "$NUM_SCHEDULER_STEPS" ] && export NUM_SCHEDULER_STEPS=1
 [ -z "$TIMEOUT" ] && export TIMEOUT="15"
 
+
 # fix TypeError originated from get_device_name().replace() for vLLM v0.6.3
 sed -i "291c \ \ \ \ device_name = str(current_platform.get_device_name()).replace(\" \", \"_\")" \
     /usr/local/lib/python3.10/dist-packages/vllm/model_executor/layers/fused_moe/fused_moe.py
