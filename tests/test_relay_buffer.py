@@ -120,4 +120,4 @@ episode_relay_buffers = ray.get(ref)
 micro_batch_per_episode = ray.get(engine._data_loader.batch_per_episode.remote())
 assert micro_batch_per_episode == 10, micro_batch_per_episode
 assert engine.env.batch_per_episode == 4
-assert engine.trainer.num_iteration == 5
+assert engine.trainer.num_iteration() == 5

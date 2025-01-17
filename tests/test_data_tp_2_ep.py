@@ -88,13 +88,11 @@ class RewardModel(TorchModule):
 
     @property
     def data_parallel_size(self):
-        return 2
+        return 1
 
     @property
     def data_parallel_rank(self):
-        if self._get_rank() < 4:
-            return 0
-        return 1
+        return 0
 
     def forward_step(self, data, iteration):
         print(f"reward forward {self.counter}=========", flush=True)
@@ -132,13 +130,18 @@ class PPOPolicy(TorchModule):
         self.data = []
         self.counter = 1
 
+    def _get_rank(self):
+        return int(os.environ["RANK"])
+
     @property
     def data_parallel_size(self):
-        return 8
+        return 2
 
     @property
     def data_parallel_rank(self):
-        return int(os.environ["RANK"])
+        if self._get_rank() < 4:
+            return 0
+        return 1
 
     def train_step(self, data, iteration):
         print(f"ppo policy train_step {self.counter}========= {self.data_parallel_rank}", flush=True)
@@ -153,13 +156,18 @@ class PPOPolicy(TorchModule):
 class PPOValue(TorchModule):
     counter = 1
 
+    def _get_rank(self):
+        return int(os.environ["RANK"])
+
     @property
     def data_parallel_size(self):
-        return 8
+        return 2
 
     @property
     def data_parallel_rank(self):
-        return int(os.environ["RANK"])
+        if self._get_rank() < 4:
+            return 0
+        return 1
 
     def train_step(self, data, iteration):
         print(f"ppo value train_step {self.counter}=========", flush=True)
@@ -171,22 +179,24 @@ for _, model_config in chatlearn.get_args().models.items():
     model_config.num_gpu = 8
 
 chatlearn.get_args().models['policy'].expert_model_parallel_size = 1
-chatlearn.get_args().models['reference'].expert_model_parallel_size = 1
+chatlearn.get_args().models['reference'].expert_model_parallel_size = 2
 chatlearn.get_args().models['reward'].expert_model_parallel_size = 1
 chatlearn.get_args().models['value'].expert_model_parallel_size = 1
 
 chatlearn.get_args().models['policy'].tensor_model_parallel_size = 4
 chatlearn.get_args().models['reference'].tensor_model_parallel_size = 4
-chatlearn.get_args().models['reward'].tensor_model_parallel_size = 4
+chatlearn.get_args().models['reward'].tensor_model_parallel_size = 8
 chatlearn.get_args().models['value'].tensor_model_parallel_size = 4
 
-chatlearn.get_args().models['ppo_policy'].expert_model_parallel_size = 8
-chatlearn.get_args().models['ppo_value'].expert_model_parallel_size = 8
+chatlearn.get_args().models['ppo_policy'].expert_model_parallel_size = 2
+chatlearn.get_args().models['ppo_value'].expert_model_parallel_size = 2
+
+chatlearn.get_args().models['ppo_policy'].tensor_model_parallel_size = 4
+chatlearn.get_args().models['ppo_value'].tensor_model_parallel_size = 4
 
 chatlearn.get_args().runtime_args.colocation = [["policy", "reference", "reward", "value", "ppo_policy", "ppo_value"]]
 chatlearn.get_args().runtime_args.train_micro_batch_size = 4
 chatlearn.get_args().runtime_args.train_global_batch_size = 32
-chatlearn.get_args().runtime_args.generation_batch_size = 8
 chatlearn.get_args().runtime_args.max_relay_episode = 1
 chatlearn.get_args().runtime_args.sample_per_episode = 1024
 policy = PolicyModel("policy")
@@ -209,8 +219,8 @@ def relay_sample_fn(episode_relay_buffers):
 engine.set_relay_sample_fn(relay_sample_fn)
 # for inference models, they have 2 dp replicas
 assert policy.num_replica == 2
-assert reference.num_replica == 2
-assert reward.num_replica == 2
+assert reference.num_replica == 1
+assert reward.num_replica == 1
 assert value.num_replica == 2
 # for training models, ep is combined into dp, leading to only 1 replica
 assert ppo_policy.num_replica == 1
@@ -220,10 +230,10 @@ engine.set_dataset(data)
 engine.learn()
 assert engine.named_models['policy'].replicas[0].data_parallel_size == 2
 assert engine.named_models['reference'].replicas[0].data_parallel_size == 2
-assert engine.named_models['reward'].replicas[0].data_parallel_size == 2
+assert engine.named_models['reward'].replicas[0].data_parallel_size == 1
 assert engine.named_models['value'].replicas[0].data_parallel_size == 2
-assert engine.named_models['ppo_policy'].replicas[0].data_parallel_size == 8
-assert engine.named_models['ppo_value'].replicas[0].data_parallel_size == 8
+assert engine.named_models['ppo_policy'].replicas[0].data_parallel_size == 2
+assert engine.named_models['ppo_value'].replicas[0].data_parallel_size == 2
 
 policy_replicas = engine.named_models['policy'].replicas
 assert len(policy_replicas) == 2
@@ -232,12 +242,12 @@ assert len(dp_rank_to_actors) == 1
 assert len(dp_rank_to_actors[0]) == 4
 
 dp_rank_to_actors = engine.named_models['ppo_policy'].replicas[0].dp_rank_to_actors
-assert len(dp_rank_to_actors) == 8
-assert len(dp_rank_to_actors[0]) == 1
-assert len(dp_rank_to_actors[1]) == 1
+assert len(dp_rank_to_actors) == 2
+assert len(dp_rank_to_actors[0]) == 4
+assert len(dp_rank_to_actors[1]) == 4
 
 all_data = []
-for i in range(8):
+for i in range(2):
     data = future.get(dp_rank_to_actors[i][0].get_data.remote())
     for item in data:
         for batch in item:
@@ -250,15 +260,16 @@ assert min(distinct_data) == 0.0
 assert max(distinct_data) == 2047.0
 
 dp_rank_to_actors = engine.named_models['ppo_value'].replicas[0].dp_rank_to_actors
-assert len(dp_rank_to_actors) == 8
-assert len(dp_rank_to_actors[0]) == 1
-assert len(dp_rank_to_actors[1]) == 1
+assert len(dp_rank_to_actors) == 2
+assert len(dp_rank_to_actors[0]) == 4
+assert len(dp_rank_to_actors[1]) == 4
 
 assert engine.env.batch_per_episode == 256
-assert engine.env.num_iteration() == 256
+assert engine.env.num_iteration(policy) == 256
+assert engine.env.num_iteration(reference) == 128
 assert engine.trainer.batch_per_episode == 32
 assert engine.trainer.num_iteration() == 32
-assert engine.trainer.num_micro_batch_per_dp == 1
+assert engine.trainer.num_micro_batch_per_dp == 4
 
 assert len(engine.env._dataset) == 2048, len(engine.env._dataset)
 

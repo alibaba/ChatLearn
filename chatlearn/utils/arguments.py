@@ -537,7 +537,7 @@ class Config(BaseConfig):
             moe_ep_size = model_args.args_dict.get("moe_expert_model_parallel_size")
             if ep_size is not None and moe_ep_size is not None:
                 assert ep_size == moe_ep_size, (
-                    f"If you set moe_expert_model_parallel_size ({moe_ep_size}), "
+                    f"{model_name}: if you set moe_expert_model_parallel_size ({moe_ep_size}), "
                     f"it must be equal to expert_model_parallel_size ({ep_size})"
                 )
                 finalized_ep_size = ep_size
@@ -554,8 +554,8 @@ class Config(BaseConfig):
                 assert model_args.zero_size == 1 or model_args.zero_size is None
                 assert model_args.num_gpu % (
                     model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size) == 0, \
-                    "num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size * expert_model_parallel_size " \
-                    f"for {model_name} model, but got num_gpu = {model_args.num_gpu}, " \
+                    f"{model_name}: num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size * " \
+                    f"expert_model_parallel_size, but got num_gpu = {model_args.num_gpu}, " \
                     f"tensor_model_parallel_size = {model_args.tensor_model_parallel_size}, " \
                     f"pipeline_model_parallel_size = {model_args.pipeline_model_parallel_size}, and "\
                     f"expert_model_parallel_size = {model_args.expert_model_parallel_size}."
@@ -572,8 +572,8 @@ class Config(BaseConfig):
             elif model_args.num_cpu >= 1:
                 model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
             assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \
-                f"num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
-                f"should be less than sample_per_episode {self.runtime_args.sample_per_episode}"
+                f"{model_name}: num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
+                f"should be less than or equal to sample_per_episode {self.runtime_args.sample_per_episode}"
             if model_args.batch_generation.min_prompt_length:
                 logger.info(f"Enable batch generation: \
                     min_prompt_length = {model_args.batch_generation.min_prompt_length}")
