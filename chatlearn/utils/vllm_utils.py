@@ -764,7 +764,6 @@ def get_load_dir(load_dir, is_load_dir_valid):
         if len(rank0_checkpoint_name) == 0:
             continue
         is_load_dir_valid = True
-        args["load"] = load_dir
         break
     return is_load_dir_valid, rank0_checkpoint_name
 
@@ -793,6 +792,7 @@ def load_rank0_state_dict(args):
     is_load_dir_valid, rank0_checkpoint_name = get_load_dir(load_dir, is_load_dir_valid)
     if not is_load_dir_valid:
         raise RuntimeError(f"Invalid load dir {args['load']} with load_iteration {load_iteration}")
+    args["load"] = load_dir
     rank0_checkpoint_path = rank0_checkpoint_name[0]
 
     print(f"Loading Megatron checkpoint arguments from: {rank0_checkpoint_path}")
