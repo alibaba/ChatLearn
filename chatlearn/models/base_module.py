@@ -444,7 +444,7 @@ class BaseModule:
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
                 dynamic_batch_size_flag=dynamic_batch_size_flag,
-                drop_last=drop_last)
+                drop_last=False)
         else:
             batch_sampler = EpisodeDataSampler(total_samples=len(dataset),
                 consumed_samples=consumed_samples,
