@@ -750,6 +750,22 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     return tp_state_dicts
 
 
+def get_load_dir(load_dir, is_load_dir_valid):
+    sub_dirs = os.listdir(load_dir)
+    for sub_dir in sub_dirs:
+        if sub_dir not in possible_sub_dirs:
+            continue
+        sub_dir = os.path.join(load_dir, sub_dir)
+        if not os.path.exists(sub_dir):
+            continue
+        rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
+        if len(rank0_checkpoint_name) == 0:
+            continue
+        is_load_dir_valid = True
+        args["load"] = load_dir
+        break
+    return is_load_dir_valid
+
 def load_rank0_state_dict(args):
     # Load rank0 state dict from Megatron-LM checkpoint.
     possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
@@ -759,7 +775,6 @@ def load_rank0_state_dict(args):
     else:
         load_iteration = None
     dirnames = os.listdir(args["load"])
-    print(f"dirnames: {dirnames}", flush=True)
     dirnames.sort(reverse=True)
     
     is_load_dir_valid = False
@@ -773,35 +788,10 @@ def load_rank0_state_dict(args):
             if dirname == f"iter_{args['load_iteration']:07d}":
                 load_dir = os.path.join(args["load"], dirname)
                 assert os.path.exists(load_dir), f"expect load_dir not None for load_iteration {load_iteration}, while {load_dir}."
-                sub_dirs = os.listdir(load_dir)
-                for sub_dir in sub_dirs:
-                    if sub_dir not in possible_sub_dirs:
-                        continue
-                    sub_dir = os.path.join(load_dir, sub_dir)
-                    if not os.path.exists(sub_dir):
-                        continue
-                    rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
-                    if len(rank0_checkpoint_name) == 0:
-                        continue
-                    is_load_dir_valid = True
-                    args["load"] = load_dir
-                    break
+                is_load_dir_valid = get_load_dir(load_dir, is_load_dir_valid)
         else:
             load_dir = os.path.join(args["load"], dirname)
-            sub_dirs = os.listdir(load_dir)
-            for sub_dir in sub_dirs:
-                #print(f"dirname: {dirname}", flush=True)
-                if sub_dir not in possible_sub_dirs:
-                    continue
-                sub_dir = os.path.join(load_dir, sub_dir)
-                if not os.path.exists(sub_dir):
-                    continue
-                rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
-                if len(rank0_checkpoint_name) == 0:
-                    continue
-                args["load"] = load_dir
-                is_load_dir_valid = True
-                break
+            is_load_dir_valid = get_load_dir(load_dir, is_load_dir_valid)
     if not is_load_dir_valid:
         raise RuntimeError(f"Invalid load dir {args['load']} with load_iteration {args['load_iteration']}")
     rank0_checkpoint_path = rank0_checkpoint_name[0]
