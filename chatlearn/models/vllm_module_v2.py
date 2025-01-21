@@ -256,8 +256,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         return inputs
 
-    def generate_vllm(self, query, is_eval):
-        self.reinit_cache_engine()
+    def generate_vllm(self, query, is_eval, is_first_run=True):
+        if is_first_run: # using for multi-round generate
+            self.reinit_cache_engine()
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
