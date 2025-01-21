@@ -19,6 +19,7 @@ import torch
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
 from chatlearn.models.base_module import BaseModule
+from chatlearn.runtime.dist_actor import DistVLLMActor
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
@@ -371,7 +372,10 @@ class Engine(BaseEngine):
                 future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
-                refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                if isinstance(model, DistVLLMActor):
+                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                else:
+                    refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
             logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 

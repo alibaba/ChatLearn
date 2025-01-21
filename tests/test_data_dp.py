@@ -9,6 +9,7 @@ import chatlearn
 from chatlearn import RLHFEngine
 from chatlearn import TorchModule
 from chatlearn.utils import future
+from utils import assert_consumed_samples
 
 
 class CustomDataset(Dataset):
@@ -190,9 +191,15 @@ assert len(dp_rank_to_actors[0]) == 4
 assert len(dp_rank_to_actors[1]) == 4
 
 assert engine.env.batch_per_episode == 64
-assert engine.env.num_iteration == 64
+assert engine.env.num_iteration() == 64
 assert engine.trainer.batch_per_episode == 16
-assert engine.trainer.num_iteration == 16
+assert engine.trainer.num_iteration() == 16
 assert engine.trainer.num_micro_batch_per_dp == 2
 
 assert len(engine.env._dataset) == 512, len(engine.env._dataset)
+
+assert_consumed_samples(
+    engine,
+    ['policy', 'reference', 'reward', 'value', 'ppo_policy', 'ppo_value'],
+    512
+)
