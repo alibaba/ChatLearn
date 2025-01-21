@@ -90,7 +90,7 @@ class EpisodeDataSampler:
         if self.drop_last:
             last_samples = self.total_samples % self.micro_batch_times_data_parallel_size
             assert self.total_samples > last_samples, \
-                'total_samples is not enough to perform drop_last!'
+                'total_samples are not enough to perform drop_last!'
             self.total_samples -= last_samples
 
         # Sanity checks.
