@@ -399,7 +399,7 @@ class BaseModule:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
         collate_fn = dataset.collate_fn if hasattr(dataset, 'collate_fn') else None
-        drop_last = self.module_args.drop_last if hasattr(self.module_args, 'drop_last') else False
+        drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
         dataloader = self.build_dataloader(dataset,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,
