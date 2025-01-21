@@ -1707,7 +1707,7 @@ def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load',
 
     print_rank_0(f'  successfully loaded checkpoint from {args["load"]}')
 
-    return load_iteration
+    return iteration
 
 
 def get_checkpoint_name(checkpoints_path, iteration, release=False,
