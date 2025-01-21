@@ -751,6 +751,7 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
 
 
 def get_load_dir(load_dir, is_load_dir_valid):
+    possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
     sub_dirs = os.listdir(load_dir)
     rank0_checkpoint_name = None
     for sub_dir in sub_dirs:
@@ -769,7 +770,6 @@ def get_load_dir(load_dir, is_load_dir_valid):
 
 def load_rank0_state_dict(args):
     # Load rank0 state dict from Megatron-LM checkpoint.
-    possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
 
     if args["load_iteration"] is not None:
         load_iteration = args["load_iteration"]
@@ -781,7 +781,7 @@ def load_rank0_state_dict(args):
 
     dirnames = os.listdir(args["load"])
     dirnames.sort(reverse=True)
-    
+
     is_load_dir_valid = False
     load_dir = None
     for dirname in dirnames:
