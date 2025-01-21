@@ -1705,14 +1705,7 @@ def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load',
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    if args["load_iteration"] is not None:
-        load_iteration = args["load_iteration"]
-    else:
-        tracker_filename = get_checkpoint_tracker_filename(args["load"])
-        load_iteration, _ = read_metadata(tracker_filename)
-
-    print_rank_0(f'  successfully loaded checkpoint from {args["load"]} '
-                 f'at iteration {load_iteration}')
+    print_rank_0(f'  successfully loaded checkpoint from {args["load"]}')
 
     return load_iteration
 
