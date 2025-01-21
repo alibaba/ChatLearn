@@ -750,7 +750,7 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     return tp_state_dicts
 
 
-def get_load_dir(load_dir, is_load_dir_valid):
+def get_load_dir(load_dir, load_iteration, is_load_dir_valid):
     possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
     sub_dirs = os.listdir(load_dir)
     rank0_checkpoint_name = None
@@ -786,10 +786,11 @@ def load_rank0_state_dict(args):
     for dirname in dirnames:
         if not dirname.startswith("iter_"):
             continue
-        load_dir = os.path.join(args["load"], dirname)
+        if dirname == f"iter_{load_iteration:07d}":
+            load_dir = os.path.join(args["load"], dirname)
     print(f"Trying to load Megatron-LM checkpoint from {load_dir}")
     assert os.path.exists(load_dir), f"expect load_dir not None for load_iteration {load_iteration}, while {load_dir}."
-    is_load_dir_valid, rank0_checkpoint_name = get_load_dir(load_dir, is_load_dir_valid)
+    is_load_dir_valid, rank0_checkpoint_name = get_load_dir(load_dir, load_iteration, is_load_dir_valid)
     if not is_load_dir_valid:
         raise RuntimeError(f"Invalid load dir {args['load']} with load_iteration {load_iteration}")
     args["load"] = load_dir
