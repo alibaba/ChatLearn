@@ -103,6 +103,47 @@ class TestDataset(unittest.TestCase):
 
         self.assertEqual(res, [expect_0, expect_1])
 
+    def test_circle_episode_data_drop_last(self):
+        num_replicas = 2
+        samplers = [EpisodeDataSampler(
+            total_samples=35,
+            consumed_samples=0,
+            micro_batch_size=8,
+            data_parallel_rank=i,
+            data_parallel_size=num_replicas,
+            sample_per_episode=32,
+            drop_last=True
+        ) for i in range(num_replicas)]
+
+        res = [[] for _ in range(num_replicas)]
+        for idx, sampler in enumerate(samplers):
+            for indices in sampler:
+                res[idx].append(indices)
+                if len(res[idx]) > 6:
+                    break
+        expect_0 = [
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [16, 17, 18, 19, 20, 21, 22, 23],
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [16, 17, 18, 19, 20, 21, 22, 23],
+            [0, 1, 2, 3, 4, 5, 6, 7],
+            [16, 17, 18, 19, 20, 21, 22, 23],
+            [0, 1, 2, 3, 4, 5, 6, 7]
+        ]
+        expect_1 = [
+            [8, 9, 10, 11, 12, 13, 14, 15],
+            [24, 25, 26, 27, 28, 29, 30, 31],
+            [8, 9, 10, 11, 12, 13, 14, 15],
+            [24, 25, 26, 27, 28, 29, 30, 31],
+            [8, 9, 10, 11, 12, 13, 14, 15],
+            [24, 25, 26, 27, 28, 29, 30, 31],
+            [8, 9, 10, 11, 12, 13, 14, 15]
+        ]
+        for idx, ele in enumerate(res):
+            print(f"res_{idx}: {ele}")
+
+        self.assertEqual(res, [expect_0, expect_1])
+
 # pylint: enable=missing-class-docstring
 
 

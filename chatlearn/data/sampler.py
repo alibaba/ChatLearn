@@ -87,6 +87,11 @@ class EpisodeDataSampler:
             self.micro_batch_size * data_parallel_size
         self.drop_last = drop_last
         self.data_parallel_size = data_parallel_size
+        if self.drop_last:
+            last_samples = self.total_samples % self.micro_batch_times_data_parallel_size
+            assert self.total_samples > last_samples, \
+                'total_samples is not enough to perform drop_last!'
+            self.total_samples -= last_samples
 
         # Sanity checks.
         assert self.total_samples > 0, \
@@ -127,7 +132,7 @@ class EpisodeDataSampler:
             # Last batch will be dropped if drop_last is set True
             batch_gen_flag = self.iter_internal(batch)
             # Check the last partial batch and see drop_last is set
-            if len(batch) > 0 and not self.drop_last and not batch_gen_flag:
+            if len(batch) > 0 and not batch_gen_flag:
                 # wrap it to sample_per_episode
                 batch_gen_flag = self.iter_internal(batch)
 
