@@ -19,6 +19,8 @@ from vllm.worker import worker_base
 from vllm.worker.worker_base import logger
 
 
+del worker_base.WorkerWrapperBase.__getattr__
+
 def execute_method(self, method, *args, **kwargs):
     try:
         if self.worker is None:
