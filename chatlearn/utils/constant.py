@@ -61,5 +61,5 @@ class PARAM_SYNC_COMM_TYPE(str, Enum):
 
 class ROUTED_EXPERT_REGROUPING_COMM_TYPE(str, Enum):
     """communication type of routed expert regrouping."""
-    ALLTOALL = "alltoall"
     ALLGATHER = "allgather"
+    ALLTOALL = "alltoall"
