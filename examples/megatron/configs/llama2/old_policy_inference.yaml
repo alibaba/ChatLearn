@@ -13,3 +13,5 @@ eval_top_p: 0
 
 tensor_model_parallel_size: ${policy_tp}
 pipeline_model_parallel_size: ${policy_pp}
+
+drop_last: ${drop_last:False}

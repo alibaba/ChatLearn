@@ -174,6 +174,9 @@ class BaseModule:
         """
         assert not self._finalized, f"{self} is finalized, any change to the class should happen before finalize."
 
+    def get_runtime_args(self):
+        return self.runtime_args
+
     @property
     def runtime_args(self):
         """
@@ -396,13 +399,14 @@ class BaseModule:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
         collate_fn = dataset.collate_fn if hasattr(dataset, 'collate_fn') else None
-
+        drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
         dataloader = self.build_dataloader(dataset,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,
                                            is_eval=is_eval,
                                            dynamic_batch_size_flag=dynamic_batch_size_flag,
-                                           consumed_samples=consumed_samples)
+                                           consumed_samples=consumed_samples,
+                                           drop_last=drop_last)
 
         if is_eval:
             self._eval_dataloader = dataloader
@@ -418,7 +422,8 @@ class BaseModule:
                          collate_fn=None,
                          is_eval=False,
                          dynamic_batch_size_flag=False,
-                         consumed_samples=0):
+                         consumed_samples=0,
+                         drop_last=False):
         """
         build the dataloader for the model
         Args:
@@ -426,7 +431,8 @@ class BaseModule:
             batch_size: how many samples per batch to load
             collate_fn: set when loading from an map-style dataset (defulat: `None`)
             is_eval: set to `True` to build a dataloader for evaluation (default: `False`)
-            consumed_samples: consumed samples
+            consumed_samples: consumed samples (default: `0`)
+            drop_last: whether to drop last samples (default: `False`)
 
         :meta private:
         """
@@ -437,14 +443,16 @@ class BaseModule:
                 micro_batch_size=batch_size,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
-                dynamic_batch_size_flag=dynamic_batch_size_flag)
+                dynamic_batch_size_flag=dynamic_batch_size_flag,
+                drop_last=False)
         else:
             batch_sampler = EpisodeDataSampler(total_samples=len(dataset),
                 consumed_samples=consumed_samples,
                 micro_batch_size=batch_size,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
-                sample_per_episode=self.runtime_args.sample_per_episode)
+                sample_per_episode=self.runtime_args.sample_per_episode,
+                drop_last=drop_last)
         return DataLoader(
             dataset, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
         )
