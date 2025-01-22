@@ -14,7 +14,6 @@
 # ==============================================================================
 """VLLM module v2"""
 
-import asyncio
 import gc
 import inspect
 import os
@@ -147,10 +146,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
         set_vllm_actors(workers)
-
-        if self.apply_async:
-            self.engine = AsyncLLMEngine.from_engine_args(self.engine_args)
-            return
 
         dtype = self.model_args.get("dtype", "bfloat16")
         if self.model_args.get("fp16", False):
@@ -349,90 +344,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         )
         return outputs
 
-    async def run_vllm_async(self, parsed_prompts, sampling_params):
-        from vllm.utils import merge_async_iterators
-        
-        # generators = []
-        # start = time.perf_counter()
-        # for i, (prompt, sp) in enumerate(zip(parsed_prompts, sampling_params)):
-        #     generator = self.llm.llm_engine.engine.generate(prompt, sp, request_id=f"test{i}")
-        #     generators.append(generator)
-        # all_gens = merge_async_iterators(*generators)
-        # async for i, res in all_gens:
-        #     pass
-        # async with build_async_engine_client_from_engine_args(
-        #         self.engine_args, disable_frontend_multiprocessing=False) as llm:
-        # async self.engine as llm:
-
-            # Add the requests to the engine.
-        prompts = parsed_prompts
-            # sampling_params: List[SamplingParams] = []
-            # for prompt, _, output_len in requests:
-            #     prompts.append(prompt)
-                # sampling_params.append(
-                #     SamplingParams(
-                #         n=n,
-                #         temperature=1.0,
-                #         top_p=1.0,
-                #         ignore_eos=True,
-                #         max_tokens=output_len,
-                #     ))
-
-        generators = []
-        start = time.perf_counter()
-        for i, (prompt, sp) in enumerate(zip(prompts, sampling_params)):
-            generator = self.llm.generate(prompt, sp, request_id=f"test{i}")
-            generators.append(generator)
-        all_gens = merge_async_iterators(*generators)
-        async for i, res in all_gens:
-            pass
-        print(f"debug all_gens: {all_gens}", flush=True)
-        end = time.perf_counter()
-        return await all_gens
-
-    async def run_query(self, prompt, sampling_param):
-        request_id = uuid4()
-
-        outputs = self.engine.generate(
-            prompt,
-            params,
-            request_id
-        )
-        async for output in outputs:
-            final_output = output
-        responses = []
-        for output in final_output.outputs:
-            responses.append(output)
-        return responses
-
-
-    async def process(self, parsed_prompts, sampling_params):
-        tasks = [asyncio.create_task(
-            self.run_query(prompt, sampling_param)) 
-                for prompt, sampling_param in zip(parsed_prompts, sampling_params)]
-        results = []
-        for task in asyncio.as_completed(tasks):
-            result = await task
-            results.append(result)
-        return results
-
-
-
     def generate_vllm(self, query, is_eval, is_first_run=True):
         if is_first_run: # using for multi-round generate
             self.reinit_cache_engine()
         parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
 
-        if self.apply_async:
-            outputs = asyncio.run(self.process(parsed_prompts, sampling_params))
-
-            # outputs = uvloop.run(self.run_vllm_async(parsed_prompts, sampling_params))
-            # if outputs is None:
-            #     print(f"debug outputs: {outputs}")
-            # else:
-            #     print(f"debug outputs: {outputs[0]}")
-        else:
-            outputs = self.run_vllm(parsed_prompts, sampling_params)
+        outputs = self.run_vllm(parsed_prompts, sampling_params)
         return outputs
 
     def is_last_rank(self):
