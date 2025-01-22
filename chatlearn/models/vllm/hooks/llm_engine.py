@@ -15,9 +15,12 @@
 """Hooks of vllm-0.5.1 llm_engine remove __reduce__ function."""
 
 import inspect
+from typing import Dict, Optional
 
 # pylint: disable=unused-import,wildcard-import,unused-argument
 from vllm.engine import llm_engine
+from vllm.engine.metrics_types import StatLoggerBase
+from vllm.usage.usage_lib import UsageContext
 
 
 source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
@@ -28,3 +31,29 @@ if 'RuntimeError' in source:
         pass
 
     del llm_engine.LLMEngine.__reduce__
+
+
+@classmethod
+def from_engine_args(
+    cls,
+    engine_args,
+    usage_context: UsageContext = UsageContext.ENGINE_CONTEXT,
+    stat_loggers: Optional[Dict[str, StatLoggerBase]] = None,
+) -> "LLMEngine":
+    """Creates an LLM engine from the engine arguments."""
+    # Create the engine configs.
+    engine_config = engine_args.create_engine_config(usage_context)
+    # executor_class = cls._get_executor_cls(engine_config)
+    from vllm.executor.ray_gpu_executor import RayGPUExecutor
+    executor_class = RayGPUExecutor
+    # Create the LLM engine.
+    engine = cls(
+        vllm_config=engine_config,
+        executor_class=executor_class,
+        log_stats=not engine_args.disable_log_stats,
+        usage_context=usage_context,
+        stat_loggers=stat_loggers,
+    )
+
+    return engine
+llm_engine.LLMEngine.from_engine_args = from_engine_args

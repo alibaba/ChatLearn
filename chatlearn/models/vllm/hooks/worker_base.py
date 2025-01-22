@@ -28,6 +28,7 @@ def execute_method(self, method, *args, **kwargs):
                 target = self.worker
             else:
                 target = self
+        #print(f"debug target: {target} method: {method}")
         executor = getattr(target, method)
         return executor(*args, **kwargs)
     except Exception as e:

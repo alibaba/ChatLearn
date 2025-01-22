@@ -47,7 +47,7 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
     from vllm.sequence import ExecuteModelRequest
     from vllm.transformers_utils.detokenizer import Detokenizer
 
-elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3]:
     # imports for vllm-063
     from vllm.core.interfaces import BlockSpaceManager
     from vllm.distributed import parallel_state
@@ -56,7 +56,8 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
     from vllm.distributed.parallel_state import initialize_model_parallel
     from vllm.distributed.utils import get_pp_indices
     from vllm.engine.async_llm_engine import _AsyncLLMEngine as LLMEngine
-    from vllm.engine.llm_engine import _load_generation_config_dict
+    # if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+    #     from vllm.engine.llm_engine import _load_generation_config_dict
     from vllm.engine.llm_engine import SchedulerContext, SchedulerOutputState
     from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
     from vllm.engine.output_processor.stop_checker import StopChecker

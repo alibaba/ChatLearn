@@ -14,6 +14,7 @@
 # ==============================================================================
 """VLLM module v2"""
 
+import asyncio
 import gc
 import inspect
 import os
@@ -22,9 +23,11 @@ import torch
 from transformers import AutoTokenizer
 from vllm import SamplingParams
 from vllm.config import LoadFormat
+from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
-
+from vllm.usage.usage_lib import UsageContext
+ 
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
@@ -49,8 +52,10 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         assert common_methods == {'__init__'}, \
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
-        if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-            RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
+            vllm_config = self.init_engine_args()
+            RayWorkerWrapper.__init__(self, vllm_config=vllm_config) # pylint: disable=non-parent-init-called
+
         os.environ['VLLM_HOST_IP'] = self.get_address()
 
         self.tokenizer = None
@@ -75,10 +80,55 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                            help='Timeout minutes for torch.distributed.')
         return parser
 
+    def init_engine_args(self):
+        dtype = self.model_args.get("dtype", "bfloat16")
+        if self.model_args.get("fp16", False):
+            dtype = "float16"
+
+        load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
+        if load_format == LoadFormat.DUMMY:
+            self.model_args["need_load_ckpt"] = self.src_parameter_model is None
+            model_loader_extra_config = self.model_args
+        else:
+            model_loader_extra_config = None
+
+        if self.model_args.get("apply_replica_id_to_seed", True):
+            seed = self.model_args.get("seed", 0) + self.replica_id
+        else:
+            seed = self.model_args.get("seed", 0)
+        
+        self.engine_args = AsyncEngineArgs(
+            model=self.model_args['tokenizer'],
+            tokenizer=self.model_args['tokenizer'],
+            max_seq_len_to_capture=self.model_args.get("seq_length"),
+            seed=seed,
+            # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
+            load_format=load_format,
+            model_loader_extra_config=model_loader_extra_config,
+            # parallelism strategy
+            tensor_parallel_size=self.module_args.tensor_model_parallel_size,
+            pipeline_parallel_size=self.module_args.pipeline_model_parallel_size,
+            dtype=dtype,
+            # scheduling strategy
+            max_num_seqs=self.module_args.generation_batch_size,
+            max_num_batched_tokens = self.model_args.get("max_num_batched_tokens", None),
+            num_scheduler_steps=self.model_args.get("num_scheduler_steps", 1),
+            gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
+            # logger
+            disable_log_requests=self.model_args.get("disable_log_requests", True),
+            disable_log_stats=self.model_args.get("disable_log_stats", True),
+            trust_remote_code=True,
+            enforce_eager=self.model_args.get("enforce_eager", False),
+            disable_custom_all_reduce=True,
+            distributed_executor_backend="ray")
+        return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
+
+
     def init(self):
         """
         :meta private:
         """
+        return
         parallel_state.set_custom_all_reduce(False)
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
@@ -97,6 +147,10 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
         set_vllm_actors(workers)
+
+        if self.apply_async:
+            self.engine = AsyncLLMEngine.from_engine_args(self.engine_args)
+            return
 
         dtype = self.model_args.get("dtype", "bfloat16")
         if self.model_args.get("fp16", False):
@@ -256,9 +310,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         return inputs
 
-    def generate_vllm(self, query, is_eval, is_first_run=True):
-        if is_first_run: # using for multi-round generate
-            self.reinit_cache_engine()
+    def preprocess_inputs(self, query, is_eval):
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
@@ -286,11 +338,101 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             parsed_prompts.append(item)
             sampling_params.append(sampling_param)
 
+        return parsed_prompts, sampling_params
+
+    def run_vllm(self, parsed_prompts, sampling_params):
+        # breakpoint()
         outputs = self.llm.generate(
             parsed_prompts,
             sampling_params,
-            use_tqdm=True,
+            use_tqdm=True
         )
+        return outputs
+
+    async def run_vllm_async(self, parsed_prompts, sampling_params):
+        from vllm.utils import merge_async_iterators
+        
+        # generators = []
+        # start = time.perf_counter()
+        # for i, (prompt, sp) in enumerate(zip(parsed_prompts, sampling_params)):
+        #     generator = self.llm.llm_engine.engine.generate(prompt, sp, request_id=f"test{i}")
+        #     generators.append(generator)
+        # all_gens = merge_async_iterators(*generators)
+        # async for i, res in all_gens:
+        #     pass
+        # async with build_async_engine_client_from_engine_args(
+        #         self.engine_args, disable_frontend_multiprocessing=False) as llm:
+        # async self.engine as llm:
+
+            # Add the requests to the engine.
+        prompts = parsed_prompts
+            # sampling_params: List[SamplingParams] = []
+            # for prompt, _, output_len in requests:
+            #     prompts.append(prompt)
+                # sampling_params.append(
+                #     SamplingParams(
+                #         n=n,
+                #         temperature=1.0,
+                #         top_p=1.0,
+                #         ignore_eos=True,
+                #         max_tokens=output_len,
+                #     ))
+
+        generators = []
+        start = time.perf_counter()
+        for i, (prompt, sp) in enumerate(zip(prompts, sampling_params)):
+            generator = self.llm.generate(prompt, sp, request_id=f"test{i}")
+            generators.append(generator)
+        all_gens = merge_async_iterators(*generators)
+        async for i, res in all_gens:
+            pass
+        print(f"debug all_gens: {all_gens}", flush=True)
+        end = time.perf_counter()
+        return await all_gens
+
+    async def run_query(self, prompt, sampling_param):
+        request_id = uuid4()
+
+        outputs = self.engine.generate(
+            prompt,
+            params,
+            request_id
+        )
+        async for output in outputs:
+            final_output = output
+        responses = []
+        for output in final_output.outputs:
+            responses.append(output)
+        return responses
+
+
+    async def process(self, parsed_prompts, sampling_params):
+        tasks = [asyncio.create_task(
+            self.run_query(prompt, sampling_param)) 
+                for prompt, sampling_param in zip(parsed_prompts, sampling_params)]
+        results = []
+        for task in asyncio.as_completed(tasks):
+            result = await task
+            results.append(result)
+        return results
+
+
+
+    def generate_vllm(self, query, is_eval, is_first_run=True):
+        if is_first_run: # using for multi-round generate
+            self.reinit_cache_engine()
+        parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
+
+        if self.apply_async:
+            outputs = asyncio.run(self.process(parsed_prompts, sampling_params))
+
+            # outputs = uvloop.run(self.run_vllm_async(parsed_prompts, sampling_params))
+            # if outputs is None:
+            #     print(f"debug outputs: {outputs}")
+            # else:
+            #     print(f"debug outputs: {outputs[0]}")
+        else:
+            outputs = self.run_vllm(parsed_prompts, sampling_params)
         return outputs
 
     def is_last_rank(self):
