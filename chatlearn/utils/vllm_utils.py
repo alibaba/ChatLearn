@@ -750,22 +750,51 @@ def get_megatron_sharded_states(args, tp_size, pp_size, pp_rank):
     return tp_state_dicts
 
 
+def get_load_dir(load_dir, is_load_dir_valid):
+    possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
+    sub_dirs = os.listdir(load_dir)
+    rank0_checkpoint_name = None
+    for sub_dir in sub_dirs:
+        if sub_dir not in possible_sub_dirs:
+            continue
+        sub_dir = os.path.join(load_dir, sub_dir)
+        if not os.path.exists(sub_dir):
+            continue
+        rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
+        if len(rank0_checkpoint_name) == 0:
+            continue
+        is_load_dir_valid = True
+        break
+    return is_load_dir_valid, rank0_checkpoint_name
+
 def load_rank0_state_dict(args):
     # Load rank0 state dict from Megatron-LM checkpoint.
-    possible_sub_dirs = ["mp_rank_00", "mp_rank_00_000"]
 
-    for root, dirnames, _ in os.walk(args["load"]):
-        for dirname in dirnames:
-            if dirname not in possible_sub_dirs:
-                continue
-            sub_dir = os.path.join(root, dirname)
-            if not os.path.exists(sub_dir):
-                continue
-            rank0_checkpoint_name = glob.glob(sub_dir + "/model*.pt")
-            if len(rank0_checkpoint_name) == 0:
-                continue
-            args["load"] = root
-            rank0_checkpoint_path = rank0_checkpoint_name[0]
+    if args["load_iteration"] is not None:
+        load_iteration = args["load_iteration"]
+    else:
+        tracker_filename = get_checkpoint_tracker_filename(args["load"])
+        if not os.path.isfile(tracker_filename):
+            raise RuntimeError(f"Invalid load dir {args['load']}, you need to specify args.load_iteration or latest_checkpointed_iteration.txt.")
+        load_iteration, _ = read_metadata(tracker_filename)
+
+    dirnames = os.listdir(args["load"])
+    dirnames.sort(reverse=True)
+
+    is_load_dir_valid = False
+    load_dir = None
+    for dirname in dirnames:
+        if not dirname.startswith("iter_"):
+            continue
+        if dirname == f"iter_{load_iteration:07d}":
+            load_dir = os.path.join(args["load"], dirname)
+    print(f"Trying to load Megatron-LM checkpoint from {load_dir}")
+    assert os.path.exists(load_dir), f"expect load_dir not None for load_iteration {load_iteration}, while {load_dir}."
+    is_load_dir_valid, rank0_checkpoint_name = get_load_dir(load_dir, is_load_dir_valid)
+    if not is_load_dir_valid:
+        raise RuntimeError(f"Invalid load dir {args['load']} with load_iteration {load_iteration}")
+    args["load"] = load_dir
+    rank0_checkpoint_path = rank0_checkpoint_name[0]
 
     print(f"Loading Megatron checkpoint arguments from: {rank0_checkpoint_path}")
     rank0_state_dict = torch.load(rank0_checkpoint_path, map_location="cpu")
@@ -1676,8 +1705,7 @@ def vllm_load_checkpoint(model, optimizer, opt_param_scheduler, load_arg='load',
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
 
-    print_rank_0(f'  successfully loaded checkpoint from {args["load"]} '
-                 f'at iteration {iteration}')
+    print_rank_0(f'  successfully loaded checkpoint from {args["load"]}')
 
     return iteration
 
