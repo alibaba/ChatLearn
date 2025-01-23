@@ -234,15 +234,19 @@ class DistVLLMActor(DistTorchActor):
         self.vllm_engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
-        # kwargs = {
-        #     "worker_module_name": "vllm.worker.worker",
-        #     "worker_class_name": "Worker",
-        #     "worker_class_fn": None,
-        #     "trust_remote_code": True,
-        # }
-        kwargs = {
-            "vllm_actor_type" : "worker"
-        }
+        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            kwargs = {
+                "worker_module_name": "vllm.worker.worker",
+                "worker_class_name": "Worker",
+                "worker_class_fn": None,
+                "trust_remote_code": True,
+            }
+        else:
+            kwargs = {
+                "vllm_actor_type" : "worker"
+            }
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):

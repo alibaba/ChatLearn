@@ -22,11 +22,10 @@ import torch
 from transformers import AutoTokenizer
 from vllm import SamplingParams
 from vllm.config import LoadFormat
-from vllm.engine.arg_utils import AsyncEngineArgs
 from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
-from vllm.usage.usage_lib import UsageContext
  
+from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
@@ -51,9 +50,13 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         assert common_methods == {'__init__'}, \
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
-        if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
-            vllm_config = self.init_engine_args()
-            RayWorkerWrapper.__init__(self, vllm_config=vllm_config) # pylint: disable=non-parent-init-called
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
+                RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        else:
+            if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
+                vllm_config = self.init_engine_args()
+                RayWorkerWrapper.__init__(self, vllm_config=vllm_config) # pylint: disable=non-parent-init-called
 
         os.environ['VLLM_HOST_IP'] = self.get_address()
 
@@ -95,7 +98,10 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             seed = self.model_args.get("seed", 0) + self.replica_id
         else:
             seed = self.model_args.get("seed", 0)
-        
+
+        from vllm.engine.arg_utils import AsyncEngineArgs
+        from vllm.usage.usage_lib import UsageContext
+
         self.engine_args = AsyncEngineArgs(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
@@ -121,7 +127,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray")
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
-
 
     def init(self):
         """
@@ -335,7 +340,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         return parsed_prompts, sampling_params
 
     def run_vllm(self, parsed_prompts, sampling_params):
-        # breakpoint()
         outputs = self.llm.generate(
             parsed_prompts,
             sampling_params,

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.3 del init_ray_cluster in AsyncLLMEngine."""
+"""del init_ray_cluster in AsyncLLMEngine."""
 
 from typing import Dict, Optional
 
@@ -38,9 +38,6 @@ def from_engine_args(
             engine_config = engine_args.create_engine_config(usage_context)
 
         executor_class = cls._get_executor_cls(engine_config)
-
-        # if executor_class.uses_ray:
-        #     initialize_ray_cluster(engine_config.parallel_config)
 
         # Create the async LLM engine.
         engine = cls(
