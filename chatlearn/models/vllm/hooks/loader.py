@@ -92,7 +92,7 @@ def load_model(self, vllm_config: VllmConfig):# -> nn.Module:
                 qwen2_moe.Qwen2MoeForCausalLM.load_weights = load_weights
                 llama.LlamaForCausalLM.load_state_dict = load_state_dict
                 llama.LlamaForCausalLM.load_weights = load_weights
-                model.load_weights(self.load_config.model_loader_extra_config)
+                #model.load_weights(self.load_config.model_loader_extra_config)
             else:
                 # For accurate performance evaluation, we assign
                 # random values to the weights.

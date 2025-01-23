@@ -127,7 +127,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         :meta private:
         """
-        return
         parallel_state.set_custom_all_reduce(False)
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
@@ -401,6 +400,15 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         return get_pipeline_model_parallel_rank()
+
+    def tensor_and_expert_model_parallel_size(self):
+        """
+        get tensor_and_expert_model_parallel_size
+        :meta private:
+        """
+        # vLLM not supported to enable expert parallel size
+        # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
+        return parallel_state.get_tensor_model_parallel_world_size()
 
     def model_setup_for_workers(self):
         self.llm.llm_engine.model_executor._run_workers("model_setup")
