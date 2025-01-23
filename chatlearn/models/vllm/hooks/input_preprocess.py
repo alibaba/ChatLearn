@@ -67,44 +67,11 @@ if 'parsed = parse_singleton_prompt(prompt)' in source:
                 )
 
             return token_inputs(
+                prompt=tokens_content["prompt"],
                 prompt_token_ids=prompt_token_ids,
                 token_type_ids=token_type_ids,
                 multi_modal_data=multi_modal_data,
                 mm_processor_kwargs=mm_processor_kwargs,
             )
-
-    def _prompt_to_llm_inputs_(
-        self,
-        prompt,
-        request_id,
-        lora_request=None):
-        '''
-        Extract the components of any single encoder or decoder input prompt.
-
-        Arguments:
-
-        * request_id
-        * prompt: single encoder or decoder input prompt
-        * lora_request: this is only valid for decoder prompts
-
-        Returns:
-
-        * prompt
-        * prompt_token_ids
-        * multi_modal_data
-        * mm_processor_kwargs (request-level input processor/mapper overrides)
-        '''
-        parsed = parse_singleton_prompt(prompt)
-
-        assert parsed["type"] == "tokens", \
-            f"you must pass prompt_token_ids when add request to scheduler. while prompt {prompt}"
-
-        prompt_text = parsed["content"]["prompt"]
-        prompt_token_ids = parsed["content"]["prompt_token_ids"]
-        multi_modal_data = parsed["content"].get("multi_modal_data")
-        mm_processor_kwargs = parsed["content"].get("mm_processor_kwargs")
-
-        return (prompt_text, prompt_token_ids, multi_modal_data,
-                mm_processor_kwargs)
 
     preprocess.InputPreprocessor._prompt_to_llm_inputs = _prompt_to_llm_inputs
