@@ -23,8 +23,7 @@ from vllm.entrypoints import llm
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Counter
 
-def init(
-        self,
+def init(self,
         model: str,
         tokenizer: Optional[str] = None,
         tokenizer_mode: str = "auto",
@@ -50,62 +49,61 @@ def init(
         task: TaskOption = "auto",
         override_pooler_config: Optional[PoolerConfig] = None,
         compilation_config: Optional[Union[int, Dict[str, Any]]] = None,
-        **kwargs,
-    ) -> None:
-        '''
-        LLM constructor.
+        **kwargs,) -> None:
+    '''
+    LLM constructor.
 
-        Note: if enforce_eager is unset (enforce_eager is None)
-        it defaults to False.
-        '''
+    Note: if enforce_eager is unset (enforce_eager is None)
+    it defaults to False.
+    '''
 
-        if "disable_log_stats" not in kwargs:
-            kwargs["disable_log_stats"] = True
+    if "disable_log_stats" not in kwargs:
+        kwargs["disable_log_stats"] = True
 
-        if compilation_config is not None:
-            if isinstance(compilation_config, (int, dict)):
-                compilation_config_instance = CompilationConfig.from_cli(
-                    str(compilation_config))
-            else:
-                compilation_config_instance = compilation_config
+    if compilation_config is not None:
+        if isinstance(compilation_config, (int, dict)):
+            compilation_config_instance = CompilationConfig.from_cli(
+                str(compilation_config))
         else:
-            compilation_config_instance = None
+            compilation_config_instance = compilation_config
+    else:
+        compilation_config_instance = None
 
-        engine_args = AsyncEngineArgs(
-            model=model,
-            task=task,
-            tokenizer=tokenizer,
-            tokenizer_mode=tokenizer_mode,
-            skip_tokenizer_init=skip_tokenizer_init,
-            trust_remote_code=trust_remote_code,
-            allowed_local_media_path=allowed_local_media_path,
-            tensor_parallel_size=tensor_parallel_size,
-            dtype=dtype,
-            quantization=quantization,
-            revision=revision,
-            tokenizer_revision=tokenizer_revision,
-            seed=seed,
-            gpu_memory_utilization=gpu_memory_utilization,
-            swap_space=swap_space,
-            cpu_offload_gb=cpu_offload_gb,
-            enforce_eager=enforce_eager,
-            max_seq_len_to_capture=max_seq_len_to_capture,
-            disable_custom_all_reduce=disable_custom_all_reduce,
-            disable_async_output_proc=disable_async_output_proc,
-            hf_overrides=hf_overrides,
-            mm_processor_kwargs=mm_processor_kwargs,
-            override_pooler_config=override_pooler_config,
-            compilation_config=compilation_config_instance,
-            **kwargs,
-        )
-        # Logic to switch between engines is done at runtime instead of import
-        # to avoid import order issues
-        self.engine_class = self.get_engine_class()
+    engine_args = AsyncEngineArgs(
+        model=model,
+        task=task,
+        tokenizer=tokenizer,
+        tokenizer_mode=tokenizer_mode,
+        skip_tokenizer_init=skip_tokenizer_init,
+        trust_remote_code=trust_remote_code,
+        allowed_local_media_path=allowed_local_media_path,
+        tensor_parallel_size=tensor_parallel_size,
+        dtype=dtype,
+        quantization=quantization,
+        revision=revision,
+        tokenizer_revision=tokenizer_revision,
+        seed=seed,
+        gpu_memory_utilization=gpu_memory_utilization,
+        swap_space=swap_space,
+        cpu_offload_gb=cpu_offload_gb,
+        enforce_eager=enforce_eager,
+        max_seq_len_to_capture=max_seq_len_to_capture,
+        disable_custom_all_reduce=disable_custom_all_reduce,
+        disable_async_output_proc=disable_async_output_proc,
+        hf_overrides=hf_overrides,
+        mm_processor_kwargs=mm_processor_kwargs,
+        override_pooler_config=override_pooler_config,
+        compilation_config=compilation_config_instance,
+        **kwargs,
+    )
+    # Logic to switch between engines is done at runtime instead of import
+    # to avoid import order issues
+    self.engine_class = self.get_engine_class()
 
-        # TODO(rob): enable mp by default (issue with fork vs spawn)
-        self.llm_engine = self.engine_class.from_engine_args(
-            engine_args, usage_context=UsageContext.LLM_CLASS)
+    # TODO(rob): enable mp by default (issue with fork vs spawn)
+    self.llm_engine = self.engine_class.from_engine_args(
+        engine_args, usage_context=UsageContext.LLM_CLASS)
 
-        self.request_counter = Counter()
+    self.request_counter = Counter()
 
 llm.LLM.__init__ = init

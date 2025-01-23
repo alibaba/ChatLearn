@@ -77,39 +77,39 @@ loader.DummyModelLoader.__init__ = init
 
 # add ckpt loading of megatron format
 def load_model(self, vllm_config: VllmConfig):# -> nn.Module:
-        device_config = vllm_config.device_config
-        model_config = vllm_config.model_config
-        with set_default_torch_dtype(model_config.dtype):
-            with torch.device(device_config.device):
-                model = _initialize_model(vllm_config=vllm_config)
-            # NOTE(woosuk): For accurate performance evaluation, we assign
+    device_config = vllm_config.device_config
+    model_config = vllm_config.model_config
+    with set_default_torch_dtype(model_config.dtype):
+        with torch.device(device_config.device):
+            model = _initialize_model(vllm_config=vllm_config)
+        # NOTE(woosuk): For accurate performance evaluation, we assign
+        # random values to the weights.
+        if self.load_config.model_loader_extra_config.get("need_load_ckpt", True) and \
+                self.load_config.model_loader_extra_config["load"] is not None:
+            qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
+            qwen2.Qwen2ForCausalLM.load_weights = load_weights
+            qwen2_moe.Qwen2MoeForCausalLM.load_state_dict = load_state_dict
+            qwen2_moe.Qwen2MoeForCausalLM.load_weights = load_weights
+            llama.LlamaForCausalLM.load_state_dict = load_state_dict
+            llama.LlamaForCausalLM.load_weights = load_weights
+            model.load_weights(self.load_config.model_loader_extra_config)
+        else:
+            # For accurate performance evaluation, we assign
             # random values to the weights.
-            if self.load_config.model_loader_extra_config.get("need_load_ckpt", True) and \
-                    self.load_config.model_loader_extra_config["load"] is not None:
-                qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
-                qwen2.Qwen2ForCausalLM.load_weights = load_weights
-                qwen2_moe.Qwen2MoeForCausalLM.load_state_dict = load_state_dict
-                qwen2_moe.Qwen2MoeForCausalLM.load_weights = load_weights
-                llama.LlamaForCausalLM.load_state_dict = load_state_dict
-                llama.LlamaForCausalLM.load_weights = load_weights
-                #model.load_weights(self.load_config.model_loader_extra_config)
-            else:
-                # For accurate performance evaluation, we assign
-                # random values to the weights.
-                initialize_dummy_weights(model)
+            initialize_dummy_weights(model)
 
-            for _, module in model.named_modules():
-                quant_method = getattr(module, "quant_method", None)
-                if quant_method is not None:
-                    # When quant methods need to process weights after loading
-                    # (for repacking, quantizing, etc), they expect parameters
-                    # to be on the global target device. This scope is for the
-                    # case where cpu offloading is used, where we will move the
-                    # parameters onto device for processing and back off after.
-                    with device_loading_context(
-                            module, torch.device(device_config.device)):
-                        quant_method.process_weights_after_loading(module)
-        return model.eval()
+        for _, module in model.named_modules():
+            quant_method = getattr(module, "quant_method", None)
+            if quant_method is not None:
+                # When quant methods need to process weights after loading
+                # (for repacking, quantizing, etc), they expect parameters
+                # to be on the global target device. This scope is for the
+                # case where cpu offloading is used, where we will move the
+                # parameters onto device for processing and back off after.
+                with device_loading_context(
+                        module, torch.device(device_config.device)):
+                    quant_method.process_weights_after_loading(module)
+    return model.eval()
 
 
 loader.DummyModelLoader.load_model = load_model

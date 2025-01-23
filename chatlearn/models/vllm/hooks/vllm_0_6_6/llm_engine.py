@@ -20,6 +20,7 @@ from typing import Dict, Optional
 # pylint: disable=unused-import,wildcard-import,unused-argument
 from vllm.engine import llm_engine
 from vllm.engine.metrics_types import StatLoggerBase
+from vllm.executor.ray_gpu_executor import RayGPUExecutor
 from vllm.usage.usage_lib import UsageContext
 
 
@@ -43,11 +44,9 @@ def from_engine_args(
     """Creates an LLM engine from the engine arguments."""
     # Create the engine configs.
     engine_config = engine_args.create_engine_config(usage_context)
-    # executor_class = cls._get_executor_cls(engine_config)
-    from vllm.executor.ray_gpu_executor import RayGPUExecutor
     executor_class = RayGPUExecutor
     # Create the LLM engine.
-    engine = cls(
+    engine = cls( # pylint: disable=not-callable
         vllm_config=engine_config,
         executor_class=executor_class,
         log_stats=not engine_args.disable_log_stats,

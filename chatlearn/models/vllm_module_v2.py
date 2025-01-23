@@ -24,7 +24,7 @@ from vllm import SamplingParams
 from vllm.config import LoadFormat
 from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
- 
+
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
@@ -99,8 +99,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         else:
             seed = self.model_args.get("seed", 0)
 
-        from vllm.engine.arg_utils import AsyncEngineArgs
-        from vllm.usage.usage_lib import UsageContext
+        from vllm.engine.arg_utils import AsyncEngineArgs # pylint: disable=import-outside-toplevel
+        from vllm.usage.usage_lib import UsageContext # pylint: disable=import-outside-toplevel
 
         self.engine_args = AsyncEngineArgs(
             model=self.model_args['tokenizer'],

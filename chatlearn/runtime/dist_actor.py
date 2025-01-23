@@ -30,6 +30,7 @@ vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
     from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+    from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
 RAY_REMOTE = "remote"
 
@@ -234,8 +235,6 @@ class DistVLLMActor(DistTorchActor):
         self.vllm_engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
-        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             kwargs = {
                 "worker_module_name": "vllm.worker.worker",
