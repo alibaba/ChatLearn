@@ -14,9 +14,6 @@
 # ==============================================================================
 """Hooks of vllm-0.6.6 input preprocess to pass prompt text."""
 
-
-import inspect
-
 # pylint: disable=unused-import,unused-argument
 from vllm.inputs import preprocess
 from vllm.inputs.data import token_inputs

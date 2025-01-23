@@ -31,7 +31,7 @@ logger = init_logger(__name__)
 
 # modified based on https://github.com/vllm-project/vllm/blob/6aa6020f9bd4c1e414c10f7bd3a7c2555f1950b2/vllm/executor/ray_gpu_executor.py#L109
 def _init_workers_ray(self, placement_group: "PlacementGroup",
-                          **ray_remote_kwargs): # pylint: disable=unused-argument
+                          **ray_remote_kwargs): # pylint: disable=unused-argument,unused-variable
     if (self.parallel_config.tensor_parallel_size == 1
             and self.parallel_config.pipeline_parallel_size == 1):
         # For single GPU case, we use a ray worker with constrained memory.
