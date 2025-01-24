@@ -751,12 +751,26 @@ class BaseModule:
 
     def alltoall_routed_expert_parameter(self, pipe_stage=0):
         assert self._synchronizer is not None
+        import torch
+
+        comm_group = self.tensor_and_expert_parallel_group()
+        rank = torch.distributed.get_rank(group=comm_group)
+        world_size = torch.distributed.get_world_size(group=comm_group)
+        # with open(f"/workspace/code/cmd/moelite_scripts/{self.name}_{rank}_{world_size}.txt", "a+") as file:
+        #     file.write(f"debug alltoall rank: {rank} in comm group {id(comm_group)}, num_params: {len(self._parameters_to_sync[pipe_stage])}" + "\n")
+        # breakpoint()
         for name, param in self._parameters_to_sync[pipe_stage]:
             param, state = self._synchronizer.alltoall_routed_experts(
                 name,
                 param,
-                self.tensor_and_expert_parallel_group()
+                self.tensor_and_expert_parallel_group(),
+                self.name,
+                rank,
+                world_size
             )
+
+            # self._logger.info(f"debug {name} {param.shape} state: {state}")
+            # state = True
             if state:
                 self._expert_sync_buffer.pop(name, "Not Found.")
                 self._expert_sync_buffer[name] = param
@@ -829,6 +843,7 @@ class BaseModule:
                 parameters_to_sync = self._parameters_to_recv[to_rank]
             else:
                 parameters_to_sync = self._parameters_to_send
+            self._logger.info(f"stage2 need to sync params: {len(parameters_to_sync[0])}")
         else:
             del self._sync_buffer
             self._sync_buffer = defaultdict(list)
@@ -883,14 +898,17 @@ class BaseModule:
                     yield param_data, buffer_num
 
         bucket_generator = bucket_tensors_two_stage_generator(
-            tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
+            tensor_generator, bucket_size_mb=1024,#self.runtime_args.coalesced_buffer_mb,
             stage2=stage2, tensor_changed=tensor_changed and not stage2
         )
         dense_bucket_num = 0
         sparse_bucket_num = 0
+        count = 0
         for bucket_or_tensor, is_dense in bucket_generator:
             if is_dense:
                 index = 0 if stage2 else (to_rank % self.tp_num_mapping)
+                if stage2:
+                    self._logger.info(f"stage2 bucket: {len(bucket_or_tensor)} count: {count}")
                 all_buffers = coalesced_comm_dense_two_stage(
                     bucket_or_tensor, col.broadcast, rank,
                     extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
@@ -903,6 +921,9 @@ class BaseModule:
                         del value
                         self._sync_buffer[key] += cpu_value
                     del all_buffers
+                count += len(bucket_or_tensor)
+                if stage2:
+                    self._logger.info(f"finished stage2 bucket_or_tensor: {len(bucket_or_tensor)} count: {count}")
                 dense_bucket_num += 1
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)

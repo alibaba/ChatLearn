@@ -231,7 +231,7 @@ class MegatronVllmSync(BaseSync):
                 "Please export `QWEN_VERSION` as `qwen_moe_v1`."
             )
 
-    def alltoall_routed_experts_from_hep(self, name, params_to_sync, comm_group):
+    def alltoall_routed_experts_from_hep(self, name, params_to_sync, comm_group, model_name, rank, world_size):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
@@ -240,6 +240,9 @@ class MegatronVllmSync(BaseSync):
         if self.sync_map._to_alltoall_routed_experts_dict is None:
             return params_to_sync, False
 
+        # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+        #     file.write(f"1 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
         to_alltoall_routed_experts_dict = self.sync_map._to_alltoall_routed_experts_dict
         layer_re = to_alltoall_routed_experts_dict["layer_re"]
         to_regroup_modules_list = to_alltoall_routed_experts_dict["modules"]
@@ -248,6 +251,9 @@ class MegatronVllmSync(BaseSync):
         if m is None:
             return params_to_sync, False
 
+        # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+        #     file.write(f"2 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
         op_name = m.group(2)
         if op_name in to_regroup_modules_list:
             tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
@@ -261,7 +267,7 @@ class MegatronVllmSync(BaseSync):
                 # regroup among difference tp slices
                 param = params_to_sync.view((moe_num_experts, -1, hidden_size))
                 param = param.reshape((local_num_experts * 2, -1, hidden_size))
-                params = list(param.chunk(tp_size, dim=1))
+                params = list(param.chunk(hep_size, dim=1))
                 # reorder w1 and w3
                 params_list = []
                 while params:
@@ -276,36 +282,54 @@ class MegatronVllmSync(BaseSync):
                 del params_to_sync
                 output = [
                     torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
-                    for i in range(tp_size)
+                    for i in range(hep_size)
                 ]
+                # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+                #     file.write(f"3.1 debug alltoall rank: {rank}/{world_size} vs {torch.distributed.get_rank(group=comm_group)}/{torch.distributed.get_world_size(group=comm_group)} in comm group {id(comm_group)} {name}" + "\n")
+        
                 torch.distributed.all_to_all(output, params_list, group=comm_group)
+                # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+                #     file.write(f"3.2 debug alltoall rank: {rank}/{world_size} vs {torch.distributed.get_rank(group=comm_group)}/{torch.distributed.get_world_size(group=comm_group)} in comm group {id(comm_group)} {name}" + "\n")
+        
                 del params_list
                 params_to_sync = torch.cat(output, dim=0).contiguous()
                 del output
             else:
                 # w2_weight
                 param = params_to_sync.view((local_num_experts, -1, hidden_size))
-                params = list(param.chunk(tp_size, dim=1))
+                params = list(param.chunk(hep_size, dim=1))
                 params_list = [ele.contiguous() for ele in params]
                 del param
                 del params
                 del params_to_sync
                 output = [
                     torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
-                    for i in range(tp_size)
+                    for i in range(hep_size)
                 ]
+                # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+                #     file.write(f"4.1 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
                 torch.distributed.all_to_all(output, params_list, group=comm_group)
+                # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+                #     file.write(f"4.2 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
                 del params_list
                 params_to_sync = torch.cat(output, dim=0).transpose(1, 2).contiguous()
                 del output
+            # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+            #     file.write(f"f.1 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
             return params_to_sync, True
         else:
+            # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+            #     file.write(f"f.2 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
             return params_to_sync, False
 
-    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
+    def alltoall_routed_experts(self, name, params_to_sync, comm_group, model_name="default", rank=0, world_size=1): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.alltoall_routed_experts_from_hep(name, params_to_sync, comm_group)
+            return self.alltoall_routed_experts_from_hep(name, params_to_sync, comm_group, model_name, rank, world_size)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-to-all routed experts for Megatron-LM, but supports QWen with HEP enabled. "

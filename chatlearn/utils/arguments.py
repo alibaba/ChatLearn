@@ -303,7 +303,7 @@ class RuntimeConfig(BaseConfig):
     #: profiler dir
     profiler_dir: str = None
     #: coalesce_buffer size in mb
-    coalesced_buffer_mb: int = 100
+    coalesced_buffer_mb: int = 1024
     #: concurrent parameter sync
     concurrent_comm: bool = True
     #: parameter sync communication type, broadcast/p2p
