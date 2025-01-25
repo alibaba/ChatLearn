@@ -843,7 +843,7 @@ class BaseModule:
                 parameters_to_sync = self._parameters_to_recv[to_rank]
             else:
                 parameters_to_sync = self._parameters_to_send
-            self._logger.info(f"stage2 need to sync params: {len(parameters_to_sync[0])}")
+            # self._logger.info(f"stage2 need to sync params: {len(parameters_to_sync[0])}")
         else:
             del self._sync_buffer
             self._sync_buffer = defaultdict(list)
@@ -898,7 +898,7 @@ class BaseModule:
                     yield param_data, buffer_num
 
         bucket_generator = bucket_tensors_two_stage_generator(
-            tensor_generator, bucket_size_mb=1024,#self.runtime_args.coalesced_buffer_mb,
+            tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
             stage2=stage2, tensor_changed=tensor_changed and not stage2
         )
         dense_bucket_num = 0
@@ -907,8 +907,8 @@ class BaseModule:
         for bucket_or_tensor, is_dense in bucket_generator:
             if is_dense:
                 index = 0 if stage2 else (to_rank % self.tp_num_mapping)
-                if stage2:
-                    self._logger.info(f"stage2 bucket: {len(bucket_or_tensor)} count: {count}")
+                # if stage2:
+                #     self._logger.info(f"stage2 bucket: {len(bucket_or_tensor)} count: {count}")
                 all_buffers = coalesced_comm_dense_two_stage(
                     bucket_or_tensor, col.broadcast, rank,
                     extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
@@ -922,13 +922,18 @@ class BaseModule:
                         self._sync_buffer[key] += cpu_value
                     del all_buffers
                 count += len(bucket_or_tensor)
-                if stage2:
-                    self._logger.info(f"finished stage2 bucket_or_tensor: {len(bucket_or_tensor)} count: {count}")
+                # if stage2:
+                #     self._logger.info(f"finished stage2 bucket_or_tensor: {len(bucket_or_tensor)} count: {count}")
                 dense_bucket_num += 1
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
 
+        if stage2:
+            self._logger.info(f"debug finished stage2 comm")
+        else:
+            self._logger.info(f"debug finished stage1 comm")
+               
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
         self.empty_cache()
