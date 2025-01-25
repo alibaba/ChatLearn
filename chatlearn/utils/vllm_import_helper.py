@@ -47,8 +47,8 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
     from vllm.sequence import ExecuteModelRequest
     from vllm.transformers_utils.detokenizer import Detokenizer
 
-elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-    # imports for vllm-063
+elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    # imports for vllm-063/-66
     from vllm.core.interfaces import BlockSpaceManager
     from vllm.distributed import parallel_state
     from vllm.distributed.communication_op import tensor_model_parallel_all_gather
@@ -56,7 +56,8 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
     from vllm.distributed.parallel_state import initialize_model_parallel
     from vllm.distributed.utils import get_pp_indices
     from vllm.engine.async_llm_engine import _AsyncLLMEngine as LLMEngine
-    from vllm.engine.llm_engine import _load_generation_config_dict
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+        from vllm.engine.llm_engine import _load_generation_config_dict
     from vllm.engine.llm_engine import SchedulerContext, SchedulerOutputState
     from vllm.engine.output_processor.interfaces import SequenceGroupOutputProcessor
     from vllm.engine.output_processor.stop_checker import StopChecker
@@ -101,7 +102,7 @@ def get_block_manager_cls(version):
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         return BlockSpaceManager
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         return BlockSpaceManager.get_block_space_manager_class(version)
 
 
@@ -110,7 +111,7 @@ def get_model_architecture(config):
         from vllm.model_executor.model_loader import _get_model_architecture as get_model_architecture_v1
         return get_model_architecture_v1(config)
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
         return get_model_architecture_v2(config)[0]
 
@@ -119,7 +120,7 @@ def get_pipeline_model_parallel_rank():
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         return parallel_state.get_pipeline_model_parallel_rank()
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         return parallel_state.get_pp_group().rank_in_group
 
 
@@ -127,5 +128,5 @@ def get_pipeline_model_parallel_world_size():
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         return parallel_state.get_pipeline_model_parallel_world_size()
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         return parallel_state.get_pp_group().world_size
