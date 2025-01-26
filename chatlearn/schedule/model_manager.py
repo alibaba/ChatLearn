@@ -89,11 +89,11 @@ class ModelManager:
 
         total_gpu_required = self._get_total_gpu_required()
         if total_gpu_required > self.resouce_manager.total_gpu:
-            raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " + \
+            raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " +
                                f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
         if self.resouce_manager.total_gpu > total_gpu_required:
-            logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " + \
-                           f"while the number of required gpus is {total_gpu_required}, " + \
+            logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " +
+                           f"while the number of required gpus is {total_gpu_required}, " +
                            f"there is {self.resouce_manager.total_gpu - total_gpu_required} wasted gpus")
 
         env_list = []
@@ -120,10 +120,13 @@ class ModelManager:
         # set ParameterSyncGroup
         megatron_version = get_megatron_version()
         for src_model, dst_model in self._parameter_sync_model_pair:
+            logger.info(
+                f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
             if megatron_version == MegatronVersion.V4:
-                logger.info("QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
+                logger.info(
+                    "QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
                 sync_group = ParameterSyncGroupwithHEP(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
@@ -143,7 +146,8 @@ class ModelManager:
 
     def start_error_monitor(self):
         group_names = list(self.parameter_sync_groups.keys())
-        self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
+        self.error_monitor = ErrorMonitor.remote(
+            self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
 
     def _get_group_name(self, src_model, dst_model):
@@ -160,7 +164,8 @@ class ModelManager:
             sync_frequency = self._get_sync_frequency(tgt_model)
             assert sync_frequency >= 0, \
                 f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
-            logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
+            logger.info(
+                f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
             self._parameter_sync_model_pair.append((src_model, tgt_model))
 
     def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False):
@@ -175,17 +180,19 @@ class ModelManager:
                 sync_group: ParameterSyncGroup = sync_group
 
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
-                refs = src_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
-                future.wait(refs)
-                refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
-                future.wait(refs)
+                onload_refs = []
+                onload_refs.append(src_model.onload(
+                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
+                onload_refs.append(dst_model.onload(
+                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
+                future.wait(onload_refs)
 
                 sync_group.sync(requires_grad, validate)
 
-                refs = src_model.offload()
-                future.wait(refs)
-                refs = dst_model.offload()
-                future.wait(refs)
+                offload_refs = []
+                offload_refs.append(src_model.offload())
+                offload_refs.append(dst_model.offload())
+                future.wait(offload_refs)
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):
@@ -195,7 +202,8 @@ class ModelManager:
         model_cls = model.__class__
         for func_name in call_funcs:
             trainable = func_name in model.trainable_funcs
-            decorate_class_func(model_cls, func_name, preprocess_compute, trainable)
+            decorate_class_func(model_cls, func_name,
+                                preprocess_compute, trainable)
 
         for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
@@ -252,7 +260,8 @@ class ModelManager:
         e.g., given models A:8, B:4, C:4, total_gpu: 8
         then the pack strategy is [(A), (B,C)]
         """
-        sorted_models = sorted(models, key=lambda x: (x.trainable, x.total_gpu), reverse=True)
+        sorted_models = sorted(models, key=lambda x: (
+            x.trainable, x.total_gpu), reverse=True)
         assert sorted_models[0].total_gpu <= total_gpu
         final_packs = []
         # key is the remaining gpu
@@ -298,11 +307,13 @@ class ModelManager:
         for i, _ in enumerate(placement_group.bundle_specs):
             self.placement_groups.append((placement_group, i))
         models_str = ','.join([model.name for model in gpu_models])
-        logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
+        logger.info(
+            f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
         for model in gpu_models:
             # TODO: for colocate gpu_per_process > 1, support later
             assert model.gpu_per_process == 1
-        self.model_packs = self.find_model_packing_strategy(gpu_models, max_gpu)
+        self.model_packs = self.find_model_packing_strategy(
+            gpu_models, max_gpu)
 
         for model in gpu_models:
             pack = []
@@ -341,14 +352,15 @@ class ModelManager:
                 num_gpus = 1.0 / len(replicas)
                 if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
                     num_gpus = num_gpus / 2
-                    replica.create_engine_actor(num_gpus, placement_group, group)
+                    replica.create_engine_actor(
+                        num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
                 replica.create_actor(num_gpus, placement_group, group)
 
         models_to_revert = self._find_param_recv_models(gpu_models)
         for model in gpu_models:
-            if model in models_to_revert: # pylint: disable=simplifiable-if-statement
+            if model in models_to_revert:  # pylint: disable=simplifiable-if-statement
                 # Reverse the placement of tgt models, so that shared models not in the same GPU
                 # NCCL limit: NCCL WARN Duplicate GPU detected : rank 1 and rank 0 both on CUDA device
                 # TODO: One GPU task still not work
@@ -369,10 +381,11 @@ class ModelManager:
             for _ in range(model.module_args.num_replica):
                 num_cpus.append(model.module_args.cpu_per_process)
         if not self.placement_groups:
-            placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus, \
-                strategy=self.runtime_args.cpu_schedule_strategy)
+            placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus,
+                                                                          strategy=self.runtime_args.cpu_schedule_strategy)
             models_str = ','.join([model.name for model in cpu_models])
-            logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
+            logger.info(
+                f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
             placement_groups = []
             for i, _ in enumerate(placement_group.bundle_specs):
                 placement_groups.append((placement_group, i))
@@ -407,14 +420,16 @@ class ModelManager:
             return
         with ThreadPoolExecutor(max_workers=num) as executor:
             futures = []
-            for model,reverse in env_list:
+            for model, reverse in env_list:
                 # set env
-                futures.append(executor.submit(self._set_dist_env, model, reverse))
+                futures.append(executor.submit(
+                    self._set_dist_env, model, reverse))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
                 except Exception as e:
-                    raise RuntimeError(f"Set dist env generated an exception: {e}") # pylint: disable=raise-missing-from
+                    raise RuntimeError(
+                        f"Set dist env generated an exception: {e}")  # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
     def clean(self):

@@ -25,7 +25,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from chatlearn.models.base_module import BaseModule
 from chatlearn.utils import future
 from chatlearn.utils.utils import parse_function_args
-
+from chatlearn.utils.logger import logger
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
@@ -110,7 +110,8 @@ class DistActor:
         """
         results = []
         for actor in self.all_actors:
-            res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
+            res = self.call_actor_remote_func(
+                actor, func_name, *args, **kwargs)
             results.append(res)
         return results
 
@@ -170,10 +171,12 @@ class DistActor:
 
     def group_dist_actors_by_tp_rank(self):
         self.dp_rank_to_actors = defaultdict(list)
-        self.data_parallel_size = future.get(self.all_actors[0].get_data_parallel_size.remote())
+        self.data_parallel_size = future.get(
+            self.all_actors[0].get_data_parallel_size.remote())
         if self.data_parallel_size is None:
             self.data_parallel_size = 1
-        dp_ranks = future.wait([actor.get_data_parallel_rank.remote() for actor in self.all_actors], return_output=True)
+        dp_ranks = future.wait([actor.get_data_parallel_rank.remote()
+                               for actor in self.all_actors], return_output=True)
         for actor, dp_rank in zip(self.all_actors, dp_ranks):
             self.dp_rank_to_actors[dp_rank].append(actor)
 
@@ -209,12 +212,15 @@ class DistTorchActor(DistActor):
         return ordered_actors
 
     def set_dist_env(self, revert_placement=False):
-        self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
+        self.all_actors = self.reorder_actors(
+            self.all_actors, revert_placement)
         master_addr = future.get(self.master.get_address.remote())
-        master_port = future.get(self._port_manager.get_free_port.remote(master_addr))
+        master_port = future.get(
+            self._port_manager.get_free_port.remote(master_addr))
 
         world_size = self.actor_num
-        env_config = {"MASTER_ADDR": master_addr, "MASTER_PORT": master_port, "WORLD_SIZE": world_size}
+        env_config = {"MASTER_ADDR": master_addr,
+                      "MASTER_PORT": master_port, "WORLD_SIZE": world_size}
         ret = []
         for rank, actor in enumerate(self.all_actors):
             env_config["RANK"] = rank
@@ -226,6 +232,7 @@ class DistTorchActor(DistActor):
             ret.append(actor.set_env.remote(env_config))
         status = sum(future.get(ret))
         assert status == world_size
+
 
 class DistVLLMActor(DistTorchActor):
     """DistVLLMActor"""
@@ -244,12 +251,14 @@ class DistVLLMActor(DistTorchActor):
             }
         else:
             kwargs = {
-                "vllm_actor_type" : "worker"
+                "vllm_actor_type": "worker"
             }
-        self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
+        self._create_actor(self.model.__class__, num_gpus,
+                           placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
-        self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
+        self.vllm_engine = self._create_actor(
+            self.model.__class__, num_gpus, placement_group, group_index)
         self.model.engine = self.vllm_engine
 
     def call_vllm_engine_remote_funcs(self, func_name, *args, **kwargs):
@@ -257,7 +266,8 @@ class DistVLLMActor(DistTorchActor):
         Call remote functions for vllm_engine.
         """
         results = []
-        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(
+            self.vllm_engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -267,9 +277,11 @@ class DistVLLMActor(DistTorchActor):
         """
         results = []
         for actor in self.all_actors:
-            res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
+            res = self.call_actor_remote_func(
+                actor, func_name, *args, **kwargs)
             results.append(res)
-        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(
+            self.vllm_engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -279,16 +291,19 @@ class DistVLLMActor(DistTorchActor):
             if func_name.startswith('_') or func_name in ["peak_memory"]:
                 continue
             if func_name in ["timer_summary"]:
-                dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
+                dist_call = partial(
+                    self.call_vllm_engine_remote_funcs, func_name)
             elif func_name in ["onload", "offload"]:
                 if func_name == "onload":
                     new_func_name = "onload_for_workers"
                 else:
                     new_func_name = "offload_for_workers"
-                dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
+                dist_call = partial(
+                    self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
-                dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
-            else: # needed to check for other call_funs.
+                dist_call = partial(
+                    self.call_vllm_engine_and_workers_remote_funcs, func_name)
+            else:  # needed to check for other call_funs.
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
@@ -307,7 +322,6 @@ class DistModel:
         self.replicas = []
         self.name = None
         self.rank_to_actors = {}
-        self.register_serial_func()
         self.register_func()
         self._is_colocate = False
         self._colocate_models = []
@@ -362,10 +376,16 @@ class DistModel:
             if rank in dist_actor.rank_to_actors:
                 return dist_actor.rank_to_actors[rank]
 
-    def register_serial_func(self):
-        for func_name in ["init"]:
-            dist_call = partial(self.call_replica_serial_func, func_name)
-            setattr(self, func_name, dist_call)
+    def init(self):
+        refs = []
+        import time
+        for dist_actor in self.replicas:
+            start = time.time()
+            ref = dist_actor.init()
+            print(
+                f"call {dist_actor.name}.init finish {time.time() - start} seconds")
+            refs.append(ref)
+        return [future.get(ref) for ref in refs]
 
     def register_func(self):
         for func_name in ["model_setup",
