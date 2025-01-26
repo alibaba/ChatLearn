@@ -307,7 +307,7 @@ class DistModel:
         self.replicas = []
         self.name = None
         self.rank_to_actors = {}
-        self.register_serial_func()
+        # self.register_serial_func()
         self.register_func()
         self._is_colocate = False
         self._colocate_models = []
@@ -362,10 +362,11 @@ class DistModel:
             if rank in dist_actor.rank_to_actors:
                 return dist_actor.rank_to_actors[rank]
 
-    def register_serial_func(self):
-        for func_name in ["init"]:
-            dist_call = partial(self.call_replica_serial_func, func_name)
-            setattr(self, func_name, dist_call)
+    def init(self):
+        refs = []
+        for dist_actor in self.replicas:
+            refs.append(dist_actor.init())
+        future.get(refs)
 
     def register_func(self):
         for func_name in ["model_setup",

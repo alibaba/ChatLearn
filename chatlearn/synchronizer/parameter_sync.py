@@ -861,7 +861,7 @@ class ParameterSyncGroup:
 
     def sync_broadcast_second_stage_internal(self, group_name, thread_group, requires_grad=None, filter_fn=None, param_group="default"):
         max_workers = len(thread_group)
-        max_workers = 8
+        max_workers = min(8, max_workers)
         logger.info(f"debug thread_group {group_name}: {[(self.actor2rank[ele[0]], self.actor2rank[ele[1]]) for ele in thread_group]}")
         logger.info(f"Use {max_workers} workers for second_stage_internal broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:

@@ -75,9 +75,10 @@ class Environment(Executor):
             self._padding_config.update(config)
 
             if isinstance(model.model, VLLMModuleV2):
+                refs = []
                 for replica in model_node.model.replicas:
-                    ret = replica.vllm_engine.setup_vllm.remote(replica.all_actors)
-                    future.wait(ret)
+                    refs.append(replica.vllm_engine.setup_vllm.remote(replica.all_actors))
+                future.wait(refs)
 
     @property
     def sample_per_episode(self):
