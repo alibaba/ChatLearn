@@ -79,8 +79,6 @@ class Environment(Executor):
                     f"setup vllm engine for model {model.model}")
                 refs = []
                 for replica in model_node.model.replicas:
-                    logger.info(
-                        f"environment setup vllm engine for replic: {replica}")
                     refs.append(replica.vllm_engine.setup_vllm.remote(
                         replica.all_actors))
                 future.wait(refs)

@@ -177,19 +177,15 @@ class ModelManager:
                 sync_group: ParameterSyncGroup = sync_group
 
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
-                onload_refs = []
-                onload_refs.append(src_model.onload(
+                future.wait(src_model.onload(
                     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
-                onload_refs.append(dst_model.onload(
+                future.wait(dst_model.onload(
                     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
-                future.wait(onload_refs)
 
                 sync_group.sync(requires_grad, validate)
 
-                offload_refs = []
-                offload_refs.append(src_model.offload())
-                offload_refs.append(dst_model.offload())
-                future.wait(offload_refs)
+                future.wait(src_model.offload())
+                future.wait(dst_model.offload())
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):

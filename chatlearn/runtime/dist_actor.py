@@ -25,6 +25,7 @@ from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
 from chatlearn.models.base_module import BaseModule
 from chatlearn.utils import future
 from chatlearn.utils.utils import parse_function_args
+
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
