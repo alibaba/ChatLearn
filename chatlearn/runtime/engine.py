@@ -137,8 +137,7 @@ class BaseEngine:
 
         logger.debug(f"{LOG_START} memory summary:")
         for model, summary in zip(self.remote_models, summaries):
-            mem_str = ' | '.join(['{:.2f}'.format(i)
-                                 for i in flatten(summary)])
+            mem_str = ' | '.join(['{:.2f}'.format(i) for i in flatten(summary)])
             mem_log = f"peak_mem(GiB): {mem_str}"
             logger.debug(f"{LOG_START} {model.name} {mem_log}")
 
@@ -146,13 +145,11 @@ class BaseEngine:
         _, e2e_time_dict = self.timer_summary()
         refs = []
         for model in self.remote_models:
-            time_ref = model.replicas[0].timer_summary(
-                e2e_cost=e2e_time_dict.get(model.name, None))
+            time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_time_dict.get(model.name, None))
             refs.append(time_ref)
         summaries = future.get(refs)
 
-        logger.info(
-            f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
+        logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
             summary = summary[-1] if isinstance(summary, list) else summary
             logger.info(f"{LOG_START} [{model.name}] {summary}")
@@ -219,8 +216,7 @@ class Engine(BaseEngine):
         :meta private:
         """
         resource_manager = ResourceManager(self._models)
-        self.model_manager = ModelManager(
-            self._models, resource_manager, self.global_args)
+        self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
         for src_model, dst_model in self._param_sync_pairs:
             self.model_manager.set_parameter_sync(src_model, dst_model)
         self.model_manager.remote()
@@ -238,9 +234,11 @@ class Engine(BaseEngine):
                 executor.update_models(self.remote_models)
         if self.env:
             self.env.set_dataset(self._dataset)
-        logger.info("start build parameter group")
+        self.timers("build_sync_paramter_groups").start()
         self.model_manager.build_parameter_group()
-        logger.info("done build parameter group")
+        self.timers("build_sync_paramter_groups").stop()
+        logger.info(
+            f"{LOG_START} {self._name} build_sync_paramter_groups summary {self.timers.log(names=['build_sync_paramter_groups'])}")
         self.model_manager.start_error_monitor()
 
     def set_dataset(self, dataset):
@@ -311,11 +309,9 @@ class Engine(BaseEngine):
                                            self.env._padding_config,
                                            self.runtime_args.max_relay_episode,
                                            self.runtime_args.relay_episode_offset)
-        logger.info(f"{LOG_START} " +
-                    get_full_proc_memory_info('Before first param sync'))
+        logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         self.timers("sync_parameters").start()
-        self.model_manager.sync_parameters(
-            requires_grad=False, validate=self.runtime_args.validate_param_sync)
+        self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
         logger.info(
             f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} "
@@ -330,8 +326,7 @@ class Engine(BaseEngine):
                     torch.cuda.cudart().cudaProfilerStop()
             self.timers("episode").start()
             self.before_episode()
-            logger.info(
-                f"start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
+            logger.info(f"start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             if self.env.timers is None:
                 self.env.set_timers(self.timers)
             queue = self.env.make_experiences()
@@ -382,8 +377,7 @@ class Engine(BaseEngine):
                     self._start_episode = meta["episode"] + 1
                     self.trainer.iteration = meta["train_iteration"]
                     if self.trainer.iteration > 0:
-                        logger.info(
-                            f"ChatLearn continue train with meta {meta}")
+                        logger.info(f"ChatLearn continue train with meta {meta}")
 
     def save_checkpoint(self, episode_id):
         """
@@ -392,22 +386,18 @@ class Engine(BaseEngine):
         if self.runtime_args.save_episode_interval and \
                 (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
             for model in self.trainer.models:
-                refs = model.replicas[0].onload(
-                    to_onload_optimizer_states=False)
+                refs = model.replicas[0].onload(to_onload_optimizer_states=False)
                 future.wait(refs)
-                refs = model.replicas[0].save_checkpoint(
-                    self.trainer.iteration)
+                refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
                 future.wait(refs)
                 refs = model.replicas[0].offload()
                 future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
                 if isinstance(model, DistVLLMActor):
-                    refs.append(model.vllm_engine.save_data_checkpoint.remote(
-                        i, self.trainer.iteration, episode_id))
+                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 else:
-                    refs.append(model.all_actors[0].save_data_checkpoint.remote(
-                        i, self.trainer.iteration, episode_id))
+                    refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
             logger.info(
                 f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")

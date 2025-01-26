@@ -352,8 +352,7 @@ class ModelManager:
                 num_gpus = 1.0 / len(replicas)
                 if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
                     num_gpus = num_gpus / 2
-                    replica.create_engine_actor(
-                        num_gpus, placement_group, group)
+                    replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
                 replica.create_actor(num_gpus, placement_group, group)
@@ -384,8 +383,7 @@ class ModelManager:
             placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus,
                                                                           strategy=self.runtime_args.cpu_schedule_strategy)
             models_str = ','.join([model.name for model in cpu_models])
-            logger.info(
-                f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
+            logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
             placement_groups = []
             for i, _ in enumerate(placement_group.bundle_specs):
                 placement_groups.append((placement_group, i))
@@ -422,14 +420,12 @@ class ModelManager:
             futures = []
             for model, reverse in env_list:
                 # set env
-                futures.append(executor.submit(
-                    self._set_dist_env, model, reverse))
+                futures.append(executor.submit(self._set_dist_env, model, reverse))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
                 except Exception as e:
-                    raise RuntimeError(
-                        f"Set dist env generated an exception: {e}")  # pylint: disable=raise-missing-from
+                    raise RuntimeError(f"Set dist env generated an exception: {e}")  # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
     def clean(self):
