@@ -104,7 +104,7 @@ class BaseEngine:
                 logger.info(f"done setup and validate {model.name}")
         self.timers("setup_models").stop()
         logger.info(
-            f"{LOG_START} {self._name} setup_models summary {self.timers.log(names=['setup_models'])}")
+            f"{LOG_START} setup_models summary {self.timers.log(names=['setup_models'])}")
 
     def before_episode(self):
         for model in self.remote_models:
