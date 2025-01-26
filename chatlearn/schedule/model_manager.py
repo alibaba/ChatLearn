@@ -125,8 +125,7 @@ class ModelManager:
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
             if megatron_version == MegatronVersion.V4:
-                logger.info(
-                    "QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
+                logger.info("QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
                 sync_group = ParameterSyncGroupwithHEP(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
@@ -146,8 +145,7 @@ class ModelManager:
 
     def start_error_monitor(self):
         group_names = list(self.parameter_sync_groups.keys())
-        self.error_monitor = ErrorMonitor.remote(
-            self.error_signal, self.dist_models, group_names)
+        self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
 
     def _get_group_name(self, src_model, dst_model):
@@ -164,8 +162,7 @@ class ModelManager:
             sync_frequency = self._get_sync_frequency(tgt_model)
             assert sync_frequency >= 0, \
                 f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
-            logger.info(
-                f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
+            logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
             self._parameter_sync_model_pair.append((src_model, tgt_model))
 
     def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False):
@@ -202,8 +199,7 @@ class ModelManager:
         model_cls = model.__class__
         for func_name in call_funcs:
             trainable = func_name in model.trainable_funcs
-            decorate_class_func(model_cls, func_name,
-                                preprocess_compute, trainable)
+            decorate_class_func(model_cls, func_name,preprocess_compute, trainable)
 
         for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
@@ -260,8 +256,7 @@ class ModelManager:
         e.g., given models A:8, B:4, C:4, total_gpu: 8
         then the pack strategy is [(A), (B,C)]
         """
-        sorted_models = sorted(models, key=lambda x: (
-            x.trainable, x.total_gpu), reverse=True)
+        sorted_models = sorted(models, key=lambda x: (x.trainable, x.total_gpu), reverse=True)
         assert sorted_models[0].total_gpu <= total_gpu
         final_packs = []
         # key is the remaining gpu
@@ -307,13 +302,11 @@ class ModelManager:
         for i, _ in enumerate(placement_group.bundle_specs):
             self.placement_groups.append((placement_group, i))
         models_str = ','.join([model.name for model in gpu_models])
-        logger.info(
-            f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
+        logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
         for model in gpu_models:
             # TODO: for colocate gpu_per_process > 1, support later
             assert model.gpu_per_process == 1
-        self.model_packs = self.find_model_packing_strategy(
-            gpu_models, max_gpu)
+        self.model_packs = self.find_model_packing_strategy(gpu_models, max_gpu)
 
         for model in gpu_models:
             pack = []

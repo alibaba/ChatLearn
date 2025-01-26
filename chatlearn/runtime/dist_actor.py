@@ -207,8 +207,7 @@ class DistTorchActor(DistActor):
         return ordered_actors
 
     def set_dist_env(self, revert_placement=False):
-        self.all_actors = self.reorder_actors(
-            self.all_actors, revert_placement)
+        self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
         master_addr = future.get(self.master.get_address.remote())
         master_port = future.get(self._port_manager.get_free_port.remote(master_addr))
 
@@ -226,7 +225,6 @@ class DistTorchActor(DistActor):
         status = sum(future.get(ret))
         assert status == world_size
 
-
 class DistVLLMActor(DistTorchActor):
     """DistVLLMActor"""
 
@@ -243,7 +241,6 @@ class DistVLLMActor(DistTorchActor):
         }
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
-
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
         self.model.engine = self.vllm_engine
@@ -253,8 +250,7 @@ class DistVLLMActor(DistTorchActor):
         Call remote functions for vllm_engine.
         """
         results = []
-        res = self.call_actor_remote_func(
-            self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -264,11 +260,9 @@ class DistVLLMActor(DistTorchActor):
         """
         results = []
         for actor in self.all_actors:
-            res = self.call_actor_remote_func(
-                actor, func_name, *args, **kwargs)
+            res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
             results.append(res)
-        res = self.call_actor_remote_func(
-            self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -278,18 +272,16 @@ class DistVLLMActor(DistTorchActor):
             if func_name.startswith('_') or func_name in ["peak_memory"]:
                 continue
             if func_name in ["timer_summary"]:
-                dist_call = partial(
-                    self.call_vllm_engine_remote_funcs, func_name)
+                dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
             elif func_name in ["onload", "offload"]:
                 if func_name == "onload":
                     new_func_name = "onload_for_workers"
                 else:
                     new_func_name = "offload_for_workers"
-                dist_call = partial(
-                    self.call_vllm_engine_remote_funcs, new_func_name)
+                dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
                 dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
-            else:  # needed to check for other call_funs.
+            else: # needed to check for other call_funs.
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 

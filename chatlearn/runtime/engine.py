@@ -59,8 +59,7 @@ class BaseEngine:
 
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
-        self.model_manager = ModelManager(
-            self._models, resource_manager, self.global_args)
+        self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
         self.model_manager.remote()
         self.remote_models = self.model_manager.dist_models
         self.named_models = {model.name: model for model in self.remote_models}
@@ -79,8 +78,7 @@ class BaseEngine:
             for src_model, dst_model in self._param_sync_pairs:
                 remote_src_model = getattr(self, src_model.name)
                 remote_dst_model = getattr(self, dst_model.name)
-                ref_set_src += remote_dst_model.set_src_parameter_model(
-                    remote_src_model)
+                ref_set_src += remote_dst_model.set_src_parameter_model(remote_src_model)
             future.wait(ref_set_src)
         # include compile in init, compile dependencies need to be called serially
         logger.info(get_full_proc_memory_info('Before model init'))
@@ -303,7 +301,6 @@ class Engine(BaseEngine):
             f"{LOG_START} {self._name} setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
         self._resume_from_data_checkpoint()
-
         data_loader = StreamDataset.remote(self.runtime_args.stream_data_loader_type,
                                            self.runtime_args.train_micro_batch_size,
                                            self.env._padding_config,
@@ -340,21 +337,17 @@ class Engine(BaseEngine):
                 self.timers("set_train_dataset").stop()
                 self.trainer.set_data_loader(data_loader)
                 logger.info("set dataloader for trainer done")
-                logger.info(get_full_proc_memory_info(
-                    f'Before train {episode_id}'))
+                logger.info(get_full_proc_memory_info(f'Before train {episode_id}'))
                 if self.trainer.timers is None:
                     self.trainer.set_timers(self.timers)
                 self.trainer.train(episode_id)
-                logger.info(get_full_proc_memory_info(
-                    f'After train {episode_id}'))
+                logger.info(get_full_proc_memory_info(f'After train {episode_id}'))
                 logger.info(
                     f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
-                self.model_manager.sync_parameters(
-                    episode_id + 1, validate=validate)
+                self.model_manager.sync_parameters(episode_id + 1, validate=validate)
                 self.timers("sync_parameters").stop()
-                logger.info(
-                    f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
+                logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             self.after_episode()
             self.timers("episode").stop()
             self.logging_summary(episode_id)
@@ -362,8 +355,7 @@ class Engine(BaseEngine):
             self.evaluate(episode_id)
 
         self.timers("chatlearn").stop()
-        logger.info(
-            f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
+        logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
         logger.info(f"train {self._name} done")
 
     def _resume_from_data_checkpoint(self):
@@ -399,8 +391,7 @@ class Engine(BaseEngine):
                 else:
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
-            logger.info(
-                f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
+            logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
     def evaluate(self, episode_id):
         """

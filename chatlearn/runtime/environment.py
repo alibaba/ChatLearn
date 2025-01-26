@@ -57,8 +57,7 @@ class Environment(Executor):
         refs = []
         if self.models[0].module_args.batch_generation.ranking:
             episode_per_epoch = math.ceil(len(self._dataset) / self.sample_per_episode)
-            self._dataset = batch_generation_ranking(
-                self._dataset, episode_per_epoch, self.sample_per_episode)
+            self._dataset = batch_generation_ranking(self._dataset, episode_per_epoch, self.sample_per_episode)
         for policy_replica in self.data_producer.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._dataset,
                                                                  self.batch_size)
@@ -150,8 +149,7 @@ class Environment(Executor):
         # prepare batches for all model replicas
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
-            query = current_data_producer.master.next_batch.remote(
-                is_eval=is_eval)
+            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             for data_queue in data_queues:
                 data_queue.put(encoded_data)
@@ -199,8 +197,7 @@ class MCTSEnv(Environment):
         args = []
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
-            query = current_data_producer.master.next_batch.remote(
-                is_eval=is_eval)
+            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             replica_data_list = []
             model_to_replica = {}
