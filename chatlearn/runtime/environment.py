@@ -162,7 +162,6 @@ class Environment(Executor):
         """
         return self.execute(is_eval=False)
 
-
 class MCTSEnv(Environment):
     """MCTS Env"""
 
@@ -230,7 +229,6 @@ class MCTSEnv(Environment):
             self.get_all_merged_data(data, out_queue, encode=False)
         return out_queue
 
-
 class SPRLEnv(Environment):
     """SPRL(Self-Play Reinforcement Learning) Env"""
 
@@ -279,8 +277,7 @@ class SPRLEnv(Environment):
                         replica = self._next_model(model)
                         model_to_replica[model] = replica
                     replica_data_list.append((replica, model_node))
-            sprl = [replica_data[0]
-                    for replica_data in replica_data_list if replica_data[0].model is self.sprl]
+            sprl = [replica_data[0] for replica_data in replica_data_list if replica_data[0].model is self.sprl]
             assert len(sprl) > 0
             sprl = sprl[0]
             args.append((self.max_iteration_per_sample, encoded_data, data_queues, mb, replica_data_list, sprl))

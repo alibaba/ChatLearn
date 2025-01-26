@@ -87,7 +87,7 @@ class BaseEngine:
         logger.info(get_full_proc_memory_info('After model init'))
         # do not include compile dependencies in setup
         # if the program hang in setup, may try to set concurrent_setup to False.
-        logger.info("start setup all models")
+        self.timers("setup_models").start()
         if self.runtime_args.concurrent_setup:
             refs = []
             refs_val = []
@@ -102,7 +102,8 @@ class BaseEngine:
                 future.wait(model.model_setup())
                 future.wait(model.validate())
                 logger.info(f"done setup and validate {model.name}")
-        logger.info("done setup all models")
+        self.timers("setup_models").stop()
+        logger.info(f"{LOG_START} done setup all models, time cost: {self.times('setup_models').total_time()}")
 
     def before_episode(self):
         for model in self.remote_models:
@@ -268,8 +269,7 @@ class Engine(BaseEngine):
         :meta private:
         """
         super().logging_summary(iteration)
-        episode_str, episode_stats = self.timers.log(
-            names=['episode', 'sync_parameters'], return_dict=True)
+        episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
         logger.info(
             f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
         self.episode_stats = episode_stats
@@ -311,7 +311,7 @@ class Engine(BaseEngine):
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
         logger.info(
-            f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} "
+            f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} " \
             + get_full_proc_memory_info('After first param sync')
         )
         self._data_loader = data_loader
@@ -342,8 +342,7 @@ class Engine(BaseEngine):
                     self.trainer.set_timers(self.timers)
                 self.trainer.train(episode_id)
                 logger.info(get_full_proc_memory_info(f'After train {episode_id}'))
-                logger.info(
-                    f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
+                logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
                 self.model_manager.sync_parameters(episode_id + 1, validate=validate)
                 self.timers("sync_parameters").stop()
@@ -440,7 +439,6 @@ class RLHFEngine(Engine):
 
 class OnlineDPOEngine(Engine):
     """Online DPO Engine."""
-
     def __init__(self,
                  policy: BaseModule,
                  reference: BaseModule,
@@ -463,7 +461,6 @@ class OnlineDPOEngine(Engine):
 
 class DPOEngine(Engine):
     """DPO Engine."""
-
     def __init__(self,
                  reference: BaseModule,
                  policy_trainer: BaseModule):
@@ -481,7 +478,6 @@ class DPOEngine(Engine):
 
 class GRPOEngine(Engine):
     """GRPO Engine."""
-
     def __init__(self,
                  policy: BaseModule,
                  reference: BaseModule,
@@ -504,7 +500,6 @@ class GRPOEngine(Engine):
 
 class GRPOMathEngine(Engine):
     """GRPO Engine with math reward"""
-
     def __init__(self,
                  policy,
                  reference,

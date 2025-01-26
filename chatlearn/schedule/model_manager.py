@@ -89,11 +89,11 @@ class ModelManager:
 
         total_gpu_required = self._get_total_gpu_required()
         if total_gpu_required > self.resouce_manager.total_gpu:
-            raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " +
+            raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " + \
                                f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
         if self.resouce_manager.total_gpu > total_gpu_required:
-            logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " +
-                           f"while the number of required gpus is {total_gpu_required}, " +
+            logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " + \
+                           f"while the number of required gpus is {total_gpu_required}, " + \
                            f"there is {self.resouce_manager.total_gpu - total_gpu_required} wasted gpus")
 
         env_list = []
@@ -352,7 +352,7 @@ class ModelManager:
 
         models_to_revert = self._find_param_recv_models(gpu_models)
         for model in gpu_models:
-            if model in models_to_revert:  # pylint: disable=simplifiable-if-statement
+            if model in models_to_revert: # pylint: disable=simplifiable-if-statement
                 # Reverse the placement of tgt models, so that shared models not in the same GPU
                 # NCCL limit: NCCL WARN Duplicate GPU detected : rank 1 and rank 0 both on CUDA device
                 # TODO: One GPU task still not work
@@ -373,7 +373,7 @@ class ModelManager:
             for _ in range(model.module_args.num_replica):
                 num_cpus.append(model.module_args.cpu_per_process)
         if not self.placement_groups:
-            placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus,
+            placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus, \
                                                                           strategy=self.runtime_args.cpu_schedule_strategy)
             models_str = ','.join([model.name for model in cpu_models])
             logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
@@ -418,7 +418,7 @@ class ModelManager:
                 try:
                     _future.result()
                 except Exception as e:
-                    raise RuntimeError(f"Set dist env generated an exception: {e}")  # pylint: disable=raise-missing-from
+                    raise RuntimeError(f"Set dist env generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
     def clean(self):
