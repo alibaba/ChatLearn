@@ -234,6 +234,8 @@ class ModelConfig(BaseConfig):
     free_grad_buffers = False
     #: overall switch for offload optimizer states/weights and free grad buffers
     free_memory = False
+    #: force to free memory
+    force_free_memory = False
 
     def __init__(self):
         super().__init__()
