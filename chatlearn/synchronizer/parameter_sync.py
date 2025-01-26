@@ -901,7 +901,7 @@ class ParameterSyncGroup:
                 #     send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
                 # )
                 futures.append(executor.submit(
-                    self.sync_broadcast_two_stage_internal, group_name_with_idx, thread_group, requires_grad, filter_fn, param_group))
+                    self.sync_broadcast_second_stage_internal, group_name_with_idx, thread_group, requires_grad, filter_fn, param_group))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
