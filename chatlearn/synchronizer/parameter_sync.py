@@ -859,10 +859,11 @@ class ParameterSyncGroup:
         assert len(send_recv_actor_mappings) == len(sorted_send_actors)
         return sorted_send_actors
 
-    def sync_broadcast_second_stage(self, group_name, thread_group, requires_grad=None, filter_fn=None, param_group="default"):
+    def sync_broadcast_second_stage_internal(self, group_name, thread_group, requires_grad=None, filter_fn=None, param_group="default"):
         max_workers = len(thread_group)
+        max_workers = 8
         logger.info(f"debug thread_group {group_name}: {[(self.actor2rank[ele[0]], self.actor2rank[ele[1]]) for ele in thread_group]}")
-        logger.info(f"Use {max_workers} workers for second_stage broadcasting.")
+        logger.info(f"Use {max_workers} workers for second_stage_internal broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for idx, actor_group in enumerate(thread_group):
@@ -873,6 +874,34 @@ class ParameterSyncGroup:
                 )
                 futures.append(executor.submit(
                     self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, True, filter_fn, param_group))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    traceback.print_exc()
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
+
+
+    def sync_broadcast_second_stage(self, group_name, thread_groups, requires_grad=None, filter_fn=None, param_group="default"):
+
+        tp_size = self.num_dst_tensor_parallel
+        num_thread_groups = len(thread_groups) // tp_size
+        new_thread_groups = [thread_groups[tp_size*i:tp_size*(i+1)] for i in range(num_thread_groups)]
+
+        max_workers = len(new_thread_groups)
+
+        logger.info(f"Use {max_workers} workers for second_stage broadcasting.")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for idx, thread_group in enumerate(new_thread_groups):
+                # send_actor, recv_actor = actor_group
+                group_name_with_idx = f"{group_name}_{idx}"
+                # actor_groups, finalized_group_name = self.create_broadcast_group(
+                #     send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+                # )
+                futures.append(executor.submit(
+                    self.sync_broadcast_two_stage_internal, group_name_with_idx, thread_group, requires_grad, filter_fn, param_group))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
