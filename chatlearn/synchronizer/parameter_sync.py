@@ -889,8 +889,9 @@ class ParameterSyncGroup:
         num_thread_groups = len(thread_groups) // tp_size
         new_thread_groups = [thread_groups[tp_size*i:tp_size*(i+1)] for i in range(num_thread_groups)]
 
+        if not new_thread_groups:
+            new_thread_groups = [thread_groups]
         max_workers = len(new_thread_groups)
-        max_workers = max(max_workers, 1)
 
         logger.info(f"Use {max_workers} workers for second_stage broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -953,7 +954,7 @@ class ParameterSyncGroup:
                     for idx, actor_groups in enumerate(actor_groups_to_sync):
                         in_actor_group = False
                         for jdx, actor_group in enumerate(actor_groups):
-                            if group[0] == actor_group[0] or group[1] == actor_group[1]:
+                            if group[0] in actor_group or group[1] in actor_group:
                                 in_actor_group = True
                         if not in_actor_group:
                             new_actor_group_flag = False

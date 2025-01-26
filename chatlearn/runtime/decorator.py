@@ -168,6 +168,7 @@ def preprocess_compute(func, trainable):
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
                         or isinstance(self, VLLMModuleV2):
+                    # print(f"replica_id_{self.replica_id} results: {len(results)} {results} input_data: {input_data}")
                     final_results = concat_along_batch(results)
             else:
                 if 'iteration' in inspect.signature(func).parameters:
