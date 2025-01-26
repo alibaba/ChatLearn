@@ -890,6 +890,7 @@ class ParameterSyncGroup:
         new_thread_groups = [thread_groups[tp_size*i:tp_size*(i+1)] for i in range(num_thread_groups)]
 
         max_workers = len(new_thread_groups)
+        max_workers = max(max_workers, 1)
 
         logger.info(f"Use {max_workers} workers for second_stage broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
