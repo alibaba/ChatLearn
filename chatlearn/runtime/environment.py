@@ -26,6 +26,8 @@ from .executor import Executor
 from .utils import encode_data
 
 # pylint: disable=not-callable
+
+
 class Environment(Executor):
     """BaseEnv"""
 
@@ -56,8 +58,10 @@ class Environment(Executor):
         logger.info("start set dataset for data_producer")
         refs = []
         if self.models[0].module_args.batch_generation.ranking:
-            episode_per_epoch = math.ceil(len(self._dataset) / self.sample_per_episode)
-            self._dataset = batch_generation_ranking(self._dataset, episode_per_epoch, self.sample_per_episode)
+            episode_per_epoch = math.ceil(
+                len(self._dataset) / self.sample_per_episode)
+            self._dataset = batch_generation_ranking(
+                self._dataset, episode_per_epoch, self.sample_per_episode)
         for policy_replica in self.data_producer.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._dataset,
                                                                  self.batch_size)
@@ -75,9 +79,15 @@ class Environment(Executor):
             self._padding_config.update(config)
 
             if isinstance(model.model, VLLMModuleV2):
+                logger.info(
+                    f"setup vllm engine for model {model.model}")
+                refs = []
                 for replica in model_node.model.replicas:
-                    ret = replica.vllm_engine.setup_vllm.remote(replica.all_actors)
-                    future.wait(ret)
+                    logger.info(
+                        f"environment setup vllm engine for replic: {replica}")
+                    refs.append(replica.vllm_engine.setup_vllm.remote(
+                        replica.all_actors))
+                future.wait(refs)
 
     @property
     def sample_per_episode(self):
@@ -100,7 +110,8 @@ class Environment(Executor):
         if self._batch_per_episode is not None:
             return self._batch_per_episode
         num_replica = len(self.models[0].replicas)
-        num_batch = self.sample_per_episode // (num_replica * self.batch_size) * num_replica
+        num_batch = self.sample_per_episode // (
+            num_replica * self.batch_size) * num_replica
         remainder = self.sample_per_episode % (num_replica * self.batch_size)
         if remainder > 0 and self.first_model.use_vllm_backend:
             if self.sample_per_episode >= num_replica:
@@ -130,7 +141,7 @@ class Environment(Executor):
             return self.batch_per_episode // model.module_args.zero_size
         elif model.module_args.expert_model_parallel_size > 1:
             assert self.batch_per_episode % model.module_args.expert_model_parallel_size == 0, (
-                f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel " 
+                f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel "
                 f"size ({model.module_args.expert_model_parallel_size})."
             )
             return self.batch_per_episode // model.module_args.expert_model_parallel_size
@@ -143,7 +154,8 @@ class Environment(Executor):
         # prepare batches for all model replicas
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
-            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
+            query = current_data_producer.master.next_batch.remote(
+                is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             for data_queue in data_queues:
                 data_queue.put(encoded_data)
@@ -155,6 +167,7 @@ class Environment(Executor):
         Generate a collection of experiences for one episode
         """
         return self.execute(is_eval=False)
+
 
 class MCTSEnv(Environment):
     """MCTS Env"""
@@ -190,7 +203,8 @@ class MCTSEnv(Environment):
         args = []
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
-            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
+            query = current_data_producer.master.next_batch.remote(
+                is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             replica_data_list = []
             model_to_replica = {}
@@ -205,10 +219,12 @@ class MCTSEnv(Environment):
                         replica = self._next_model(model)
                         model_to_replica[model] = replica
                     replica_data_list.append((replica, model_node))
-            mcts = [replica_data[0] for replica_data in replica_data_list if replica_data[0].model is self.mcts]
+            mcts = [replica_data[0]
+                    for replica_data in replica_data_list if replica_data[0].model is self.mcts]
             assert len(mcts) > 0
             mcts = mcts[0]
-            args.append((self.max_iteration_per_sample, encoded_data, data_queues, mb, replica_data_list, mcts))
+            args.append((self.max_iteration_per_sample, encoded_data,
+                        data_queues, mb, replica_data_list, mcts))
         if self.args.debug:
             for arg in args:
                 self.mcts_loop(*arg)
@@ -218,10 +234,12 @@ class MCTSEnv(Environment):
         for model_node in self.model_flow.model_nodes:
             if model_node in self.model_flow.return_model_nodes:
                 # let the results order follow model_node order
-                data[self.model_flow.return_model_nodes.index(model_node)] = model_node.out_queues[-1]
+                data[self.model_flow.return_model_nodes.index(
+                    model_node)] = model_node.out_queues[-1]
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)
         return out_queue
+
 
 class SPRLEnv(Environment):
     """SPRL(Self-Play Reinforcement Learning) Env"""
@@ -256,7 +274,8 @@ class SPRLEnv(Environment):
         args = []
         for mb in range(self.batch_per_episode):
             current_data_producer = next(data_producer_iter)
-            query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
+            query = current_data_producer.master.next_batch.remote(
+                is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             replica_data_list = []
             model_to_replica = {}
@@ -271,10 +290,12 @@ class SPRLEnv(Environment):
                         replica = self._next_model(model)
                         model_to_replica[model] = replica
                     replica_data_list.append((replica, model_node))
-            sprl = [replica_data[0] for replica_data in replica_data_list if replica_data[0].model is self.sprl]
+            sprl = [replica_data[0]
+                    for replica_data in replica_data_list if replica_data[0].model is self.sprl]
             assert len(sprl) > 0
             sprl = sprl[0]
-            args.append((self.max_iteration_per_sample, encoded_data, data_queues, mb, replica_data_list, sprl))
+            args.append((self.max_iteration_per_sample, encoded_data,
+                        data_queues, mb, replica_data_list, sprl))
         # not support execute_in_parallel now.
         for arg in args:
             self.sprl_loop(*arg)
@@ -282,7 +303,8 @@ class SPRLEnv(Environment):
         for model_node in self.model_flow.model_nodes:
             if model_node in self.model_flow.return_model_nodes:
                 # let the results order follow model_node order
-                data[self.model_flow.return_model_nodes.index(model_node)] = model_node.out_queues[-1]
+                data[self.model_flow.return_model_nodes.index(
+                    model_node)] = model_node.out_queues[-1]
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)
         return out_queue
