@@ -377,14 +377,9 @@ class DistModel:
 
     def init(self):
         refs = []
-        import time
         for dist_actor in self.replicas:
-            start = time.time()
-            ref = dist_actor.init()
-            print(
-                f"call {dist_actor.name}.init finish {time.time() - start} seconds")
-            refs.append(ref)
-        return [future.get(ref) for ref in refs]
+            refs.append(dist_actor.init())
+        future.get(refs)
 
     def register_func(self):
         for func_name in ["model_setup",
