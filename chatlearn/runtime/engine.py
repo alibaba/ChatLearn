@@ -103,7 +103,8 @@ class BaseEngine:
                 future.wait(model.validate())
                 logger.info(f"done setup and validate {model.name}")
         self.timers("setup_models").stop()
-        logger.info(f"{LOG_START} done setup all models, time cost: {self.times('setup_models').total_time()}")
+        logger.info(
+            f"{LOG_START} {self._name} setup_models summary {self.timers.log(names=['setup_models'])}")
 
     def before_episode(self):
         for model in self.remote_models:
