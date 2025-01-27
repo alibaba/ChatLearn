@@ -16,6 +16,7 @@ models:
       ranking: ${batch_generation_ranking:False}
       min_prompt_length: ${batch_generation_min_prompt_length:0}
     free_memory: ${free_memory_policy:False}
+    force_free_memory: ${force_free_memory_policy:False}
 
   reference:
     model_config_file: reference.yaml
