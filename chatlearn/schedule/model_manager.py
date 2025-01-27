@@ -120,6 +120,8 @@ class ModelManager:
         # set ParameterSyncGroup
         megatron_version = get_megatron_version()
         for src_model, dst_model in self._parameter_sync_model_pair:
+            logger.info(
+                f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
             if megatron_version == MegatronVersion.V4:
@@ -175,17 +177,15 @@ class ModelManager:
                 sync_group: ParameterSyncGroup = sync_group
 
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
-                refs = src_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
-                future.wait(refs)
-                refs = dst_model.onload(to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False)
-                future.wait(refs)
+                future.wait(src_model.onload(
+                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
+                future.wait(dst_model.onload(
+                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
 
                 sync_group.sync(requires_grad, validate)
 
-                refs = src_model.offload()
-                future.wait(refs)
-                refs = dst_model.offload()
-                future.wait(refs)
+                future.wait(src_model.offload())
+                future.wait(dst_model.offload())
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):
@@ -195,7 +195,7 @@ class ModelManager:
         model_cls = model.__class__
         for func_name in call_funcs:
             trainable = func_name in model.trainable_funcs
-            decorate_class_func(model_cls, func_name, preprocess_compute, trainable)
+            decorate_class_func(model_cls, func_name,preprocess_compute, trainable)
 
         for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
@@ -370,7 +370,7 @@ class ModelManager:
                 num_cpus.append(model.module_args.cpu_per_process)
         if not self.placement_groups:
             placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus, \
-                strategy=self.runtime_args.cpu_schedule_strategy)
+                                                                          strategy=self.runtime_args.cpu_schedule_strategy)
             models_str = ','.join([model.name for model in cpu_models])
             logger.info(f"create placement_group {placement_group.bundle_specs} for model {models_str} done")
             placement_groups = []
@@ -407,7 +407,7 @@ class ModelManager:
             return
         with ThreadPoolExecutor(max_workers=num) as executor:
             futures = []
-            for model,reverse in env_list:
+            for model, reverse in env_list:
                 # set env
                 futures.append(executor.submit(self._set_dist_env, model, reverse))
             for _future in concurrent.futures.as_completed(futures):

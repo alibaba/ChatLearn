@@ -87,6 +87,7 @@ class BaseEngine:
         logger.info(get_full_proc_memory_info('After model init'))
         # do not include compile dependencies in setup
         # if the program hang in setup, may try to set concurrent_setup to False.
+        self.timers("setup_models").start()
         if self.runtime_args.concurrent_setup:
             refs = []
             refs_val = []
@@ -97,9 +98,13 @@ class BaseEngine:
             future.wait(refs_val)
         else:
             for model in self.remote_models:
+                logger.info(f"start setup and validate {model.name}")
                 future.wait(model.model_setup())
                 future.wait(model.validate())
-        logger.info("done setup all models")
+                logger.info(f"done setup and validate {model.name}")
+        self.timers("setup_models").stop()
+        logger.info(
+            f"{LOG_START} setup_models summary {self.timers.log(names=['setup_models'])}")
 
     def before_episode(self):
         for model in self.remote_models:
@@ -229,7 +234,11 @@ class Engine(BaseEngine):
                 executor.update_models(self.remote_models)
         if self.env:
             self.env.set_dataset(self._dataset)
+        self.timers("build_sync_paramter_groups").start()
         self.model_manager.build_parameter_group()
+        self.timers("build_sync_paramter_groups").stop()
+        logger.info(
+            f"{LOG_START} {self._name} build_sync_paramter_groups summary {self.timers.log(names=['build_sync_paramter_groups'])}")
         self.model_manager.start_error_monitor()
 
     def set_dataset(self, dataset):
@@ -262,7 +271,8 @@ class Engine(BaseEngine):
         """
         super().logging_summary(iteration)
         episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
-        logger.info(f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
+        logger.info(
+            f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
         self.episode_stats = episode_stats
         return episode_stats
 
@@ -280,19 +290,23 @@ class Engine(BaseEngine):
         self.timers("chatlearn").start()
         self.timers("setup").start()
         self.setup()
+        self.timers("executor_setup").start()
         for executor in self._executors:
             if executor:
                 executor.setup()
+        self.timers("executor_setup").stop()
+        logger.info(
+            f"{LOG_START} {self._name} setup executors: {self.timers.log(names=['executor_setup'])}")
         self.timers("setup").stop()
-        logger.info(f"{LOG_START} {self._name} setup summary {self.timers.log(names=['setup'])}")
+        logger.info(
+            f"{LOG_START} {self._name} setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
         self._resume_from_data_checkpoint()
-
         data_loader = StreamDataset.remote(self.runtime_args.stream_data_loader_type,
-                                               self.runtime_args.train_micro_batch_size,
-                                               self.env._padding_config,
-                                               self.runtime_args.max_relay_episode,
-                                               self.runtime_args.relay_episode_offset)
+                                           self.runtime_args.train_micro_batch_size,
+                                           self.env._padding_config,
+                                           self.runtime_args.max_relay_episode,
+                                           self.runtime_args.relay_episode_offset)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         self.timers("sync_parameters").start()
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
@@ -316,7 +330,7 @@ class Engine(BaseEngine):
             queue = self.env.make_experiences()
             self.timers("set_train_dataset").start()
             refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
-                                                      self.runtime_args.sample_per_episode)
+                                                  self.runtime_args.sample_per_episode)
             future.wait(refs)
             if self.trainer is not None:
                 # validate parameter sync in the first two episodes

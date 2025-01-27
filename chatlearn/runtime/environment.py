@@ -75,9 +75,13 @@ class Environment(Executor):
             self._padding_config.update(config)
 
             if isinstance(model.model, VLLMModuleV2):
+                logger.info(
+                    f"setup vllm engine for model {model.model}")
+                refs = []
                 for replica in model_node.model.replicas:
-                    ret = replica.vllm_engine.setup_vllm.remote(replica.all_actors)
-                    future.wait(ret)
+                    refs.append(replica.vllm_engine.setup_vllm.remote(
+                        replica.all_actors))
+                future.wait(refs)
 
     @property
     def sample_per_episode(self):
@@ -130,7 +134,7 @@ class Environment(Executor):
             return self.batch_per_episode // model.module_args.zero_size
         elif model.module_args.expert_model_parallel_size > 1:
             assert self.batch_per_episode % model.module_args.expert_model_parallel_size == 0, (
-                f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel " 
+                f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel "
                 f"size ({model.module_args.expert_model_parallel_size})."
             )
             return self.batch_per_episode // model.module_args.expert_model_parallel_size
