@@ -1220,8 +1220,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self._debug and (src_dp_ranks[0] is None or dst_dp_ranks is None):
             return
 
-        assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
-            f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
             replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
