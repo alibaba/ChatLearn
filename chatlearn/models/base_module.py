@@ -18,6 +18,7 @@ from collections import defaultdict
 from itertools import cycle
 import math
 import os
+import torch
 
 import ray
 import ray.util.collective as col
@@ -933,6 +934,25 @@ class BaseModule:
             self._logger.info(f"debug finished stage2 comm")
         else:
             self._logger.info(f"debug finished stage1 comm")
+
+        check_rank = self.tensor_parallel_rank()
+        if self.tensor_parallel_rank() == check_rank and stage2:# and check_rank not in [0, 1, 2, 3]:
+            if not isinstance(self.model, list):
+                model = [self.model]
+            else:
+                model = self.model
+            for item in model[0].named_parameters():
+                name, param = item
+                if "layers.0" in name:
+                    print(f"debug output param {name} {param.shape}")
+                    offset = 4
+                    num_prints = param.shape[0] // offset
+                    with open(f"/workspace/code/cmd/moelite_scripts/new/tp2ep4pp1_{check_rank}_{name}.txt", "a+") as file:
+                        for i in range(num_prints):
+                            start = offset * i
+                            end = start + offset
+                            tensor_to_print = param[start:end]
+                            file.write(name + f"_{i}:" + str(tensor_to_print.cpu()) + "\n")    
                
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 

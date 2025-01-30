@@ -1555,6 +1555,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             logger.info(f"debug param sync cost alltoall {e_time-s_time}")
             # sync everything to inference model
             if self.tp_num_mapping == 1:
+                logger.info(f"debug self.tp_num_mapping: {self.tp_num_mapping}")
                 s_time = time.time()
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
@@ -1569,17 +1570,46 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 logger.info(f"debug param sync: complete to alltoall router experts")
             
             elif self.tp_num_mapping > 1:
+                logger.info(f"debug self.tp_num_mapping: {self.tp_num_mapping}")
                 s_time = time.time()
                 logger.info(f"debug param sync: start to sync other weights.")
             
-                send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
-                actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
-                self._multi_thread_sync_for_tp_num_mapping_gt_1(
-                    send_actors_list,
-                    actor_mappings_list,
-                    requires_grad=requires_grad,
-                    filter_fn=None,
-                    param_group="default"
+                # send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+                # actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                # self._multi_thread_sync_for_tp_num_mapping_gt_1(
+                #     send_actors_list,
+                #     actor_mappings_list,
+                #     requires_grad=requires_grad,
+                #     filter_fn=None,
+                #     param_group="default"
+                # )
+                # First, synchronize routed experts.
+                self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
+
+                self.clear_cache(
+                    sorted_send_actors_list = [
+                        self.send_actors_to_regroup_routed_experts,
+                        self.sorted_send_actors_for_routed_experts
+                    ],
+                    rank_mapping_list=[
+                        self.send_recv_actor_mappings_for_routed_experts
+                    ]
+                )
+
+                # Then, synchronize parameters except routed experts
+                self._synchronize_params_except_routed_experts(requires_grad=requires_grad, validate=validate)
+
+                self.reset_synchronizer()
+
+                self.clear_cache(
+                    sorted_send_actors_list = [
+                        self.sorted_send_actors,
+                        self.sorted_send_actors_stage2,
+                    ],
+                    rank_mapping_list = [
+                        self.send_recv_actor_mappings,
+                        self.send_recv_actor_mappings_stage2
+                    ]
                 )
                 e_time = time.time()
                 logger.info(f"debug param sync: complete to sync other weights.")
