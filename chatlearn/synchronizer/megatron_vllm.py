@@ -329,7 +329,7 @@ class MegatronVllmSync(BaseSync):
         to_fix_qkv_ordering_dict = self.sync_map.to_fix_qkv_ordering_dict
         if "attention.query_key_value" in name or \
                 "self_attention.query_key_value" in name or \
-                "self_attention.linear_qkv" in name:
+                "self_attention.linear_qkv" in name: # pylint: disable=too-many-nested-blocks
             src_tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
             dst_tp_size = self.dst_module_args.args_dict["tensor_model_parallel_size"]
             heads = self.src_module_args.args_dict["num_attention_heads"] // src_tp_size
