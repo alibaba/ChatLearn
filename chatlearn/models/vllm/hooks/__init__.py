@@ -19,26 +19,18 @@ import os
 from .. import is_vllm_v2
 
 
-if is_vllm_v2():
-    if importlib.util.find_spec("vllm"):
-        from . import ray_gpu_executor
-        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            from chatlearn.models.vllm.hooks import input_preprocess
-            from chatlearn.models.vllm.hooks import async_llm_engine
-            from chatlearn.models.vllm.hooks import llm
-            from chatlearn.models.vllm.hooks import loader
-            from chatlearn.models.vllm.hooks import worker_base
-else:
-    if importlib.util.find_spec("vllm"):
-        import vllm
-        from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion # pylint: disable=ungrouped-imports
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-            from chatlearn.models.vllm.hooks import sampler
-        elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
-            from chatlearn.models.vllm.hooks import llm_engine, logits_processor
-            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
-                from chatlearn.models.vllm.hooks import worker
-            else:
-                from chatlearn.models.vllm.hooks import input_preprocess
-                from chatlearn.models.vllm.hooks import format_device_name
+if importlib.util.find_spec("vllm"):
+
+    from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
+
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
+        from chatlearn.models.vllm.hooks.vllm_0_3_0 import *
+    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
+        from chatlearn.models.vllm.hooks.vllm_0_5_1 import *
+    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+        from chatlearn.models.vllm.hooks.vllm_0_6_3 import *
+    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_6:
+        from .vllm_0_6_6 import *
+    else:
+        raise RuntimeError(
+            f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while {CURRENT_VLLM_VERSION}.")
