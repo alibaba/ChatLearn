@@ -405,6 +405,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         return get_pipeline_model_parallel_rank()
 
+    def tensor_model_parallel_size(self):
+        return self.tensor_and_expert_model_parallel_size()
+
+    def expert_model_parallel_size(self):
+        return 1
+
     def tensor_and_expert_model_parallel_size(self):
         """
         get tensor_and_expert_model_parallel_size

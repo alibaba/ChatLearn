@@ -14,11 +14,13 @@
 # ==============================================================================
 """Sync parameters"""
 
+import os
+import time
 import concurrent.futures
 import traceback
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from itertools import cycle
+from itertools import cycle, permutations, combinations
 from typing import List, Dict
 
 import torch
@@ -85,9 +87,14 @@ class ParameterSyncGroup:
             [ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER, ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL], \
             f"Only support 'allgather' or 'alltoall' for routed expert regrouping, while {self._comm_type_to_regroup_routed_experts}"
         if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
-            if self.num_dst_tensor_parallel != self.num_src_tensor_parallel:
-                logger.warning("Only support ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL when src tp eqs dst tp, use 'allgather' instead.")
+            print(f"debug self.num_dst_tensor_parallel: {self.num_dst_tensor_parallel}")
+            print(f"debug self.num_dst_expert_parallel: {self.num_dst_expert_parallel}")
+            print(f"debug self.num_src_tensor_parallel: {self.num_src_tensor_parallel}")
+            print(f"debug self.num_src_expert_parallel: {self.num_src_expert_parallel}")
+            if self.num_dst_tensor_parallel * self.num_dst_expert_parallel != self.num_src_tensor_parallel * self.num_src_expert_parallel:
+                logger.info("Only support ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL when src tp eqs dst tp, use 'allgather' instead.")
                 self._comm_type_to_regroup_routed_experts = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER
+        logger.info(f"Set ROUTED_EXPERT_REGROUPING_COMM_TYPE = {self._comm_type_to_regroup_routed_experts}.")
         self.sorted_send_actors = None
         self.sorted_send_actors_stage2 = None
         self.actor2synchronizer = {}
@@ -303,8 +310,8 @@ class ParameterSyncGroup:
         if self._debug and (src_dp_ranks[0] is None or dst_dp_ranks is None):
             return
 
-        assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
-            f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
+        #assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
+        #    f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
             replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
@@ -330,6 +337,7 @@ class ParameterSyncGroup:
                 j = i // pipe_map_interval
                 for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[j]):
                     add_recv_actor_fn(src_rank, dst_rank)
+                    logger.info(f"20250131 Sending from {src_rank} to {dst_rank}")
 
     # pylint: disable=unused-argument
     def build_rank_mapping_for_ep(self, add_recv_actor_fn=None):
@@ -457,8 +465,8 @@ class ParameterSyncGroup:
                 for tuples in dst_tp_group:
                     p2p_pair_grouping(tuples)
 
-        logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
-        logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
+        logger.info(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
+        logger.info(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
 
     def _clear_sync_send_recv_parameters(self, rank_mappings:List):
         if len(rank_mappings) == 0:
@@ -594,7 +602,9 @@ class ParameterSyncGroup:
         send_actor = actors[0]
         for rank, recv_actor in enumerate(actors[1:]):
             if stage2:
-                self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn, param_group)
+                s_names, d_names = self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn, param_group)
+                # for s_name, d_name in zip(s_names, d_names):
+                # logger.info(f"stage 2 sync: {len(s_names)} -> {len(d_names)}")
             else:
                 self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
                 pipe_stage = self.get_actor_pipe_rank(send_actor)
@@ -661,6 +671,7 @@ class ParameterSyncGroup:
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
+        logger.info(f"debug alltoall among {[self.actor2rank[actor] for actor in actors]}")
         for actor in actors:
             ref = actor.alltoall_routed_expert_parameter.remote(pipe_stage)
             refs.append(ref)
@@ -849,32 +860,21 @@ class ParameterSyncGroup:
         assert len(send_recv_actor_mappings) == len(sorted_send_actors)
         return sorted_send_actors
 
-    def sync_broadcast_multi_threads(
-        self, sorted_send_actors, send_recv_actor_mappings, max_workers=1, requires_grad=None,
-        group_name=None, stage2=False, filter_fn=None, param_group="default"):
+    def sync_broadcast_second_stage_internal(self, group_name, thread_group, requires_grad=None, filter_fn=None, param_group="default"):
+        max_workers = len(thread_group)
+        max_workers = min(8, max_workers)
+        logger.info(f"debug thread_group {group_name}: {[(self.actor2rank[ele[0]], self.actor2rank[ele[1]]) for ele in thread_group]}")
+        logger.info(f"Use {max_workers} workers for second_stage_internal broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
-            for send_actor in sorted_send_actors:
-                recv_actors = send_recv_actor_mappings[send_actor]
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    if stage2:
-                        for idx, recv_actor in enumerate(recv_actors):
-                            group_name_with_idx = f"{group_name}_{idx}"
-                            actor_groups, finalized_group_name = self.create_broadcast_group(
-                                send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
-                            )
-                            futures.append(executor.submit(
-                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
-                            ))
-                    else:
-                        actor_groups, finalized_group_name = self.create_broadcast_group(
-                            send_actor, recv_actors, group_name=group_name, param_group=param_group
-                        )
-                        futures.append(executor.submit(
-                            self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
-                        ))
-                else:
-                    raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+            for idx, actor_group in enumerate(thread_group):
+                send_actor, recv_actor = actor_group
+                group_name_with_idx = f"{group_name}_{idx}"
+                actor_groups, finalized_group_name = self.create_broadcast_group(
+                    send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+                )
+                futures.append(executor.submit(
+                    self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, True, filter_fn, param_group))
             for _future in concurrent.futures.as_completed(futures):
                 try:
                     _future.result()
@@ -883,11 +883,134 @@ class ParameterSyncGroup:
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
+
+    def sync_broadcast_second_stage(self, group_name, thread_groups, requires_grad=None, filter_fn=None, param_group="default"):
+
+        tp_size = self.num_dst_tensor_parallel
+        num_thread_groups = len(thread_groups) // tp_size
+        new_thread_groups = [thread_groups[tp_size*i:tp_size*(i+1)] for i in range(num_thread_groups)]
+
+        if not new_thread_groups:
+            new_thread_groups = [thread_groups]
+        max_workers = len(new_thread_groups)
+
+        logger.info(f"Use {max_workers} workers for second_stage broadcasting.")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = []
+            for idx, thread_group in enumerate(new_thread_groups):
+                # send_actor, recv_actor = actor_group
+                group_name_with_idx = f"{group_name}_{idx}"
+                # actor_groups, finalized_group_name = self.create_broadcast_group(
+                #     send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+                # )
+                futures.append(executor.submit(
+                    self.sync_broadcast_second_stage_internal, group_name_with_idx, thread_group, requires_grad, filter_fn, param_group))
+            for _future in concurrent.futures.as_completed(futures):
+                try:
+                    _future.result()
+                except Exception as e:
+                    traceback.print_exc()
+                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+            concurrent.futures.wait(futures)
+
+    def sync_broadcast_multi_threads(
+        self, sorted_send_actors, send_recv_actor_mappings, max_workers=1, requires_grad=None,
+        group_name=None, stage2=False, filter_fn=None, param_group="default"):
+        log_debug = bool(int(os.getenv("log_debug", "0")))
+
+        log_debug = False
+        if log_debug:
+            for send_actor in sorted_send_actors:
+                recv_actors = send_recv_actor_mappings[send_actor]
+                logger.info(f"sending from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]}")
+                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                    if stage2:
+                        for idx, recv_actor in enumerate(recv_actors):
+                            group_name_with_idx = f"{group_name}_{idx}"
+                            actor_groups, finalized_group_name = self.create_broadcast_group(
+                                send_actor, [recv_actor], group_name=group_name_with_idx, param_group=param_group
+                            )
+                            logger.info(f"stage2 sending from {self.actor2rank[send_actor]} to {[self.actor2rank[recv_actor]]}")
+                
+                            self.sync_broadcast_two_stage(actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group)
+                            logger.info(f"stage2 sending from {self.actor2rank[send_actor]} to {[self.actor2rank[recv_actor]]} finished.")
+                
+                    else:
+                        actor_groups, finalized_group_name = self.create_broadcast_group(
+                            send_actor, recv_actors, group_name=group_name, param_group=param_group
+                        )
+                        # logger.info(f"stage 1 sending from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]}")
+                        self.sync_broadcast_two_stage(actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group)
+                        # logger.info(f"stage 1 sending from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]} finished.")
+        else:
+            if stage2:
+                thread_group = []
+                for send_actor in sorted_send_actors:
+                    recv_actors = send_recv_actor_mappings[send_actor]
+                    for recv_actor in recv_actors:
+                        thread_group.append((send_actor, recv_actor))
+                actor_groups_to_sync = []
+                for group in thread_group:
+                    new_actor_group_flag = True
+                    for idx, actor_groups in enumerate(actor_groups_to_sync):
+                        in_actor_group = False
+                        for jdx, actor_group in enumerate(actor_groups):
+                            if group[0] in actor_group or group[1] in actor_group:
+                                in_actor_group = True
+                        if not in_actor_group:
+                            new_actor_group_flag = False
+                            actor_groups_to_sync[idx].append(group)
+                            break
+                    if new_actor_group_flag or not actor_groups_to_sync:
+                        actor_groups_to_sync.append([group])
+                log_list = []
+                for thread_group in actor_groups_to_sync:
+                    log_list.append([(self.actor2rank[ele[0]], self.actor2rank[ele[1]]) for ele in thread_group])
+                        
+                logger.info(f"debug actor_groups_to_sync {group_name}: {log_list}")
+        
+                for group_idx, actor_groups in enumerate(actor_groups_to_sync):
+                    if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                        self.sync_broadcast_second_stage(
+                            f"{group_name}_{group_idx}",
+                            actor_groups,
+                            requires_grad,
+                            filter_fn,
+                            param_group
+                        )
+                    else:
+                        raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+            else:
+                max_workers = len(sorted_send_actors)
+                logger.info(f"Use {max_workers} workers for first_stage broadcasting.")
+                with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                    futures = []
+                    for send_actor in sorted_send_actors:
+                        recv_actors = send_recv_actor_mappings[send_actor]
+                        logger.info(f"sending from {self.actor2rank[send_actor]} to {[self.actor2rank[actor] for actor in recv_actors]}")
+                        if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                            actor_groups, finalized_group_name = self.create_broadcast_group(
+                                send_actor, recv_actors, group_name=group_name, param_group=param_group
+                            )
+                            futures.append(executor.submit(
+                                self.sync_broadcast_two_stage, actor_groups, finalized_group_name, requires_grad, stage2, filter_fn, param_group
+                            ))
+                        else:
+                            raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
+                    for _future in concurrent.futures.as_completed(futures):
+                        try:
+                            _future.result()
+                        except Exception as e:
+                            traceback.print_exc()
+                            raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+                    concurrent.futures.wait(futures)
+
     def sync_allgather_multi_threads(
         self, send_actors, max_workers=1, requires_grad=None,
         group_name=None, filter_fn=None
     ):
         send_actors_to_allgather_routed_experts = send_actors[0]
+        logger.info(f"Use {max_workers} workers for allgather multiprocessing.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for allgather_actors in send_actors_to_allgather_routed_experts:
@@ -906,18 +1029,27 @@ class ParameterSyncGroup:
         self, send_actors, max_workers=1, requires_grad=None, filter_fn=None
     ):
         send_actors_to_alltoall_routed_experts = send_actors[0]
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
+        if False:
             for actor_groups in send_actors_to_alltoall_routed_experts:
-                futures.append(executor.submit(
-                    self.sync_alltoall, actor_groups, requires_grad, filter_fn=filter_fn
-                ))
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+                logger.info(f"1 debug alltoall among {[self.actor2rank[actor] for actor in actor_groups]}")
+                self.sync_alltoall(actor_groups, requires_grad, filter_fn=filter_fn)
+                logger.info(f"2 debug alltoall among {[self.actor2rank[actor] for actor in actor_groups]}")
+        else:
+            max_workers = len(send_actors_to_alltoall_routed_experts)
+            logger.info(f"Use {max_workers} workers for alltoall multiprocessing.")
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                futures = []
+                for actor_groups in send_actors_to_alltoall_routed_experts:
+                    logger.info(f"1 debug alltoall among {[self.actor2rank[actor] for actor in actor_groups]}")
+                    futures.append(executor.submit(
+                        self.sync_alltoall, actor_groups, requires_grad, filter_fn=filter_fn
+                    ))
+                for _future in concurrent.futures.as_completed(futures):
+                    try:
+                        _future.result()
+                    except Exception as e:
+                        raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
+                concurrent.futures.wait(futures)
 
     def check_and_setup_collective_group(self):
         if not self._is_collective_group_created:
@@ -997,7 +1129,7 @@ class ParameterSyncGroup:
     def _calculate_max_workers(self, sorted_send_actors, actor_mappings=None):
         max_workers = get_args().runtime_args.param_sync_max_workers
         if max_workers is None:
-            max_workers = max(self.src_model.total_gpu // 8, 1)
+            max_workers = max(self.src_model.total_gpu // self.num_src_pipeline_stage, 1)
         if max_workers == -1:
             if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                 max_workers = len(sorted_send_actors)
@@ -1030,20 +1162,30 @@ class ParameterSyncGroup:
         actor_mappings_stage2 = actor_mappings[1]
 
         # stage 1
+        s_time = time.time()
         sorted_send_actors_stage1 = list(actor_mappings_stage1.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage1, actor_mappings_stage1)
         group_name = self.group_name + "_inter_comm"
+        logger.info(f"1 debug param sync:start to sync {group_name}")
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage1, actor_mappings_stage1, max_workers, requires_grad,
             group_name=group_name, stage2=False, filter_fn=filter_fn, param_group=param_group
         )
+        e_time = time.time()
+        logger.info(f"debug param sync cost stage1: {e_time - s_time}")
         # stage 2
+        s_time = time.time()
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
         max_workers = self._calculate_max_workers(sorted_send_actors_stage2, actor_mappings_stage2)
         group_name = self.group_name + "_intra_comm"
+        logger.info(f"2 debug param sync:start to sync {group_name} param_group: {param_group}")
+        os.environ["log_debug"] = "1"
         self.sync_broadcast_multi_threads(
             sorted_send_actors_stage2, actor_mappings_stage2, max_workers, requires_grad,
             group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group)
+        os.environ["log_debug"] = "0"
+        e_time = time.time()
+        logger.info(f"debug param sync cost stage2: {e_time - s_time}")
 
     def _multi_thread_sync_for_tp_num_mapping_eq_1(
         self, send_actors_list:List, actor_mappings_list:List,
@@ -1054,6 +1196,7 @@ class ParameterSyncGroup:
         actor_mappings = actor_mappings_list[0]
 
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
+        logger.info(f"20250131 sorted_send_actors: {sorted_send_actors}")
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1186,8 +1329,18 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 else:
                     self.build_rank_mapping_for_ep()
             elif self.tp_num_mapping > 1:
-                self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
-                self.build_rank_mapping_two_stage()
+                if self.hep_num_mapping == 1:
+                    logger.info(f"20250131 build ranking mapping for ep")
+                    self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
+                    # self.send_actors_to_regroup_routed_experts = self.send_actors_to_regroup_routed_experts[0]
+                    # self.sorted_send_actors_for_routed_experts = self.send_actors_to_regroup_routed_experts
+                    logger.info(f"20250131 build ranking mapping for routed expert")
+                    self.build_rank_mapping_for_routed_experts()
+                    logger.info(f"20250131 build ranking mapping for params except routed expert")
+                    self.build_rank_mapping_for_params_except_routed_expert()
+                else:
+                    self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
+                    self.build_rank_mapping_two_stage()
             else:
                 raise NotImplementedError(
                     f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
@@ -1221,7 +1374,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             return
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
-            f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
+           f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
             replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
@@ -1278,7 +1431,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     (src_replica_ranks2offset[tuple(src_replica_ranks)] + len_dst_div_src) % len(src_ep_and_tp_group)
                 )
 
-        if self._debug:
+        if True:#self._debug:
             def debug_msg_for_actor_mappings(actor_mapping):
                 if actor_mapping is None:
                     return
@@ -1290,12 +1443,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings)
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings_for_routed_experts)
 
+            count = 0
             for regroup_actors in self.send_actors_to_regroup_routed_experts:
+                count += 1
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in regroup_actors)
-                logger.debug(f"{self._comm_type_to_regroup_routed_experts} actors: {cat_str}")
+                logger.info(f"{self._comm_type_to_regroup_routed_experts} actors_{count}: {cat_str}")
             for k, v_list in self.send_recv_actor_mappings.items():
                 for v in v_list:
-                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+                    logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1391,6 +1546,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
+            s_time = time.time()
             max_workers = self._calculate_max_workers(self.send_actors_to_regroup_routed_experts)
             if self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER:
                 # allgather routed experts only
@@ -1407,9 +1563,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     max_workers=max_workers,
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter)
+            e_time = time.time()
 
+            logger.info(f"debug param sync: complete to alltoall router experts. ")
+            logger.info(f"debug param sync cost alltoall {e_time-s_time}")
             # sync everything to inference model
             if self.tp_num_mapping == 1:
+                logger.info(f"debug self.tp_num_mapping: {self.tp_num_mapping}")
+                s_time = time.time()
                 send_actors_list = [self.sorted_send_actors]
                 actor_mappings_list = [self.send_recv_actor_mappings]
                 self._multi_thread_sync_for_tp_num_mapping_eq_1(
@@ -1419,16 +1580,53 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     filter_fn=None,
                     param_group="default"
                 )
+                e_time = time.time()
+                logger.info(f"debug param sync: complete to alltoall router experts")
+            
             elif self.tp_num_mapping > 1:
-                send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
-                actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
-                self._multi_thread_sync_for_tp_num_mapping_gt_1(
-                    send_actors_list,
-                    actor_mappings_list,
-                    requires_grad=requires_grad,
-                    filter_fn=None,
-                    param_group="default"
+                logger.info(f"debug self.tp_num_mapping: {self.tp_num_mapping}")
+                s_time = time.time()
+                logger.info(f"debug param sync: start to sync other weights.")
+            
+                # send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
+                # actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                # self._multi_thread_sync_for_tp_num_mapping_gt_1(
+                #     send_actors_list,
+                #     actor_mappings_list,
+                #     requires_grad=requires_grad,
+                #     filter_fn=None,
+                #     param_group="default"
+                # )
+                # First, synchronize routed experts.
+                self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
+
+                self.clear_cache(
+                    sorted_send_actors_list = [
+                        self.send_actors_to_regroup_routed_experts,
+                        self.sorted_send_actors_for_routed_experts
+                    ],
+                    rank_mapping_list=[
+                        self.send_recv_actor_mappings_for_routed_experts
+                    ]
                 )
+
+                # Then, synchronize parameters except routed experts
+                self._synchronize_params_except_routed_experts(requires_grad=requires_grad, validate=validate)
+
+                self.reset_synchronizer()
+
+                self.clear_cache(
+                    sorted_send_actors_list = [
+                        self.sorted_send_actors,
+                        self.sorted_send_actors_stage2,
+                    ],
+                    rank_mapping_list = [
+                        self.send_recv_actor_mappings,
+                        self.send_recv_actor_mappings_stage2
+                    ]
+                )
+                e_time = time.time()
+                logger.info(f"debug param sync: complete to sync other weights.")
             else:
                 raise NotImplementedError(
                     f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
@@ -1457,8 +1655,15 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:
+            
             send_actors_list = [self.sorted_send_actors_for_routed_experts]
             actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
+
+            logger.info(f"send_actors_list: {send_actors_list}")
+            logger.info(f"actor_mappings_list: {actor_mappings_list}")
+            # import pdb;pdb.set_trace()
+            # logger.info(f"sync routed experts from {[self.actor2rank[ele] for ele in send_actors_list[0]]}")
+
             self._multi_thread_sync_for_tp_num_mapping_eq_1(
                 send_actors_list,
                 actor_mappings_list,

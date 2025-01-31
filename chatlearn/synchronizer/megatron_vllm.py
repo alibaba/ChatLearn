@@ -33,6 +33,7 @@ class MegatronVllmSync(BaseSync):
     def __init__(self, src_model, dst_model):
         super().__init__(src_model, dst_model)
         self.src_module_args = src_model.module_args
+        self.dst_module_args = dst_model.module_args
         self.is_parameter_changed = True
 
     @abstractmethod
@@ -231,7 +232,7 @@ class MegatronVllmSync(BaseSync):
                 "Please export `QWEN_VERSION` as `qwen_moe_v1`."
             )
 
-    def alltoall_routed_experts_from_hep(self, name, params_to_sync, comm_group):
+    def alltoall_routed_experts_from_hep(self, name, params_to_sync, comm_group, model_name, rank, world_size):
         """
         This function is applicable for synchronizing parameters from QWen with HEP enabled
         to vLLM. In HEP, routed experts are split into a total number of EP size * TP size.
@@ -240,6 +241,9 @@ class MegatronVllmSync(BaseSync):
         if self.sync_map._to_alltoall_routed_experts_dict is None:
             return params_to_sync, False
 
+        # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+        #     file.write(f"1 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
         to_alltoall_routed_experts_dict = self.sync_map._to_alltoall_routed_experts_dict
         layer_re = to_alltoall_routed_experts_dict["layer_re"]
         to_regroup_modules_list = to_alltoall_routed_experts_dict["modules"]
@@ -248,20 +252,33 @@ class MegatronVllmSync(BaseSync):
         if m is None:
             return params_to_sync, False
 
+        # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+        #     file.write(f"2 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
         op_name = m.group(2)
         if op_name in to_regroup_modules_list:
             tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
             ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
             hep_size = tp_size * ep_size
             moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+
             local_num_experts = moe_num_experts // hep_size
             hidden_size = self.src_module_args.args_dict["hidden_size"]
             if "dense_h_to_4h" in op_name:
                 # w13_weight
                 # regroup among difference tp slices
                 param = params_to_sync.view((moe_num_experts, -1, hidden_size))
+                # if "layers.0" in name:
+                #     offset = 4
+                #     num_prints = param.shape[0] // offset
+                #     with open(f"/workspace/code/cmd/moelite_scripts/chatlearn_w13_{rank}_before_tp4ep2.txt", "a+") as file:
+                #         for i in range(num_prints):
+                #             start = offset * i
+                #             end = start + offset
+                #             tensor_to_print = param[start:end]
+                #             file.write(name + f"_{i}:" + str(tensor_to_print.cpu()) + "\n")    
                 param = param.reshape((local_num_experts * 2, -1, hidden_size))
-                params = list(param.chunk(tp_size, dim=1))
+                params = list(param.chunk(hep_size, dim=1))
                 # reorder w1 and w3
                 params_list = []
                 while params:
@@ -276,36 +293,69 @@ class MegatronVllmSync(BaseSync):
                 del params_to_sync
                 output = [
                     torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
-                    for i in range(tp_size)
+                    for i in range(hep_size)
                 ]
+                # if rank == 0 and "layers.0" in name:
+                #     offset = 4
+                #     for idx, ele in enumerate(params_list):
+                #         num_prints = ele.shape[0] // offset
+                #         with open(f"/workspace/code/cmd/moelite_scripts/chatlearn_w13_slice_{rank}_tp4ep2.txt", "a+") as file:
+                #             for i in range(num_prints):
+                #                 start = offset * i
+                #                 end = start + offset
+                #                 tensor_to_print = ele[start:end]
+                #                 file.write(name + f"_{i}:" + str(tensor_to_print.cpu()) + "\n")
+
                 torch.distributed.all_to_all(output, params_list, group=comm_group)
                 del params_list
                 params_to_sync = torch.cat(output, dim=0).contiguous()
+                # if "layers.0" in name:
+                #     offset = 4
+                #     num_prints = params_to_sync.shape[0] // offset
+                #     with open(f"/workspace/code/cmd/moelite_scripts/chatlearn_w13_{rank}_after_tp4ep2.txt", "a+") as file:
+                #         for i in range(num_prints):
+                #             start = offset * i
+                #             end = start + offset
+                #             tensor_to_print = params_to_sync[start:end]
+                #             file.write(name + f"_{i}:" + str(tensor_to_print.cpu()) + "\n")    
+                
                 del output
             else:
                 # w2_weight
                 param = params_to_sync.view((local_num_experts, -1, hidden_size))
-                params = list(param.chunk(tp_size, dim=1))
+                params = list(param.chunk(hep_size, dim=1))
                 params_list = [ele.contiguous() for ele in params]
                 del param
                 del params
                 del params_to_sync
                 output = [
                     torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
-                    for i in range(tp_size)
+                    for i in range(hep_size)
                 ]
+                # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+                #     file.write(f"4.1 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
                 torch.distributed.all_to_all(output, params_list, group=comm_group)
+                # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+                #     file.write(f"4.2 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
                 del params_list
                 params_to_sync = torch.cat(output, dim=0).transpose(1, 2).contiguous()
                 del output
+            # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+            #     file.write(f"f.1 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
             return params_to_sync, True
         else:
+            # with open(f"/workspace/code/cmd/moelite_scripts/ps_{model_name}_{rank}_{world_size}_1.txt", "a+") as file:
+            #     file.write(f"f.2 debug alltoall rank: {rank}/{world_size} in comm group {id(comm_group)} {name}" + "\n")
+        
             return params_to_sync, False
 
-    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
+    def alltoall_routed_experts(self, name, params_to_sync, comm_group, model_name="default", rank=0, world_size=1): # pylint: disable=unused-argument
         megatron_version = get_megatron_version()
         if megatron_version == MegatronVersion.V4:
-            return self.alltoall_routed_experts_from_hep(name, params_to_sync, comm_group)
+            return self.alltoall_routed_experts_from_hep(name, params_to_sync, comm_group, model_name, rank, world_size)
         else:
             raise NotImplementedError(
                 "ChatLearn does not support all-to-all routed experts for Megatron-LM, but supports QWen with HEP enabled. "
@@ -329,8 +379,9 @@ class MegatronVllmSync(BaseSync):
         if "attention.query_key_value" in name or \
                 "self_attention.query_key_value" in name or \
                 "self_attention.linear_qkv" in name:
-            tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-            heads = self.src_module_args.args_dict["num_attention_heads"] // tp_size
+            src_tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
+            dst_tp_size = self.dst_module_args.args_dict["tensor_model_parallel_size"]
+            heads = self.src_module_args.args_dict["num_attention_heads"] // src_tp_size
             hidden_size_per_head = self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
 
             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
@@ -348,23 +399,42 @@ class MegatronVllmSync(BaseSync):
                     param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                     del param_data_list
             else:
-                _num_query_groups = self.src_module_args.args_dict["num_query_groups"]//tp_size  \
-                    if self.src_module_args.args_dict["group_query_attention"] else heads
-                if to_fix_qkv_ordering_dict is not None or _num_query_groups == 1:
+                if self.src_module_args.args_dict["group_query_attention"]:
+                    num_query_groups = self.src_module_args.args_dict["num_query_groups"]
+                    assert num_query_groups == self.dst_module_args.args_dict["num_query_groups"], (
+                        f"num_query_groups of src model ({num_query_groups}) must be equal to num_query_groups of "
+                        f"dst model ({self.dst_moduel_args.args_dict['num_query_groups']}). Please double-check your config."
+                    )
+                    src_num_query_groups_per_replica = num_query_groups // src_tp_size
+                    if dst_tp_size >= num_query_groups:
+                        num_dst_kv_head_replicas = dst_tp_size // num_query_groups
+                    else:
+                        num_dst_kv_head_replicas = 1
+                else:
+                    src_num_query_groups_per_replica = heads
+                    num_dst_kv_head_replicas = 1
+
+                if to_fix_qkv_ordering_dict is not None or src_num_query_groups_per_replica == 1:
                     if len(param_data_shape) == 1:
-                        param_data = param_data.view((heads + 2 * _num_query_groups, hidden_size_per_head))
+                        param_data = param_data.view((heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head))
                     else:
                         param_data = param_data.view(
-                            (heads + 2 * _num_query_groups, hidden_size_per_head, self.src_module_args.args_dict["hidden_size"]))
+                            (heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head, self.src_module_args.args_dict["hidden_size"]))
                     param_data_list = []
                     head_offset = heads // tp_divition
                     for idx in range(tp_divition):
                         q_start = idx * head_offset
                         q_end = q_start + head_offset
-                        k_start = (heads + idx) if _num_query_groups // tp_divition else heads
-                        k_end = k_start + 1
-                        v_start = k_start + _num_query_groups
-                        v_end = v_start + 1
+                        if num_dst_kv_head_replicas == 1:
+                            k_start = (heads + idx) if src_num_query_groups_per_replica // tp_divition else heads
+                            k_end = k_start + 1
+                            v_start = k_start + src_num_query_groups_per_replica
+                            v_end = v_start + 1
+                        else:
+                            k_start = heads + idx // num_dst_kv_head_replicas
+                            k_end = k_start + 1
+                            v_start = k_start + src_num_query_groups_per_replica
+                            v_end = v_start + 1
 
                         q_proj = param_data[q_start:q_end].contiguous()
                         k_proj = param_data[k_start:k_end].contiguous()
