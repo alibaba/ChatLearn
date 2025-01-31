@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.5.1 llm_engine remove __reduce__ function."""
+"""Hooks of vllm-0.6.3 llm_engine remove __reduce__ function."""
 
 import inspect
 

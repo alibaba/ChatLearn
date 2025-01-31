@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.3 llm init with AsyncLLMEngine and AsyncEngineArgs."""
+"""Hooks of vllm-0.6.6 llm init with AsyncLLMEngine and AsyncEngineArgs."""
 
 from typing import Any, Dict, Optional, Union
 

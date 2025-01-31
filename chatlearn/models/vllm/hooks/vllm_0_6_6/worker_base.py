@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.3 worker_base to update execute_method."""
+"""Hooks of vllm-0.6.6 worker_base to update execute_method."""
 
 # pylint: disable=unused-import,wildcard-import
 from vllm.worker import worker_base
