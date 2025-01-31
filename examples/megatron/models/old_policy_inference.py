@@ -23,7 +23,7 @@ from megatron.core import mpu
 from megatron.training import arguments
 from megatron.training import get_args, get_tokenizer
 from megatron.training import print_rank_0
-from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 from megatron.inference.text_generation.communication import broadcast_float_list, \
     broadcast_int_list, broadcast_tensor
 from megatron.inference.text_generation.generation import generate_tokens_probs_and_return_on_first_stage
@@ -36,7 +36,7 @@ from chatlearn.utils.megatron_utils import load_checkpoint
 from examples.megatron.data.prompt_dataset import PromptPipeline
 from .policy_model import PolicyModel as LegacyPolicyModel
 from .mcore_policy_model import MCorePolicyModel
-from .utils import tensorboard_scalar_dict, get_loss_mask, get_eos_id
+from .utils import tensorboard_scalar_dict, wandb_scalar_dict , get_loss_mask, get_eos_id
 
 
 class PolicyInference(MegatronModule):
@@ -411,6 +411,8 @@ class PolicyInference(MegatronModule):
         # log
 
         writer = get_tensorboard_writer()
+        wandb_writer = get_wandb_writer()
+
         # RL related stats: global
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == (
@@ -427,6 +429,9 @@ class PolicyInference(MegatronModule):
                               }
                 tensorboard_scalar_dict(writer, prefix=f"policy_inference/replica_id{self.replica_id}",
                                         global_step=iteration_for_log, scalar_dict=stats_args)
+                if wandb_writer:
+                    wandb_scalar_dict(wandb_writer, prefix=f"policy_inference/replica_id{self.replica_id}",
+                                            global_step=iteration_for_log, scalar_dict=stats_args)
 
         else:
             # actual log
@@ -440,6 +445,9 @@ class PolicyInference(MegatronModule):
                           }
             tensorboard_scalar_dict(writer, prefix=f"policy_inference/replica_id{self.replica_id}",
                                     global_step=iteration_for_log, scalar_dict=stats_args)
+            if wandb_writer:
+                wandb_scalar_dict(wandb_writer, prefix=f"policy_inference/replica_id{self.replica_id}",
+                        global_step=iteration_for_log, scalar_dict=stats_args)
 
         get_args().entropy_sum = 0
         get_args().entropy_num = 0
