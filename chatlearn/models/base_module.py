@@ -752,26 +752,12 @@ class BaseModule:
 
     def alltoall_routed_expert_parameter(self, pipe_stage=0):
         assert self._synchronizer is not None
-        import torch
-
-        comm_group = self.tensor_and_expert_parallel_group()
-        rank = torch.distributed.get_rank(group=comm_group)
-        world_size = torch.distributed.get_world_size(group=comm_group)
-        # with open(f"/workspace/code/cmd/moelite_scripts/{self.name}_{rank}_{world_size}.txt", "a+") as file:
-        #     file.write(f"debug alltoall rank: {rank} in comm group {id(comm_group)}, num_params: {len(self._parameters_to_sync[pipe_stage])}" + "\n")
-        # breakpoint()
         for name, param in self._parameters_to_sync[pipe_stage]:
             param, state = self._synchronizer.alltoall_routed_experts(
                 name,
                 param,
                 self.tensor_and_expert_parallel_group(),
-                self.name,
-                rank,
-                world_size
             )
-
-            # self._logger.info(f"debug {name} {param.shape} state: {state}")
-            # state = True
             if state:
                 self._expert_sync_buffer.pop(name, "Not Found.")
                 self._expert_sync_buffer[name] = param
@@ -904,12 +890,9 @@ class BaseModule:
         )
         dense_bucket_num = 0
         sparse_bucket_num = 0
-        count = 0
         for bucket_or_tensor, is_dense in bucket_generator:
             if is_dense:
                 index = 0 if stage2 else (to_rank % self.tp_num_mapping)
-                # if stage2:
-                #     self._logger.info(f"stage2 bucket: {len(bucket_or_tensor)} count: {count}")
                 all_buffers = coalesced_comm_dense_two_stage(
                     bucket_or_tensor, col.broadcast, rank,
                     extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
@@ -922,38 +905,11 @@ class BaseModule:
                         del value
                         self._sync_buffer[key] += cpu_value
                     del all_buffers
-                count += len(bucket_or_tensor)
-                # if stage2:
-                #     self._logger.info(f"finished stage2 bucket_or_tensor: {len(bucket_or_tensor)} count: {count}")
                 dense_bucket_num += 1
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
 
-        if stage2:
-            self._logger.info(f"debug finished stage2 comm")
-        else:
-            self._logger.info(f"debug finished stage1 comm")
-
-        check_rank = self.tensor_parallel_rank()
-        if False:#self.tensor_parallel_rank() == check_rank and stage2:# and check_rank not in [0, 1, 2, 3]:
-            if not isinstance(self.model, list):
-                model = [self.model]
-            else:
-                model = self.model
-            for item in model[0].named_parameters():
-                name, param = item
-                if "layers.0" in name:
-                    print(f"debug output param {name} {param.shape}")
-                    offset = 4
-                    num_prints = param.shape[0] // offset
-                    with open(f"/workspace/code/cmd/moelite_scripts/new/tp2ep4pp1_{check_rank}_{name}.txt", "a+") as file:
-                        for i in range(num_prints):
-                            start = offset * i
-                            end = start + offset
-                            tensor_to_print = param[start:end]
-                            file.write(name + f"_{i}:" + str(tensor_to_print.cpu()) + "\n")    
-               
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
         self.empty_cache()
