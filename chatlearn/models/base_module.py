@@ -18,7 +18,6 @@ from collections import defaultdict
 from itertools import cycle
 import math
 import os
-import torch
 
 import ray
 import ray.util.collective as col
@@ -756,7 +755,7 @@ class BaseModule:
             param, state = self._synchronizer.alltoall_routed_experts(
                 name,
                 param,
-                self.tensor_and_expert_parallel_group(),
+                self.tensor_and_expert_parallel_group()
             )
             if state:
                 self._expert_sync_buffer.pop(name, "Not Found.")
@@ -830,7 +829,6 @@ class BaseModule:
                 parameters_to_sync = self._parameters_to_recv[to_rank]
             else:
                 parameters_to_sync = self._parameters_to_send
-            # self._logger.info(f"stage2 need to sync params: {len(parameters_to_sync[0])}")
         else:
             del self._sync_buffer
             self._sync_buffer = defaultdict(list)

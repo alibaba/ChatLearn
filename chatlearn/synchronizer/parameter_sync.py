@@ -14,12 +14,11 @@
 # ==============================================================================
 """Sync parameters"""
 
-import os
 import concurrent.futures
 import traceback
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
-from itertools import cycle, permutations, combinations
+from itertools import cycle
 from typing import List, Dict
 
 import torch
@@ -305,8 +304,6 @@ class ParameterSyncGroup:
         if self._debug and (src_dp_ranks[0] is None or dst_dp_ranks is None):
             return
 
-        #assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
-        #    f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
             replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
@@ -1305,7 +1302,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             return
 
         assert len(src_dp_ranks[0]) % len(dst_dp_ranks[0]) == 0, \
-           f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
+            f"src training model ranks should be times of dst ranks, but got {len(src_dp_ranks[0])} and {len(dst_dp_ranks[0])}"
         if self.src_model.colocate_with(self.dst_model) and self.num_src_tensor_parallel % 2 == 1:
             replica_rank_iter = cycle(reversed(src_dp_ranks))
         else:
@@ -1374,11 +1371,10 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings)
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings_for_routed_experts)
 
-            count = 0
             for regroup_actors in self.send_actors_to_regroup_routed_experts:
                 count += 1
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in regroup_actors)
-                logger.info(f"{self._comm_type_to_regroup_routed_experts} actors_{count}: {cat_str}")
+                logger.info(f"{self._comm_type_to_regroup_routed_experts} actors: {cat_str}")
             for k, v_list in self.send_recv_actor_mappings.items():
                 for v in v_list:
                     logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
@@ -1511,9 +1507,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
             elif self.tp_num_mapping > 1:
                 # First, synchronize routed experts.
-                logger.info(f"start to sync routed expert weights.")
+                logger.info("start to sync routed expert weights.")
                 self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate)
-                logger.info(f"complete to sync routed expert weights.")
+                logger.info("complete to sync routed expert weights.")
                 self.clear_cache(
                     sorted_send_actors_list = [
                         self.send_actors_to_regroup_routed_experts,
