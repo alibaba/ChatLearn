@@ -255,6 +255,7 @@ class MegatronVllmSync(BaseSync):
             ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
             hep_size = tp_size * ep_size
             moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+
             local_num_experts = moe_num_experts // hep_size
             hidden_size = self.src_module_args.args_dict["hidden_size"]
             if "dense_h_to_4h" in op_name:
@@ -262,7 +263,7 @@ class MegatronVllmSync(BaseSync):
                 # regroup among difference tp slices
                 param = params_to_sync.view((moe_num_experts, -1, hidden_size))
                 param = param.reshape((local_num_experts * 2, -1, hidden_size))
-                params = list(param.chunk(tp_size, dim=1))
+                params = list(param.chunk(hep_size, dim=1))
                 # reorder w1 and w3
                 params_list = []
                 while params:
@@ -277,7 +278,7 @@ class MegatronVllmSync(BaseSync):
                 del params_to_sync
                 output = [
                     torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
-                    for i in range(tp_size)
+                    for i in range(hep_size)
                 ]
                 torch.distributed.all_to_all(output, params_list, group=comm_group)
                 del params_list
@@ -286,14 +287,14 @@ class MegatronVllmSync(BaseSync):
             else:
                 # w2_weight
                 param = params_to_sync.view((local_num_experts, -1, hidden_size))
-                params = list(param.chunk(tp_size, dim=1))
+                params = list(param.chunk(hep_size, dim=1))
                 params_list = [ele.contiguous() for ele in params]
                 del param
                 del params
                 del params_to_sync
                 output = [
                     torch.empty(size=params_list[i].shape, dtype=params_list[i].dtype, device=params_list[i].device)
-                    for i in range(tp_size)
+                    for i in range(hep_size)
                 ]
                 torch.distributed.all_to_all(output, params_list, group=comm_group)
                 del params_list
