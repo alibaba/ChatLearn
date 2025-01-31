@@ -916,7 +916,7 @@ class ParameterSyncGroup:
                             in_actor_group = True
                     if not in_actor_group:
                         new_actor_group_flag = False
-                        actor_groups_to_sync[idx].append(group)
+                        actor_groups_to_sync[idx].append(group) #pylint: disable=unnecessary-list-index-lookup
                         break
                 if new_actor_group_flag or not actor_groups_to_sync:
                     actor_groups_to_sync.append([group])
