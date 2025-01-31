@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.3 loader to load ckpt of megatron format."""
+"""Hooks of vllm-0.6.6 loader to load ckpt of megatron format."""
 
 
 import torch
@@ -24,6 +24,7 @@ from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weigh
 from vllm.model_executor.model_loader.utils import set_default_torch_dtype
 from vllm.model_executor.models import llama
 from vllm.model_executor.models import qwen2, qwen2_moe
+from vllm.config import VllmConfig
 
 from chatlearn.utils.vllm_import_helper import LlamaForCausalLM
 from chatlearn.utils.vllm_import_helper import QWenLMHeadModel
@@ -75,17 +76,14 @@ loader.DummyModelLoader.__init__ = init
 
 
 # add ckpt loading of megatron format
-def load_model(self, *, model_config,
-                device_config,
-                lora_config,
-                parallel_config,
-                scheduler_config,
-                cache_config):
+def load_model(self, vllm_config: VllmConfig):# -> nn.Module:
+    device_config = vllm_config.device_config
+    model_config = vllm_config.model_config
     with set_default_torch_dtype(model_config.dtype):
         with torch.device(device_config.device):
-            model = _initialize_model(model_config, self.load_config,
-                                        lora_config, cache_config,
-                                        scheduler_config)
+            model = _initialize_model(vllm_config=vllm_config)
+        # NOTE(woosuk): For accurate performance evaluation, we assign
+        # random values to the weights.
         if self.load_config.model_loader_extra_config.get("need_load_ckpt", True) and \
                 self.load_config.model_loader_extra_config["load"] is not None:
             qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
@@ -112,4 +110,6 @@ def load_model(self, *, model_config,
                         module, torch.device(device_config.device)):
                     quant_method.process_weights_after_loading(module)
     return model.eval()
+
+
 loader.DummyModelLoader.load_model = load_model
