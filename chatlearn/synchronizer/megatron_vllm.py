@@ -381,7 +381,6 @@ class MegatronVllmSync(BaseSync):
                         param_data_list.append(qkv_proj)
                     param_data = torch.concat(param_data_list, dim=0)
                     del param_data_list
-
         return param_data
 
     def regroup_params_to_sync(self, name, param_data, tp_division, regroup_routed_experts=False):
