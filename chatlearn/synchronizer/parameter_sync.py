@@ -337,6 +337,7 @@ class ParameterSyncGroup:
                 j = i // pipe_map_interval
                 for src_rank, dst_rank in zip(src_tp_group, dst_replica_ranks_group[j]):
                     add_recv_actor_fn(src_rank, dst_rank)
+                    logger.info(f"20250131 Sending from {src_rank} to {dst_rank}")
 
     # pylint: disable=unused-argument
     def build_rank_mapping_for_ep(self, add_recv_actor_fn=None):
@@ -464,8 +465,8 @@ class ParameterSyncGroup:
                 for tuples in dst_tp_group:
                     p2p_pair_grouping(tuples)
 
-        logger.debug(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
-        logger.debug(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
+        logger.info(f"comm pair_list <train_rank, inference_rank>: {pair_list}")
+        logger.info(f"comm p2p_list <inference_rank, inference_rank>: {p2p_list}")
 
     def _clear_sync_send_recv_parameters(self, rank_mappings:List):
         if len(rank_mappings) == 0:
@@ -1195,6 +1196,7 @@ class ParameterSyncGroup:
         actor_mappings = actor_mappings_list[0]
 
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
+        logger.info(f"20250131 sorted_send_actors: {sorted_send_actors}")
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
 
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1327,8 +1329,18 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 else:
                     self.build_rank_mapping_for_ep()
             elif self.tp_num_mapping > 1:
-                self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
-                self.build_rank_mapping_two_stage()
+                if self.hep_num_mapping == 1:
+                    logger.info(f"20250131 build ranking mapping for ep")
+                    self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
+                    # self.send_actors_to_regroup_routed_experts = self.send_actors_to_regroup_routed_experts[0]
+                    # self.sorted_send_actors_for_routed_experts = self.send_actors_to_regroup_routed_experts
+                    logger.info(f"20250131 build ranking mapping for routed expert")
+                    self.build_rank_mapping_for_routed_experts()
+                    logger.info(f"20250131 build ranking mapping for params except routed expert")
+                    self.build_rank_mapping_for_params_except_routed_expert()
+                else:
+                    self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
+                    self.build_rank_mapping_two_stage()
             else:
                 raise NotImplementedError(
                     f"ChatLearn does not support synchronizing from larger tp size ({self.num_src_tensor_parallel})"
@@ -1419,7 +1431,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     (src_replica_ranks2offset[tuple(src_replica_ranks)] + len_dst_div_src) % len(src_ep_and_tp_group)
                 )
 
-        if self._debug:
+        if True:#self._debug:
             def debug_msg_for_actor_mappings(actor_mapping):
                 if actor_mapping is None:
                     return
@@ -1431,12 +1443,14 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings)
             debug_msg_for_actor_mappings(self.send_recv_actor_mappings_for_routed_experts)
 
+            count = 0
             for regroup_actors in self.send_actors_to_regroup_routed_experts:
+                count += 1
                 cat_str = "_".join(str(self.actor2rank[actor]) for actor in regroup_actors)
-                logger.debug(f"{self._comm_type_to_regroup_routed_experts} actors: {cat_str}")
+                logger.info(f"{self._comm_type_to_regroup_routed_experts} actors_{count}: {cat_str}")
             for k, v_list in self.send_recv_actor_mappings.items():
                 for v in v_list:
-                    logger.debug(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
+                    logger.info(f"send_recv_actor_mappings: {self.actor2rank[k]} -> {self.actor2rank[v]}")
 
     def add_recv_actor_for_routed_experts(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
@@ -1641,8 +1655,15 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:
+            
             send_actors_list = [self.sorted_send_actors_for_routed_experts]
             actor_mappings_list = [self.send_recv_actor_mappings_for_routed_experts]
+
+            logger.info(f"send_actors_list: {send_actors_list}")
+            logger.info(f"actor_mappings_list: {actor_mappings_list}")
+            # import pdb;pdb.set_trace()
+            # logger.info(f"sync routed experts from {[self.actor2rank[ele] for ele in send_actors_list[0]]}")
+
             self._multi_thread_sync_for_tp_num_mapping_eq_1(
                 send_actors_list,
                 actor_mappings_list,

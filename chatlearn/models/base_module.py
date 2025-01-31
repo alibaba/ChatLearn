@@ -936,7 +936,7 @@ class BaseModule:
             self._logger.info(f"debug finished stage1 comm")
 
         check_rank = self.tensor_parallel_rank()
-        if self.tensor_parallel_rank() == check_rank and stage2:# and check_rank not in [0, 1, 2, 3]:
+        if False:#self.tensor_parallel_rank() == check_rank and stage2:# and check_rank not in [0, 1, 2, 3]:
             if not isinstance(self.model, list):
                 model = [self.model]
             else:
