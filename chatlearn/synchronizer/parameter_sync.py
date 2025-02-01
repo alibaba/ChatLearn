@@ -1265,9 +1265,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     self.build_rank_mapping_for_ep()
             elif self.tp_num_mapping > 1:
                 if self.hep_num_mapping == 1:
-                    # self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
                     self.build_rank_mapping_for_ep(add_recv_actor_fn=self.add_recv_actor_for_routed_experts) # only add all-gather actors
-                    # self.build_rank_mapping_for_routed_experts()
                     self.build_rank_mapping_for_params_except_routed_expert()
                 else:
                     self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
