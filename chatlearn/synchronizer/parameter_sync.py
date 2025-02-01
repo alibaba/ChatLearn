@@ -1132,10 +1132,12 @@ class ParameterSyncGroup:
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
 
+        logger.info(f"Use {max_workers} workers for routed experts synchoronization.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for send_actor in sorted_send_actors:
                 recv_actors = actor_mappings[send_actor]
+                logger.info(f"Sending from {[self.actor2rank[send_actor]]} to {[self.actor2rank[actor] for actor in recv_actors]}.")
                 if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
                     actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
                     futures.append(executor.submit(
@@ -1263,8 +1265,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     self.build_rank_mapping_for_ep()
             elif self.tp_num_mapping > 1:
                 if self.hep_num_mapping == 1:
-                    self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
-                    self.build_rank_mapping_for_routed_experts()
+                    self.build_rank_mapping_for_ep(add_recv_actor_fn=self.add_recv_actor_for_routed_experts) # only add all-gather actors
                     self.build_rank_mapping_for_params_except_routed_expert()
                 else:
                     self.build_rank_mapping_for_ep(add_recv_actor_fn=self.empty_add_recv_actor) # only add all-gather actors
