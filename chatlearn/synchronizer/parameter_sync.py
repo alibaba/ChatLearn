@@ -266,7 +266,6 @@ class ParameterSyncGroup:
     def set_send_actors_to_regroup_routed_experts(self, src_replica_ranks_group):
         if self.send_actors_to_regroup_routed_experts is None:
             self.send_actors_to_regroup_routed_experts = []
-        
         for src_replica_ranks in src_replica_ranks_group:
             self.send_actors_to_regroup_routed_experts.append([])
             if isinstance(src_replica_ranks[0], list):
@@ -276,6 +275,7 @@ class ParameterSyncGroup:
             else:
                 self.send_actors_to_regroup_routed_experts[-1].extend(
                     [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
+
     def get_src_and_dst_dp_ranks(self):
         dst_dp_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
