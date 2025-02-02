@@ -19,6 +19,7 @@ from itertools import cycle
 import math
 import os
 
+import torch
 import ray
 import ray.util.collective as col
 from ray.util.collective.collective_group.base_collective_group import BaseGroup
@@ -33,7 +34,7 @@ from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
-from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
+from chatlearn.utils.logger import log_rank_0, log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr
 from chatlearn.launcher import dlc_utils
@@ -617,28 +618,91 @@ class BaseModule:
                     self._param_to_name[item[1]] = item[0]
         return self._param_to_name
 
-    def _set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+    def _set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None, fp8_quantize=False):
         if parameters_to_sync is None:
             parameters_to_sync = defaultdict(list)
         assert pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage])==0
         params_to_sync_list = [(name, self.named_parameters[name]) for name in trainable_param_names]
         if self._synchronizer is not None:
             params_to_sync_list = self._synchronizer.transform_parameters(params_to_sync_list)
-        parameters_to_sync[pipe_stage] = params_to_sync_list
+        if fp8_quantize:
+            from vllm import _custom_ops as ops
+
+            params_to_sync_list_fp8 = list()
+            while len(params_to_sync_list) > 0:
+                name, params = params_to_sync_list.pop(0)
+                if ("layers" not in name.lower()
+                    or "mlp.gate" in name.lower() 
+                    or "mlp.router.layer" in name.lower()
+                    or "layernorm" in name.lower() 
+                    or "bias" in name.lower()
+                ):
+                    self._logger.info(f"Skip quantize: {name=} {params.shape=}")
+                    params_to_sync_list_fp8.append((name, params))
+                elif "mlp.experts.dense_4h_to_h" in name.lower() or "mlp.experts.dense_h_to_4h" in name.lower():
+                    # when quantize routed experts, per-tensor means on each expert
+                    # params in self._expert_sync_buffer already tp sliced for all experts
+                    params = self._expert_sync_buffer[name]
+                    num_experts = self._module_args.args_dict["moe_num_experts"] 
+                    hidden = self._module_args.args_dict["hidden_size"]
+                    if "dense_4h_to_h" in name.lower(): 
+                        # w2
+                        reshaped_params = params.reshape(num_experts, hidden, -1)
+                    else:
+                        # w13
+                        reshaped_params = params.reshape(num_experts, -1, hidden)
+                    qweight_list = list()
+                    scale_list = list()
+                    for i in range(num_experts):
+                        qw, scale = ops.scaled_fp8_quant(reshaped_params[i: i+1].squeeze(0), scale=None)
+                        qweight_list.append(qw.unsqueeze(0).view(torch.uint8))
+                        scale_list.append(scale)
+                    qw_experts = torch.cat(qweight_list, dim=0).reshape(params.shape).contiguous()
+                    scale_experts = torch.cat(scale_list, dim=0).contiguous()
+                    self._logger.warning(f"Experts quantize: {name=} {params.shape=} {scale_experts.shape=} {qw_experts.shape=}")
+                    params_to_sync_list_fp8.append((name, qw_experts))
+                    params_to_sync_list_fp8.append((f"{name}_scale", scale_experts))
+                    self._expert_sync_buffer[name] = qw_experts
+                    del params 
+                    del qweight_list
+                    del scale_list
+                else:
+                    qw, scale = ops.scaled_fp8_quant(params, scale=None)
+                    self._logger.warning(f"Normal quantize: {name=} {params.shape=} {scale.shape=}")
+                    params_to_sync_list_fp8.append((name, qw.view(torch.uint8)))
+                    # TODO(lanbo.llb): per-tensor quantize will need to duplicate scale params
+                    self._logger.info(f"Will repeat scale to [{self._tp_num_mapping}]")
+                    params_to_sync_list_fp8.append((f"{name}_scale", scale.repeat(self._tp_num_mapping)))
+                    del params
+            assert len(params_to_sync_list_fp8) > 0
+            parameters_to_sync[pipe_stage] = params_to_sync_list_fp8
+        else:
+            params_to_sync_list_new = list()
+            while len(params_to_sync_list) > 0:
+                name, params = params_to_sync_list.pop(0)
+                if params.element_size() == 1:
+                    params_to_sync_list_new.append((name, params))
+                    scale_name = f"{name}_scale"
+                    assert scale_name in self.named_parameters
+                    params_to_sync_list_new.append((scale_name, self.named_parameters[scale_name]))
+                else:
+                    params_to_sync_list_new.append((name, params))
+            parameters_to_sync[pipe_stage] = params_to_sync_list_new
+
         return parameters_to_sync
 
-    def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
+    def set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None, fp8_quantize=False):
         """
         :meta private:
         """
         if parameters_to_sync is None:
             parameters_to_sync = self._parameters_to_sync
         if pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage]) == 0:
-            self._set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_sync)
+            self._set_sync_parameters(trainable_param_names, pipe_stage, parameters_to_sync, fp8_quantize)
 
-    def reset_sync_parameters(self, trainable_param_names, pipe_stage=0):
+    def reset_sync_parameters(self, trainable_param_names, pipe_stage=0, fp8_quantize=False):
         self._parameters_to_sync[pipe_stage] = []
-        self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync)
+        self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync, fp8_quantize)
 
     def set_send_parameters(self, trainable_param_names, pipe_stage=0):
         """
@@ -742,7 +806,7 @@ class BaseModule:
         """
         tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        log_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
         for bucket in dense_buckets:
             tensor_changed = func is col.recv
             coalesced_comm_dense(bucket, func, extra_args=(rank, group_name), tensor_changed=tensor_changed)
@@ -782,17 +846,18 @@ class BaseModule:
         for name, param in self._parameters_to_sync[pipe_stage]:
             if self._expert_sync_buffer and name in self._expert_sync_buffer and \
                     (self._synchronizer and self._synchronizer.is_parameter_changed):
-                tensors.append(self._expert_sync_buffer[name])
+                tensors.append((name, self._expert_sync_buffer[name]))
             else:
-                tensors.append(param.data)
+                tensors.append((name, param.data))
 
+        self._logger.warning(f"# params to broadcast {len(tensors)} on {rank=}")
         assert len(tensors) > 0
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-        debug_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        log_rank_0(f"{self.name} Got dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
         tensor_changed = rank != src_rank
 
         for bucket in dense_buckets:
-            coalesced_comm_dense(bucket, col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
+            coalesced_comm_dense([b[1] for b in bucket], col.broadcast, extra_args=(src_rank, group_name), tensor_changed=tensor_changed)
 
         for param in sparse_bucket:
             col.broadcast(param, src_rank, group_name)
@@ -845,7 +910,7 @@ class BaseModule:
                     )
                     buffer_num = 1
                     idx += 1
-                    yield value, buffer_num
+                    yield name, value, buffer_num
                 del self._sync_buffer[buffer_rank % self.tp_num_mapping]
             else:
                 idx = 0
@@ -880,7 +945,7 @@ class BaseModule:
                         f"Adding {name}({param_data.shape}) to sync for else branch from "
                         f"src_rank: {src_rank} to rank: {rank} in pipe_stage {pipe_stage}"
                     )
-                    yield param_data, buffer_num
+                    yield name, param_data, buffer_num
 
         bucket_generator = bucket_tensors_two_stage_generator(
             tensor_generator, bucket_size_mb=self.runtime_args.coalesced_buffer_mb,
@@ -894,7 +959,7 @@ class BaseModule:
                 all_buffers = coalesced_comm_dense_two_stage(
                     bucket_or_tensor, col.broadcast, rank,
                     extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
-                    stage2=stage2, index=index)
+                    stage2=stage2, index=index, to_rank=to_rank)
                 if tensor_changed and not stage2:
                     for key, value in all_buffers.items():
                         cpu_value = []
@@ -908,7 +973,7 @@ class BaseModule:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
 
-        debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
+        log_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):
         """
@@ -929,7 +994,7 @@ class BaseModule:
         name2ref = {}
         tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-        debug_rank_0(f"{self.name} Put dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        log_rank_0(f"{self.name} Put dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
         for bucket_id, bucket in enumerate(dense_buckets):
             flat_tensors = _flatten_dense_tensors(bucket)
             flat_tensors_ref = ray.put(flat_tensors)
@@ -945,7 +1010,7 @@ class BaseModule:
         """
         tensors = [param.data for _, param in self._parameters_to_sync[pipe_stage]]
         dense_buckets, sparse_bucket = bucket_tensors(tensors, bucket_size_mb=self.runtime_args.coalesced_buffer_mb)
-        debug_rank_0(f"{self.name} Get dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
+        log_rank_0(f"{self.name} Get dense_buckets {len(dense_buckets)}, spase_bucket {len(sparse_bucket)}", self._logger)
         for bucket_id, bucket in enumerate(dense_buckets):
             put_ref = name2ref[group_name + ":dense_bucket_" + str(bucket_id)]
             flat_tensors = ray.get(put_ref)

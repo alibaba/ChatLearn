@@ -92,7 +92,7 @@ class FlatTensors:
         # Aggregate tensor data to GPU buffer.
         s = 0
         for t, numel, _ in zip(self._tensors, self._numels, self._shapes):
-            self._gpu_buffer[s: s + numel].copy_(t.data.view(-1))
+            self._gpu_buffer[s: s + numel].copy_(t.data.reshape(-1))
             s += numel
         self._link_tensor_data_to_gpu_buffer()
         self._in_gpu = True

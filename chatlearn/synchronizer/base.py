@@ -67,6 +67,8 @@ class BaseSync:
         """
         :meta private:
         """
+        if name.endswith("_scale") and param_data.dtype == torch.float32:
+            return param_data
         param_data_shape = param_data.shape
         # Regroup these tensors into different tp slices.
         # Output: [tp_slice_0, tp_slice_1, ...]

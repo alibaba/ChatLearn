@@ -149,6 +149,9 @@ class TorchModule(BaseModule):
         to_onload_main_weights = self._get_if_not_none(to_onload_main_weights, self.module_args.offload_weights)
         to_onload_optimizer_states = self._get_if_not_none(to_onload_optimizer_states, self.module_args.offload_optimizer_states)
         if to_onload_weights or to_build_grad_buffers or to_onload_main_weights or to_onload_optimizer_states:
+            if 'vllm' in self.__class__.__name__.lower():
+                qkv_w = self.model.model.layers[0].self_attn.qkv_proj.weight
+                self._logger.info(f"[ershu] [VLLMModule Before onload] {qkv_w.shape=} {qkv_w.stride()=}")
             log_rank_0(get_full_proc_memory_info('Before onload'), self._logger)
             torch.cuda.synchronize()
             timer = self.timers(f'{self.name}_free_memory')
@@ -169,6 +172,9 @@ class TorchModule(BaseModule):
             torch.cuda.empty_cache()
             gc.collect()
             timer.stop()
+            if 'vllm' in self.__class__.__name__.lower():
+                qkv_w = self.model.model.layers[0].self_attn.qkv_proj.weight
+                self._logger.info(f"[ershu] [VLLMModule After onload] {qkv_w.shape=} {qkv_w.stride()=}")
             log_rank_0(get_full_proc_memory_info('After onload'), self._logger)
 
     def offload(self, to_offload_weights=None, to_free_grad_buffers=None, to_offload_main_weights=None, to_offload_optimizer_states=None):
@@ -182,6 +188,9 @@ class TorchModule(BaseModule):
         to_free_grad_buffers = self._get_if_not_none(to_free_grad_buffers, self.module_args.free_grad_buffers)
         to_offload_optimizer_states = self._get_if_not_none(to_offload_optimizer_states, self.module_args.offload_optimizer_states)
         if to_free_grad_buffers or to_offload_weights or to_offload_optimizer_states or to_offload_main_weights:
+            if 'vllm' in self.__class__.__name__.lower():
+                qkv_w = self.model.model.layers[0].self_attn.qkv_proj.weight
+                self._logger.info(f"[ershu] [VLLMModule Before offload] {qkv_w.shape=} {qkv_w.stride()=}")
             log_rank_0(get_full_proc_memory_info('Before offload'), self._logger)
             torch.cuda.synchronize()
             timer = self.timers(f'{self.name}_free_memory')
@@ -202,4 +211,7 @@ class TorchModule(BaseModule):
             torch.cuda.empty_cache()
             gc.collect()
             timer.stop()
+            if 'vllm' in self.__class__.__name__.lower():
+                qkv_w = self.model.model.layers[0].self_attn.qkv_proj.weight
+                self._logger.info(f"[ershu] [VLLMModule After offload] {qkv_w.shape=} {qkv_w.stride()=}")
             log_rank_0(get_full_proc_memory_info('After offload'), self._logger)

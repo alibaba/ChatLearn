@@ -117,12 +117,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             max_num_seqs=self.module_args.generation_batch_size,
             max_num_batched_tokens = self.model_args.get("max_num_batched_tokens", None),
             num_scheduler_steps=self.model_args.get("num_scheduler_steps", 1),
-            gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
+            gpu_memory_utilization=0.5,
             # logger
             disable_log_requests=self.model_args.get("disable_log_requests", True),
             disable_log_stats=self.model_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            enforce_eager=self.model_args.get("enforce_eager", False),
+            enforce_eager=True,
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray")
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
@@ -186,7 +186,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
             # logger
             disable_log_requests=self.model_args.get("disable_log_requests", True),
-            disable_log_stats=self.model_args.get("disable_log_stats", True),
+            #disable_log_stats=self.model_args.get("disable_log_stats", True),
+            disable_log_stats=False,
             trust_remote_code=True,
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
@@ -195,6 +196,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.offload_for_workers()
         self.empty_cuda_graph_for_workers()
         self.empty_cache_for_workers()
+        self._logger.info(f"[ershu] [VLLMModule2.setup] {self.model.model.model.layers[0].self_attn.qkv_proj.weight.stride()=}")
 
     def dump_parameters(self, dump_path_root):
         self.onload_for_workers()
@@ -215,6 +217,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             torch.save(param.data.clone(), pt_file)
 
     def init_memory_manager(self):
+        return
         if self.module_args.offload_weights:
             if InferenceMemoryManager is None:
                 raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
@@ -371,6 +374,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
 
         outputs = self.run_vllm(parsed_prompts, sampling_params)
+        for output in outputs:
+            self._logger.warning(f"{output=}")
         return outputs
 
     def is_last_rank(self):
@@ -478,6 +483,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         offload weights
         """
+        return
         if self.module_args.offload_weights:
             self._memory_manager.offload_weights()
 
@@ -485,6 +491,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         onload weights
         """
+        return
         if self.module_args.offload_weights:
             self._memory_manager.onload_weights()
 
