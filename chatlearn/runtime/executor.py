@@ -257,10 +257,10 @@ class Executor:
             #   are the same, and we choose output[-1] to put into out_queue.
             # If (tp > 1 or pp > 1) and ep > 1, we choose last output for each dp rank to put into
             #   out_queue.
-            if model.module_args.expert_model_parallel_size == 1:
+            num_dp_rank = len(replica.dp_rank_to_actors)
+            if model.module_args.expert_model_parallel_size == 1 and num_dp_rank == 1:
                 result = [output[-1]]
             else:
-                num_dp_rank = len(replica.dp_rank_to_actors)
                 num_output = len(output)
                 assert num_output % num_dp_rank == 0, (
                     f"The number of outputs ({num_output}) must be divisible by "
