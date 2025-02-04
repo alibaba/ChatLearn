@@ -1143,7 +1143,7 @@ class ParameterSyncGroup:
 
             for group in groups:
                 futures = []
-                for global_idx, send_actor in group:
+                for _, send_actor in group:
                     recv_actors = actor_mappings[send_actor]
                     logger.info(f"Sending from {[self.actor2rank[send_actor]]} to {[self.actor2rank[actor] for actor in recv_actors]}.")
                     if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
@@ -1157,12 +1157,12 @@ class ParameterSyncGroup:
                                 self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
                             ))
 
-                for future in concurrent.futures.as_completed(futures):
+                for _future in concurrent.futures.as_completed(futures):
                     try:
-                        future.result()
+                        _future.result()
                     except Exception as e:
                         traceback.print_exc()
-                        raise RuntimeError(f"Parameter sync thread generated an exception: {e}")
+                        raise RuntimeError(f"Parameter sync thread generated an exception: {e}") from e
                 concurrent.futures.wait(futures)
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
