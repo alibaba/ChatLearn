@@ -104,7 +104,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.engine_args = AsyncEngineArgs(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
-            max_seq_len_to_capture=self.model_args.get("seq_length"),
+            max_seq_len_to_capture=self.model_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
@@ -170,7 +170,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.llm = LLM(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
-            max_seq_len_to_capture=self.model_args.get("seq_length"),
+            max_seq_len_to_capture=self.model_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
