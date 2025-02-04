@@ -879,7 +879,7 @@ class ParameterSyncGroup:
 
         if not new_thread_groups:
             new_thread_groups = [thread_groups]
-        max_workers = len(new_thread_groups)
+        max_workers = 1
 
         logger.info(f"Use {max_workers} workers for second_stage broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1131,29 +1131,39 @@ class ParameterSyncGroup:
 
         sorted_send_actors = self.sort_send_actors(actor_mappings, send_actors)
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
+        src_pp_size = self.num_src_pipeline_stage
 
-        logger.info(f"Use {max_workers} workers for routed experts synchoronization.")
+        logger.info(f"Use {max_workers} workers for routed experts synchoronization, src_pp_size: {src_pp_size} .")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = []
-            for send_actor in sorted_send_actors:
-                recv_actors = actor_mappings[send_actor]
-                logger.info(f"Sending from {[self.actor2rank[send_actor]]} to {[self.actor2rank[actor] for actor in recv_actors]}.")
-                if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
-                    actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
-                    futures.append(executor.submit(
-                        self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
-                    ))
-                else:
-                    for recv_actor in recv_actors:
+            indexed_sorted_send_actors = list(enumerate(sorted_send_actors))
+            groups = [
+                indexed_sorted_send_actors[i:i + src_pp_size]
+                for i in range(0, len(indexed_sorted_send_actors), src_pp_size)
+            ]
+
+            for group in groups:
+                futures = []
+                for global_idx, send_actor in group:
+                    recv_actors = actor_mappings[send_actor]
+                    logger.info(f"Sending from {[self.actor2rank[send_actor]]} to {[self.actor2rank[actor] for actor in recv_actors]}.")
+                    if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
+                        actor_groups, finalized_group_name = self.create_broadcast_group(send_actor, recv_actors, param_group=param_group)
                         futures.append(executor.submit(
-                            self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
+                            self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
                         ))
-            for _future in concurrent.futures.as_completed(futures):
-                try:
-                    _future.result()
-                except Exception as e:
-                    raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-            concurrent.futures.wait(futures)
+                    else:
+                        for recv_actor in recv_actors:
+                            futures.append(executor.submit(
+                                self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
+                            ))
+
+                for future in concurrent.futures.as_completed(futures):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        traceback.print_exc()
+                        raise RuntimeError(f"Parameter sync thread generated an exception: {e}")
+                concurrent.futures.wait(futures)
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
         assert len(actor_mappings_list) == 1
