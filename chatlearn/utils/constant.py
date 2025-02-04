@@ -63,3 +63,11 @@ class ROUTED_EXPERT_REGROUPING_COMM_TYPE(str, Enum):
     """communication type of routed expert regrouping."""
     ALLTOALL = "alltoall"
     ALLGATHER = "allgather"
+
+
+class TrainingShffuleMode(str, Enum):
+    """training shffule mode."""
+    # shuffle among batches
+    BATCH = "batch"
+    # shuffle among all training samples
+    SAMPLE = "sample"
