@@ -138,6 +138,14 @@ class Environment(Executor):
                 f"size ({model.module_args.expert_model_parallel_size})."
             )
             return self.batch_per_episode // model.module_args.expert_model_parallel_size
+        elif len(model.replicas) == 1 and len(model.replicas[0].dp_rank_to_actors) > 1:
+            # FIXME(litan.ls): This is a workaround for batch looping mismatch issue,
+            # when using trainable and non-trainable models together in same flow.
+            # trainable model always set num_replica = 1, and use dp ranks as "replica" instead.
+            # DO NOT support trainable model dp ranks > num replicas of source generation model (e.g. vllm model)
+            num_dp_rank = len(model.replicas[0].dp_rank_to_actors)
+            assert self.batch_per_episode >= num_dp_rank, "Only support dp ranks > batch per episode"
+            return self.batch_per_episode // num_dp_rank
         else:
             return self.batch_per_episode
 

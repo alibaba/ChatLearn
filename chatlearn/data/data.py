@@ -94,6 +94,16 @@ def split_batch(batch):
     return samples
 
 
+def batch_shuffle(data, batch_size):
+    num_batches = len(data) // batch_size
+    batches = [data[batch_size*i:batch_size*(i+1)] for i in range(num_batches)]
+    random.shuffle(batches)
+
+    shuffled_data = [item for batch in batches for item in batch]
+
+    return shuffled_data
+
+
 @ray.remote
 class StreamDataset:
     """dataset built from queues"""
@@ -117,11 +127,11 @@ class StreamDataset:
         self._relay_episode_offset = relay_episode_offset
         self._episode_relay_buffers = []
 
-    def shuffle(self):
+    def shuffle(self, batch_size=None):
         """
         shuffle relay buffer
         """
-        self.relay_buffer.shuffle()
+        self.relay_buffer.shuffle(batch_size)
         self.iter = self.__iter__() # pylint: disable=unnecessary-dunder-call
         self._has_next = True
 
@@ -266,8 +276,11 @@ class EpisodeRelayBuffer:
     def queue_not_empty(self):
         return self.queue.qsize() > 0
 
-    def shuffle(self):
-        random.shuffle(self._buffer)
+    def shuffle(self, batch_size):
+        if batch_size is None:
+            random.shuffle(self._buffer)
+            return
+        self._buffer = batch_shuffle(self._buffer, batch_size)
 
     def get_samples(self, start_index, end_index):
         return self._buffer[start_index: end_index]

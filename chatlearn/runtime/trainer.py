@@ -18,6 +18,7 @@ import math
 import ray
 
 from chatlearn.utils import future
+from chatlearn.utils.constant import TrainingShffuleMode
 from chatlearn.utils.logger import logger
 from .executor import Executor
 from .utils import encode_data
@@ -82,9 +83,15 @@ class Trainer(Executor):
         self.num_micro_batch_per_dp = self.args.train_global_batch_size // self.args.train_micro_batch_size // self.data_parallel_size
         _num_training_iteration = self.num_iteration()
         self._batch_per_episode = _num_training_iteration
+        assert self.args.training_shuffle_mode in list(TrainingShffuleMode), \
+            f"Unsupported training shuffle mode {self.args.training_shuffle_mode}, only {list(TrainingShffuleMode)} allowed."
+        logger.info(f"Set training shuffle mode {self.args.training_shuffle_mode}.")
         for epoch in range(self.args.num_training_epoch):
             if epoch > 0:
-                ret = self._data_loader.shuffle.remote()
+                if self.args.training_shuffle_mode == TrainingShffuleMode.BATCH:
+                    ret = self._data_loader.shuffle.remote(self.args.train_micro_batch_size)
+                elif self.args.training_shuffle_mode == TrainingShffuleMode.SAMPLE:
+                    ret = self._data_loader.shuffle.remote()
                 future.wait(ret)
             data_queues, out_queue = self.setup_queues()
             for mb in range(_num_training_iteration * self.data_parallel_size):
