@@ -355,6 +355,10 @@ class ParameterSyncGroup:
         new_dict = defaultdict(list)
         idx = 0
         for dp_rank, values in dp_rank_to_ranks.items():
+            assert len(values) % src_hep_size == 0, (
+                f"len of values({len(values)}) for dp_rank {dp_rank} must be divisible by hep size({src_hep_size})"
+                f" when call get_src_and_dst_dp_ranks_for_except_routed_experts."
+            )
             pp_blocks = [values[i:i + src_hep_size] for i in range(0, len(values), src_hep_size)]
             sub_blocks_per_pp = []
             for block in pp_blocks:
