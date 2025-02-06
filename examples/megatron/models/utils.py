@@ -295,8 +295,6 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                 wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples,
                                         scalar_dict=consumed_train_samples_dict)
                 wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=stats)
-           
-
 
 
 def get_tensor_stats(xs: torch.Tensor, mask: torch.Tensor, n: int):

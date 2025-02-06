@@ -55,8 +55,6 @@ def eval_post_process(results, eval_info):
                 wandb_scalar_dict(wandb_writer, prefix="eval_reward_each/",
                                         global_step=train_iteration,
                                         scalar_dict=eval_reward_stats)
-                
-
     else:
         tensorboard_scalar_dict(writer, prefix="eval_reward_each/",
                                 global_step=train_iteration,
