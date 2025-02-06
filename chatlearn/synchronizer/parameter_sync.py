@@ -276,7 +276,7 @@ class ParameterSyncGroup:
                 self.send_actors_to_regroup_routed_experts[-1].extend(
                     [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
-    def get_src_and_dst_dp_ranks(self):
+    def get_src_and_dst_dp_ranks(self, is_except_routed_experts=False):
         dst_dp_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
         if local_src_ranks[0] is None or dst_dp_ranks is None:
@@ -290,7 +290,31 @@ class ParameterSyncGroup:
         dp_rank_to_ranks = defaultdict(list)
         for local_ranks, dp_rank in local_src_ranks:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
-        src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
+        if is_except_routed_experts:
+            # for weight except routed expert, ep_size using for data parallel.
+            src_hep_size = self.num_src_expert_parallel * self.num_src_tensor_parallel
+            new_dict = defaultdict(list)
+            idx = 0
+            for dp_rank, values in dp_rank_to_ranks.items():
+                assert len(values) % src_hep_size == 0, (
+                    f"len of values({len(values)}) for dp_rank {dp_rank} must be divisible by hep size({src_hep_size})"
+                    f" when call get_src_and_dst_dp_ranks_for_except_routed_experts."
+                )
+                pp_blocks = [values[i:i + src_hep_size] for i in range(0, len(values), src_hep_size)]
+                sub_blocks_per_pp = []
+                for block in pp_blocks:
+                    sub_block_size = src_hep_size // self.num_src_expert_parallel
+                    sub_blocks = [block[i:i + sub_block_size] for i in range(0, src_hep_size, sub_block_size)]
+                    sub_blocks_per_pp.append(sub_blocks)
+                for i in range(self.num_src_expert_parallel):
+                    merged_group = []
+                    for sub_blocks in sub_blocks_per_pp:
+                        merged_group.extend(sub_blocks[i])
+                    new_dict[idx].extend(merged_group)
+                    idx += 1
+            src_dp_ranks = [i[1] for i in sorted(new_dict.items())]
+        else:
+            src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
         return src_dp_ranks, dst_dp_ranks
 
     def build_rank_mapping(self, add_recv_actor_fn=None):
@@ -335,45 +359,6 @@ class ParameterSyncGroup:
         # Currently, we do not support build rank mapping for expert parallelism
         raise NotImplementedError("ChatLearn does not support build rank mapping from Megatron-LM for expert parallelism")
 
-    def get_src_and_dst_dp_ranks_for_except_routed_experts(self):
-        dst_dp_ranks = self.dst_model.all_ranks
-        local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
-        if local_src_ranks[0] is None or dst_dp_ranks is None:
-            if self._debug:
-                logger.warning(
-                    f"DEBUG MODE! src_dp_ranks {local_src_ranks} or dst_dp_ranks: {dst_dp_ranks} is None, "
-                    "make sure they have values in real application.")
-                return local_src_ranks, dst_dp_ranks
-            else:
-                raise Exception(f"src_dp_ranks {local_src_ranks} or dst_dp_ranks {dst_dp_ranks} should not be None")
-        dp_rank_to_ranks = defaultdict(list)
-        for local_ranks, dp_rank in local_src_ranks:
-            dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
-
-        # for weight except routed expert, ep_size using for data parallel.
-        src_hep_size = self.num_src_expert_parallel * self.num_src_tensor_parallel
-        new_dict = defaultdict(list)
-        idx = 0
-        for dp_rank, values in dp_rank_to_ranks.items():
-            assert len(values) % src_hep_size == 0, (
-                f"len of values({len(values)}) for dp_rank {dp_rank} must be divisible by hep size({src_hep_size})"
-                f" when call get_src_and_dst_dp_ranks_for_except_routed_experts."
-            )
-            pp_blocks = [values[i:i + src_hep_size] for i in range(0, len(values), src_hep_size)]
-            sub_blocks_per_pp = []
-            for block in pp_blocks:
-                sub_block_size = src_hep_size // self.num_src_expert_parallel
-                sub_blocks = [block[i:i + sub_block_size] for i in range(0, src_hep_size, sub_block_size)]
-                sub_blocks_per_pp.append(sub_blocks)
-            for i in range(self.num_src_expert_parallel):
-                merged_group = []
-                for sub_blocks in sub_blocks_per_pp:
-                    merged_group.extend(sub_blocks[i])
-                new_dict[idx].extend(merged_group)
-                idx += 1
-        src_dp_ranks = [i[1] for i in sorted(new_dict.items())]
-        return src_dp_ranks, dst_dp_ranks
-
     def build_rank_mapping_two_stage(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
@@ -389,7 +374,7 @@ class ParameterSyncGroup:
             add_recv_actor_stage1_fn = add_recv_actor_fn[0]
             add_recv_actor_stage2_fn = add_recv_actor_fn[1]
 
-        src_ranks, dst_ranks = self.get_src_and_dst_dp_ranks_for_except_routed_experts()
+        src_ranks, dst_ranks = self.get_src_and_dst_dp_ranks(is_except_routed_experts=True)
         if self._debug and (src_ranks[0] is None or dst_ranks is None):
             return
 
