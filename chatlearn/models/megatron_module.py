@@ -60,6 +60,8 @@ class MegatronModule(TorchModule):
                 self._logger.info(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
         if not self.model_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
             self.model_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
+        if not self.model_args.get("wandb_save_dir") and self.runtime_args.output_dir is not None:
+            self.model_args['wandb_save_dir'] = f"{self.runtime_args.output_dir}/wandb"
 
 
     def add_extra_args(self, parser):

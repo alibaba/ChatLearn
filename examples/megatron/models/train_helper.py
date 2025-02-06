@@ -17,10 +17,10 @@
 import numpy
 import torch
 
-from torch.utils.tensorboard import SummaryWriter
+from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 
 import chatlearn
-from .utils import write_jsonl, read_jsonl, tensorboard_scalar_dict, listdict_to_dictlist
+from .utils import write_jsonl, read_jsonl, tensorboard_scalar_dict, wandb_scalar_dict, listdict_to_dictlist
 
 def eval_post_process(results, eval_info):
     """
@@ -39,10 +39,8 @@ def eval_post_process(results, eval_info):
     results = listdict_to_dictlist(results)
     if args.get('eval_data_num_limit') > 0:
         assert len(results['rewards']) == args.get('eval_data_num_limit'), f"expect {len(results['rewards'])} == {args.get('eval_data_num_limit')}"
-    tensorboard_dir = f"{args.output_dir}/tensorboard"
-    writer = SummaryWriter(
-        log_dir=tensorboard_dir,
-        max_queue=99999)
+    writer = get_tensorboard_writer()
+    wandb_writer = get_wandb_writer()
 
     eval_reward_stats = {"eval_reward_mean": numpy.mean(results['rewards'])}
     train_iteration = eval_info["train_iteration"]
@@ -53,11 +51,19 @@ def eval_post_process(results, eval_info):
             tensorboard_scalar_dict(writer, prefix="eval_reward_each/",
                                     global_step=train_iteration,
                                     scalar_dict=eval_reward_stats)
-
+            if wandb_writer:
+                wandb_scalar_dict(wandb_writer, prefix="eval_reward_each/",
+                                        global_step=train_iteration,
+                                        scalar_dict=eval_reward_stats)
     else:
         tensorboard_scalar_dict(writer, prefix="eval_reward_each/",
                                 global_step=train_iteration,
                                 scalar_dict=eval_reward_stats)
+        if wandb_writer:
+            wandb_scalar_dict(wandb_writer, prefix="eval_reward_each/",
+                                    global_step=train_iteration,
+                                    scalar_dict=eval_reward_stats)
+
     print(f"eval reward stats: {eval_reward_stats} iter: {train_iteration}")
     save_fp = f"{args.output_dir}/eval/{train_iteration}/eval_json_res.json" # pylint: disable=line-too-long
     write_jsonl(results["eval_jsonl"], save_fp)

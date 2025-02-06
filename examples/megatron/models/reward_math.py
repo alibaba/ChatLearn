@@ -16,11 +16,13 @@
 from collections import defaultdict
 import numpy as np
 import torch
-from torch.utils.tensorboard import SummaryWriter
+from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
+
 from chatlearn import BaseModule
-from .utils import tensorboard_scalar_dict
+from .utils import tensorboard_scalar_dict, wandb_scalar_dict
 from .constants import RunningMoments, get_running_stats, reset_running_stats
 from .rm_sys.math_rule_rm import MathRuleRM
+
 
 class MathReward(BaseModule):
     """Math reward"""
@@ -30,8 +32,8 @@ class MathReward(BaseModule):
         self.stats = {}
         self.running = RunningMoments()
         self.per_episode_metrics = defaultdict(RunningMoments)
-        tensorboard_dir = f"{self.runtime_args.output_dir}/tensorboard"
-        self.tensorboard_writer = SummaryWriter(log_dir=tensorboard_dir)
+        self.writer = get_tensorboard_writer()
+        self.wandb_writer = get_wandb_writer()
 
     def forward_step(self, data, iteration=0):
         answers = data['answer']
@@ -103,7 +105,11 @@ class MathReward(BaseModule):
         stats_episode["exp_scores/running_math_std"] = self.running.std
 
         print(f"score only/running_math_mean {self.running.mean}", flush=True)
-        tensorboard_scalar_dict(self.tensorboard_writer, prefix=f"rewards_each/replica_id{self.replica_id}",
+        tensorboard_scalar_dict(self.writer, prefix=f"rewards_each/replica_id{self.replica_id}",
                                 global_step=self._iteration,
                                 scalar_dict=stats_episode)
+        if self.wandb_writer:
+            wandb_scalar_dict(self.wandb_writer, prefix=f"rewards_each/replica_id{self.replica_id}",
+                        global_step=self._iteration,
+                        scalar_dict=stats_episode)
         reset_running_stats(self.per_episode_metrics)
