@@ -322,9 +322,7 @@ class Engine(BaseEngine):
         if dump_root_path:
             logger.info("dump parameters after syncnizing...")
             self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
-            logger.info("finish dump parameters, ChatLearn will exists, ChatLearn saved parametrers" +
-                        f"on {dump_root_path}, please use chatlearn/tools/verify_parameter_sync.py to verify " +
-                        "the dumpped parameters.")
+            logger.info("finish dump parameters, ChatLearn will exit")
             return
         logger.info(
             f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} "
