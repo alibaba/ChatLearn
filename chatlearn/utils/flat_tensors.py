@@ -43,7 +43,7 @@ def _unpin(t: torch.Tensor):
 
 def _transpose_shape(shape: torch.Size) -> torch.Size:
     if len(shape) < 2:
-        return copy(shape)
+        return copy.copy(shape)
     *prefix, second_last, last = shape
     return torch.Size((*prefix, last, second_last))
 

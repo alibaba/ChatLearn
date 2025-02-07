@@ -703,6 +703,7 @@ class BaseModule:
     def reset_sync_parameters(self, trainable_param_names, pipe_stage=0, fp8_quantize=False):
         self._parameters_to_sync[pipe_stage] = []
         self._set_sync_parameters(trainable_param_names, pipe_stage, self._parameters_to_sync, fp8_quantize)
+        self._logger.info(f"[ershu] reset_sync_parameters  {[ (name, param.dtype, param.shape)  for name, param in self._parameters_to_sync[pipe_stage]]}")
 
     def set_send_parameters(self, trainable_param_names, pipe_stage=0):
         """

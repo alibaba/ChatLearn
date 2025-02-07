@@ -113,6 +113,47 @@ class TestFlatTensors(unittest.TestCase):
 
         del flatted
 
+    def test_torch_flatten(self):
+        from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
+        def _check_ta(t):
+            self.assertEqual(t.reshape(-1).tolist(), list(range(12)))
+            self.assertEqual(t.shape, torch.Size((3, 4)))
+            self.assertEqual(t.stride(), torch.Size((1, 3)))
+
+        def _check_tb(t):
+            self.assertEqual(t.reshape(-1).tolist(), list(range(100, 112)))
+            self.assertEqual(t.shape, torch.Size((3, 4)))
+            self.assertEqual(t.stride(), torch.Size((4, 1)))
+
+        # col-major tensor: ta
+        ta = torch.arange(start=0, end=12, device='cuda').view(3, 4).t().contiguous().t()
+        # row-major tensor: tb
+        tb = torch.arange(start=100, end=112, device='cuda').view(3, 4)
+
+        print(f"{ta.dtype=} {ta.shape=} {ta.stride()} {ta=}")
+        print(f"{tb.dtype=} {tb.shape=} {tb.stride()} {tb=}")
+
+        flat = _flatten_dense_tensors((ta, tb))
+
+        print(f"{flat.dtype=} {flat.shape=} {flat.stride()} {flat=}")
+
+        _check_ta(ta)
+        _check_tb(tb)
+
+        # col-major tensor: ta2
+        ta2 = torch.zeros((3, 4), device='cuda').t().contiguous().t()
+        # row-major tensor: tb2
+        tb2 = torch.zeros((3, 4), device='cuda')
+
+        print(f"{ta2.dtype=} {ta2.shape=} {ta2.stride()} {ta2=}")
+        print(f"{tb2.dtype=} {tb2.shape=} {tb2.stride()} {tb2=}")
+
+        ta3, tb3 = _unflatten_dense_tensors(flat, (ta2, tb2))
+
+        print(f"{ta3.dtype=} {ta3.shape=} {ta3.stride()} {ta3=}")
+        print(f"{tb3.dtype=} {tb3.shape=} {tb3.stride()} {tb3=}")
+
+
 
 if __name__ == '__main__':
     unittest.main()
