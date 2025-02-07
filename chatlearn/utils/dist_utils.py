@@ -138,8 +138,9 @@ def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
     flat_tensors = _flatten_dense_tensors(view_bucket)
     comm_call(flat_tensors, *extra_args)
     if tensor_changed:
-        for tensor, synced in zip(
-            bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
+        for tensor, synced in zip(bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
+            if tensor.element_size() == 1 and tensor.stride(0) == 1:
+                synced = synced.view(tensor.t().shape).t()
             tensor.copy_(synced.view(tensor.dtype))
 
 def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0, to_rank=0):
