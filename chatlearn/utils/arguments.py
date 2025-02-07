@@ -313,7 +313,7 @@ class RuntimeConfig(BaseConfig):
     #: parameter sync max workers
     param_sync_max_workers: int = None
     #: communication type to regroup routed experts, allgather/alltoall
-    routed_expert_regrouping_comm_type: str = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
+    routed_expert_regrouping_comm_type: str = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLGATHER
     #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
     #: if `max_relay_episode` is set to 0, then relay is disabled
     max_relay_episode: int = 0
