@@ -134,9 +134,15 @@ class Environment(Executor):
             assert self.batch_per_episode % model.module_args.zero_size == 0
             return self.batch_per_episode // model.module_args.zero_size
         elif dp_size > 1: # for trainable model or ep model
-            num_replicas = len(model.replicas)
-            logger.info(f"{model.name=}: {num_replicas=}, {dp_size=}, ep={model.module_args.expert_model_parallel_size}")
-            assert self.batch_per_episode % dp_size == 0, "Inner loop in Executor.generate_step_one_model_internal() depends on dp_size of each replica."
+            if self.batch_per_episode < dp_size:
+                raise NotImplementedError(
+                    "Currently ChaLearn requires batch_per_episode >= len(dp_rank_to_actors), "
+                    f"got {self.batch_per_episode} and {dp_size}. "
+                    f"Please allocate more replicas to inference model {model.name} to walk-around the issue."
+                )
+            assert self.batch_per_episode % dp_size == 0, (
+                "Inner loop in Executor.generate_step_one_model_internal() depends on dp_size of each replica."
+            )
             return self.batch_per_episode // dp_size
         else:
             return self.batch_per_episode
