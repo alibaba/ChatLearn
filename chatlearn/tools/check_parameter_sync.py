@@ -3,6 +3,8 @@ import torch
 import shutil
 import argparse
 from collections import defaultdict
+
+
 def chatlearn_compare(expected_dir, actural_dir):
     total = 0
     diff = 0
@@ -24,7 +26,7 @@ def chatlearn_compare(expected_dir, actural_dir):
             else:
                 print(f"PASS|{message}")
     print(f"ALL: {all}, DIFF: {diff}, NOT_EXISTS: {not_exists}")
-                
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
