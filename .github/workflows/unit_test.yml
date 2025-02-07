@@ -6,6 +6,7 @@ on:
     branches:
       - main
       - dev
+      - upgrade-0.6.6
     paths-ignore:
       - 'docs/**'
   push:
