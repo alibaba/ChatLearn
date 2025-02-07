@@ -217,7 +217,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             torch.save(param.data.clone(), pt_file)
 
     def init_memory_manager(self):
-        return
         if self.module_args.offload_weights:
             if InferenceMemoryManager is None:
                 raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
@@ -483,7 +482,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         offload weights
         """
-        return
         if self.module_args.offload_weights:
             self._memory_manager.offload_weights()
 
@@ -491,7 +489,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         onload weights
         """
-        return
         if self.module_args.offload_weights:
             self._memory_manager.onload_weights()
 

@@ -79,6 +79,40 @@ class TestFlatTensors(unittest.TestCase):
         )
         torch.cuda.synchronize()
 
+    def test_uncontiguouse_tensor(self):
+        def _check_ta(t):
+            self.assertEqual(t.reshape(-1).tolist(), list(range(12)))
+            self.assertEqual(t.shape, torch.Size((3, 4)))
+            self.assertEqual(t.stride(), torch.Size((1, 3)))
+
+        def _check_tb(t):
+            self.assertEqual(t.reshape(-1).tolist(), list(range(100, 112)))
+            self.assertEqual(t.shape, torch.Size((3, 4)))
+            self.assertEqual(t.stride(), torch.Size((4, 1)))
+
+        # col-major tensor: ta
+        ta = torch.arange(start=0, end=12, device='cuda').view(3, 4).t().contiguous().t()
+        # row-major tensor: tb
+        tb = torch.arange(start=100, end=112, device='cuda').view(3, 4)
+        flatted = FlatTensors([ta, tb], primary_store_device='cpu')
+        _check_ta(ta)
+        _check_tb(tb)
+
+        flatted.copy_to_primary_store()
+        # ta is offloaded to CPU
+        self.assertEqual(ta.numel(), 0)
+        self.assertEqual(ta.device.type, 'cpu')
+
+        # tb is offloaded to CPU
+        self.assertEqual(tb.numel(), 0)
+        self.assertEqual(tb.device.type, 'cpu')
+
+        flatted.copy_to_gpu_buffer()
+        _check_ta(ta)
+        _check_tb(tb)
+
+        del flatted
+
 
 if __name__ == '__main__':
     unittest.main()

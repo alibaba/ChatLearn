@@ -15,6 +15,7 @@
 """
 Provides utility classes for managing multiple tensors and their copying between CPU memory and GPU memory.
 """
+import copy
 import sys
 from typing import List
 
@@ -39,6 +40,12 @@ def _unpin(t: torch.Tensor):
     cudart = torch.cuda.cudart()
     r = cudart.cudaHostUnregister(t.data_ptr())
     assert r == 0, f'unpin memory error, error code: {r.value}'
+
+def _transpose_shape(shape: torch.Size) -> torch.Size:
+    if len(shape) < 2:
+        return copy(shape)
+    *prefix, second_last, last = shape
+    return torch.Size((*prefix, last, second_last))
 
 
 class FlatTensors:
@@ -72,7 +79,9 @@ class FlatTensors:
              primary store is sharded.
         """
         self._tensors = [*tensors]
-        self._shapes = [t.shape for t in tensors]
+        self._shapes = [copy.copy(t.shape) for t in tensors]
+        self._trans_shapes = [_transpose_shape(t.shape) for t in tensors]
+        self._is_contiguous = [t.is_contiguous() for t in tensors]
         self._numels = [t.numel() for t in tensors]
 
         self._comm_group = primary_store_shard_group
@@ -91,8 +100,11 @@ class FlatTensors:
 
         # Aggregate tensor data to GPU buffer.
         s = 0
-        for t, numel, _ in zip(self._tensors, self._numels, self._shapes):
-            self._gpu_buffer[s: s + numel].copy_(t.data.reshape(-1))
+        for t, numel, is_contiguous in zip(self._tensors, self._numels, self._is_contiguous):
+            if is_contiguous:
+                self._gpu_buffer[s: s + numel].copy_(t.data.reshape(-1))
+            else:
+                self._gpu_buffer[s: s + numel].copy_(t.data.t().reshape(-1))
             s += numel
         self._link_tensor_data_to_gpu_buffer()
         self._in_gpu = True
@@ -140,9 +152,14 @@ class FlatTensors:
         return primary_store
 
     def _link_tensor_data_to_gpu_buffer(self):
+        # print('_link_tensor_data_to_gpu_buffer: buffer >> ', self._gpu_buffer, self._gpu_buffer.shape, self._gpu_buffer.stride())
         s = 0
-        for t, numel, shape in zip(self._tensors, self._numels, self._shapes):
-            t.data = self._gpu_buffer[s: s + numel].view(shape)
+        for t, numel, shape, trans_shape, is_contigugous in zip(self._tensors, self._numels, self._shapes, self._trans_shapes, self._is_contiguous):
+            if is_contigugous:
+                t.data = self._gpu_buffer[s: s + numel].view(shape)
+            else:
+                t.data = self._gpu_buffer[s: s + numel].view(trans_shape).t()
+            # print(f">>> {shape=}, {t.shape=}")
             s += numel
 
     def _alloc_gpu_buffer(self, dtype, set_zero=False):
