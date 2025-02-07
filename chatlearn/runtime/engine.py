@@ -14,8 +14,9 @@
 # ==============================================================================
 """Engine"""
 
+import os
 import torch
-
+import shutil
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
 from chatlearn.models.base_module import BaseModule
@@ -308,9 +309,22 @@ class Engine(BaseEngine):
                                            self.runtime_args.max_relay_episode,
                                            self.runtime_args.relay_episode_offset)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
+        dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")
+        if dump_root_path:
+            if os.path.exists(dump_root_path):
+                shutil.rmtree(dump_root_path)
+            logger.info(f"dump parameters before syncnizing...")
+            self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
+        if dump_root_path:
+            logger.info(f"dump parameters after syncnizing...")
+            self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
+            logger.info(f"finish dump parameters, ChatLearn will exists, ChatLearn saved parametrers" + 
+                        f"on {dump_root_path}, please use chatlearn/tools/verify_parameter_sync.py to verify " +
+                        f"the dumpped parameters.")
+            return
         logger.info(
             f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} " \
             + get_full_proc_memory_info('After first param sync')
@@ -370,7 +384,12 @@ class Engine(BaseEngine):
                     self.trainer.iteration = meta["train_iteration"]
                     if self.trainer.iteration > 0:
                         logger.info(f"ChatLearn continue train with meta {meta}")
-
+    def dump_parameters(self, dump_path="/tmp/dump_dir"):
+        for i, model in enumerate(self.models):
+            replic_0 = model.replicas[0]
+            if isinstance(replic_0, DistVLLMActor):
+                future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
+                   
     def save_checkpoint(self, episode_id):
         """
         :meta private:

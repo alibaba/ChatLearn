@@ -195,7 +195,23 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.offload_for_workers()
         self.empty_cuda_graph_for_workers()
         self.empty_cache_for_workers()
-
+    
+    def dump_parameters(self, dump_path_root):
+        self.onload_for_workers()
+        self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
+    def worker_dump_parameters(self, dump_path_root):
+        tp_rank = self.tensor_parallel_rank()
+        model = self.model
+        if isinstance(model, list):
+            model = model[0]
+        
+        dir_path = os.path.join(dump_path_root, str(tp_rank))
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        self._logger.info(f"dump parameters to {dir_path}")
+        for name, param in self.named_parameters.items():
+            pt_file = os.path.join(dir_path, name)
+            torch.save(param.data.clone(), pt_file)
     def init_memory_manager(self):
         if self.module_args.offload_weights:
             if InferenceMemoryManager is None:
