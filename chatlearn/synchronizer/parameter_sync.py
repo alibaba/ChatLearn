@@ -806,7 +806,8 @@ class ParameterSyncGroup:
             future.get(refs)
         return src_names, dst_names
 
-    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True, fp8_quantize=False):
+    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None,
+                             param_group="default", should_map_name=True, fp8_quantize=False):
         src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor, param_group), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
         pipe_stage = self.get_actor_pipe_rank(send_actor)

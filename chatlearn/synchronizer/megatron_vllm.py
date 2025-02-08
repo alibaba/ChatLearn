@@ -263,7 +263,7 @@ class MegatronVllmSync(BaseSync):
                 # w13_weight
                 # regroup among difference tp slices
                 param = params_to_sync.view((moe_num_experts, -1, hidden_size))
-                param = param.reshape((local_num_experts * 2, -1, hidden_size))  
+                param = param.reshape((local_num_experts * 2, -1, hidden_size))
                 params = list(param.chunk(hep_size, dim=1))
                 # reorder w1 and w3
                 params_list = []

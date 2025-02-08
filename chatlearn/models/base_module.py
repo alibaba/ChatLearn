@@ -34,7 +34,7 @@ from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
-from chatlearn.utils.logger import log_rank_0, log_rank_0, setup_logger
+from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr
 from chatlearn.launcher import dlc_utils
@@ -626,15 +626,15 @@ class BaseModule:
         if self._synchronizer is not None:
             params_to_sync_list = self._synchronizer.transform_parameters(params_to_sync_list)
         if fp8_quantize:
-            from vllm import _custom_ops as ops
+            from vllm import _custom_ops as ops  # pylint: disable=import-outside-toplevel
 
-            params_to_sync_list_fp8 = list()
+            params_to_sync_list_fp8 = []
             while len(params_to_sync_list) > 0:
                 name, params = params_to_sync_list.pop(0)
                 if ("layers" not in name.lower()
-                    or "mlp.gate" in name.lower() 
+                    or "mlp.gate" in name.lower()
                     or "mlp.router.layer" in name.lower()
-                    or "layernorm" in name.lower() 
+                    or "layernorm" in name.lower()
                     or "bias" in name.lower()
                 ):
                     self._logger.info(f"Skip quantize: {name=} {params.shape=}")
@@ -643,16 +643,16 @@ class BaseModule:
                     # when quantize routed experts, per-tensor means on each expert
                     # params in self._expert_sync_buffer already tp sliced for all experts
                     params = self._expert_sync_buffer[name]
-                    num_experts = self._module_args.args_dict["moe_num_experts"] 
+                    num_experts = self._module_args.args_dict["moe_num_experts"]
                     hidden = self._module_args.args_dict["hidden_size"]
-                    if "dense_4h_to_h" in name.lower(): 
+                    if "dense_4h_to_h" in name.lower():
                         # w2
                         reshaped_params = params.reshape(num_experts, hidden, -1)
                     else:
                         # w13
                         reshaped_params = params.reshape(num_experts, -1, hidden)
-                    qweight_list = list()
-                    scale_list = list()
+                    qweight_list = []
+                    scale_list = []
                     for i in range(num_experts):
                         qw, scale = ops.scaled_fp8_quant(reshaped_params[i: i+1].squeeze(0), scale=None)
                         qweight_list.append(qw.unsqueeze(0).view(torch.uint8))
@@ -663,7 +663,7 @@ class BaseModule:
                     params_to_sync_list_fp8.append((name, qw_experts))
                     params_to_sync_list_fp8.append((f"{name}_scale", scale_experts))
                     self._expert_sync_buffer[name] = qw_experts
-                    del params 
+                    del params
                     del qweight_list
                     del scale_list
                 else:
@@ -677,7 +677,7 @@ class BaseModule:
             assert len(params_to_sync_list_fp8) > 0
             parameters_to_sync[pipe_stage] = params_to_sync_list_fp8
         else:
-            params_to_sync_list_new = list()
+            params_to_sync_list_new = []
             while len(params_to_sync_list) > 0:
                 name, params = params_to_sync_list.pop(0)
                 if params.element_size() == 1:

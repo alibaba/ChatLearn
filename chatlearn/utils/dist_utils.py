@@ -13,13 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 """distributed utils"""
-import os
 from collections import defaultdict
 import torch
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 from chatlearn.utils.logger import setup_logger
 
-logger = setup_logger() 
+logger = setup_logger()
 
 
 def bucket_tensors(tensors, bucket_size_mb):
@@ -105,7 +104,7 @@ def unflatten_dense_tensors(flat_tensors, tensors, sizes, num_ranks):
 
     offset = 0
     for size_multiple, tensor in zip(sizes, tensors):
-        size, multiple, orig_tensor, name = size_multiple
+        size, multiple, orig_tensor, _ = size_multiple
         assert offset <= flat_tensors.numel()
         assert len(flat_tensors.shape) == 1
         flat_tensor = flat_tensors[offset:offset+size]
@@ -170,7 +169,7 @@ def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_c
             assert tensor.numel() == synced.numel(), \
                 f"rank {rank} tensor {tensor.shape} should be equal to synced.shape {synced.shape}, for all_sizes {all_sizes}"
             if tensor.element_size() == 1 and tensor.stride(0) == 1:
-                logger.debug(f"weight {name} will be transposed!")
+                logger.debug(f"{to_rank=} weight {name} will be transposed!")
                 synced = synced.t()
             tensor.copy_(synced.view(tensor.dtype))
         del all_buffers[index]
