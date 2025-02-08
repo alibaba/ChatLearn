@@ -339,10 +339,12 @@ class Executor:
         if results:
             for model_name in model_names:
                 self.timers(f"{model_name}").start()
+                logger.info(f">>>>>>>>>> submit {model_name}")
             func_name = self.model_flow.model_nodes[0].func_name
             future.wait(results, f"{model_names} {func_name}")
             for model_name in model_names:
                 self.timers(f"{model_name}").stop()
+                logger.info(f">>>>>>>>>> finished {model_name}")
             self._models_and_results_to_wait = []
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)

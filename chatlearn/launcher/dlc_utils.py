@@ -207,13 +207,13 @@ class StartExitListener:
         )
         self._start_exit_actor = None
         self.quit_event = threading.Event()
-        self.log_monitor_thread = threading.Thread(target=self.log_monitor.run, args=(self.quit_event,))
-        self.log_monitor_thread.daemon = True
-        self.log_monitor_thread.start()
+        #self.log_monitor_thread = threading.Thread(target=self.log_monitor.run, args=(self.quit_event,))
+        #self.log_monitor_thread.daemon = True
+        #self.log_monitor_thread.start()
 
     def stop(self):
         self.quit_event.set()
-        self.log_monitor_thread.join(2)
+        #self.log_monitor_thread.join(2)
         ray.shutdown()
         logger.info("Execute ray.shutdown before the program exits. Done ...")
 
