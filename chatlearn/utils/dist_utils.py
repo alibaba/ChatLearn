@@ -111,7 +111,7 @@ def unflatten_dense_tensors(flat_tensors, tensors, sizes, num_ranks):
         flat_tensor = flat_tensors[offset:offset+size]
         per_size = size // multiple
         for rank in range(num_ranks):
-            if orig_tensor.element_size() == 1 and ".experts." not in name.lower() and "module.module" not in name.lower():
+            if orig_tensor.element_size() == 1 and orig_tensor.stride(0) == 1:
                 orig_shape = orig_tensor.t().shape
             else:
                 orig_shape = orig_tensor.shape
@@ -169,7 +169,7 @@ def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_c
         for name, tensor, synced in zip(orig_names, orig_tensors, all_buffers[index]):
             assert tensor.numel() == synced.numel(), \
                 f"rank {rank} tensor {tensor.shape} should be equal to synced.shape {synced.shape}, for all_sizes {all_sizes}"
-            if tensor.element_size() == 1 and ".experts." not in name.lower():
+            if tensor.element_size() == 1 and tensor.stride(0) == 1:
                 logger.debug(f"weight {name} will be transposed!")
                 synced = synced.t()
             tensor.copy_(synced.view(tensor.dtype))

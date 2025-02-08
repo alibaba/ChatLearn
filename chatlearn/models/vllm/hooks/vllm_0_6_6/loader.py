@@ -109,7 +109,6 @@ def load_model(self, vllm_config: VllmConfig):# -> nn.Module:
                 with device_loading_context(
                         module, torch.device(device_config.device)):
                     quant_method.process_weights_after_loading(module)
-    loader.logger.info(f"[ershu] [DummyModelLoader.load_model] {model.model.layers[0].self_attn.qkv_proj.weight.stride()=}")
     return model.eval()
 
 
