@@ -384,7 +384,7 @@ class Engine(BaseEngine):
                     if self.trainer.iteration > 0:
                         logger.info(f"ChatLearn continue train with meta {meta}")
 
-    def dump_parameters(self, dump_path="/tmp/dump_dir"):
+    def dump_parameters(self, dump_path):
         for _, model in enumerate(self.models):
             replic_0 = model.replicas[0]
             if isinstance(replic_0, DistVLLMActor):
@@ -459,7 +459,6 @@ class RLHFEngine(Engine):
 
 class OnlineDPOEngine(Engine):
     """Online DPO Engine."""
-
     def __init__(self,
                  policy: BaseModule,
                  reference: BaseModule,
@@ -500,7 +499,6 @@ class DPOEngine(Engine):
 
 class GRPOEngine(Engine):
     """GRPO Engine."""
-
     def __init__(self,
                  policy: BaseModule,
                  reference: BaseModule,
@@ -523,7 +521,6 @@ class GRPOEngine(Engine):
 
 class GRPOMathEngine(Engine):
     """GRPO Engine with math reward"""
-
     def __init__(self,
                  policy,
                  reference,
