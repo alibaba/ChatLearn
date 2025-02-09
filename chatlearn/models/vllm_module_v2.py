@@ -268,7 +268,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         repetition_penalty = self.model_args.get("eval_repetition_penalty", 1.0) if is_eval else self.model_args.get(
             "repetition_penalty", 1.0)
         stop = self.model_args.get("stop_token_list", None)
-        if isinstance(stop, str):
+        if stop is not None and isinstance(stop, str):
             stop = stop.split(";")
         sampling_params = SamplingParams(
             n=self.model_args.get("n"),
