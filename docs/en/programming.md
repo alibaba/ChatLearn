@@ -37,7 +37,7 @@ engine.learn()
 ```
 
 1. Call `chatlearn.init()` to initialize the runtime environment of ChatLearn.
-2. Define models, where each model needs to define a unique `model_name`. Different model configurations are distinguished by `model_name`. See [training configuration file](config_yaml) for details.
+2. Define models, where each model needs to define a unique `model_name`. Different model configurations are distinguished by `model_name`. See [training configuration file](config_yaml.md) for details.
 3. Define the engine [RLHFEngine](api/engine.rst).
 4. Define evaluator (optional)
 4. Set the training dataset.

@@ -45,7 +45,7 @@ engine.learn()
 ```
 
 1. 调用 `chatlearn.init()` 初始化 ChatLearn 的运行环境。
-2. 定义模型, 其中每个模型需要定义一个唯一的 `model_name`。在配置模型参数的时候，不同模型的配置通过   `model_name` 来区分。详见[训练配置文件](config_yaml)。
+2. 定义模型, 其中每个模型需要定义一个唯一的 `model_name`。在配置模型参数的时候，不同模型的配置通过   `model_name` 来区分。详见[训练配置文件](config_yaml.md)。
 3. 定义 engine [RLHFEngine](api/engine.rst)。
 4. 定义 evaluator (可选)
 4. 设置训练数据集。
