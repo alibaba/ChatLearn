@@ -131,7 +131,8 @@ def start_ray_cluster():
     system_config = json.dumps({"object_timeout_milliseconds": 30000})
     if rank == 0:
         cmd = f"RAY_prestart_worker_first_driver=0 ray start --head --port={port} --node-ip-address={master_addr} " + \
-              f"--node-manager-port {node_manager_port} --node-name={master_addr} --system-config='{system_config}'"
+              f"--node-manager-port {node_manager_port} --node-name={master_addr} --system-config='{system_config}' " + \
+              "--dashboard-host=0.0.0.0 --dashboard-port=8265"
     else:
         cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port} --node-name={get_addr()}"
     logger.info(f"execute {cmd}")

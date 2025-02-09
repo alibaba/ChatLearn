@@ -98,4 +98,8 @@ def listdict_to_dictlist(ld, list_extend=True):
 
 def assert_consumed_samples(engine, model_names, ground_truth:int):
     for model_name in model_names:
-        assert future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples == ground_truth
+        assert future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples == ground_truth, (
+            f"model {model_name} consumed "
+            f"{future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples} samples, "
+            f"while ground_truth = {ground_truth}, "
+        )
