@@ -97,6 +97,9 @@ def split_along_batch(batch, new_batch_size):
 
 def concat_along_batch(tensors):
     batched = {}
+    if tensors[0] is None:
+        return batched
+
     for key in tensors[0].keys():
         to_batch = [results[key] for results in tensors]
         if isinstance(to_batch[0], torch.Tensor):
@@ -106,7 +109,8 @@ def concat_along_batch(tensors):
             for seq in to_batch:
                 batched[key].extend(seq)
         else:
-            raise Exception(f"unkown types {type(to_batch[0])}to concat")
+            raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat")
+
     return batched
 
 
