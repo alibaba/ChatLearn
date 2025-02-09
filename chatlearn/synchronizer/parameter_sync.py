@@ -876,7 +876,6 @@ class ParameterSyncGroup:
 
     def sync_broadcast_second_stage_internal(self, group_name, thread_group, requires_grad=None, filter_fn=None, param_group="default"):
         max_workers = len(thread_group)
-        max_workers = min(8, max_workers)
         logger.info(f"Use {max_workers} workers for second_stage_internal broadcasting.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []

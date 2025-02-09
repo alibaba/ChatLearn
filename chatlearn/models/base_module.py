@@ -899,7 +899,7 @@ class BaseModule:
                     for key, value in all_buffers.items():
                         cpu_value = []
                         for tensor in value:
-                            cpu_value.append(tensor.cpu()) # save gpu memory
+                            cpu_value.append(tensor.cpu().pin_memory()) # save gpu memory
                         del value
                         self._sync_buffer[key] += cpu_value
                     del all_buffers
@@ -909,8 +909,6 @@ class BaseModule:
                 sparse_bucket_num += 1
 
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
-
-        self.empty_cache()
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):
         """
