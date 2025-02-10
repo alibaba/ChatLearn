@@ -20,6 +20,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
 from typing import List, Dict
+from queue import PriorityQueue
 
 import torch
 from tqdm import tqdm
@@ -411,6 +412,8 @@ class ParameterSyncGroup:
         pair_list = []
         p2p_list = []
         src_replica_offset = 0
+        lb_recv_rank_pq_dict = {}
+
         for dst_replica_ranks in dst_ranks:
             src_replica_ranks = next(replica_rank_iter)
             # for weight except routed expert, ep_size using for data parallel.
@@ -446,20 +449,57 @@ class ParameterSyncGroup:
                     mod_i = (i - src_replica_offset) % self.tp_num_mapping
                     start = mod_i if (i - src_replica_offset) < self.tp_num_mapping else (self.tp_num_mapping - mod_i - 1) % self.tp_num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
-                    offset = s_idx * self.tp_num_mapping + start
-                    dst_rank = dst_replica_ranks_group[j][offset]
-                    # to avoid gpu collision. Performance may be affected because multiple sends could
-                    # correspond to a single receive in some rare cases, leading to a bandwidth bottleneck.
-                    src_actor = self.src_model.get_actor(src_rank)
-                    dst_actor = self.dst_model.get_actor(dst_rank)
-                    if self.is_same_gpu(src_actor, dst_actor):
-                        logger.warning(
-                            f"ChatLearn detects that src_rank:{src_rank} and dst_rank:{dst_rank} shares the same cuda device. "
-                            "The behavior is not allowed in NCCL. Thus, ChatLearn switches the dst_rank to the next legal one. "
-                            "However, it may cause performance issue when multiple source ranks correspond to a single dest rank."
-                        )
-                        offset = s_idx * self.tp_num_mapping + (start + 1) % self.tp_num_mapping
+                    indexed_src_tp_group = tuple([tuple(src_tp_group), s_idx])
+                    if indexed_src_tp_group not in lb_recv_rank_pq_dict:
+                        # A priority queue (PQ) to retrieve `dst_rank` for load balancing when gpu collides.
+                        # The key of the PQ is (hit_time, max_seq_num), meaning that the rank is used for `hit_time` times,
+                        # while `max_seq_num` further sorts `dst_rank` when `hit_time` remains the same.
+                        pq = PriorityQueue()
+                        max_seq_num = 0
+                        hit_time = 0
+                        while max_seq_num < self.tp_num_mapping:
+                            pq.put((
+                                hit_time,
+                                max_seq_num,
+                                s_idx * self.tp_num_mapping + (start + max_seq_num) % self.tp_num_mapping
+                            ))
+                            max_seq_num += 1
+                        lb_recv_rank_pq_dict[indexed_src_tp_group] = [pq, max_seq_num]
+                    else:
+                        max_seq_num = lb_recv_rank_pq_dict[indexed_src_tp_group][1]
+
+                    # Each time, we retrieve the first value of the PQ, which is the least used and the first ordered `dst_rank`.
+                    # We will loop `self.tp_num_mapping` times and retrieve the `dst_rank` according to the following rules:
+                    # 1. If the first `dst_rank` won't encounter gpu collision with `src_rank`, we directly retrieve it,
+                    #    add `hit_time` by 1, and insert <(hit_time + 1, seq_num), offset> back to the PQ and return.
+                    # 2. If the first `dst_rank` will encounter gpu collision with `src_rank`, we retrieve it, set `seq_num` to
+                    #    `max_seq_num`, increase `max_seq_num` by 1, and finally insert <(hit_time, seq_num), offset> back
+                    #    to the PQ.
+                    # 3. If we cannot find a legal solution after `self.tp_num_mapping` times, all `src_rank` will encounter gpu collision
+                    #    with `dst_rank`, we throw a no legal solution exception.
+                    lb_rank_recv_pq = lb_recv_rank_pq_dict[indexed_src_tp_group][0]
+                    dst_rank = -1
+                    for _ in range(self.tp_num_mapping):
+                        hit_time, seq_num, offset = lb_rank_recv_pq.get()
                         dst_rank = dst_replica_ranks_group[j][offset]
+                        src_actor = self.src_model.get_actor(src_rank)
+                        dst_actor = self.dst_model.get_actor(dst_rank)
+                        if not self.is_same_gpu(src_actor, dst_actor):
+                            dst_rank = dst_replica_ranks_group[j][offset]
+                            lb_rank_recv_pq.put((hit_time + 1, seq_num, offset))
+                        else:
+                            logger.info(
+                                f"ChatLearn detects that src_rank:{src_rank} and dst_rank:{dst_rank} shares the same cuda device. "
+                                "The behavior is not allowed in NCCL. Thus, ChatLearn switches the dst_rank to the next legal one. "
+                            )
+                            seq_num = max_seq_num
+                            max_seq_num += 1
+                            lb_rank_recv_pq.put((hit_time, seq_num, offset))
+                            lb_recv_rank_pq_dict[indexed_src_tp_group][1] = max_seq_num
+                    if dst_rank == -1:
+                        raise RuntimeError(
+                            f"ChatLearn cannot find a legal solution for rank mapping because gpu will collide with src_rank ({src_rank})."
+                        )
                     add_recv_actor_stage1_fn(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
 
