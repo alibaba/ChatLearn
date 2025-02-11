@@ -1208,7 +1208,7 @@ class ParameterSyncGroup:
             dryrun=dryrun
         )
         self.timers("stage1").stop()
-        logger.info(f"DEBUG ParameterSync finish stage1-2| {self.timers.log(names=["stage1"])}")
+        logger.debug(f"DEBUG ParameterSync finish stage1-2| {self.timers.log(names=['stage1'])}")
         # stage 2
         self.timers("stage2").start()
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
@@ -1219,7 +1219,7 @@ class ParameterSyncGroup:
             group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group,
             dryrun=dryrun)
         self.timers("stage2").stop()
-        logger.info(f"DEBUG ParameterSync finish stage2| {self.timers.log(names=["stage2"])}")
+        logger.debug(f"DEBUG ParameterSync finish stage2| {self.timers.log(names=["stage2"])}")
 
     def _multi_thread_sync_for_tp_num_mapping_eq_1(
         self, send_actors_list:List, actor_mappings_list:List,
