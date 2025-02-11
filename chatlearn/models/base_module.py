@@ -17,7 +17,11 @@
 from collections import defaultdict
 from itertools import cycle
 import math
+import time
+import torch
 import os
+import asyncio
+import traceback
 
 import ray
 import ray.util.collective as col
@@ -495,6 +499,14 @@ class BaseModule:
         self._world_size = world_size
         col.init_collective_group(
             world_size, rank, backend=backend, group_name=group_name)
+    def broadcast_dummy_tensor_send(self, src_rank, group_name):
+        x = torch.zeros(1, device="cuda")
+        col.broadcast(x, src_rank=src_rank, group_name=group_name)
+        del x
+    def broadcast_dummy_tensor_recv(self, src_rank, group_name):
+        x = torch.zeros(1, device="cuda")
+        col.broadcast(x, src_rank=src_rank, group_name=group_name)
+        del x
 
     def _destroy_collective_group(self, group_name):
         """
@@ -823,6 +835,9 @@ class BaseModule:
                 In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
+        start = time.time()
+        stage_str = "STAGE2" if stage2 else "STAGE1"
+        key = f"{to_rank}_{buffer_rank}_{rank}_{src_rank}_{group_name}_{pipe_stage}_{stage2}"
 
         if stage2:
             if tensor_changed:
@@ -833,6 +848,7 @@ class BaseModule:
             del self._sync_buffer
             self._sync_buffer = defaultdict(list)
             parameters_to_sync = self._parameters_to_sync
+        
 
         def tensor_generator():
             if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
@@ -888,6 +904,7 @@ class BaseModule:
         )
         dense_bucket_num = 0
         sparse_bucket_num = 0
+        self._logger.info(f"DEBUG broadcast_parameter_two_stage {key} before tensor_generator using {time.time()-start} seconds")
         for bucket_or_tensor, is_dense in bucket_generator:
             if is_dense:
                 index = 0 if stage2 else (to_rank % self.tp_num_mapping)
@@ -907,7 +924,7 @@ class BaseModule:
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
-
+        self._logger.info(f"DEBUG broadcast_parameter_two_stage {key} done using {time.time()-start} seconds")
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):

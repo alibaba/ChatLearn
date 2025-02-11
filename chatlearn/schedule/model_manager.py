@@ -164,8 +164,11 @@ class ModelManager:
                 f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
             logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
             self._parameter_sync_model_pair.append((src_model, tgt_model))
-
-    def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False):
+    
+    def warmup_collective_topology(self):
+        for _, sync_group in self.parameter_sync_groups.items():
+            sync_group.warmup_groups()
+    def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False, dryrun=False):
         """
         if requires_grad is False, all parameters will be syncronized,
         this happends when broadcast parameters in the beginning of training,
@@ -182,7 +185,7 @@ class ModelManager:
                 future.wait(dst_model.onload(
                     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
 
-                sync_group.sync(requires_grad, validate)
+                sync_group.sync(requires_grad, validate, dryrun=dryrun)
 
                 future.wait(src_model.offload())
                 future.wait(dst_model.offload())
