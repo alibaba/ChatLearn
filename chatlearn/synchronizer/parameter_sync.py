@@ -34,9 +34,9 @@ from chatlearn.utils.constant import ROUTED_EXPERT_REGROUPING_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
-from . import get_synchronizer
 from chatlearn.utils.timer import Timers
 from chatlearn.synchronizer.scheduler import CollectiveTask, parallel_execute_collective_tasks
+from . import get_synchronizer
 
 patch_ray()
 
@@ -381,7 +381,6 @@ class ParameterSyncGroup:
 
         # for weight except routed expert ep_size using for data parallel.
         src_hep_size = self.num_src_expert_parallel * self.num_src_tensor_parallel
-        src_ep_size = self.num_src_tensor_parallel
         new_dict = defaultdict(list)
         idx = 0
         for dp_rank, values in dp_rank_to_ranks.items():
@@ -824,12 +823,7 @@ class ParameterSyncGroup:
             # For routed experts which need to regroup expert first in trainer actors.
             synchronizer.map_name_from_src_to_dst(send_actor, recv_actor, src_names, dst_names)
         self.actor2synchronizer[send_actor] = synchronizer
-        try:
-            future.wait(send_actor.set_synchronizer.remote(synchronizer))
-        except Exception as e:
-            import traceback
-            traceback.print_exc()
-            raise RuntimeError("DEBUG set_synchronizer failed" + str(e))
+        future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         dst_model = self.actor2model[recv_actor]
@@ -887,7 +881,6 @@ class ParameterSyncGroup:
             self.collective_groups.append(finalized_group_name)
             self.groups2actors[finalized_group_name] = tuple(actor_groups)
             logger.info(f"DEBUG create_broadcast_group {finalized_group_name} using {time.time() - start_time} seconds")
-            
         return actor_groups, finalized_group_name
 
     def create_allgather_group(self, actor_groups, group_name=None):
@@ -1061,7 +1054,7 @@ class ParameterSyncGroup:
                 except Exception as e:
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
                 concurrent.futures.wait(futures)
-   
+
     def sync_alltoall_multi_threads(
         self, send_actors, max_workers=1, requires_grad=None, filter_fn=None, dryrun=False
     ):
@@ -1572,7 +1565,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         self._clear_sorted_send_actors(sorted_send_actors_list)
 
     def warmup_groups(self):
-        
+
         def warmup_tasks_func(task):
             actors = task.actors
             group = task.group
@@ -1583,10 +1576,9 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 logger.info(f"DEBUG warmup_groups schedule {group} {actor}")
                 refs.append(actor.broadcast_dummy_tensor_recv.remote(0, group))
             future.wait(refs)
-        
-        tasks = [] 
+
+        tasks = []
         actors_set = set()
-        # initialize the TodoQueue
         for group_name, actors in self.groups2actors.items():
             # filter actors if the same collective ring
             actor_ids = [self.actor2rank[actor] for actor in actors]
