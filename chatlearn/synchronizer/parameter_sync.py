@@ -318,6 +318,97 @@ class ParameterSyncGroup:
             src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
         return src_dp_ranks, dst_dp_ranks
 
+    def get_load_balance_dst_rank(self, lb_dst_offset_pq_dict, s_idx, start, src_rank, dst_replica_ranks_group, d_idx):
+        """Get the dst_rank for load balance when gpu collides.
+
+        Args:
+            lb_dst_offset_pq_dict (_type_): _description_
+            s_idx (_type_): _description_
+            start (_type_): _description_
+            src_rank (_type_): _description_
+            dst_replica_ranks_group (_type_): _description_
+            d_idx (_type_): _description_
+
+        Raises:
+            RuntimeError: _description_
+
+        Returns:
+            _type_: _description_
+        """
+        dst_tp_indices = sorted([
+            s_idx * self.tp_num_mapping + (start + i) % self.tp_num_mapping
+            for i in range(self.tp_num_mapping)
+        ])
+        indexed_dst_tp_group = tuple([dst_replica_ranks_group[d_idx][dst_tp_index] for dst_tp_index in dst_tp_indices])
+
+        # Construct a priority queue (PQ) to retrieve `dst_rank` for load balancing when gpu collides.
+        # The key of the PQ is (hit_time, max_seq_num), meaning that the rank is used for `hit_time` times,
+        # while `max_seq_num` further sorts `dst_rank` when `hit_time` remains the same.
+        if indexed_dst_tp_group not in lb_dst_offset_pq_dict:
+            pq = PriorityQueue()
+            max_seq_num = 0
+            hit_time = 0
+            while max_seq_num < self.tp_num_mapping:
+                pq.put((
+                    hit_time,
+                    max_seq_num,
+                    s_idx * self.tp_num_mapping + (start + max_seq_num) % self.tp_num_mapping
+                ))
+                max_seq_num += 1
+            lb_dst_offset_pq_dict[indexed_dst_tp_group] = [pq, max_seq_num]
+        else:
+            max_seq_num = lb_dst_offset_pq_dict[indexed_dst_tp_group][1]
+
+        # Each time, we retrieve the first value of the PQ.
+        # 1. If the first `dst_rank` will encounter gpu collision with `src_rank`, we retrieve it, set `seq_num` to
+        #    `max_seq_num`, increase `max_seq_num` by 1, and finally insert <(hit_time, seq_num), offset> back
+        #    to the PQ.
+        # 2. If the first `dst_rank` won't encounter gpu collision with `src_rank`, we insert it to another PQ (called
+        #    legal_lb_recv_offset_pq). After looping through all legal solutions, we will retrieve the first load-balance one.
+        # 3. If we cannot find a legal solution after `self.tp_num_mapping` times, all `src_rank` will encounter gpu collision
+        #    with `dst_rank`, we throw a runtime exception.
+        lb_recv_offset_pq = lb_dst_offset_pq_dict[indexed_dst_tp_group][0]
+        legal_lb_recv_offset_pq = PriorityQueue()
+        illegal_lb_recv_offset_pq = PriorityQueue()
+        assert len(lb_recv_offset_pq.queue) == self.tp_num_mapping, (
+            "length of the load-balance recv_offset priority queue must be equal to tp_num_mapping"
+            f"got {len(lb_recv_offset_pq.queue)} and {self.tp_num_mapping}."
+        )
+        for _ in range(self.tp_num_mapping):
+            hit_time, seq_num, offset = lb_recv_offset_pq.get()
+            dst_rank = dst_replica_ranks_group[d_idx][offset]
+            logger.info(f"Trying to match {src_rank} and {dst_rank} (hit={hit_time}), remaining queue={lb_recv_offset_pq.queue})")
+            src_actor = self.src_model.get_actor(src_rank)
+            dst_actor = self.dst_model.get_actor(dst_rank)
+            if self.is_same_gpu(src_actor, dst_actor):
+                logger.info(f"src_rank ({src_rank}) will collide with dst_rank ({dst_rank}), thus skip.")
+                illegal_lb_recv_offset_pq.put((hit_time, max_seq_num, offset))
+                max_seq_num += 1
+                lb_dst_offset_pq_dict[indexed_dst_tp_group][1] = max_seq_num
+            else:
+                legal_lb_recv_offset_pq.put((hit_time, seq_num, offset))
+
+        # there must be at least one legal recv offset
+        if len(legal_lb_recv_offset_pq.queue) == 0:
+            raise RuntimeError(
+                f"Rank mapping solution is infeasible because src_rank ({src_rank}) will collide with all candidates."
+            )
+        
+        # extract the first legal one to keep load balance
+        hit_time, seq_num, offset = legal_lb_recv_offset_pq.get()
+        lb_recv_offset_pq.put((hit_time + 1, seq_num, offset))
+
+        # put other solutions back to lb_recv_offset_pq
+        while len(legal_lb_recv_offset_pq.queue) > 0:
+            lb_recv_offset_pq.put(legal_lb_recv_offset_pq.get())
+        while len(illegal_lb_recv_offset_pq.queue) > 0:
+            lb_recv_offset_pq.put(illegal_lb_recv_offset_pq.get())
+        logger.info(f"after retrieving, lb_recv_offset_pq = {lb_recv_offset_pq.queue}")
+
+        # return dst_rank
+        dst_rank = dst_replica_ranks_group[d_idx][offset]
+        return dst_rank
+
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
         # get rank for one src_model, without model replicas
@@ -412,7 +503,7 @@ class ParameterSyncGroup:
         pair_list = []
         p2p_list = []
         src_replica_offset = 0
-        lb_recv_rank_pq_dict = {}
+        lb_dst_offset_pq_dict = {}
 
         for dst_replica_ranks in dst_ranks:
             src_replica_ranks = next(replica_rank_iter)
@@ -449,57 +540,14 @@ class ParameterSyncGroup:
                     mod_i = (i - src_replica_offset) % self.tp_num_mapping
                     start = mod_i if (i - src_replica_offset) < self.tp_num_mapping else (self.tp_num_mapping - mod_i - 1) % self.tp_num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
-                    indexed_src_tp_group = tuple([tuple(src_tp_group), s_idx])
-                    if indexed_src_tp_group not in lb_recv_rank_pq_dict:
-                        # A priority queue (PQ) to retrieve `dst_rank` for load balancing when gpu collides.
-                        # The key of the PQ is (hit_time, max_seq_num), meaning that the rank is used for `hit_time` times,
-                        # while `max_seq_num` further sorts `dst_rank` when `hit_time` remains the same.
-                        pq = PriorityQueue()
-                        max_seq_num = 0
-                        hit_time = 0
-                        while max_seq_num < self.tp_num_mapping:
-                            pq.put((
-                                hit_time,
-                                max_seq_num,
-                                s_idx * self.tp_num_mapping + (start + max_seq_num) % self.tp_num_mapping
-                            ))
-                            max_seq_num += 1
-                        lb_recv_rank_pq_dict[indexed_src_tp_group] = [pq, max_seq_num]
-                    else:
-                        max_seq_num = lb_recv_rank_pq_dict[indexed_src_tp_group][1]
-
-                    # Each time, we retrieve the first value of the PQ, which is the least used and the first ordered `dst_rank`.
-                    # We will loop `self.tp_num_mapping` times and retrieve the `dst_rank` according to the following rules:
-                    # 1. If the first `dst_rank` won't encounter gpu collision with `src_rank`, we directly retrieve it,
-                    #    add `hit_time` by 1, and insert <(hit_time + 1, seq_num), offset> back to the PQ and return.
-                    # 2. If the first `dst_rank` will encounter gpu collision with `src_rank`, we retrieve it, set `seq_num` to
-                    #    `max_seq_num`, increase `max_seq_num` by 1, and finally insert <(hit_time, seq_num), offset> back
-                    #    to the PQ.
-                    # 3. If we cannot find a legal solution after `self.tp_num_mapping` times, all `src_rank` will encounter gpu collision
-                    #    with `dst_rank`, we throw a no legal solution exception.
-                    lb_rank_recv_pq = lb_recv_rank_pq_dict[indexed_src_tp_group][0]
-                    dst_rank = -1
-                    for _ in range(self.tp_num_mapping):
-                        hit_time, seq_num, offset = lb_rank_recv_pq.get()
-                        dst_rank = dst_replica_ranks_group[j][offset]
-                        src_actor = self.src_model.get_actor(src_rank)
-                        dst_actor = self.dst_model.get_actor(dst_rank)
-                        if not self.is_same_gpu(src_actor, dst_actor):
-                            dst_rank = dst_replica_ranks_group[j][offset]
-                            lb_rank_recv_pq.put((hit_time + 1, seq_num, offset))
-                        else:
-                            logger.info(
-                                f"ChatLearn detects that src_rank:{src_rank} and dst_rank:{dst_rank} shares the same cuda device. "
-                                "The behavior is not allowed in NCCL. Thus, ChatLearn switches the dst_rank to the next legal one. "
-                            )
-                            seq_num = max_seq_num
-                            max_seq_num += 1
-                            lb_rank_recv_pq.put((hit_time, seq_num, offset))
-                            lb_recv_rank_pq_dict[indexed_src_tp_group][1] = max_seq_num
-                    if dst_rank == -1:
-                        raise RuntimeError(
-                            f"ChatLearn cannot find a legal solution for rank mapping because gpu will collide with src_rank ({src_rank})."
-                        )
+                    dst_rank = self.get_load_balance_dst_rank(
+                        lb_dst_offset_pq_dict,
+                        s_idx,
+                        start,
+                        src_rank,
+                        dst_replica_ranks_group,
+                        j
+                    )
                     add_recv_actor_stage1_fn(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
 
