@@ -1219,7 +1219,7 @@ class ParameterSyncGroup:
             group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group,
             dryrun=dryrun)
         self.timers("stage2").stop()
-        logger.debug(f"DEBUG ParameterSync finish stage2| {self.timers.log(names=["stage2"])}")
+        logger.debug(f"DEBUG ParameterSync finish stage2| {self.timers.log(names=['stage2'])}")
 
     def _multi_thread_sync_for_tp_num_mapping_eq_1(
         self, send_actors_list:List, actor_mappings_list:List,
