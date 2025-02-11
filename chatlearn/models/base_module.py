@@ -18,10 +18,8 @@ from collections import defaultdict
 from itertools import cycle
 import math
 import time
-import torch
 import os
-import asyncio
-import traceback
+import torch
 
 import ray
 import ray.util.collective as col
@@ -836,7 +834,6 @@ class BaseModule:
         """
         tensor_changed = rank != src_rank
         start = time.time()
-        stage_str = "STAGE2" if stage2 else "STAGE1"
         key = f"{to_rank}_{buffer_rank}_{rank}_{src_rank}_{group_name}_{pipe_stage}_{stage2}"
 
         if stage2:
@@ -848,7 +845,6 @@ class BaseModule:
             del self._sync_buffer
             self._sync_buffer = defaultdict(list)
             parameters_to_sync = self._parameters_to_sync
-        
 
         def tensor_generator():
             if stage2 and not tensor_changed and self._sync_buffer:# pylint: disable=too-many-nested-blocks
@@ -904,7 +900,6 @@ class BaseModule:
         )
         dense_bucket_num = 0
         sparse_bucket_num = 0
-        self._logger.info(f"DEBUG broadcast_parameter_two_stage {key} before tensor_generator using {time.time()-start} seconds")
         for bucket_or_tensor, is_dense in bucket_generator:
             if is_dense:
                 index = 0 if stage2 else (to_rank % self.tp_num_mapping)

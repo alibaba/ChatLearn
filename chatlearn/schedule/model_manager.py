@@ -164,10 +164,11 @@ class ModelManager:
                 f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
             logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
             self._parameter_sync_model_pair.append((src_model, tgt_model))
-    
+
     def warmup_collective_topology(self):
         for _, sync_group in self.parameter_sync_groups.items():
             sync_group.warmup_groups()
+
     def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False, dryrun=False):
         """
         if requires_grad is False, all parameters will be syncronized,

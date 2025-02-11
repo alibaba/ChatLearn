@@ -322,7 +322,7 @@ class Engine(BaseEngine):
             self.model_manager.sync_parameters(requires_grad=False, validate=False, dryrun=True)
             self.model_manager.warmup_collective_topology()
             self.timers("warmup_sync_parameters").stop()
-            logger.info(f"finish warmup_sync_parameters {self.timers.log(names=["warmup_sync_parameters"])}")
+            logger.info(f"finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
         if dump_root_path:
