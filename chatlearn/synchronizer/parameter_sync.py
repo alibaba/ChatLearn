@@ -318,22 +318,17 @@ class ParameterSyncGroup:
             src_dp_ranks = [i[1] for i in sorted(dp_rank_to_ranks.items())]
         return src_dp_ranks, dst_dp_ranks
 
-    def get_load_balance_dst_rank(self, lb_dst_offset_pq_dict, s_idx, start, src_rank, dst_replica_ranks_group, d_idx):
+    def get_load_balance_dst_rank(
+        self,
+        lb_dst_offset_pq_dict,
+        s_idx,
+        start,
+        src_rank,
+        dst_replica_ranks_group,
+        d_idx,
+        pre_allocate=False
+    ):
         """Get the dst_rank for load balance when gpu collides.
-
-        Args:
-            lb_dst_offset_pq_dict (_type_): _description_
-            s_idx (_type_): _description_
-            start (_type_): _description_
-            src_rank (_type_): _description_
-            dst_replica_ranks_group (_type_): _description_
-            d_idx (_type_): _description_
-
-        Raises:
-            RuntimeError: _description_
-
-        Returns:
-            _type_: _description_
         """
         dst_tp_indices = sorted([
             s_idx * self.tp_num_mapping + (start + i) % self.tp_num_mapping
@@ -369,11 +364,11 @@ class ParameterSyncGroup:
         #    with `dst_rank`, we throw a runtime exception.
         lb_recv_offset_pq = lb_dst_offset_pq_dict[indexed_dst_tp_group][0]
         legal_lb_recv_offset_pq = PriorityQueue()
-        illegal_lb_recv_offset_pq = PriorityQueue()
         assert len(lb_recv_offset_pq.queue) == self.tp_num_mapping, (
-            "length of the load-balance recv_offset priority queue must be equal to tp_num_mapping"
+            "length of the load-balance recv_offset priority queue must be equal to tp_num_mapping, "
             f"got {len(lb_recv_offset_pq.queue)} and {self.tp_num_mapping}."
         )
+        is_collide = False
         for _ in range(self.tp_num_mapping):
             hit_time, seq_num, offset = lb_recv_offset_pq.get()
             dst_rank = dst_replica_ranks_group[d_idx][offset]
@@ -382,11 +377,19 @@ class ParameterSyncGroup:
             dst_actor = self.dst_model.get_actor(dst_rank)
             if self.is_same_gpu(src_actor, dst_actor):
                 logger.info(f"src_rank ({src_rank}) will collide with dst_rank ({dst_rank}), thus skip.")
-                illegal_lb_recv_offset_pq.put((hit_time, max_seq_num, offset))
+                is_collide = True
+                lb_recv_offset_pq.put((hit_time, max_seq_num, offset))
                 max_seq_num += 1
                 lb_dst_offset_pq_dict[indexed_dst_tp_group][1] = max_seq_num
             else:
                 legal_lb_recv_offset_pq.put((hit_time, seq_num, offset))
+
+        logger.info(f"legal_lb_recv_offset_pq={legal_lb_recv_offset_pq.queue}")
+        # if pre_allocate is True and no collide, we directly return 
+        if pre_allocate is True and is_collide is False:
+            while len(legal_lb_recv_offset_pq.queue) > 0:
+                lb_recv_offset_pq.put(legal_lb_recv_offset_pq.get())
+            return None, False
 
         # there must be at least one legal recv offset
         if len(legal_lb_recv_offset_pq.queue) == 0:
@@ -401,13 +404,11 @@ class ParameterSyncGroup:
         # put other solutions back to lb_recv_offset_pq
         while len(legal_lb_recv_offset_pq.queue) > 0:
             lb_recv_offset_pq.put(legal_lb_recv_offset_pq.get())
-        while len(illegal_lb_recv_offset_pq.queue) > 0:
-            lb_recv_offset_pq.put(illegal_lb_recv_offset_pq.get())
         logger.info(f"after retrieving, lb_recv_offset_pq = {lb_recv_offset_pq.queue}")
 
         # return dst_rank
         dst_rank = dst_replica_ranks_group[d_idx][offset]
-        return dst_rank
+        return dst_rank, is_collide
 
     def build_rank_mapping(self, add_recv_actor_fn=None):
         # setup rank mapping for src parameter and dst parameter
@@ -527,6 +528,8 @@ class ParameterSyncGroup:
             # Comm mapping from training to inference:
             #   [0] -> [0']
             #   [1] -> [2']
+            # Firstly, pre-allocate for those gpu collisions
+            uncollided_index_to_start_j = dict()
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 if i < src_replica_offset:
                     continue
@@ -540,13 +543,39 @@ class ParameterSyncGroup:
                     mod_i = (i - src_replica_offset) % self.tp_num_mapping
                     start = mod_i if (i - src_replica_offset) < self.tp_num_mapping else (self.tp_num_mapping - mod_i - 1) % self.tp_num_mapping
                 for s_idx, src_rank in enumerate(src_tp_group):
-                    dst_rank = self.get_load_balance_dst_rank(
+                    dst_rank, is_collide = self.get_load_balance_dst_rank(
                         lb_dst_offset_pq_dict,
                         s_idx,
                         start,
                         src_rank,
                         dst_replica_ranks_group,
-                        j
+                        j,
+                        pre_allocate=True
+                    )
+                    if is_collide:
+                        add_recv_actor_stage1_fn(src_rank, dst_rank)
+                        pair_list.append((src_rank, dst_rank))
+                    else:
+                        assert dst_rank is None
+                        uncollided_index_to_start_j.update({(i, s_idx) : (start, j)})
+
+            logger.info(f"{uncollided_index_to_start_j}")
+            # Then, allocate src_ranks without gpu collisions
+            for i, src_tp_group in enumerate(src_replica_ranks_group):
+                for s_idx, src_rank in enumerate(src_tp_group):
+                    if (i, s_idx) not in uncollided_index_to_start_j:
+                        continue
+                    
+                    logger.info(f"i={i}, s_idx={s_idx}")
+                    start, j = uncollided_index_to_start_j.get((i, s_idx))
+                    dst_rank, _ = self.get_load_balance_dst_rank(
+                        lb_dst_offset_pq_dict,
+                        s_idx,
+                        start,
+                        src_rank,
+                        dst_replica_ranks_group,
+                        j,
+                        pre_allocate=False
                     )
                     add_recv_actor_stage1_fn(src_rank, dst_rank)
                     pair_list.append((src_rank, dst_rank))
