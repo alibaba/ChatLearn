@@ -334,7 +334,7 @@ class ParameterSyncGroup:
             s_idx * self.tp_num_mapping + (start + i) % self.tp_num_mapping
             for i in range(self.tp_num_mapping)
         ])
-        indexed_dst_tp_group = tuple([dst_replica_ranks_group[d_idx][dst_tp_index] for dst_tp_index in dst_tp_indices])
+        indexed_dst_tp_group = tuple(dst_replica_ranks_group[d_idx][dst_tp_index] for dst_tp_index in dst_tp_indices)
 
         # Construct a priority queue (PQ) to retrieve `dst_rank` for load balancing when gpu collides.
         # The key of the PQ is (hit_time, max_seq_num), meaning that the rank is used for `hit_time` times,
@@ -377,8 +377,8 @@ class ParameterSyncGroup:
             dst_actor = self.dst_model.get_actor(dst_rank)
             if self.is_same_gpu(src_actor, dst_actor):
                 logger.info(
-                    f"src_rank ({src_rank}) will collide with dst_rank ({dst_rank}), "
-                    "thus skip dst_rank to the next legal rank."
+                    f"src_rank ({src_rank}) will share the same gpu with dst_rank ({dst_rank}). "
+                    "This is not allowed in NCCL send-recv. ChatLearn will skip dst_rank to the next legal one."
                 )
                 is_collide = True
                 lb_recv_offset_pq.put((hit_time, max_seq_num, offset))
@@ -388,7 +388,7 @@ class ParameterSyncGroup:
                 legal_lb_recv_offset_pq.put((hit_time, seq_num, offset))
 
         logger.debug(f"legal_lb_recv_offset_pq={legal_lb_recv_offset_pq.queue}")
-        # if pre_allocate is True and no collide, we directly return 
+        # if pre_allocate is True and no collide, we directly return
         if pre_allocate is True and is_collide is False:
             while len(legal_lb_recv_offset_pq.queue) > 0:
                 lb_recv_offset_pq.put(legal_lb_recv_offset_pq.get())
@@ -532,7 +532,7 @@ class ParameterSyncGroup:
             #   [0] -> [0']
             #   [1] -> [2']
             # Firstly, pre-allocate for those gpu collisions
-            uncollided_index_to_start_j = dict()
+            uncollided_index_to_start_j = {}
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 if i < src_replica_offset:
                     continue
