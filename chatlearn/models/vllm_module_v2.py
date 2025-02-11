@@ -199,6 +199,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     def dump_parameters(self, dump_path_root):
         self.onload_for_workers()
         self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
+
     def worker_dump_parameters(self, dump_path_root):
         tp_rank = self.tensor_parallel_rank()
         model = self.model
@@ -212,6 +213,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         for name, param in self.named_parameters.items():
             pt_file = os.path.join(dir_path, name)
             torch.save(param.data.clone(), pt_file)
+
     def init_memory_manager(self):
         if self.module_args.offload_weights:
             if InferenceMemoryManager is None:

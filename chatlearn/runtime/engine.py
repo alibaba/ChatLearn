@@ -481,7 +481,6 @@ class OnlineDPOEngine(Engine):
 
 class DPOEngine(Engine):
     """DPO Engine."""
-
     def __init__(self,
                  reference: BaseModule,
                  policy_trainer: BaseModule):
