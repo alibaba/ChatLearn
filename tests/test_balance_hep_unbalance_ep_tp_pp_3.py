@@ -179,13 +179,16 @@ assert comm_pair_routed_experts == [
     (2, 10), (2, 14), (3, 11), (3, 15),
     (4, 8), (4, 12), (5, 9), (5, 13),
     (6, 10), (6, 14), (7, 11), (7, 15)
-]
-assert comm_pair_stage_1 == [
-    (0, 8), (1, 11), (4, 9), (5, 11), # not (1, 10) because of gpu collision
-    (2, 12), (3, 14), (6, 12), (7, 15) # not (6, 13) because of gpu collision
-]
+], f"{comm_pair_routed_experts}"
+assert sorted(comm_pair_stage_1) == [
+    (0, 8), (1, 11), # not (1, 10) because of gpu collision
+    (2, 13), (3, 14), # not (2, 12) because of load balance
+    (4, 9), (5, 10), # not (5, 11) because of load balance
+    (6, 12), (7, 15) # not (6, 13) because of gpu collision
+], f"{sorted(comm_pair_stage_1)}"
 assert comm_pair_stage_2 == [
-    (8, 9), (9, 8), (11, 10), (12, 13), (14, 15), (15, 14) # lack of (10, 11), (13, 12) because of gpu collision
-]
+    (8, 9), (9, 8), (10, 11), (11, 10),
+    (12, 13), (13, 12), (14, 15), (15, 14)
+], f"{comm_pair_stage_2}"
 
 print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")

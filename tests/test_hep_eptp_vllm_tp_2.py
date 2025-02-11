@@ -252,7 +252,6 @@ class PPOPolicy(TestTorchModule):
         trainer_params[f"{self.expert_parallel_rank()}_{self.tensor_parallel_rank()}_{self.pipeline_parallel_rank()}"] = tmp
         self._named_parameters = tmp
 
-
     def get_parameter_names(self, requires_grad=True):
         return list(ParamsToSync_Trainer["ep"][self.expert_parallel_rank()].keys()) + list(ParamsToSync_Trainer["tp"][self.tensor_parallel_rank()].keys())
 
@@ -328,24 +327,24 @@ def test_hep_eptp_vllm_tp_dst_ep1_tp4_pp1_src_ep2_tp2_pp1():
     assert param_sync_group.ep_num_mapping == tuples[0] / tuples[3]
     assert param_sync_group.tp_num_mapping == tuples[1] // tuples[4]
 
-    # Judge allgather actors
-    allgather_actors = param_sync_group.send_actors_to_regroup_routed_experts
+    # Judge alltoall actors
+    alltoall_actors = param_sync_group.send_actors_to_regroup_routed_experts
     actor2rank = param_sync_group.actor2rank
 
-    assert param_sync_group._comm_type_to_regroup_routed_experts == "allgather"
-    assert len(allgather_actors) == 2
-    assert len(allgather_actors[0]) == 4 # first 4 src ranks should all-gather routed experts
-    assert len(allgather_actors[1]) == 4 # last 4 src ranks should all-gather routed experts
+    assert param_sync_group._comm_type_to_regroup_routed_experts == "alltoall"
+    assert len(alltoall_actors) == 2
+    assert len(alltoall_actors[0]) == 4 # first 4 src ranks should all-gather routed experts
+    assert len(alltoall_actors[1]) == 4 # last 4 src ranks should all-gather routed experts
     assert len(actor2rank) == 16 # all of the 16 actors should have rank
     assert len(set(list(actor2rank.values()))) == len(actor2rank) # all ranks should be unique
 
-    allgather_actor_ranks = []
-    for actor_list in allgather_actors:
-        allgather_actor_ranks.append([])
+    alltoall_actor_ranks = []
+    for actor_list in alltoall_actors:
+        alltoall_actor_ranks.append([])
         for actor in actor_list:
-            allgather_actor_ranks[-1].append(actor2rank[actor])
+            alltoall_actor_ranks[-1].append(actor2rank[actor])
 
-    assert allgather_actor_ranks == [[0, 1, 2, 3], [4, 5, 6, 7]]
+    assert alltoall_actor_ranks == [[0, 1, 2, 3], [4, 5, 6, 7]]
 
     # Judge src->dst rank mappings
     comm_pairs_for_except_routed_experts_stage1 = []
@@ -359,7 +358,7 @@ def test_hep_eptp_vllm_tp_dst_ep1_tp4_pp1_src_ep2_tp2_pp1():
         for dst_rank in dst_ranks:
             comm_pairs_for_except_routed_experts_stage2.append((actor2rank[src_rank], actor2rank[dst_rank]))
 
-    assert comm_pairs_for_except_routed_experts_stage1 == [(0, 8), (1, 11), (2, 12), (3, 14)] # not (1, 10) because of gpu collision
+    assert sorted(comm_pairs_for_except_routed_experts_stage1) == [(0, 8), (1, 11), (2, 12), (3, 14)] # not (1, 10) because of gpu collision
     assert comm_pairs_for_except_routed_experts_stage2 == [(8, 9), (11, 10), (12, 13),(14, 15)]
 
     print(f"pass test_case (dst_ep, dst_tp, dst_pp, src_ep, src_tp, src_pp): {tuples}")

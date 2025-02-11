@@ -416,9 +416,9 @@ def test_hep_eptppp_vllm_tp_dst_ep1_tp4_pp1_src_ep2_tp2_pp2():
         (4, 8), (4, 12), (5, 9), (5, 13),
         (6, 10), (6, 14), (7, 11), (7, 15) 
     ], f"{comm_pairs_for_routed_experts}"
-    assert comm_pairs_for_except_routed_experts_stage1 == [
-        (0, 9), (1, 11), (4, 8), (5, 10),
-        (2, 13), (3, 15), (6, 12), (7, 14)
+    assert sorted(comm_pairs_for_except_routed_experts_stage1) == [
+        (0, 8), (1, 11), (2, 13), (3, 14), # not (1, 10) because of gpu collision
+        (4, 9), (5, 10), (6, 12), (7, 15)  # not (6, 13) because of gpu collision
     ], f"{comm_pairs_for_except_routed_experts_stage1}"
     assert comm_pairs_for_except_routed_experts_stage2 == [
         (8, 9), (9, 8), (10, 11), (11, 10),

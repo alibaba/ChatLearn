@@ -372,11 +372,14 @@ class ParameterSyncGroup:
         for _ in range(self.tp_num_mapping):
             hit_time, seq_num, offset = lb_recv_offset_pq.get()
             dst_rank = dst_replica_ranks_group[d_idx][offset]
-            logger.info(f"Trying to match {src_rank} and {dst_rank} (hit={hit_time}), remaining queue={lb_recv_offset_pq.queue})")
+            logger.debug(f"Trying to match {src_rank} and {dst_rank} (hit={hit_time}), remaining queue={lb_recv_offset_pq.queue})")
             src_actor = self.src_model.get_actor(src_rank)
             dst_actor = self.dst_model.get_actor(dst_rank)
             if self.is_same_gpu(src_actor, dst_actor):
-                logger.info(f"src_rank ({src_rank}) will collide with dst_rank ({dst_rank}), thus skip.")
+                logger.info(
+                    f"src_rank ({src_rank}) will collide with dst_rank ({dst_rank}), "
+                    "thus skip dst_rank to the next legal rank."
+                )
                 is_collide = True
                 lb_recv_offset_pq.put((hit_time, max_seq_num, offset))
                 max_seq_num += 1
@@ -384,7 +387,7 @@ class ParameterSyncGroup:
             else:
                 legal_lb_recv_offset_pq.put((hit_time, seq_num, offset))
 
-        logger.info(f"legal_lb_recv_offset_pq={legal_lb_recv_offset_pq.queue}")
+        logger.debug(f"legal_lb_recv_offset_pq={legal_lb_recv_offset_pq.queue}")
         # if pre_allocate is True and no collide, we directly return 
         if pre_allocate is True and is_collide is False:
             while len(legal_lb_recv_offset_pq.queue) > 0:
@@ -396,7 +399,7 @@ class ParameterSyncGroup:
             raise RuntimeError(
                 f"Rank mapping solution is infeasible because src_rank ({src_rank}) will collide with all candidates."
             )
-        
+
         # extract the first legal one to keep load balance
         hit_time, seq_num, offset = legal_lb_recv_offset_pq.get()
         lb_recv_offset_pq.put((hit_time + 1, seq_num, offset))
@@ -404,7 +407,7 @@ class ParameterSyncGroup:
         # put other solutions back to lb_recv_offset_pq
         while len(legal_lb_recv_offset_pq.queue) > 0:
             lb_recv_offset_pq.put(legal_lb_recv_offset_pq.get())
-        logger.info(f"after retrieving, lb_recv_offset_pq = {lb_recv_offset_pq.queue}")
+        logger.debug(f"after retrieving, lb_recv_offset_pq = {lb_recv_offset_pq.queue}")
 
         # return dst_rank
         dst_rank = dst_replica_ranks_group[d_idx][offset]
@@ -559,14 +562,12 @@ class ParameterSyncGroup:
                         assert dst_rank is None
                         uncollided_index_to_start_j.update({(i, s_idx) : (start, j)})
 
-            logger.info(f"{uncollided_index_to_start_j}")
             # Then, allocate src_ranks without gpu collisions
             for i, src_tp_group in enumerate(src_replica_ranks_group):
                 for s_idx, src_rank in enumerate(src_tp_group):
                     if (i, s_idx) not in uncollided_index_to_start_j:
                         continue
-                    
-                    logger.info(f"i={i}, s_idx={s_idx}")
+
                     start, j = uncollided_index_to_start_j.get((i, s_idx))
                     dst_rank, _ = self.get_load_balance_dst_rank(
                         lb_dst_offset_pq_dict,
