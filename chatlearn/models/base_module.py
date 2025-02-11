@@ -128,6 +128,7 @@ class BaseModule:
         self._tp_division = {}
         self._tp_num_mapping = 1
         self._sync_buffer = defaultdict(list)
+        self._sync_dst_rank_to_src_ranks = {}
         self._expert_sync_buffer = {}
         self._synchronizer = None
 
@@ -830,8 +831,12 @@ class BaseModule:
             else:
                 parameters_to_sync = self._parameters_to_send
         else:
-            del self._sync_buffer
-            self._sync_buffer = defaultdict(list)
+            if rank not in self._sync_dst_rank_to_src_ranks:
+                self._sync_dst_rank_to_src_ranks.update({rank:[src_rank]})
+                del self._sync_buffer
+                self._sync_buffer = defaultdict(list)
+            else:
+                self._sync_dst_rank_to_src_ranks[rank].append(src_rank)
             parameters_to_sync = self._parameters_to_sync
 
         def tensor_generator():
@@ -907,6 +912,9 @@ class BaseModule:
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
+
+        if stage2:
+            self._sync_dst_rank_to_src_ranks = {}
 
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
