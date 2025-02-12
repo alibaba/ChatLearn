@@ -42,7 +42,7 @@ def collective_task_scheduler(tasks):
         send_actors_set = set()
         recv_actors_set = set()
         list_count = todo_queue.qsize()
-        # re-put it if confilict, otherwise put it to PendingQueue
+        # re-put it if conflict, otherwise put it to PendingQueue
         for _ in range(list_count):
             task = todo_queue.get()
             send = task.actors[0]

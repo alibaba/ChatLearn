@@ -691,18 +691,16 @@ class ParameterSyncGroup:
         if stage2:
             assert len(actors) == 2, f"expect only 2 actors for stage2. \
                 sync params of relative rank to other slices of inference model. while {len(actors)}"
-        start_remote_call = time.time()
         for rank, actor in enumerate(actors):
             sync_buffer_rank = self.actor2rank[actors[1]] if rank == 0 and stage2 else 0
             ref = actor.broadcast_parameter_two_stage.remote(
                 self.actor2rank[actor], sync_buffer_rank, rank, send_rank, group_name, pipe_stage, stage2)
             refs.append(ref)
         rets = future.wait(refs, return_output=True)
-        logger.info(f"DEBUG ParameterSync finish broadcast_parameter_two_stage.remote {group_name} using {time.time()-start_remote_call} seconds")
-        logger.info(f"DEBUG ParameterSync {stage_str} finish sync_broadcast_two_stage {group_name} using {time.time()-start_time} seconds")
+        logger.info(f"sync_broadcast_two_stage done {stage_str} {group_name} using {time.time()-start_time} seconds")
         return rets
 
-    def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default", dryrun=False):
+    def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
         send_actor = actors[0]
         for recv_actor in actors[1:]:
             self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
@@ -730,7 +728,7 @@ class ParameterSyncGroup:
             self.set_sync_param_names(actor, actor, requires_grad, filter_fn, param_group="routed", should_map_name=False)
         pipe_stage = self.get_actor_pipe_rank(actors[0])
         refs = []
-        logger.info(f"paply alltoall among {[self.actor2rank[actor] for actor in actors]}")
+        logger.info(f"apply alltoall among {[self.actor2rank[actor] for actor in actors]}")
         for actor in actors:
             ref = actor.alltoall_routed_expert_parameter.remote(pipe_stage)
             refs.append(ref)
@@ -783,7 +781,6 @@ class ParameterSyncGroup:
 
     def get_actor_dp_rank(self, actor):
         def inner_func():
-            logger.info(f"DEBUG get_actor_dp_rank: {actor}")
             return future.get(actor.get_data_parallel_rank.remote())
         return utils.get_or_cache(self._actor2dp, actor, inner_func)
 
@@ -880,7 +877,6 @@ class ParameterSyncGroup:
             future.wait(refs)
             self.collective_groups.append(finalized_group_name)
             self.groups2actors[finalized_group_name] = tuple(actor_groups)
-            logger.info(f"DEBUG create_broadcast_group {finalized_group_name} using {time.time() - start_time} seconds")
         return actor_groups, finalized_group_name
 
     def create_allgather_group(self, actor_groups, group_name=None):
@@ -902,7 +898,6 @@ class ParameterSyncGroup:
                 refs.append(ref)
             future.wait(refs)
             self.collective_groups.append(finalized_group_name)
-        logger.info(f"DEBUG ParameterSync create group: {finalized_group_name} using {time.time()-start_time} seconds")
         return actor_groups, finalized_group_name
 
     def sort_send_actors(self, send_recv_actor_mappings, sorted_send_actors):
@@ -1189,7 +1184,6 @@ class ParameterSyncGroup:
         actor_mappings_stage2 = actor_mappings[1]
 
         # stage 1
-        logger.info("DEBUG ParameterSync start stage1-2")
         self.timers("stage1").start()
 
         sorted_send_actors_stage1 = list(actor_mappings_stage1.keys())
@@ -1201,7 +1195,7 @@ class ParameterSyncGroup:
             dryrun=dryrun
         )
         self.timers("stage1").stop()
-        logger.debug(f"DEBUG ParameterSync finish stage1-2| {self.timers.log(names=['stage1'])}")
+        logger.info(f"finish stage1| {self.timers.log(names=['stage1'])}")
         # stage 2
         self.timers("stage2").start()
         sorted_send_actors_stage2 = list(actor_mappings_stage2.keys())
@@ -1212,7 +1206,7 @@ class ParameterSyncGroup:
             group_name=group_name, stage2=True, filter_fn=filter_fn, param_group=param_group,
             dryrun=dryrun)
         self.timers("stage2").stop()
-        logger.debug(f"DEBUG ParameterSync finish stage2| {self.timers.log(names=['stage2'])}")
+        logger.info(f"finish stage2| {self.timers.log(names=['stage2'])}")
 
     def _multi_thread_sync_for_tp_num_mapping_eq_1(
         self, send_actors_list:List, actor_mappings_list:List,
@@ -1244,8 +1238,7 @@ class ParameterSyncGroup:
                         if dryrun:
                             continue
                         futures.append(executor.submit(
-                            self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group,
-                            dryrun=dryrun
+                            self.sync_broadcast, actor_groups, finalized_group_name, requires_grad, filter_fn=filter_fn, param_group=param_group
                         ))
                     else:
                         for recv_actor in recv_actors:
@@ -1622,8 +1615,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     requires_grad=requires_grad,
                     filter_fn=self.routed_experts_filter,
                     dryrun=dryrun)
-                logger.info("complete to alltoall router experts. ")
-                logger.info(f"DEBUG ParameterSync finish stage0 alltoall using {time.time()-start_time:.2f} seconds")
+                logger.info("complete to alltoall router experts using {time.time()-start_time:.2f} seconds ")
             # sync everything to inference model
             if self.tp_num_mapping == 1:
                 logger.info("start to sync all moe experts")
@@ -1643,8 +1635,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 logger.info("start to sync routed expert weights.")
                 start_time = time.time()
                 self._synchronize_routed_experts(requires_grad=requires_grad, validate=validate, dryrun=dryrun)
-                logger.info("complete to sync routed expert weights.")
-                logger.info(f"DEBUG ParameterSync finish stage1-1 routed_experts using {time.time() - start_time:.2f} seconds")
+                logger.info(f"complete to sync routed expert weights. [stage1-1] using {time.time()-start_time:.2f} seconds")
                 self.clear_cache(
                     sorted_send_actors_list = [
                         self.send_actors_to_regroup_routed_experts,

@@ -501,6 +501,7 @@ class BaseModule:
         x = torch.zeros(1, device="cuda")
         col.broadcast(x, src_rank=src_rank, group_name=group_name)
         del x
+
     def broadcast_dummy_tensor_recv(self, src_rank, group_name):
         x = torch.zeros(1, device="cuda")
         col.broadcast(x, src_rank=src_rank, group_name=group_name)
@@ -834,7 +835,7 @@ class BaseModule:
         """
         tensor_changed = rank != src_rank
         start = time.time()
-        key = f"{to_rank}_{buffer_rank}_{rank}_{src_rank}_{group_name}_{pipe_stage}_{stage2}"
+        arguments = f"{to_rank}_{buffer_rank}_{rank}_{src_rank}_{group_name}_{pipe_stage}_{stage2}"
 
         if stage2:
             if tensor_changed:
@@ -919,7 +920,7 @@ class BaseModule:
             else:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
-        self._logger.info(f"DEBUG broadcast_parameter_two_stage {key} done using {time.time()-start} seconds")
+        self._logger.debug(f"broadcast_parameter_two_stage {arguments} done using {time.time()-start} seconds")
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):
