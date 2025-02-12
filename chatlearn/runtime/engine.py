@@ -403,11 +403,11 @@ class Engine(BaseEngine):
         if self.runtime_args.save_episode_interval and \
                 (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
             for model in self.trainer.models:
-                refs = model.replicas[0].onload(to_onload_optimizer_states=False)
+                refs = model.replicas[0].onload(to_onload_optimizer_states=True)
                 future.wait(refs)
                 refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
                 future.wait(refs)
-                refs = model.replicas[0].offload()
+                refs = model.replicas[0].offload(to_offload_optimizer_states=True)
                 future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
