@@ -21,7 +21,7 @@ from itertools import cycle
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
-
+from torch.utils.data import DataLoader, Dataset
 from chatlearn.utils import future
 
 
@@ -300,26 +300,36 @@ class EpisodeRelayBuffer:
     def episode_id(self):
         return self._episode_id
 
+class RLHFDataset(Dataset):
+    """
+    RLHF dataset
+    """
+    def __init__(self, data):
+        self.data = data
 
-class RLHFDataLoader:
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+class RLHFDataLoader(DataLoader):
     """
     RLHF data loader
     """
 
-    def __init__(self, dataset, batch_size):
+    def __init__(self, dataset, batch_size, num_inference_per_prompt, ):
         """generate prompts data loader"""
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.data_iter = cycle(iter(self.dataset))
-
+        def custom_collate_fn(batch):
+            data = [d for d in batch]
+            return data
+        super(RLHFDataLoader, self).__init__(RLHFDataset(dataset), batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
+        self.num_inference_per_prompt = num_inference_per_prompt
     def __iter__(self):
-        batch_data = []
-        for _, item in enumerate(self.data_iter):
-            batch_data.append(item)
-            if len(batch_data) == self.batch_size:
-                batched = batching(batch_data)
-                yield batched
+        while True:
+            iterator = super(RLHFDataLoader, self).__iter__()
+            for batch in iterator:
                 batch_data = []
-        if len(batch_data) > 0:
-            batched = batching(batch_data)
-            yield batched
+                for d in batch:
+                    batch_data.extend([d for i in range(self.num_inference_per_prompt)])
+                yield batch_data
