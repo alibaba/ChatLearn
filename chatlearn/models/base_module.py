@@ -497,6 +497,7 @@ class BaseModule:
         self._world_size = world_size
         col.init_collective_group(
             world_size, rank, backend=backend, group_name=group_name)
+
     def broadcast_dummy_tensor_send(self, src_rank, group_name):
         x = torch.zeros(1, device="cuda")
         col.broadcast(x, src_rank=src_rank, group_name=group_name)

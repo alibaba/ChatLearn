@@ -317,7 +317,7 @@ class Engine(BaseEngine):
             logger.info("dump parameters before syncnizing...")
             self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
-        if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "ON") == "ON":
+        if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "true") == "true":
             self.timers("warmup_sync_parameters").start()
             self.model_manager.sync_parameters(requires_grad=False, validate=False, dryrun=True)
             self.model_manager.warmup_collective_topology()

@@ -1049,7 +1049,7 @@ class ParameterSyncGroup:
             concurrent.futures.wait(futures)
 
     def sync_alltoall_multi_threads(
-        self, send_actors, max_workers=1, requires_grad=None, filter_fn=None, dryrun=False
+        self, send_actors, max_workers=1, requires_grad=None, filter_fn=None
     ):
         send_actors_to_alltoall_routed_experts = send_actors[0]
         max_workers = len(send_actors_to_alltoall_routed_experts)
