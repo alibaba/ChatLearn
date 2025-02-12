@@ -312,10 +312,11 @@ class Executor:
                 f"Model {model_node.next_colocate_node} will wait model {model} to finish since they are colocated")
             self._models_and_results_to_wait = model_node.next_colocate_node.add_dependent_colocate_model_results(
                 model_node, results, self._models_and_results_to_wait)
-        elif model.colocate_models or model.trainable:
+        elif model.colocate_models or model.trainable or all([next_node.model.trainable for next_node in model_node.output_nodes]):
             # 1. the model may colocate with training/inference, so we should wait until the end of compute_loop
             # 2. the model is trainable and it does not have next_colocate_model, we should make sure it is finished before parameter_sync
             # so we add them to a temp list
+            # 3. the model is the last inference model, wait until the end of compute_loop to ensure correct time summary
             logger.info(f"Sync {model} in the end of {self.__class__.__name__}")
             self._models_and_results_to_wait.append((model_node, results))
 
