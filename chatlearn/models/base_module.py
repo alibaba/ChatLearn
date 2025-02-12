@@ -38,6 +38,7 @@ from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr
 from chatlearn.launcher import dlc_utils
+from vllm import _custom_ops as ops  # pylint: disable=import-outside-toplevel
 
 
 class BaseModule:
@@ -640,32 +641,8 @@ class BaseModule:
                     self._logger.info(f"Skip quantize: {name=} {params.shape=}")
                     params_to_sync_list_fp8.append((name, params))
                 elif "mlp.experts.dense_4h_to_h" in name.lower() or "mlp.experts.dense_h_to_4h" in name.lower():
-                    # when quantize routed experts, per-tensor means on each expert
-                    # params in self._expert_sync_buffer already tp sliced for all experts
-                    params = self._expert_sync_buffer[name]
-                    num_experts = self._module_args.args_dict["moe_num_experts"]
-                    hidden = self._module_args.args_dict["hidden_size"]
-                    if "dense_4h_to_h" in name.lower():
-                        # w2
-                        reshaped_params = params.reshape(num_experts, hidden, -1)
-                    else:
-                        # w13
-                        reshaped_params = params.reshape(num_experts, -1, hidden)
-                    qweight_list = []
-                    scale_list = []
-                    for i in range(num_experts):
-                        qw, scale = ops.scaled_fp8_quant(reshaped_params[i: i+1].squeeze(0), scale=None)
-                        qweight_list.append(qw.unsqueeze(0).view(torch.uint8))
-                        scale_list.append(scale)
-                    qw_experts = torch.cat(qweight_list, dim=0).reshape(params.shape).contiguous()
-                    scale_experts = torch.cat(scale_list, dim=0).contiguous()
-                    self._logger.warning(f"Experts quantize: {name=} {params.shape=} {scale_experts.shape=} {qw_experts.shape=}")
-                    params_to_sync_list_fp8.append((name, qw_experts))
-                    params_to_sync_list_fp8.append((f"{name}_scale", scale_experts))
-                    self._expert_sync_buffer[name] = qw_experts
-                    del params
-                    del qweight_list
-                    del scale_list
+                    self._logger.warning(f"pass expert quantize here {name=}")
+                    params_to_sync_list_fp8.append((name, params))
                 else:
                     qw, scale = ops.scaled_fp8_quant(params, scale=None)
                     self._logger.warning(f"Normal quantize: {name=} {params.shape=} {scale.shape=}")
@@ -847,7 +824,35 @@ class BaseModule:
         for name, param in self._parameters_to_sync[pipe_stage]:
             if self._expert_sync_buffer and name in self._expert_sync_buffer and \
                     (self._synchronizer and self._synchronizer.is_parameter_changed):
-                tensors.append((name, self._expert_sync_buffer[name]))
+                if True:
+                    # when quantize routed experts, per-tensor means on each expert
+                    # params in self._expert_sync_buffer already tp sliced for all experts
+                    params = self._expert_sync_buffer[name]
+                    num_experts = self._module_args.args_dict["moe_num_experts"]
+                    hidden = self._module_args.args_dict["hidden_size"]
+                    if "dense_4h_to_h" in name.lower():
+                        # w2
+                        reshaped_params = params.reshape(num_experts, hidden, -1)
+                    else:
+                        # w13
+                        reshaped_params = params.reshape(num_experts, -1, hidden)
+                    qweight_list = []
+                    scale_list = []
+                    for i in range(num_experts):
+                        qw, scale = ops.scaled_fp8_quant(reshaped_params[i: i+1].squeeze(0), scale=None)
+                        qweight_list.append(qw.unsqueeze(0).view(torch.uint8))
+                        scale_list.append(scale)
+                    qw_experts = torch.cat(qweight_list, dim=0).reshape(params.shape).contiguous()
+                    scale_experts = torch.cat(scale_list, dim=0).contiguous()
+                    self._logger.warning(f"Experts quantize: {name=} {params.shape=} {scale_experts.shape=} {qw_experts.shape=}")
+                    tensors.append((name, qw_experts))
+                    tensors.append((f"{name}_scale", scale_experts))
+                    self._expert_sync_buffer[name] = qw_experts
+                    del params
+                    del qweight_list
+                    del scale_list
+                else:
+                    tensors.append((name, self._expert_sync_buffer[name]))
             else:
                 tensors.append((name, param.data))
 
