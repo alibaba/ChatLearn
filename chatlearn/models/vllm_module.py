@@ -515,7 +515,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     max_tokens=max_tokens,
                     logprobs=1,
                     prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-                    skip_special_tokens=False
+                    skip_special_tokens=self.model_args.get('skip_special_tokens', True)
                 )
             elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
                 sampling_params = SamplingParams(
@@ -531,7 +531,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     max_tokens=max_tokens,
                     logprobs=1,
                     prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-                    skip_special_tokens=False
+                    skip_special_tokens=self.model_args.get('skip_special_tokens', True)
                 )
             else:
                 raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")

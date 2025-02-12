@@ -229,7 +229,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             stop=stop,
             logprobs=1,
             prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-            skip_special_tokens=False
+            skip_special_tokens=self.model_args.get('skip_special_tokens', True)
         )
         # VLLMVersion.v_0_3_0, VLLMVersion.v_0_5_1
         if hasattr(sampling_params, 'use_beam_search'):

@@ -23,6 +23,7 @@ apply_replica_id_to_seed: ${apply_replica_id_to_seed:True}
 stop_token_list: ${stop_token_list:<EOS>;</s>}
 new_token_limit: ${new_token_limit:True}
 prompt_logprobs: ${prompt_logprobs:None}
+skip_special_tokens: ${skip_special_tokens:True}
 
 # scheduler config
 max_num_batched_tokens: ${max_num_batched_tokens:32768}
