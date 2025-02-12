@@ -1053,7 +1053,7 @@ class ParameterSyncGroup:
                     _future.result()
                 except Exception as e:
                     raise RuntimeError(f"Parameter sync thread generated an exception: {e}") # pylint: disable=raise-missing-from
-                concurrent.futures.wait(futures)
+            concurrent.futures.wait(futures)
 
     def sync_alltoall_multi_threads(
         self, send_actors, max_workers=1, requires_grad=None, filter_fn=None, dryrun=False
@@ -1570,10 +1570,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             actors = task.actors
             group = task.group
             refs = []
-            logger.info(f"DEBUG warmup_groups schedule {group} {actors[0]}")
             refs.append(actors[0].broadcast_dummy_tensor_send.remote(0, group))
             for actor in actors[1:]:
-                logger.info(f"DEBUG warmup_groups schedule {group} {actor}")
                 refs.append(actor.broadcast_dummy_tensor_recv.remote(0, group))
             future.wait(refs)
 
