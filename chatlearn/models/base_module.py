@@ -17,7 +17,9 @@
 from collections import defaultdict
 from itertools import cycle
 import math
+import time
 import os
+import torch
 
 import ray
 import ray.util.collective as col
@@ -497,6 +499,16 @@ class BaseModule:
         col.init_collective_group(
             world_size, rank, backend=backend, group_name=group_name)
 
+    def broadcast_dummy_tensor_send(self, src_rank, group_name):
+        x = torch.zeros(1, device="cuda")
+        col.broadcast(x, src_rank=src_rank, group_name=group_name)
+        del x
+
+    def broadcast_dummy_tensor_recv(self, src_rank, group_name):
+        x = torch.zeros(1, device="cuda")
+        col.broadcast(x, src_rank=src_rank, group_name=group_name)
+        del x
+
     def _destroy_collective_group(self, group_name):
         """
         :meta private:
@@ -824,6 +836,8 @@ class BaseModule:
                 In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
+        start = time.time()
+        arguments = f"{to_rank}_{buffer_rank}_{rank}_{src_rank}_{group_name}_{pipe_stage}_{stage2}"
 
         if stage2:
             if tensor_changed:
@@ -916,6 +930,7 @@ class BaseModule:
         if stage2:
             self._sync_dst_rank_to_src_ranks = {}
 
+        self._logger.debug(f"broadcast_parameter_two_stage {arguments} done using {time.time()-start} seconds")
         debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):
