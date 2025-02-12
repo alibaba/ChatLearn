@@ -240,7 +240,7 @@ class ParameterSyncGroup:
         dst_pp_rank = self.get_actor_pipe_rank(dst_actor)
         src_ep_rank = self.get_actor_ep_rank(src_actor)
         dst_ep_rank = self.get_actor_ep_rank(dst_actor)
-        logger.debug(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " +
+        logger.info(f"build rank mapping from {src_rank} to {dst_rank}, from gpu {src_gpu} to {dst_gpu}, " +
                      f"from pipe_stage {src_pp_rank} to {dst_pp_rank}, " +
                      f"from tp rank {src_tp_rank} to {dst_tp_rank}, " +
                      f"from ep rank {src_ep_rank} to {dst_ep_rank}.")
@@ -284,6 +284,9 @@ class ParameterSyncGroup:
     def get_src_and_dst_dp_ranks(self, is_except_routed_experts=False):
         dst_dp_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
+        logger.info(f"dst_dp_ranks: {dst_dp_ranks}")
+        logger.info(f"local_src_ranks: {local_src_ranks}")
+        logger.info(f"{type(self.src_model), type(self.src_model.replicas[0])}")
         if local_src_ranks[0] is None or dst_dp_ranks is None:
             if self._debug:
                 logger.warning(
@@ -969,7 +972,7 @@ class ParameterSyncGroup:
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
         else:
-            max_workers = len(sorted_send_actors)
+            max_workers = max(len(sorted_send_actors),max_workers)
             logger.info(f"Use {max_workers} workers for first_stage broadcasting.")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = []
@@ -1143,6 +1146,7 @@ class ParameterSyncGroup:
         )
         actor_mappings_stage1 = actor_mappings[0]
         actor_mappings_stage2 = actor_mappings[1]
+        logger.info(f"actor_mappings_stage1: {actor_mappings_stage1}")
 
         # stage 1
         self.timers("stage1").start()
@@ -1254,6 +1258,7 @@ class ParameterSyncGroup:
             if self.tp_num_mapping > 1:
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                logger.info(f"actor_mappings_list: {actor_mappings_list}")
                 self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
@@ -1699,6 +1704,7 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             if self.tp_num_mapping > 1:
                 send_actors_list = [self.sorted_send_actors, self.sorted_send_actors_stage2]
                 actor_mappings_list = [self.send_recv_actor_mappings, self.send_recv_actor_mappings_stage2]
+                logger.info(f"actor_mappings_list: {actor_mappings_list}")
                 self._multi_thread_sync_for_tp_num_mapping_gt_1(
                     send_actors_list,
                     actor_mappings_list,
