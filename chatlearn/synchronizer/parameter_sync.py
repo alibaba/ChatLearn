@@ -854,7 +854,6 @@ class ParameterSyncGroup:
         return src_names, dst_names
 
     def create_broadcast_group(self, send_actor, recv_actors, group_name=None, param_group="default"):
-        start_time = time.time()
         actor_groups = [send_actor]
         actor_groups.extend(recv_actors)
         # Use self.actor2rank to ensure a globally unique number within a param_group.
@@ -880,7 +879,6 @@ class ParameterSyncGroup:
         return actor_groups, finalized_group_name
 
     def create_allgather_group(self, actor_groups, group_name=None):
-        start_time = time.time()
         # Use self.actor2rank to ensure a globally unique number within a param_group.
         actor_ranks = '_'.join([str(self.actor2rank[actor]) for actor in actor_groups])
         # Always include self.group_name to ensure the name of a param_group is unique.
