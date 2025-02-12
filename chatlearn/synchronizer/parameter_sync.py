@@ -1054,8 +1054,6 @@ class ParameterSyncGroup:
         send_actors_to_alltoall_routed_experts = send_actors[0]
         max_workers = len(send_actors_to_alltoall_routed_experts)
         logger.info(f"Use {max_workers} workers for alltoall multiprocessing.")
-        if dryrun:
-            return
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = []
             for actor_groups in send_actors_to_alltoall_routed_experts:
@@ -1604,16 +1602,16 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     group_name=self.group_name + "_allgather",
                     filter_fn=self.routed_experts_filter)
             elif self._comm_type_to_regroup_routed_experts == ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL:
-                logger.info("start to alltoall router experts. ")
-                start_time = time.time()
-                # alltoall routed experts only
-                self.sync_alltoall_multi_threads(
-                    [self.send_actors_to_regroup_routed_experts],
-                    max_workers=max_workers,
-                    requires_grad=requires_grad,
-                    filter_fn=self.routed_experts_filter,
-                    dryrun=dryrun)
-                logger.info("complete to alltoall router experts using {time.time()-start_time:.2f} seconds ")
+                if not dryrun:
+                    logger.info("start to alltoall router experts. ")
+                    start_time = time.time()
+                    # alltoall routed experts only
+                    self.sync_alltoall_multi_threads(
+                        [self.send_actors_to_regroup_routed_experts],
+                        max_workers=max_workers,
+                        requires_grad=requires_grad,
+                        filter_fn=self.routed_experts_filter)
+                    logger.info("complete to alltoall router experts using {time.time()-start_time:.2f} seconds ")
             # sync everything to inference model
             if self.tp_num_mapping == 1:
                 logger.info("start to sync all moe experts")
