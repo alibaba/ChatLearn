@@ -164,7 +164,7 @@ engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 def relay_sample_fn(episode_relay_buffers):
     buffer = episode_relay_buffers[-1].buffer
     episode_id = episode_relay_buffers[-1]._episode_id
-    assert len(buffer) == 1024
+    assert len(buffer) == 1024, f"Unexpected length of buffer: {len(buffer)}, expected: 1024."
     for i in range(len(buffer)):
         assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
     return buffer
@@ -187,6 +187,11 @@ assert engine.named_models['reward'].replicas[0].data_parallel_size == 8
 assert engine.named_models['value'].replicas[0].data_parallel_size == 8
 assert engine.named_models['ppo_policy'].replicas[0].data_parallel_size == 8
 assert engine.named_models['ppo_value'].replicas[0].data_parallel_size == 8
+
+dp_rank_to_actors = engine.named_models['policy'].replicas[0].dp_rank_to_actors
+assert len(dp_rank_to_actors) == 4
+assert len(dp_rank_to_actors[0]) == 1
+assert len(dp_rank_to_actors[1]) == 1
 
 dp_rank_to_actors = engine.named_models['ppo_policy'].replicas[0].dp_rank_to_actors
 assert len(dp_rank_to_actors) == 8
