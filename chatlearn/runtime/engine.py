@@ -402,12 +402,13 @@ class Engine(BaseEngine):
         """
         if self.runtime_args.save_episode_interval and \
                 (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
+            self.timers("save_checkpoint").start()
             for model in self.trainer.models:
-                refs = model.replicas[0].onload(to_onload_optimizer_states=True)
+                refs = model.replicas[0].onload(to_onload_optimizer_states=False)
                 future.wait(refs)
                 refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
                 future.wait(refs)
-                refs = model.replicas[0].offload(to_offload_optimizer_states=True)
+                refs = model.replicas[0].offload()
                 future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
@@ -416,6 +417,7 @@ class Engine(BaseEngine):
                 else:
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
+            self.timers("save_checkpoint").stop()
             logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
     def evaluate(self, episode_id):
