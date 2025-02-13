@@ -16,8 +16,6 @@
 
 import math
 import random
-from itertools import cycle
-
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -318,16 +316,26 @@ class RLHFDataLoader(DataLoader):
     RLHF data loader
     """
 
-    def __init__(self, dataset, batch_size, num_inference_per_prompt, ):
+    def __init__(self, dataset, batch_size, num_inference_per_prompt, shuffled_list=None, offset=0):
         """generate prompts data loader"""
         def custom_collate_fn(batch):
-            data = [d for d in batch]
+            data = list(batch)
             return data
-        super(RLHFDataLoader, self).__init__(RLHFDataset(dataset), batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
+        super().__init__(RLHFDataset(dataset), batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
         self.num_inference_per_prompt = num_inference_per_prompt
+        self.shuffled_list = shuffled_list
+        self.offset = offset
     def __iter__(self):
+        # traversal remain data
+        if self.shuffled_list is not None:
+            batch_data = []
+            for i in range(self.offset, int(len(self.shuffled_list) / self.num_inference_per_prompt)):
+                batch_data.extend(self.shuffled_list[i * self.num_inference_per_prompt : (i + 1) * self.num_inference_per_prompt])
+                if len(batch_data) == self.batch_size * self.num_inference_per_prompt:
+                    yield batch_data
+                    batch_data = []
         while True:
-            iterator = super(RLHFDataLoader, self).__iter__()
+            iterator = super().__iter__()
             for batch in iterator:
                 batch_data = []
                 for d in batch:
