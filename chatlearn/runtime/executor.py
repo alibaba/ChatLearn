@@ -320,8 +320,8 @@ class Executor:
             self._models_and_results_to_wait.append((model_node, results))
         else:
             logger.info(
-                f"Model {model_node} doesn't colocate with others. The E2E time for it will be N/A because "
-                "non-colocated models will be executed asynchrounously and continuously in a producer-consumer mode."
+                f"Model {model} doesn't colocate with others. The e2e_cost for it will be n/a because "
+                "non-colocated models will be executed asynchrounously and continuously with others."
             )
 
     def compute_loop(self, out_queue, num_batch=None):

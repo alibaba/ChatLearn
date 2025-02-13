@@ -147,7 +147,11 @@ class BaseEngine:
         _, e2e_time_dict = self.timer_summary()
         refs = []
         for model in self.remote_models:
-            time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_time_dict.get(model.name, None))
+            if len(model.colocate_models) > 0 or not model.trainable:
+                e2e_cost = e2e_time_dict.get(model.name, None)
+            else:
+                e2e_cost = 'n/a'
+            time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_cost)
             refs.append(time_ref)
         summaries = future.get(refs)
 

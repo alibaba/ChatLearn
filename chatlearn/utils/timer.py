@@ -103,7 +103,10 @@ class Timers:
         assert normalizer > 0.0
         string = 'time (s)'
         if e2e_cost is not None:
-            string += ' | e2e_cost: {:.2f}'.format(e2e_cost)
+            if e2e_cost == 'n/a':
+                string += ' | e2e_cost: n/a'
+            else:
+                string += ' | e2e_cost: {:.2f}'.format(e2e_cost)
         for name in all_keys:
             if name not in self.timers:
                 logger.warning(f"{name} not in timers, ignore it.")
