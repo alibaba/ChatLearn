@@ -25,8 +25,8 @@ bash scripts/train_online_dpo_llama.sh
 ```
 
 This will generate two directories:
-before_sync_parameter: Parameters before synchronization.
-after_sync_parameter: Parameters after synchronization.
+`prev_sync`: Parameters before synchronization.
+`post_sync`: Parameters after synchronization.
 Each directory contains subfolders for every TP rank.
 
 ### 3. Check Dumped Files
@@ -38,11 +38,11 @@ tree /path/to/dump_directory
 Example output:
 ``` text
      /workspace/debug_sync_params
-     ├── before_sync_parameter
+     ├── prev_sync
      │   ├── 0   # Parameters from TP rank 0
      │   ├── 1   # Parameters from TP rank 1
      │   └── ...
-     └── after_sync_parameter
+     └── post_sync
          ├── 0
          ├── 1
          └── ...
@@ -59,11 +59,6 @@ This script will compare parameter shapes and values
 Generate a log file (check.log) with detailed results.
 
 ### 5. Interpret the Log File
-
-Successful Sync:
-```text
-PASS|1|model.layers.5.self_attn.qkv_proj.weight
-```
 
 MisMatch Detected with Mean Values:
 ```text

@@ -315,7 +315,7 @@ class Engine(BaseEngine):
             if os.path.exists(dump_root_path):
                 shutil.rmtree(dump_root_path)
             logger.info("dump parameters before syncnizing...")
-            self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
+            self.dump_parameters(os.path.join(dump_root_path, "prev_sync"))
         self.timers("sync_parameters").start()
         if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "true") == "true":
             self.timers("warmup_sync_parameters").start()
@@ -327,7 +327,7 @@ class Engine(BaseEngine):
         self.timers("sync_parameters").stop()
         if dump_root_path:
             logger.info("dump parameters after syncnizing...")
-            self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
+            self.dump_parameters(os.path.join(dump_root_path, "post_sync"))
             logger.info("finish dump parameters, ChatLearn will exit")
             return
         logger.info(
