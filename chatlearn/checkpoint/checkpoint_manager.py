@@ -69,7 +69,7 @@ class CheckpointManager:
                 except PermissionError:
                     log_rank_0("Permission Denied: Please check the checkpoint file permissions.")
 
-    def save_checkpoint(self, replica_id, train_iter, episode, consumed_samples):
+    def save_checkpoint(self, replica_id, train_iter, epoch, episode, consumed_samples):
         """save data checkpoint"""
         ckpt_path = self._make_checkpoint_path(replica_id, train_iter)
         log_rank_0(
@@ -80,6 +80,7 @@ class CheckpointManager:
             return os.path.join(ckpt_path, fn)
 
         meta_data = {"episode": episode,
+                     "epoch": epoch,
                      "train_iteration": train_iter,
                      "consumed_samples": consumed_samples,
                      "sample_per_episode": self._model.runtime_args.sample_per_episode}

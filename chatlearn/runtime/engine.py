@@ -141,7 +141,7 @@ class BaseEngine:
             mem_log = f"peak_mem(GiB): {mem_str}"
             logger.debug(f"{LOG_START} {model.name} {mem_log}")
 
-    def logging_summary(self, iteration=-1):
+    def logging_summary(self, epoch=0, iteration=-1):
         _, e2e_time_dict = self.timer_summary()
         refs = []
         for model in self.remote_models:
@@ -149,7 +149,7 @@ class BaseEngine:
             refs.append(time_ref)
         summaries = future.get(refs)
 
-        logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
+        logger.info(f"{LOG_START} epoch {epoch} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
             summary = summary[-1] if isinstance(summary, list) else summary
             logger.info(f"{LOG_START} [{model.name}] {summary}")
@@ -187,6 +187,7 @@ class Engine(BaseEngine):
         self.trainer = trainer
         self.evaluator = evaluator
         self._start_episode = 0
+        self._start_epoch = 0
         self._dataset = None
         self._post_process_func = None
         self._drop_last = False
@@ -265,14 +266,14 @@ class Engine(BaseEngine):
         self.evaluator = evaluator
         return self
 
-    def logging_summary(self, iteration=-1):
+    def logging_summary(self, epoch=0, iteration=-1):
         """
         :meta private:
         """
-        super().logging_summary(iteration)
+        super().logging_summary(epoch, iteration)
         episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
         logger.info(
-            f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
+            f"{LOG_START} {self._name} episode summary, epoch {epoch} episode iteration {iteration + 1} {episode_str}")
         self.episode_stats = episode_stats
         return episode_stats
 
@@ -286,8 +287,7 @@ class Engine(BaseEngine):
         """
         self._relay_sample_fn = relay_sample_fn
 
-    def learn(self):
-        self.timers("chatlearn").start()
+    def _before_learn(self):
         self.timers("setup").start()
         self.setup()
         self.timers("executor_setup").start()
@@ -316,6 +316,8 @@ class Engine(BaseEngine):
             + get_full_proc_memory_info('After first param sync')
         )
         self._data_loader = data_loader
+
+    def learn_legacy(self):
         for episode_id in range(self._start_episode, self.runtime_args.num_episode):
             if self.runtime_args.nsys:
                 if episode_id == 4:
@@ -330,7 +332,7 @@ class Engine(BaseEngine):
             queue = self.env.make_experiences()
             self.timers("set_train_dataset").start()
             refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
-                                                  self.runtime_args.sample_per_episode)
+                                                self.runtime_args.sample_per_episode)
             future.wait(refs)
             if self.trainer is not None:
                 # validate parameter sync in the first two episodes
@@ -350,10 +352,76 @@ class Engine(BaseEngine):
                 logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             self.after_episode()
             self.timers("episode").stop()
-            self.logging_summary(episode_id)
-            self.save_checkpoint(episode_id)
+            self.logging_summary(iteration=episode_id)
+            self.save_checkpoint(0, episode_id)
             self.evaluate(episode_id)
 
+        self.timers("chatlearn").stop()
+        logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
+        logger.info(f"train {self._name} done")
+
+    def learn_single_epoch(self, epoch_id):
+        #TODO(jiangle.jl): support mod_value > 0
+        # assert len(self._dataset) % self.runtime_args.sample_per_episode == 0
+        num_episode = len(self._dataset) // self.runtime_args.sample_per_episode
+        logger.info(f"num_episode_per_epoch: {num_episode}")
+        for episode_id in range(self._start_episode, num_episode):
+            self.timers("episode").start()
+            self.before_episode()
+            logger.info(f"start train epoch_id {epoch_id} episode_id: {episode_id + 1}/{num_episode}")
+            if self.env.timers is None:
+                self.env.set_timers(self.timers)
+            queue = self.env.make_experiences()
+            self.timers("set_train_dataset").start()
+            refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
+                                                  self.runtime_args.sample_per_episode)
+            future.wait(refs)
+            if self.trainer is not None:
+                # validate parameter sync in the first two episodes
+                validate = self.runtime_args.validate_param_sync and epoch_id == 0 and episode_id < 2
+                self.timers("set_train_dataset").stop()
+                self.trainer.set_data_loader(data_loader)
+                logger.info("set dataloader for trainer done")
+                logger.info(get_full_proc_memory_info(f'Before train {episode_id}'))
+                if self.trainer.timers is None:
+                    self.trainer.set_timers(self.timers)
+                self.trainer.train(episode_id)
+                logger.info(get_full_proc_memory_info(f'After train {episode_id}'))
+                logger.info(f"train epoch_id {epoch_id} episode_id: {episode_id + 1}/{num_episode} done")
+                self.timers("sync_parameters").start()
+                self.model_manager.sync_parameters(episode_id + 1, validate=validate)
+                self.timers("sync_parameters").stop()
+                logger.info(f"train epoch_id {epoch_id} episode_id: {episode_id + 1}/{num_episode} parameter sync done")
+            self.after_episode()
+            self.timers("episode").stop()
+            self.logging_summary(epoch_id, episode_id)
+            self.save_checkpoint(epoch_id, episode_id)
+            self.evaluate(epoch_id, episode_id)
+        self._start_episode = 0
+
+    def learn_epoch(self):
+        assert self.env is not None
+        for epoch_id in range(self._start_epoch, self.runtime_args.num_epoch):
+            self.timers("epoch").start()
+            self.runtime_args.consumed_samples = 0
+            logger.info(f"TONGYI learn_epoch self._dataset: {len(self._dataset)}")
+            self.env.set_dataset(self._dataset)
+            self.env.setup_dataset()
+            self.learn_single_epoch(epoch_id)
+            self._start_episode = 0
+            self.timers("epoch").start()
+    def learn(self):
+        self.timers("chatlearn").start()
+        self._before_learn()
+
+        if self.runtime_args.num_epoch is not None:
+            assert isinstance(self.runtime_args.num_epoch, int) and self.runtime_args.num_epoch > 0
+            self.learn_epoch()
+        elif self.runtime_args.num_episode is not None:
+            assert isinstance(self.runtime_args.num_episode, int) and self.runtime_args.num_episode > 0
+            self.learn_legacy()
+        else:
+            raise RuntimeError(f"Please set 'num_epoch' or 'num_episode' in runtime yaml config file.")
         self.timers("chatlearn").stop()
         logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
         logger.info(f"train {self._name} done")
@@ -366,12 +434,15 @@ class Engine(BaseEngine):
             if self.runtime_args.enable_resume_training:
                 meta = data_ckpt_manager.resume_meta()
                 if meta:
-                    self._start_episode = meta["episode"] + 1
+                    if "episode" in meta:
+                        self._start_episode = meta["episode"] + 1
+                    if "epoch" in meta:
+                        self._start_epoch = meta["epoch"] + 1
                     self.trainer.iteration = meta["train_iteration"]
                     if self.trainer.iteration > 0:
                         logger.info(f"ChatLearn continue train with meta {meta}")
 
-    def save_checkpoint(self, episode_id):
+    def save_checkpoint(self, epoch_id, episode_id):
         """
         :meta private:
         """
@@ -387,13 +458,13 @@ class Engine(BaseEngine):
             refs = []
             for i, model in enumerate(self.models[0].replicas):
                 if isinstance(model, DistVLLMActor):
-                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, epoch_id, episode_id))
                 else:
-                    refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                    refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, epoch_id, episode_id))
             future.get(refs)
-            logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
+            logger.info(f"save checkpoint epoch_id {epoch_id} episode {episode_id}, train iteration {self.trainer.iteration} done")
 
-    def evaluate(self, episode_id):
+    def evaluate(self, epoch_id, episode_id):
         """
         :meta private:
         """
@@ -406,7 +477,7 @@ class Engine(BaseEngine):
             self.timers("evaluate").start()
             self.evaluator.eval(episode_id, self.trainer.iteration)
             self.timers("evaluate").stop()
-            super().logging_summary(episode_id)
+            super().logging_summary(epoch_id, episode_id)
             logger.info(f"evaluate done {self.timers.log(names=['evaluate'])}")
 
 

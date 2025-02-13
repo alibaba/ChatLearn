@@ -319,7 +319,7 @@ class BaseModule:
                 Current training iteration
         """
 
-    def save_data_checkpoint(self, replica_id, iteration, episode_id):
+    def save_data_checkpoint(self, replica_id, iteration, epoch_id, episode_id):
         """
         Save checkpoint for dataloader.
 
@@ -327,7 +327,7 @@ class BaseModule:
         """
         if self.data_ckpt_manager is not None:
             consumed_samples = self.runtime_args.consumed_samples
-            self.data_ckpt_manager.save_checkpoint(replica_id, iteration, episode_id, consumed_samples)
+            self.data_ckpt_manager.save_checkpoint(replica_id, iteration, epoch_id, episode_id, consumed_samples)
 
     def put(self, key, data):
         """

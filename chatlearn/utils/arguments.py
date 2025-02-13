@@ -264,6 +264,8 @@ class ModelConfig(BaseConfig):
 class RuntimeConfig(BaseConfig):
     """training related configs."""
 
+    #: [required] number of epoch. One epoch includes several episodes.
+    num_epoch: int = None
     #: [required] number of episodes. One episode includes a inference and training loop.
     num_episode: int = 5000
     #: [required] number of samples per episode.

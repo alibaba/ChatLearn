@@ -754,6 +754,8 @@ class ParameterSyncGroup:
         self.actor2synchronizer[send_actor] = synchronizer
         future.wait(send_actor.set_synchronizer.remote(synchronizer))
 
+        print(f"src_names: {src_names}", flush=True)
+        print(f"dst_names: {dst_names}", flush=True)
         self.check_param_names(send_actor, recv_actor, src_names, dst_names)
         dst_model = self.actor2model[recv_actor]
         if self.tp_num_mapping > 1 and ((not dst_model.use_vllm_backend and param_group != "routed") or dst_model.use_vllm_backend):
