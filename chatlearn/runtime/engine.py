@@ -373,7 +373,7 @@ class Engine(BaseEngine):
             self.timers("episode").stop()
             self.logging_summary(iteration=episode_id)
             self.save_checkpoint(0, episode_id)
-            self.evaluate(episode_id)
+            self.evaluate(0, episode_id)
 
         self.timers("chatlearn").stop()
         logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
@@ -440,7 +440,7 @@ class Engine(BaseEngine):
             assert isinstance(self.runtime_args.num_episode, int) and self.runtime_args.num_episode > 0
             self.learn_legacy()
         else:
-            raise RuntimeError(f"Please set 'num_epoch' or 'num_episode' in runtime yaml config file.")
+            raise RuntimeError("Please set 'num_epoch' or 'num_episode' in runtime yaml config file.")
         self.timers("chatlearn").stop()
         logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
         logger.info(f"train {self._name} done")

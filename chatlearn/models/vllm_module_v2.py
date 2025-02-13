@@ -167,7 +167,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         else:
             seed = self.model_args.get("seed", 0)
 
-        breakpoint()
         self.llm = LLM(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
@@ -192,7 +191,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray")
-        breakpoint()
         self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
         self.offload_for_workers()
         self.empty_cuda_graph_for_workers()
