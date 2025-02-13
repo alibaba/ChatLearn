@@ -39,6 +39,7 @@ class VLLMVersion(str, Enum):
     v_0_3_0 = "0.3.0"
     v_0_5_1 = "0.5.1"
     v_0_6_3 = "0.6.3"
+    v_0_6_6 = "0.6.6"
 
 
 class QwenVersion(float, Enum):

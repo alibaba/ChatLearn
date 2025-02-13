@@ -14,6 +14,8 @@
 # ==============================================================================
 """Engine"""
 
+import os
+import shutil
 import torch
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
@@ -308,11 +310,28 @@ class Engine(BaseEngine):
                                            self.runtime_args.max_relay_episode,
                                            self.runtime_args.relay_episode_offset)
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
+        dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")
+        if dump_root_path:
+            if os.path.exists(dump_root_path):
+                shutil.rmtree(dump_root_path)
+            logger.info("dump parameters before syncnizing...")
+            self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
+        if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "true") == "true":
+            self.timers("warmup_sync_parameters").start()
+            self.model_manager.sync_parameters(requires_grad=False, validate=False, dryrun=True)
+            self.model_manager.warmup_collective_topology()
+            self.timers("warmup_sync_parameters").stop()
+            logger.info(f"finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
+        if dump_root_path:
+            logger.info("dump parameters after syncnizing...")
+            self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
+            logger.info("finish dump parameters, ChatLearn will exit")
+            return
         logger.info(
-            f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} " \
+            f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} "
             + get_full_proc_memory_info('After first param sync')
         )
         self._data_loader = data_loader
@@ -371,6 +390,12 @@ class Engine(BaseEngine):
                     if self.trainer.iteration > 0:
                         logger.info(f"ChatLearn continue train with meta {meta}")
 
+    def dump_parameters(self, dump_path):
+        for _, model in enumerate(self.models):
+            replic_0 = model.replicas[0]
+            if isinstance(replic_0, DistVLLMActor):
+                future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
+
     def save_checkpoint(self, episode_id):
         """
         :meta private:
@@ -378,11 +403,11 @@ class Engine(BaseEngine):
         if self.runtime_args.save_episode_interval and \
                 (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
             for model in self.trainer.models:
-                refs = model.replicas[0].onload(to_onload_optimizer_states=False)
+                refs = model.replicas[0].onload(to_onload_optimizer_states=True)
                 future.wait(refs)
                 refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
                 future.wait(refs)
-                refs = model.replicas[0].offload()
+                refs = model.replicas[0].offload(to_offload_optimizer_states=True)
                 future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
