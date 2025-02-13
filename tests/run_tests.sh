@@ -62,6 +62,7 @@ function run_test {
 
 
 function run_all_tests {
+  run_test python test_shuffle_data.py
   run_test python train_o1.py -c configs/o1.yaml
   run_test python train_sprl.py -c configs/sprl.yaml
   run_test python test_model_flow.py -c "configs/rlhf.yaml"

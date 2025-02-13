@@ -16,8 +16,7 @@
 
 import math
 import random
-from itertools import cycle
-
+from torch.utils.data import DataLoader, Dataset
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -301,25 +300,46 @@ class EpisodeRelayBuffer:
         return self._episode_id
 
 
-class RLHFDataLoader:
+class RLHFDataset(Dataset):
+    """
+    RLHF dataset
+    """
+    def __init__(self, data):
+        self.data = data
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+
+class RLHFDataLoader(DataLoader):
     """
     RLHF data loader
     """
 
-    def __init__(self, dataset, batch_size):
+    def __init__(self, dataset, batch_size, num_inference_per_prompt, shuffled_list=None, offset=0):
         """generate prompts data loader"""
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.data_iter = cycle(iter(self.dataset))
-
+        def custom_collate_fn(batch):
+            data = list(batch)
+            return data
+        super().__init__(RLHFDataset(dataset), batch_size=batch_size, shuffle=True, collate_fn=custom_collate_fn)
+        self.num_inference_per_prompt = num_inference_per_prompt
+        self.shuffled_list = shuffled_list
+        self.offset = offset
     def __iter__(self):
-        batch_data = []
-        for _, item in enumerate(self.data_iter):
-            batch_data.append(item)
-            if len(batch_data) == self.batch_size:
-                batched = batching(batch_data)
-                yield batched
+        # traversal remain data
+        if self.shuffled_list is not None:
+            batch_data = []
+            for i in range(self.offset, int(len(self.shuffled_list) / self.num_inference_per_prompt)):
+                batch_data.extend(self.shuffled_list[i * self.num_inference_per_prompt : (i + 1) * self.num_inference_per_prompt])
+                if len(batch_data) == self.batch_size * self.num_inference_per_prompt:
+                    yield batch_data
+                    batch_data = []
+        while True:
+            iterator = super().__iter__()
+            for batch in iterator:
                 batch_data = []
-        if len(batch_data) > 0:
-            batched = batching(batch_data)
-            yield batched
+                for d in batch:
+                    batch_data.extend([d for i in range(self.num_inference_per_prompt)])
+                yield batch_data
