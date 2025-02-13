@@ -320,8 +320,8 @@ class Executor:
             self._models_and_results_to_wait.append((model_node, results))
         else:
             logger.info(
-                f"Model {model} doesn't colocate with others. The e2e_cost for it will be n/a because "
-                "non-colocated models will be executed asynchrounously and continuously with others."
+                f"Model {model} doesn't colocate with others and isn't a trainable. The e2e_cost for it will be n/a "
+                "because non-colocated models will be executed asynchrounously and continuously with others."
             )
 
     def compute_loop(self, out_queue, num_batch=None):

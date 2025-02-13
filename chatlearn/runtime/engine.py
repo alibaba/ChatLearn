@@ -147,7 +147,7 @@ class BaseEngine:
         _, e2e_time_dict = self.timer_summary()
         refs = []
         for model in self.remote_models:
-            if len(model.colocate_models) > 0 or not model.trainable:
+            if model.colocate_models or model.trainable:
                 e2e_cost = e2e_time_dict.get(model.name, None)
             else:
                 e2e_cost = 'n/a'
