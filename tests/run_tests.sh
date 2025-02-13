@@ -126,6 +126,7 @@ function run_all_tests {
   run_test python test_hep_eptp_vllm_tp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eppp_vllm_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eppp_vllm_tppp.py -c "configs/test_param_sync.yaml"
+  run_test python test_hep_eptppp_vllm_tp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eptppp_vllm_tppp.py -c "configs/test_param_sync.yaml"
   enable_indivisible_batch_size=True run_test python test_indivisible_batchsz.py -c "configs/rlhf.yaml"
 }
@@ -172,6 +173,7 @@ elif [ "$1" == "test_hep" ]; then
   run_test python test_hep_eptp_vllm_tp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eppp_vllm_tp.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eppp_vllm_tppp.py -c "configs/test_param_sync.yaml"
+  run_test python test_hep_eptppp_vllm_tp_2.py -c "configs/test_param_sync.yaml"
   run_test python test_hep_eptppp_vllm_tppp.py -c "configs/test_param_sync.yaml"
 elif [ "$1" == "test_validate_param_sync" ]; then
   run_test python test_balanced_tp.py -c "configs/test_param_sync.yaml"

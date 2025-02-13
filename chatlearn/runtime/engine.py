@@ -321,6 +321,12 @@ class Engine(BaseEngine):
             logger.info("dump parameters before syncnizing...")
             self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
+        if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "true") == "true":
+            self.timers("warmup_sync_parameters").start()
+            self.model_manager.sync_parameters(requires_grad=False, validate=False, dryrun=True)
+            self.model_manager.warmup_collective_topology()
+            self.timers("warmup_sync_parameters").stop()
+            logger.info(f"finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
         if dump_root_path:
@@ -401,11 +407,11 @@ class Engine(BaseEngine):
         if self.runtime_args.save_episode_interval and \
                 (episode_id + 1) % self.runtime_args.save_episode_interval == 0:
             for model in self.trainer.models:
-                refs = model.replicas[0].onload(to_onload_optimizer_states=False)
+                refs = model.replicas[0].onload(to_onload_optimizer_states=True)
                 future.wait(refs)
                 refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
                 future.wait(refs)
-                refs = model.replicas[0].offload()
+                refs = model.replicas[0].offload(to_offload_optimizer_states=True)
                 future.wait(refs)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
