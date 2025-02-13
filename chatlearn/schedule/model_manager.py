@@ -197,7 +197,7 @@ class ModelManager:
             trainable = func_name in model.trainable_funcs
             decorate_class_func(model_cls, func_name,preprocess_compute, trainable)
 
-        for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
+        for func_name in ["save_checkpoint"] + call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
 
         # public user function

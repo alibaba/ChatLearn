@@ -111,7 +111,6 @@ class ModelNode:
         # reverse
         return parents_models[::-1], parents_results[::-1]
 
-
     def add_dependent_colocate_model_results(self, model, remote_objects, models_and_results_to_wait):
         # for models that are not colocated with current model, if their colocated model need to wait
         # the parent of their colocated model also need to wait
