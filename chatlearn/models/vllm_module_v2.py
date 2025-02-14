@@ -28,6 +28,7 @@ from vllm.executor.ray_utils import RayWorkerWrapper
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
+from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
@@ -522,8 +523,37 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                 self.worker.model_runner.graph_runners[i] = {}
                 self.worker.model_runner.graph_memory_pool = None
 
+    def reset_block_manager(self):
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            version = "selfattn"
+            if (self.llm.llm_engine.scheduler_config.embedding_mode
+                    or self.llm.llm_engine.cache_config.is_attention_free):
+                version = "placeholder"
+        else:
+            version = "selfattn"
+            if (self.llm.llm_engine.scheduler_config.runner_type == "pooling"
+                    or self.llm.llm_engine.cache_config.is_attention_free):
+                version = "placeholder"
+        num_gpu_blocks = self.llm.llm_engine.cache_config.num_gpu_blocks
+        if num_gpu_blocks:
+            num_gpu_blocks //= self.module_args.pipeline_model_parallel_size
+        num_cpu_blocks = self.llm.llm_engine.cache_config.num_cpu_blocks
+        if num_cpu_blocks:
+            num_cpu_blocks //= self.module_args.pipeline_model_parallel_size
+
+        BlockSpaceManagerImpl = get_block_manager_cls(version)
+        for scheduler in self.llm.llm_engine.scheduler:
+            scheduler.block_manager = BlockSpaceManagerImpl( # pylint: disable=abstract-class-instantiated
+                block_size=self.llm.llm_engine.cache_config.block_size,
+                num_gpu_blocks=self.llm.llm_engine.cache_config.num_gpu_blocks,
+                num_cpu_blocks=self.llm.llm_engine.cache_config.num_cpu_blocks,
+                sliding_window=self.llm.llm_engine.cache_config.sliding_window,
+                enable_caching=self.llm.llm_engine.cache_config.enable_prefix_caching)
+
     def reinit_cache_engine(self):
         # reinit cache engine
         self.llm.llm_engine.model_executor._run_workers("clear_cache")
         self.llm.llm_engine._initialize_kv_caches()
+        # reset block menager
+        self.reset_block_manager()
         self.llm.llm_engine.model_executor._run_workers("clear_cache")
