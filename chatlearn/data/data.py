@@ -16,12 +16,11 @@
 
 import math
 import random
-from itertools import cycle
-
+from torch.utils.data import DataLoader, Dataset
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
-
+from typing import Optional, List, Any
 from chatlearn.utils import future
 
 
@@ -309,26 +308,84 @@ class EpisodeRelayBuffer:
     def episode_id(self):
         return self._episode_id
 
-
-class RLHFDataLoader:
+class RLHFDataLoader(DataLoader):
     """
     RLHF data loader
     """
 
-    def __init__(self, dataset, batch_size):
+    def __init__(self, datasets, sampler, num_inference_per_prompt, consume_ratio, dataset_ratio=None, init_shuffle_prompt=0):
         """generate prompts data loader"""
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.data_iter = cycle(iter(self.dataset))
+        def custom_collate_fn(batch):
+            data = list(batch)
+            return data
 
+        self.datasets = datasets
+        self.consume_ratio = consume_ratio
+        if dataset_ratio != None:
+            self.dataset_ratio = dataset_ratio
+        else:
+            self.dataset_ratio = [i for i in range(len(datasets))]
+
+        assert len(self.consume_ratio) == len(self.datasets)
+        assert len(self.dataset_ratio) == len(self.consume_ratio)
+
+        least_common_mul = self.cal_least_common_mul(dataset_ratio)
+        self.duplicated_datasets = self.duplicate_datasets(datasets, consume_ratio, least_common_mul)
+        total_samples = sum([sum([len(data_copy) for data_copy in dup]) for dup in self.duplicated_datasets])
+        # print(self.duplicated_datasets)
+        self.collate_fn = custom_collate_fn
+        self.sampler = sampler
+        self.sampler.total_samples = total_samples
+        self.num_inference_per_prompt = num_inference_per_prompt
+        batch_size = self.sampler.batch_size
+        self.active_samples = total_samples // batch_size * batch_size # drop last
+        curr_epoch = self.sampler.consumed_samples // self.active_samples
+        self.dataset = self.merge_datasets(curr_epoch)
+
+    def cal_least_common_mul(self, ratio):
+        mul = 1
+        for r in ratio:
+            mul *= r
+        return [mul // r for r in ratio]
+
+    def duplicate_datasets(self, datasets, ratio, least_common_mul):
+        duplicated_datasets = []
+        for idx, dataset in enumerate(datasets):
+            duplicated_datasets.append([dataset for i in range(ratio[idx] * least_common_mul[idx])])
+        return duplicated_datasets
+
+    def merge_datasets(self, curr_epoch):
+        shuffled_datasets, merged_dataset = [], []
+        for dup in self.duplicated_datasets:
+            dataset = []
+            for i, dataset_copy in enumerate(dup):
+                g = torch.Generator()
+                g.manual_seed(curr_epoch * len(dup) + i)
+                random_idx = torch.randperm(len(dataset_copy), generator=g).tolist()
+                dataset.extend([dataset_copy[random_idx[i]] for i in range(len(dataset_copy))])
+            shuffled_datasets.append(dataset)
+        # print(shuffled_datasets)
+        idx = 0
+        while shuffled_datasets != [[] for d in shuffled_datasets]:
+            if len(shuffled_datasets[idx]) != 0:
+                merged_dataset.extend(shuffled_datasets[idx][:min(self.consume_ratio[idx], len(shuffled_datasets[idx]))])
+                shuffled_datasets[idx] = shuffled_datasets[idx][min(self.consume_ratio[idx], len(shuffled_datasets[idx])):]
+            idx = (idx + 1) % len(shuffled_datasets)
+        print(merged_dataset)
+        return merged_dataset
+        
     def __iter__(self):
-        batch_data = []
-        for _, item in enumerate(self.data_iter):
-            batch_data.append(item)
-            if len(batch_data) == self.batch_size:
-                batched = batching(batch_data)
-                yield batched
-                batch_data = []
-        if len(batch_data) > 0:
-            batched = batching(batch_data)
-            yield batched
+        self.sampler_iter = iter(self.sampler)
+        while True:
+            curr_epoch = self.sampler.consumed_samples // self.active_samples
+            if self.sampler.consumed_samples % self.active_samples == 0:
+                self.dataset = self.merge_datasets(curr_epoch)
+                self.sampler.reset()
+            batch_idxs = next(self.sampler_iter)
+            data = [self.dataset[i] for i in batch_idxs]
+            duplicated_batch_data = []
+            for d in data:
+                duplicated_batch_data.extend([d for i in range(self.num_inference_per_prompt)])
+            yield duplicated_batch_data
+
+
