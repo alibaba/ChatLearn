@@ -17,7 +17,7 @@
 import argparse
 import ast
 import os
-from typing import List
+from typing import List, Optional, Union
 
 import yaml
 
@@ -282,8 +282,8 @@ class RuntimeConfig(BaseConfig):
     save_episode_interval: int = None
     #: [optional] log time and memory per `log_interval` iterations.
     log_interval: int = 1
-    #: [required]: data_path for dataset
-    data_path: str = None
+    #: [required]: data_path for dataset or a List of data_path for different kind of datasets
+    data_path: Optional[Union[List[str], str]] = None
     #: [optional]: colocate models into the same device
     colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval

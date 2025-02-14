@@ -42,13 +42,16 @@ class Evaluator(Environment):
 
     @property
     def sample_per_episode(self):
-        return len(self._dataset)
+        return sum(len(dataset) for dataset in self._all_datasets)
 
     def setup_dataset(self):
-        assert len(self._dataset) > 0, "dataset is not set"
+        assert len(self._all_datasets) > 0, "dataset is not set"
+        for i, dataset in enumerate(self._all_datasets):
+            assert len(dataset) > 0, f"dataset {i} is not set"
         if self.models[0].module_args.batch_generation.ranking:
             logger.info("calling batch_generation_ranking")
-            self._dataset = batch_generation_ranking(self._dataset, 1, len(self._dataset))
+            for dataset in self._all_datasets:
+                dataset = batch_generation_ranking(dataset, 1, len(dataset))
         refs = []
         for idx, model_replica in enumerate(self.models[0].replicas):
             if self.first_model.use_vllm_backend:
@@ -59,7 +62,7 @@ class Evaluator(Environment):
                 batch_size = self.batch_size
             if batch_size > 0:
                 ref = model_replica.master._build_dataloader.remote(
-                    self._dataset, batch_size, dynamic_batch_size_flag=self.first_model.use_vllm_backend, is_eval=True)
+                    self._all_datasets, batch_size, dynamic_batch_size_flag=self.first_model.use_vllm_backend, is_eval=True)
                 refs.append(ref)
         future.get(refs)
 
