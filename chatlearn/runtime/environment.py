@@ -41,12 +41,12 @@ class Environment(Executor):
         super().__init__(model_flow)
         self._batch_size = None
         self._batch_per_episode = None
-        self._all_datasets = None
+        self._dataset = None
         self.data_iter = None
         self._padding_config = {}
 
-    def set_dataset(self, all_datasets):
-        self._all_datasets = all_datasets
+    def set_dataset(self, dataset):
+        self._dataset = dataset
         return self
 
     def setup_dataset(self):
@@ -56,11 +56,10 @@ class Environment(Executor):
         logger.info("start set dataset for data_producer")
         refs = []
         if self.models[0].module_args.batch_generation.ranking:
-            for dataset in self._all_datasets:
-                episode_per_epoch = math.ceil(len(dataset) / self.sample_per_episode)
-                dataset = batch_generation_ranking(dataset, episode_per_epoch, self.sample_per_episode)
+            episode_per_epoch = math.ceil(len(self._dataset) / self.sample_per_episode)
+            self._dataset = batch_generation_ranking(self._dataset, episode_per_epoch, self.sample_per_episode)
         for policy_replica in self.data_producer.replicas:
-            ref = policy_replica.master._build_dataloader.remote(self._all_datasets,
+            ref = policy_replica.master._build_dataloader.remote(self._dataset,
                                                                  self.batch_size)
             refs.append(ref)
         future.get(refs)

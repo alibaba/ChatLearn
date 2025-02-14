@@ -50,4 +50,4 @@ data = torch.ones([1024])
 engine.set_dataset([data] * 35)
 
 engine.eval()
-assert len(engine._all_datasets[0]) == 35, len(engine._all_datasets[0])
+assert len(engine._dataset) == 35, len(engine._dataset)
