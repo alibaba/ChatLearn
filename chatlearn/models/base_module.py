@@ -416,9 +416,10 @@ class BaseModule:
 
         :meta private:
         """
-        all_datasets = self.build_all_datasets(data, is_eval) # pylint: disable=assignment-from-no-return
+        all_datasets = self.build_all_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
-        data_ratio = self.runtime_args.data_ratio
+        #data_ratio = self.runtime_args.data_ratio
+        data_ratio = self.runtime_args.data_ratio.split(',')
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
