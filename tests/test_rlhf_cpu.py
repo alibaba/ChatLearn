@@ -36,7 +36,7 @@ engine.learn()
 if policy.num_replica == 2:
     assert reference.num_replica == 1
     data = torch.ones([1024])
-    assert len(engine.env._dataset) == 35, len(engine.env._dataset)
+    assert len(engine.env._all_datasets[0]) == 35, len(engine.env._all_datasets[0])
     visible_devices = engine.models[0].replicas[0].get_visible_gpus()
     visible_devices = future.get(visible_devices)
     assert visible_devices == [[0]], visible_devices
