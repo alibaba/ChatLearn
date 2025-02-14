@@ -106,7 +106,7 @@ data = torch.ones([1024])
 engine.set_dataset([data] * 35)
 
 engine.learn()
-assert len(engine.env._all_datasets[0]) == 35, len(engine.env._all_datasets[0])
+assert len(engine.env._dataset) == 35, len(engine.env._dataset)
 ref = engine._data_loader.episode_relay_buffers.remote()
 episode_relay_buffers = ray.get(ref)
 print(episode_relay_buffers)
