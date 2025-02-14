@@ -418,10 +418,11 @@ class BaseModule:
         """
         all_datasets = self.build_all_datasets(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
+        data_ratio = self.runtime_args.data_ratio
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
-        collate_fn = dataset.collate_fn if hasattr(dataset, 'collate_fn') else None
+        collate_fn = all_datasets[0].collate_fn if hasattr(all_datasets[0], 'collate_fn') else None
         drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
         dataloader = self.build_dataloader(all_datasets,
                                            batch_size=batch_size,
@@ -429,6 +430,7 @@ class BaseModule:
                                            is_eval=is_eval,
                                            dynamic_batch_size_flag=dynamic_batch_size_flag,
                                            consumed_samples=consumed_samples,
+                                           data_ratio=data_ratio,
                                            drop_last=drop_last)
 
         if is_eval:
@@ -446,6 +448,7 @@ class BaseModule:
                          is_eval=False,
                          dynamic_batch_size_flag=False,
                          consumed_samples=0,
+                         data_ratio=None,
                          drop_last=False):
         """
         build the dataloader for the model
@@ -455,11 +458,24 @@ class BaseModule:
             collate_fn: set when loading from an map-style dataset (defulat: `None`)
             is_eval: set to `True` to build a dataloader for evaluation (default: `False`)
             consumed_samples: consumed samples (default: `0`)
+            data_ratio: ratio of samples for each dataset (default: `None`)
             drop_last: whether to drop last samples (default: `False`)
 
         :meta private:
         """
-        log_rank_0(f"Creating DataLoader... consumed_samples: {consumed_samples}", self._logger)
+        log_rank_0(
+            f"Creating DataLoader... consumed_samples: {consumed_samples}, "
+            f"data_ratio: {data_ratio}",
+            self._logger
+        )
+
+        if data_ratio is None:
+            data_ratio = [1]
+        elif len(all_datasets) > 1:
+            assert isinstance(data_ratio, list) and len(data_ratio) == len(all_datasets), (
+                "data_ratio should be a list with the same length as the number of datasets"
+            )
+
         all_dataset_len = sum(len(dataset) for dataset in all_datasets)
         if is_eval:
             batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
@@ -483,7 +499,7 @@ class BaseModule:
             )
         else:
             return RLHFDataLoader(
-                all_datasets, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
+                all_datasets, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True, data_ratio=data_ratio
             )
 
     def reset_eval_data_iter(self):
