@@ -386,6 +386,26 @@ class BaseModule:
                 Dataset with user-defined collate_fn
         """
 
+    def build_all_dataset(self, train_prompts_list, is_eval=False):
+        """
+        Build all prompt datasets
+
+        Args
+        ----
+            train_prompts_list: List[Str]
+                A list of prompt string lists.
+        Returns
+        -------
+            List[torch.utils.data.Dataset]
+                A list of Dataset with user-defined collate_fn
+        """
+        all_datasets = []
+        for train_prompts in train_prompts_list:
+            all_datasets.append(
+                self.build_dataset(train_prompts, is_eval)
+            )
+        return all_datasets
+
     def _build_dataloader(self, data, batch_size, dynamic_batch_size_flag=False, is_eval=False):
         """
         build and set the dataloader for the model
@@ -396,19 +416,21 @@ class BaseModule:
 
         :meta private:
         """
-        dataset = self.build_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
+        all_datasets = self.build_all_datasets(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
+        data_ratio = self.runtime_args.data_ratio
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
-        collate_fn = dataset.collate_fn if hasattr(dataset, 'collate_fn') else None
+        collate_fn = all_datasets[0].collate_fn if hasattr(all_datasets[0], 'collate_fn') else None
         drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
-        dataloader = self.build_dataloader(dataset,
+        dataloader = self.build_dataloader(all_datasets,
                                            batch_size=batch_size,
                                            collate_fn=collate_fn,
                                            is_eval=is_eval,
                                            dynamic_batch_size_flag=dynamic_batch_size_flag,
                                            consumed_samples=consumed_samples,
+                                           data_ratio=data_ratio,
                                            drop_last=drop_last)
 
         if is_eval:
@@ -420,28 +442,43 @@ class BaseModule:
             self._dataloader = dataloader
 
     def build_dataloader(self,
-                         dataset,
+                         all_datasets,
                          batch_size,
                          collate_fn=None,
                          is_eval=False,
                          dynamic_batch_size_flag=False,
                          consumed_samples=0,
+                         data_ratio=None,
                          drop_last=False):
         """
         build the dataloader for the model
         Args:
-            dataset: a torch.utils.data.Dataset object
+            all_datasets: a list of torch.utils.data.Dataset objects
             batch_size: how many samples per batch to load
             collate_fn: set when loading from an map-style dataset (defulat: `None`)
             is_eval: set to `True` to build a dataloader for evaluation (default: `False`)
             consumed_samples: consumed samples (default: `0`)
+            data_ratio: ratio of samples for each dataset (default: `None`)
             drop_last: whether to drop last samples (default: `False`)
 
         :meta private:
         """
-        log_rank_0(f"Creating DataLoader... consumed_samples: {consumed_samples}", self._logger)
+        log_rank_0(
+            f"Creating DataLoader... consumed_samples: {consumed_samples}, "
+            f"data_ratio: {data_ratio}",
+            self._logger
+        )
+
+        if data_ratio is None:
+            data_ratio = [1]
+        elif len(all_datasets) > 1:
+            assert isinstance(data_ratio, list) and len(data_ratio) == len(all_datasets), (
+                "data_ratio should be a list with the same length as the number of datasets"
+            )
+
+        all_dataset_len = sum(len(dataset) for dataset in all_datasets)
         if is_eval:
-            batch_sampler = SingleDataSampler(total_samples=len(dataset),
+            batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
                 consumed_samples=0,
                 micro_batch_size=batch_size,
                 data_parallel_rank=self.replica_id,
@@ -449,16 +486,21 @@ class BaseModule:
                 dynamic_batch_size_flag=dynamic_batch_size_flag,
                 drop_last=False)
         else:
-            batch_sampler = EpisodeDataSampler(total_samples=len(dataset),
+            batch_sampler = EpisodeDataSampler(total_samples=all_dataset_len,
                 consumed_samples=consumed_samples,
                 micro_batch_size=batch_size,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
                 sample_per_episode=self.runtime_args.sample_per_episode,
                 drop_last=drop_last)
-        return DataLoader(
-            dataset, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
-        )
+        if len(all_datasets) == 1:
+            return DataLoader(
+                all_datasets[0], batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
+            )
+        else:
+            return RLHFDataLoader(
+                all_datasets, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True, data_ratio=data_ratio
+            )
 
     def reset_eval_data_iter(self):
         """
