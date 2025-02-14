@@ -114,7 +114,7 @@ for i in range(35):
 engine.set_dataset(data)
 
 engine.learn()
-assert len(engine.env._dataset) == 35, len(engine.env._dataset)
+assert len(engine.env._all_datasets[0]) == 35, len(engine.env._all_datasets[0])
 ref = engine._data_loader.episode_relay_buffers.remote()
 episode_relay_buffers = ray.get(ref)
 micro_batch_per_episode = ray.get(engine._data_loader.batch_per_episode.remote())
