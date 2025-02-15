@@ -134,7 +134,8 @@ def start_ray_cluster():
               f"--node-manager-port {node_manager_port} --node-name={master_addr} --system-config='{system_config}' " + \
               "--dashboard-host=0.0.0.0 --dashboard-port=8265"
     else:
-        cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port} --node-name={get_addr()}"
+        cmd = f"ray start --address={master_addr}:{port} --node-manager-port {node_manager_port} " + \
+              f"--node-name={get_addr()} --dashboard-host=0.0.0.0 --dashboard-port=8265"
     logger.info(f"execute {cmd}")
     state, _ = execute(cmd)
     if not state:
