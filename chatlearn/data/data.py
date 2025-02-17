@@ -299,39 +299,57 @@ class EpisodeRelayBuffer:
     def episode_id(self):
         return self._episode_id
 
-class RLHFDataLoader(DataLoader):
+class RLHFDataLoader:
     """
     RLHF data loader
     """
 
-    def __init__(self, datasets, sampler, num_inference_per_prompt, consume_ratio, dataset_ratio=None, init_shuffle_prompt=0):
+    def __init__(
+        self, 
+        datasets, 
+        batch_size,  
+        consumed_samples,
+        consume_ratio, 
+        num_inference_per_prompt=1,
+        collate_fn=None, 
+        dataset_ratio=None, 
+        init_shuffle_prompt=0, 
+        is_eval=False):
         """generate prompts data loader"""
-        def custom_collate_fn(batch):
-            data = list(batch)
-            return data
+        #def custom_collate_fn(batch):
+        #    data = list(batch)
+        #    return data
 
         self.datasets = datasets
-        self.consume_ratio = consume_ratio
-        if dataset_ratio != None:
-            self.dataset_ratio = dataset_ratio
-        else:
-            self.dataset_ratio = [i for i in range(len(datasets))]
-
-        assert len(self.consume_ratio) == len(self.datasets)
-        assert len(self.dataset_ratio) == len(self.consume_ratio)
-
-        least_common_mul = self.cal_least_common_mul(dataset_ratio)
-        self.duplicated_datasets = self.duplicate_datasets(datasets, consume_ratio, least_common_mul)
-        total_samples = sum([sum([len(data_copy) for data_copy in dup]) for dup in self.duplicated_datasets])
-        # print(self.duplicated_datasets)
-        self.collate_fn = custom_collate_fn
-        self.sampler = sampler
-        self.sampler.total_samples = total_samples
+        self.batch_size = batch_size
         self.num_inference_per_prompt = num_inference_per_prompt
-        batch_size = self.sampler.batch_size
-        self.active_samples = total_samples // batch_size * batch_size # drop last
-        curr_epoch = self.sampler.consumed_samples // self.active_samples
-        self.dataset = self.merge_datasets(curr_epoch)
+        self.consumed_samples = consumed_samples
+        self.collate_fn = collate_fn
+        self.is_eval = is_eval
+
+        if self.is_eval:
+            self.consumed_samples = 0
+            self.merged_dataset = []
+            for d in self.datasets:
+                self.merged_dataset.extend(d)
+
+        else:
+            self.consume_ratio = consume_ratio
+            if dataset_ratio != None:
+                self.dataset_ratio = dataset_ratio
+            else:
+                self.dataset_ratio = [1 for i in range(len(datasets))]
+            assert len(self.consume_ratio) == len(self.datasets)
+            assert len(self.dataset_ratio) == len(self.consume_ratio)
+
+            least_common_mul = self.cal_least_common_mul(self.dataset_ratio)
+            self.duplicated_datasets = self.duplicate_datasets(datasets, consume_ratio, least_common_mul)
+            total_samples = sum([sum([len(data_copy) for data_copy in dup]) for dup in self.duplicated_datasets])
+            # print("=======---------", total_samples, batch_size)
+            # print(self.duplicated_datasets)
+            self.active_samples = total_samples // batch_size * batch_size # drop last
+            curr_epoch = self.consumed_samples // self.active_samples
+            self.merged_dataset = self.merge_datasets(curr_epoch)
 
     def cal_least_common_mul(self, ratio):
         mul = 1
@@ -366,17 +384,33 @@ class RLHFDataLoader(DataLoader):
         return merged_dataset
         
     def __iter__(self):
-        self.sampler_iter = iter(self.sampler)
-        while True:
-            curr_epoch = self.sampler.consumed_samples // self.active_samples
-            if self.sampler.consumed_samples % self.active_samples == 0:
-                self.dataset = self.merge_datasets(curr_epoch)
-                self.sampler.reset()
-            batch_idxs = next(self.sampler_iter)
-            data = [self.dataset[i] for i in batch_idxs]
-            duplicated_batch_data = []
-            for d in data:
-                duplicated_batch_data.extend([d for i in range(self.num_inference_per_prompt)])
-            yield duplicated_batch_data
+        if self.is_eval:
+            batch = []
+            for i in range(self.consumed_samples, len(self.merged_dataset)):
+                batch.append(self.merged_dataset[i])
+                if len(batch) == self.batch_size:
+                    duplicated_batch = []
+                    for data in batch:
+                        duplicated_batch.extend([data for j in range(self.num_inference_per_prompt)])
+                    yield duplicated_batch
+                    batch = []
+
+        else:
+            while True:
+                # re-shuffle and merge datasets in each epoch, with curr_epoch as the random seed
+                curr_epoch = self.consumed_samples // self.active_samples
+                self.merged_dataset = self.merge_datasets(curr_epoch)
+                
+                batch = []
+                offset = self.consumed_samples % self.active_samples
+                for i in range(offset, len(self.merged_dataset)):
+                    batch.append(self.merged_dataset[i])
+                    if len(batch) == self.batch_size:
+                        duplicated_batch = []
+                        for data in batch:
+                            duplicated_batch.extend([data for j in range(self.num_inference_per_prompt)])
+                        yield duplicated_batch
+                        batch = []
+                        self.consumed_samples += self.batch_size
 
 

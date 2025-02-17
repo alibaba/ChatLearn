@@ -29,6 +29,7 @@ from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
 from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
+from chatlearn.data.data import RLHFDataLoader
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
@@ -420,6 +421,7 @@ class BaseModule:
         consumed_samples = 0
         #data_ratio = self.runtime_args.data_ratio
         data_ratio = self.runtime_args.data_ratio.split(',')
+        data_ratio = [int(r) for r in data_ratio]
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
@@ -500,7 +502,7 @@ class BaseModule:
             )
         else:
             return RLHFDataLoader(
-                all_datasets, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True, data_ratio=data_ratio
+                all_datasets, batch_size=batch_size, consumed_samples=consumed_samples, collate_fn=collate_fn, consume_ratio=data_ratio, is_eval=is_eval
             )
 
     def reset_eval_data_iter(self):
