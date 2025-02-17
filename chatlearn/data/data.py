@@ -316,13 +316,8 @@ class RLHFDataLoader:
     def __init__(
         self, 
         datasets, 
-        batch_size,  
-        consumed_samples,
-        consume_ratio, 
-        num_inference_per_prompt=1,
-        collate_fn=None, 
-        init_shuffle_prompt=0, 
-        is_eval=False):
+        sampler,
+        collate_fn=None):
         """generate prompts data loader"""
         #def custom_collate_fn(batch):
         #    data = list(batch)
@@ -330,71 +325,18 @@ class RLHFDataLoader:
 
         self.datasets = datasets
         self.dataset_num = len(self.datasets)
-        self.batch_size = batch_size
-        self.num_inference_per_prompt = num_inference_per_prompt
-        self.consumed_samples = consumed_samples
+        self.sampler_iter = iter(sampler)
         self.collate_fn = collate_fn
-        self.is_eval = is_eval
-
-        if self.is_eval:
-            self.consumed_samples = 0
-            self.merged_dataset = []
-            for d in self.datasets:
-                self.merged_dataset.extend(d)
-
-        else:
-            self.consume_ratio = consume_ratio
-            assert len(self.consume_ratio) == self.dataset_num, \
-                "size of consume_ratio must be equal to the number of datasets"
-            assert sum(self.consume_ratio) <= self.batch_size, \
-                "sum of consume_ratio must <= batch_size"
-            assert self.consumed_samples % self.batch_size == 0, \
-                "consumed_samples must be an integer multiple of batch_size"
-
-            self.batch_prop = self.cal_batch_proportion()
-            consumed_each = [self.consumed_samples * self.batch_prop[i] // sum(self.batch_prop) for i in range(self.dataset_num)]
-            self.samplers = [RLHFSampler(self.datasets[i], consumed_each[i], self.batch_prop[i]) for i in range(self.dataset_num)]
-
-    def cal_batch_proportion(self):
-        mixed_size = sum(self.consume_ratio)
-        remains = self.batch_size % mixed_size
-        proportion = [r * (self.batch_size // mixed_size) for r in self.consume_ratio]
-        idx = 0
-        while remains != 0:
-            proportion[idx] += min(remains, self.consume_ratio[idx])
-            remains -= min(remains, self.consume_ratio[idx])
-        return proportion
-
-    def merge_batches(self, batches):
-        batch = []
-        idx = 0
-        while len(batch) != self.batch_size:
-            batch.extend(batches[idx][:min(self.consume_ratio[idx], len(batches[idx]))])
-            batches[idx] = batches[idx][min(self.consume_ratio[idx], len(batches[idx])):]
-            idx = (idx + 1) % self.dataset_num
-        return batch
 
     def __iter__(self):
-        if self.is_eval:
-            batch = []
-            for i in range(self.consumed_samples, len(self.merged_dataset)):
-                batch.append(self.merged_dataset[i])
-                if len(batch) == self.batch_size:
-                    duplicated_batch = []
-                    for data in batch:
-                        duplicated_batch.extend([data for j in range(self.num_inference_per_prompt)])
-                    yield duplicated_batch
-                    batch = []
-
-        else:
-            sampler_iters = [iter(sampler) for sampler in self.samplers]
-            while True:
-                batches = [next(it) for it in sampler_iters]
-                merged_batch = self.merge_batches(batches)
-                # duplicate
-                duplicated_batch = []
-                for data in merged_batch:
-                    duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
-                yield duplicated_batch
-
+        while True:
+            try:
+                batch_idxes = next(self.sampler_iter)
+                batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx in batch_idxes]
+                if self.collate_fn != None:
+                    yield self.collate_fn(batch)
+                else:
+                    yield batch
+            except StopIteration:
+                break
 

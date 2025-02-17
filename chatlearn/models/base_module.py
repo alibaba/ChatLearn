@@ -28,7 +28,7 @@ from ray.util.collective.collective_group.nccl_collective_group import NCCLGroup
 from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
+from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler, MultiDatasetSampler
 from chatlearn.data.data import RLHFDataLoader
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
@@ -480,30 +480,44 @@ class BaseModule:
             )
 
         all_dataset_len = sum(len(dataset) for dataset in all_datasets)
-        if is_eval:
-            batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
-                consumed_samples=0,
-                micro_batch_size=batch_size,
-                data_parallel_rank=self.replica_id,
-                data_parallel_size=self._num_replica,
-                dynamic_batch_size_flag=dynamic_batch_size_flag,
-                drop_last=False)
-        else:
-            batch_sampler = EpisodeDataSampler(total_samples=all_dataset_len,
-                consumed_samples=consumed_samples,
-                micro_batch_size=batch_size,
-                data_parallel_rank=self.replica_id,
-                data_parallel_size=self._num_replica,
-                sample_per_episode=self.runtime_args.sample_per_episode,
-                drop_last=drop_last)
-        if len(all_datasets) == 1:
+        if len(all_datasets == 1):
+            if is_eval:
+                batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
+                    consumed_samples=0,
+                    micro_batch_size=batch_size,
+                    data_parallel_rank=self.replica_id,
+                    data_parallel_size=self._num_replica,
+                    dynamic_batch_size_flag=dynamic_batch_size_flag,
+                    drop_last=False)
+            else:
+                batch_sampler = EpisodeDataSampler(total_samples=all_dataset_len,
+                    consumed_samples=consumed_samples,
+                    micro_batch_size=batch_size,
+                    data_parallel_rank=self.replica_id,
+                    data_parallel_size=self._num_replica,
+                    sample_per_episode=self.runtime_args.sample_per_episode,
+                    drop_last=drop_last)
             return DataLoader(
                 all_datasets[0], batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
             )
         else:
-            return RLHFDataLoader(
-                all_datasets, batch_size=batch_size, consumed_samples=consumed_samples, collate_fn=collate_fn, consume_ratio=data_ratio, is_eval=is_eval
-            )
+            if is_eval:
+                batch_sampler = MultiDatasetSampler(
+                    dataset_sizes=[len(dataset) for dataset in all_datasets],
+                    batch_size=batch_size,
+                    shuffle=False,
+                    drop_last=False
+                )
+            else:
+                batch_sampler = MultiDatasetSampler(
+                    dataset_sizes=[len(dataset) for dataset in all_datasets],
+                    batch_size=batch_size,
+                    data_ratio=data_ratio,
+                    consumed_samples=consumed_samples,
+                    shuffle=True,
+                    mix_batch=True
+                )
+            return RLHFDataLoader(all_datasets, batch_sampler, collate_fn=collate_fn)
 
     def reset_eval_data_iter(self):
         """
