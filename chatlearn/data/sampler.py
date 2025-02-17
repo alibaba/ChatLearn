@@ -16,6 +16,7 @@
 
 from itertools import chain
 from chatlearn.utils import utils
+import torch
 
 class SingleDataSampler:
     """SingleDataSampler"""
@@ -143,3 +144,25 @@ class EpisodeDataSampler:
 
             if self.episode_offset == self.sample_per_episode:
                 self.episode_offset = 0
+
+class RLHFSampler:
+
+    def __init__(self, dataset, consumed_samples, batch_size, seed=0):
+        self.dataset = dataset
+        total_samples = len(dataset)
+        self.actual_samples = total_samples // batch_size * batch_size
+        self.consumed_samples = consumed_samples
+        self.curr_epoch = self.consumed_samples // self.actual_samples
+        self.batch_size = batch_size
+        self.seed = seed
+    def __iter__(self):
+        while True:
+            offset = self.consumed_samples % self.actual_samples
+            g = torch.Generator()
+            g.manual_seed(self.curr_epoch + self.seed)
+            random_idx = torch.randperm(self.actual_samples, generator=g).tolist()
+            for i in range(offset, len(random_idx), self.batch_size):
+                yield [self.dataset[random_idx[i + j]] for j in range(self.batch_size)]
+                self.consumed_samples += self.batch_size
+            self.curr_epoch += 1
+
