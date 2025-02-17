@@ -22,7 +22,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from typing import Optional, List, Any
 from chatlearn.utils import future
-
+from chatlearn.data.sampler import RLHFSampler
 
 def get_iter_keys(data):
     """
@@ -312,7 +312,6 @@ class RLHFDataLoader:
         consume_ratio, 
         num_inference_per_prompt=1,
         collate_fn=None, 
-        dataset_ratio=None, 
         init_shuffle_prompt=0, 
         is_eval=False):
         """generate prompts data loader"""
@@ -321,6 +320,7 @@ class RLHFDataLoader:
         #    return data
 
         self.datasets = datasets
+        self.dataset_num = len(self.datasets)
         self.batch_size = batch_size
         self.num_inference_per_prompt = num_inference_per_prompt
         self.consumed_samples = consumed_samples
@@ -335,54 +335,36 @@ class RLHFDataLoader:
 
         else:
             self.consume_ratio = consume_ratio
-            if dataset_ratio != None:
-                self.dataset_ratio = dataset_ratio
-            else:
-                self.dataset_ratio = [1 for i in range(len(datasets))]
-            assert len(self.consume_ratio) == len(self.datasets)
-            assert len(self.dataset_ratio) == len(self.consume_ratio)
+            assert len(self.consume_ratio) == self.dataset_num, \
+                "size of consume_ratio must be equal to the number of datasets"
+            assert sum(self.consume_ratio) <= self.batch_size, \
+                "sum of consume_ratio must <= batch_size"
+            assert self.consumed_samples % self.batch_size == 0, \
+                "consumed_samples must be an integer multiple of batch_size"
 
-            least_common_mul = self.cal_least_common_mul(self.dataset_ratio)
-            self.duplicated_datasets = self.duplicate_datasets(datasets, consume_ratio, least_common_mul)
-            total_samples = sum([sum([len(data_copy) for data_copy in dup]) for dup in self.duplicated_datasets])
-            # print("=======---------", total_samples, batch_size)
-            # print(self.duplicated_datasets)
-            self.active_samples = total_samples // batch_size * batch_size # drop last
-            curr_epoch = self.consumed_samples // self.active_samples
-            self.merged_dataset = self.merge_datasets(curr_epoch)
+            self.batch_prop = self.cal_batch_proportion()
+            consumed_each = [self.consumed_samples * self.batch_prop[i] // sum(self.batch_prop) for i in range(self.dataset_num)]
+            self.samplers = [RLHFSampler(self.datasets[i], consumed_each[i], self.batch_prop[i]) for i in range(self.dataset_num)]
 
-    def cal_least_common_mul(self, ratio):
-        mul = 1
-        for r in ratio:
-            mul *= r
-        return [mul // r for r in ratio]
-
-    def duplicate_datasets(self, datasets, ratio, least_common_mul):
-        duplicated_datasets = []
-        for idx, dataset in enumerate(datasets):
-            duplicated_datasets.append([dataset for i in range(ratio[idx] * least_common_mul[idx])])
-        return duplicated_datasets
-
-    def merge_datasets(self, curr_epoch):
-        shuffled_datasets, merged_dataset = [], []
-        for dup in self.duplicated_datasets:
-            dataset = []
-            for i, dataset_copy in enumerate(dup):
-                g = torch.Generator()
-                g.manual_seed(curr_epoch * len(dup) + i)
-                random_idx = torch.randperm(len(dataset_copy), generator=g).tolist()
-                dataset.extend([dataset_copy[random_idx[i]] for i in range(len(dataset_copy))])
-            shuffled_datasets.append(dataset)
-        # print(shuffled_datasets)
+    def cal_batch_proportion(self):
+        mixed_size = sum(self.consume_ratio)
+        remains = self.batch_size % mixed_size
+        proportion = [r * (self.batch_size // mixed_size) for r in self.consume_ratio]
         idx = 0
-        while shuffled_datasets != [[] for d in shuffled_datasets]:
-            if len(shuffled_datasets[idx]) != 0:
-                merged_dataset.extend(shuffled_datasets[idx][:min(self.consume_ratio[idx], len(shuffled_datasets[idx]))])
-                shuffled_datasets[idx] = shuffled_datasets[idx][min(self.consume_ratio[idx], len(shuffled_datasets[idx])):]
-            idx = (idx + 1) % len(shuffled_datasets)
-        print(merged_dataset)
-        return merged_dataset
-        
+        while remains != 0:
+            proportion[idx] += min(remains, self.consume_ratio[idx])
+            remains -= min(remains, self.consume_ratio[idx])
+        return proportion
+
+    def merge_batches(self, batches):
+        batch = []
+        idx = 0
+        while len(batch) != self.batch_size:
+            batch.extend(batches[idx][:min(self.consume_ratio[idx], len(batches[idx]))])
+            batches[idx] = batches[idx][min(self.consume_ratio[idx], len(batches[idx])):]
+            idx = (idx + 1) % self.dataset_num
+        return batch
+
     def __iter__(self):
         if self.is_eval:
             batch = []
@@ -396,21 +378,14 @@ class RLHFDataLoader:
                     batch = []
 
         else:
+            sampler_iters = [iter(sampler) for sampler in self.samplers]
             while True:
-                # re-shuffle and merge datasets in each epoch, with curr_epoch as the random seed
-                curr_epoch = self.consumed_samples // self.active_samples
-                self.merged_dataset = self.merge_datasets(curr_epoch)
-                
-                batch = []
-                offset = self.consumed_samples % self.active_samples
-                for i in range(offset, len(self.merged_dataset)):
-                    batch.append(self.merged_dataset[i])
-                    if len(batch) == self.batch_size:
-                        duplicated_batch = []
-                        for data in batch:
-                            duplicated_batch.extend([data for j in range(self.num_inference_per_prompt)])
-                        yield duplicated_batch
-                        batch = []
-                        self.consumed_samples += self.batch_size
+                batches = [next(it) for it in sampler_iters]
+                merged_batch = self.merge_batches(batches)
+                # duplicate
+                duplicated_batch = []
+                for data in merged_batch:
+                    duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
+                yield duplicated_batch
 
 
