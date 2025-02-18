@@ -339,6 +339,8 @@ class RuntimeConfig(BaseConfig):
     output_dir: str = "./"
     #: validate param sync
     validate_param_sync: bool = False
+    #: whether to eval before training
+    enable_eval_before_training: bool = False
 
     def __init__(self):
         super().__init__()
