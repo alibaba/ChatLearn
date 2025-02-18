@@ -511,17 +511,17 @@ class BaseModule:
             if is_eval:
                 batch_sampler = MultiDatasetSampler(
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
-                    batch_size=batch_size
+                    batch_size=batch_size,
                     shuffle=False,
                     is_eval=True
                 )
             else:
                 batch_sampler = MultiDatasetSampler(
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
-                    batch_size=batch_size // self.model_args["num_inference_per_prompt"],
+                    batch_size=batch_size // (self.model_args["num_inference_per_prompt"] if "num_inference_per_prompt" in self.model_args else 1),
                     data_ratio=data_ratio,
                     consumed_samples=consumed_samples,
-                    num_inference_per_prompt=self.model_args["num_inference_per_prompt"],
+                    num_inference_per_prompt=(self.model_args["num_inference_per_prompt"] if "num_inference_per_prompt" in self.model_args else 1),
                     shuffle=True,
                     is_eval=False
                 )
