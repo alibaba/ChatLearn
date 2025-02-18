@@ -299,7 +299,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             top_k=top_k,
             ignore_eos=self.model_args.get("ignore_eos"),
             stop=stop,
-            logprobs=1,
+            logprobs=self.model_args.get("logprobs", 1),
+            detokenize=self.model_args.get("detokenize", False),
             prompt_logprobs=self.model_args.get("prompt_logprobs", None),
             skip_special_tokens=self.model_args.get('skip_special_tokens', True)
         )
