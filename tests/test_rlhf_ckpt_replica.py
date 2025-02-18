@@ -34,7 +34,6 @@ class PolicyModel(TorchModule):
         with open(fn, 'wb') as f:
             pickle.dump(data, f)
             print(f"save to {fn}", flush=True)
-            # self._iter += 1
 
         query = data["query"]
         data["policy_out"] = query
