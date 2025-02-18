@@ -235,7 +235,7 @@ class Engine(BaseEngine):
             if executor:
                 executor.update_models(self.remote_models)
         if self.env:
-            self.env.set_dataset(self._all_datasets)
+            self.env.set_multiple_datasets(self._all_datasets)
         self.timers("build_sync_paramter_groups").start()
         self.model_manager.build_parameter_group()
         self.timers("build_sync_paramter_groups").stop()
@@ -243,7 +243,7 @@ class Engine(BaseEngine):
             f"{LOG_START} {self._name} build_sync_paramter_groups summary {self.timers.log(names=['build_sync_paramter_groups'])}")
         self.model_manager.start_error_monitor()
 
-    def set_dataset(self, dataset, *optional_datasets):
+    def set_dataset(self, dataset):
         """
         Set prompt dataset.
 
@@ -251,12 +251,39 @@ class Engine(BaseEngine):
         ----
         dataset : list[str]
             a list of prompt string
-        *optional_datasets : list[str]
-            zero or multiple lists of prompt string
         """
+        assert isinstance(dataset, list), (
+            f"expect datasets to be a list, got {type(dataset)}"
+        )
+        assert isinstance(dataset[0], list) is False, (
+            "expect only one dataset to be set, if you want to use more "
+            "than one dataset, please try `set_multiple_datasets`"
+        )
         self._all_datasets = [dataset]
-        for dataset in optional_datasets:
-            self._all_datasets.append(dataset)
+        return self
+
+    def set_multiple_datasets(self, all_datasets):
+        """
+        Set multiple prompt datasets.
+
+        Args
+        ----
+        all_datasets : list[list[str]]
+            a list of lists of prompt string
+        """
+        # sanity check
+        assert len(all_datasets) >= 1, (
+            f"expect at least one dataset, got {len(all_datasets)} datasets."
+        )
+        assert isinstance(all_datasets, list), (
+            f"expect datasets to be a list, got {type(all_datasets)}"
+        )
+        for dataset in all_datasets:
+            assert isinstance(dataset, list), (
+                f"expect each dataset to be a list of prompts, got {type(dataset)}"
+            )
+
+        self._all_datasets = all_datasets
         return self
 
     def set_trainer(self, trainer):
@@ -572,11 +599,11 @@ class EvalEngine(Engine):
 
     def setup(self):
         super().setup()
-        self.evaluator.set_dataset(self._all_dataset)
+        self.evaluator.set_multiple_datasets(self._all_datasets)
         self.evaluator.set_timers(self.timers)
         self.evaluator.set_post_process_func(self._post_process_func)
 
-    def set_dataset(self, dataset, optional_datasets):
+    def set_dataset(self, dataset):
         """
         Set prompt dataset.
 
@@ -584,12 +611,39 @@ class EvalEngine(Engine):
         ----
         dataset : list[str]
             a list of prompt string
-        *optional_datasets : list[str]
-            zero or multiple lists of prompt string
         """
+        assert isinstance(dataset, list), (
+            f"expect datasets to be a list, got {type(dataset)}"
+        )
+        assert isinstance(dataset[0], list) is False, (
+            "expect only one dataset to be set, if you want to use more "
+            "than one dataset, please try `set_multiple_datasets`"
+        )
         self._all_datasets = [dataset]
-        for dataset in optional_datasets:
-            self._all_datasets.append(dataset)
+        return self
+
+    def set_multiple_datasets(self, all_datasets):
+        """
+        Set multiple prompt datasets.
+
+        Args
+        ----
+        all_datasets : list[list[str]]
+            a list of lists of prompt string
+        """
+        # sanity check
+        assert len(all_datasets) >= 1, (
+            f"expect at least one dataset, got {len(all_datasets)} datasets."
+        )
+        assert isinstance(all_datasets, list), (
+            f"expect datasets to be a list, got {type(all_datasets)}"
+        )
+        for dataset in all_datasets:
+            assert isinstance(dataset, list), (
+                f"expect each dataset to be a list of prompts, got {type(dataset)}"
+            )
+
+        self._all_datasets = all_datasets
         return self
 
     def set_post_process_func(self, post_process_func):

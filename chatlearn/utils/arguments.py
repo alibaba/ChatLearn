@@ -439,6 +439,9 @@ class Config(BaseConfig):
                         for group in value:
                             colocation_list.append(group.replace(' ', '').split(','))
                         value = colocation_list
+                    elif attribute == "data_ratio":
+                        if isinstance(value, str):
+                            value = [int(v) for v in value.split(',')]
                 else:
                     value = default_value
                 original_value = getattr(instance, attribute)

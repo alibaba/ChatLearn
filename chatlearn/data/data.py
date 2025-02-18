@@ -16,13 +16,13 @@
 
 import math
 import random
-from torch.utils.data import DataLoader, Dataset
 import ray
 import torch
+
 from torch.nn.utils.rnn import pad_sequence
-from typing import Optional, List, Any
-from chatlearn.utils import future
 from torch.utils.data import default_collate
+from chatlearn.utils import future
+
 
 def get_iter_keys(data):
     """
@@ -305,8 +305,8 @@ class RLHFDataLoader:
     """
 
     def __init__(
-        self, 
-        datasets, 
+        self,
+        datasets,
         sampler,
         collate_fn=None):
         """generate prompts data loader"""
@@ -324,7 +324,7 @@ class RLHFDataLoader:
             try:
                 batch_idxes = next(self.sampler_iter)
                 batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx in batch_idxes]
-                if self.collate_fn != None:
+                if self.collate_fn is not None:
                     yield self.collate_fn(batch)
                 else:
                     yield default_collate(batch)
