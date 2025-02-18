@@ -310,16 +310,14 @@ class RLHFDataLoader:
         sampler,
         collate_fn=None):
         """generate prompts data loader"""
-        #def custom_collate_fn(batch):
-        #    data = list(batch)
-        #    return data
 
         self.datasets = datasets
         self.dataset_num = len(self.datasets)
-        self.sampler_iter = iter(sampler)
+        self.sampler = sampler
         self.collate_fn = collate_fn
 
     def __iter__(self):
+        self.sampler_iter = iter(self.sampler)
         while True:
             try:
                 batch_idxes = next(self.sampler_iter)
@@ -329,5 +327,5 @@ class RLHFDataLoader:
                 else:
                     yield default_collate(batch)
             except StopIteration:
-                break
+                self.sampler_iter = iter(self.sampler)
                 
