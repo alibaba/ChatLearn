@@ -480,7 +480,7 @@ class BaseModule:
             )
 
         all_dataset_len = sum(len(dataset) for dataset in all_datasets)
-        if len(all_datasets == 1):
+        if len(all_datasets) == 1:
             if is_eval:
                 batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
                     consumed_samples=0,
@@ -506,7 +506,7 @@ class BaseModule:
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
                     batch_size=batch_size,
                     shuffle=False,
-                    drop_last=False
+                    is_eval=True
                 )
             else:
                 batch_sampler = MultiDatasetSampler(
@@ -515,7 +515,7 @@ class BaseModule:
                     data_ratio=data_ratio,
                     consumed_samples=consumed_samples,
                     shuffle=True,
-                    mix_batch=True
+                    is_eval=False
                 )
             return RLHFDataLoader(all_datasets, batch_sampler, collate_fn=collate_fn)
 

@@ -147,34 +147,34 @@ class EpisodeDataSampler:
 
 class RLHFSingleSampler:
 
-    def __init__(self, total_samples, consumed_samples, batch_size, shuffle=True, seed=0):
-        self.actual_samples = total_samples // batch_size * batch_size
+    def __init__(self, total_samples, consumed_samples, shuffle=True, seed=0):
+        self.total_samples = total_samples
         self.consumed_samples = consumed_samples
-        self.curr_epoch = self.consumed_samples // self.actual_samples
-        self.batch_size = batch_size
+        self.curr_epoch = consumed_samples // total_samples
         self.shuffle = shuffle
         self.seed = seed
+        if self.shuffle:
+            g = torch.Generator()
+            g.manual_seed(self.curr_epoch + self.seed)
+            self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
+        self.offset = consumed_samples % total_samples
 
-    def __iter__(self):
-        """
-            yield sampled indexes
-        """
-        while True:
-            offset = self.consumed_samples % self.actual_samples
+    def get_next(self, num):
+        batch = []
+        while num > self.total_samples - self.offset:
+            batch.extend(self.random_idx[self.offset : self.total_samples])
+            num -= self.total_samples - self.offset
+            self.offset = 0
+            self.curr_epoch += 1
             if self.shuffle:
                 g = torch.Generator()
                 g.manual_seed(self.curr_epoch + self.seed)
-                random_idx = torch.randperm(self.actual_samples, generator=g).tolist()
-                # print(random_idx)
-            else:
-                assert len(random_idx) - offset >= self.batch_size
-                random_idx = [i for i in range(self.actual_samples)]
-            for i in range(offset, len(random_idx), self.batch_size):
-                yield [random_idx[i + j] for j in range(self.batch_size)]
-                self.consumed_samples += self.batch_size
-            self.curr_epoch += 1
-
-
+                self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
+        
+        batch.extend(self.random_idx[self.offset : self.offset + num])
+        self.offset += num
+        return batch
+    
 class MultiDatasetSampler:
     def __init__(
         self, 
@@ -184,79 +184,75 @@ class MultiDatasetSampler:
         consumed_samples=0,
         num_inference_per_prompt=1,
         shuffle=True,
-        seeds=None,
-        mix_batch=False,
-        drop_last=True,
+        seed=None,
+        is_eval=False,
         init_shuffle_prompt=0
     ):
-
+    
         self.dataset_sizes = dataset_sizes
         self.dataset_num = len(dataset_sizes)
         self.batch_size = batch_size
         self.consumed_samples = consumed_samples
-        self.mix_batch = mix_batch
+        self.is_eval = is_eval
         self.num_inference_per_prompt = num_inference_per_prompt
         self.shuffle = shuffle
-        self.drop_last = drop_last
-        self.seeds = [0] * self.dataset_num if seeds is None else seeds
+        self.seeds = [0] * self.dataset_num if seed is None else [seed] * self.dataset_num
 
-        if self.mix_batch:
+        if not self.is_eval:
             self.data_ratio = [1] * self.dataset_num if data_ratio is None else data_ratio
-            self.batch_prop = self.cal_batch_proportion()
-            # print(self.batch_prop)
-            consumed_each = [self.consumed_samples * self.batch_prop[i] // sum(self.batch_prop) for i in range(self.dataset_num)]
-            self.samplers = [RLHFSingleSampler(self.dataset_sizes[i], consumed_each[i], self.batch_prop[i], shuffle=self.shuffle, seed=self.seeds[i]) for i in range(self.dataset_num)] 
+            consumed_each, self.dataset_remains = self.cal_consumed_each(self.consumed_samples, self.data_ratio)
+            self.samplers = [RLHFSingleSampler(self.dataset_sizes[i], consumed_each[i], shuffle=self.shuffle, seed=self.seeds[i]) for i in range(self.dataset_num)] 
 
         assert init_shuffle_prompt == 0, "init_shuffle_prompt=1, 2 is not supported yet"
-        assert self.drop_last or not self.mix_batch, "drop_last is not supported when mix_batch is True"
+        assert self.consumed_samples % batch_size == 0, "consumed samples must be integer multiple of batch_size"
 
-    def cal_batch_proportion(self):
-        mixed_size = sum(self.data_ratio)
-        remains = self.batch_size % mixed_size
-        proportion = [r * (self.batch_size // mixed_size) for r in self.data_ratio]
-        idx = 0
+    def cal_consumed_each(self, consumed_samples, data_ratio):
+        multiples = consumed_samples // sum(data_ratio)
+        consumed_each = [r * multiples for r in data_ratio]
+        remains = consumed_samples % sum(data_ratio)
+        i = 0
+        dataset_remains = data_ratio[:]
         while remains != 0:
-            proportion[idx] += min(remains, self.data_ratio[idx])
-            remains -= min(remains, self.data_ratio[idx])
-            idx = (idx + 1) % self.dataset_num
-        return proportion
+            if i == 0:
+                dataset_remains = data_ratio[:]
+            dataset_remains[i] -= min(remains, data_ratio[i])
+            consumed_each[i] += min(remains, data_ratio[i])
+            remains -= min(remains, data_ratio[i])
+            i = (i + 1) % self.dataset_num
 
-    def merge_batches(self, batches):
-        batches_with_idx = []
-        for idx, b in enumerate(batches):
-            batches_with_idx.append([(idx, data) for data in b])
-
-        batch = []
-        idx = 0
-        while len(batch) != self.batch_size:
-            batch.extend(batches_with_idx[idx][:min(self.data_ratio[idx], len(batches_with_idx[idx]))])
-            batches_with_idx[idx] = batches_with_idx[idx][min(self.data_ratio[idx], len(batches_with_idx[idx])):]
-            idx = (idx + 1) % self.dataset_num
-        return batch
+        return consumed_each, dataset_remains
     
     def __iter__(self):
-        if self.mix_batch:
-            sampler_iters = [iter(sampler) for sampler in self.samplers]
-            while True:
-                batches = [next(it) for it in sampler_iters]
-                merged_batch = self.merge_batches(batches)
-                # duplicate
-                duplicated_batch = []
-                for data in merged_batch:
-                    duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
-                yield duplicated_batch
-        else:
+        if self.is_eval:
             idxes = []
             for i in range(self.dataset_num):
                 idxes.extend([(i, j) for j in range(self.dataset_sizes[i])])
             
             for i in range(0, len(idxes), self.batch_size):
-                if self.drop_last and len(idxes) - i >= self.batch_size:
-                    batch = [idxes[i + j] for j in range(self.batch_size)]
-                elif not self.drop_last:
-                    batch = [idxes[i + j] for j in range(min(self.batch_size, len(idxes) - i))]
+                # if self.drop_last and len(idxes) - i >= self.batch_size:
+                #     batch = [idxes[i + j] for j in range(self.batch_size)]
+                # elif not self.drop_last:
+                #     batch = [idxes[i + j] for j in range(min(self.batch_size, len(idxes) - i))]
+                batch = [idxes[i + j] for j in range(min(self.batch_size, len(idxes) - i))]
                 duplicated_batch = []
                 for data in batch:
                     duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
+                yield duplicated_batch
+        else:
+            while True:
+                batch_idxes = []
+                dataset_id = 0
+                while len(batch_idxes) != self.batch_size:
+                    data_num = min(self.dataset_remains[dataset_id], self.batch_size - len(batch_idxes))
+                    self.dataset_remains[dataset_id] -= data_num
+                    batch = self.samplers[dataset_id].get_next(data_num)
+                    batch_idxes.extend([(dataset_id, batch[i]) for i in range(data_num)])
+                    dataset_id = (dataset_id + 1) % self.dataset_num
+                    if self.dataset_remains == [0] * self.dataset_num:
+                        self.dataset_remains = self.data_ratio[:]
+
+                duplicated_batch = []
+                for idx in batch_idxes:
+                    duplicated_batch.extend([idx for i in range(self.num_inference_per_prompt)])
                 yield duplicated_batch
 

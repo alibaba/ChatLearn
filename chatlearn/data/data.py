@@ -22,7 +22,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from typing import Optional, List, Any
 from chatlearn.utils import future
-from chatlearn.data.sampler import RLHFSampler
+from torch.utils.data import default_collate
 
 def get_iter_keys(data):
     """
@@ -336,7 +336,7 @@ class RLHFDataLoader:
                 if self.collate_fn != None:
                     yield self.collate_fn(batch)
                 else:
-                    yield batch
+                    yield default_collate(batch)
             except StopIteration:
                 break
-
+                
