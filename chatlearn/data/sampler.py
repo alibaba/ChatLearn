@@ -159,11 +159,13 @@ class RLHFSingleSampler:
             g = torch.Generator()
             g.manual_seed(self.curr_epoch + self.seed)
             self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
+        else:
+            self.random_idx = list(range(self.total_samples))
         self.offset = consumed_samples % total_samples
 
     def get_next(self, num):
         batch = []
-        while num > self.total_samples - self.offset:
+        while num >= self.total_samples - self.offset:
             batch.extend(self.random_idx[self.offset : self.total_samples])
             num -= self.total_samples - self.offset
             self.offset = 0
@@ -174,7 +176,7 @@ class RLHFSingleSampler:
                 self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
 
         batch.extend(self.random_idx[self.offset : self.offset + num])
-        self.offset += num
+        self.offset = self.offset + num
         return batch
 
 class MultiDatasetSampler:
@@ -238,10 +240,6 @@ class MultiDatasetSampler:
                 idxes.extend([(i, j) for j in range(self.dataset_sizes[i])])
 
             for i in range(0, len(idxes), self.batch_size):
-                # if self.drop_last and len(idxes) - i >= self.batch_size:
-                #     batch = [idxes[i + j] for j in range(self.batch_size)]
-                # elif not self.drop_last:
-                #     batch = [idxes[i + j] for j in range(min(self.batch_size, len(idxes) - i))]
                 batch = [idxes[i + j] for j in range(min(self.batch_size, len(idxes) - i))]
                 duplicated_batch = []
                 for data in batch:

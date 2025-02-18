@@ -95,6 +95,7 @@ function run_all_tests {
   RUN_FLAG="resume" run_test python test_rlhf_ckpt_replica.py -c "configs/rlhf.yaml"
   RUN_FLAG=0 run_test python test_rlhf_ckpt_data_ratio.py -c "configs/rlhf.yaml"
   RUN_FLAG="resume" run_test python test_rlhf_ckpt_data_ratio.py -c "configs/rlhf.yaml"
+  run_test python test_multi_dataloader.py
   run_test python test_timers.py
   run_test python test_rlhf_no_replica.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_replica2.py -c "configs/rlhf.yaml"
