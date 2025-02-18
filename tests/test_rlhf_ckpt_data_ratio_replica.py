@@ -27,7 +27,7 @@ class PolicyModel(TorchModule):
 
     def forward_step(self, data, iteration):
         save_dir = self.runtime_args.data_checkpoint_path
-        fn = f"{save_dir}/data_{iteration}"
+        fn = f"{save_dir}/data_replica{self.replica_id}_{iteration}"
         if self.runtime_args.load_data_checkpoint_iteration:
             fn = f"{fn}_{self.runtime_args.load_data_checkpoint_iteration}"
         fn = f"{fn}.pkl"
@@ -86,9 +86,9 @@ chatlearn.init()
 chatlearn.get_args().runtime_args.data_ratio = [1,1]
 if run == "resume":
     chatlearn.get_args().runtime_args.load_data_checkpoint_iteration = 2
-chatlearn.get_args().models["policy"].num_replica = 1
+chatlearn.get_args().models["policy"].num_gpu = 2
 chatlearn.get_args().models["policy"].generation_batch_size = 4
-chatlearn.get_args().runtime_args.data_checkpoint_path = os.path.join(os.getcwd(), "checkpoint3")
+chatlearn.get_args().runtime_args.data_checkpoint_path = os.path.join(os.getcwd(), "checkpoint4")
 chatlearn.get_args().runtime_args.save_episode_interval = 1
 chatlearn.get_args().runtime_args.num_episode = 5
 chatlearn.get_args().runtime_args.train_global_batch_size = 8
@@ -104,8 +104,10 @@ engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
 data = [torch.Tensor([i]) for i in range(8)]
 data2 = [torch.Tensor([i]) for i in range(8,24)]
+
 engine.set_multiple_datasets([data, data2])
 engine.learn()
+
 if run == "resume":
     assert engine._start_episode == 1, engine._start_episode
     data = {}
@@ -115,11 +117,13 @@ if run == "resume":
 
         with open(os.path.join(chatlearn.get_args().runtime_args.data_checkpoint_path, fn), 'rb') as f:
             data[fn] = pickle.load(f)
-    for i in range(4, 20):
-        fn_resume = f"data_{i}_2.pkl"
-        fn = f"data_{i}.pkl"
-        assert (data[fn]['query'] == data[fn_resume]['query']).all(), (
-            f"train_iteration {i}: expect data and resumed data to be the same, "
-            f"got {data[fn]['query']} and {data[fn_resume]['query']}"
-        )
+    for replica in range(2):
+        for i in range(2, 10):
+            fn_resume = f"data_replica{replica}_{i}_2.pkl"
+            fn = f"data_replica{replica}_{i}.pkl"
+            assert (data[fn]['query'] == data[fn_resume]['query']).all(), (
+                f"train_iteration {i}: expect data and resumed data to be the same, "
+                f"got {data[fn]['query']} and {data[fn_resume]['query']}"
+            )
+
 assert engine.trainer.iteration == 10, engine.trainer.iteration
