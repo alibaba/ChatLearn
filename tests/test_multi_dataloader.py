@@ -1,70 +1,78 @@
 import os
 from chatlearn.data.data import RLHFDataLoader
+from chatlearn.data.sampler import MultiDatasetSampler
 
+def collate_fn(batch):
+    return batch
 
-class RLHFSampler:
-    def __init__(self, total_samples, consumed_samples, batch_size, base_seed=0):
-        self.total_samples = total_samples
-        self.consumed_samples = consumed_samples
-        self.batch_size = batch_size
-        self.last_batch_size = self.total_samples % self.batch_size
+def single_dataset():
+    # evaluation
+    dataset = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
+    sampler_eval = MultiDatasetSampler([len(dataset)], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=True)
+    dataloader = RLHFDataLoader([dataset], sampler_eval, collate_fn=collate_fn)
+    batches = []
+    for d in dataloader:
+        batches.append(d)
+    ground_truth = [['a', 'a', 'b', 'b', 'c', 'c'], ['d', 'd', 'e', 'e', 'f', 'f'], ['g', 'g', 'h', 'h', 'i', 'i']]
+    assert batches == ground_truth
 
-        self.base_seed = base_seed
-        self.curr_seed = base_seed
+    # training
+    dataset1 = [1, 2]
+    sampler_train = MultiDatasetSampler([2], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False)
+    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn)
+    data_iter = iter(dataloader)
+    batches = []
+    for i in range(5):
+        batches.append(next(data_iter))
+    ground_truth = [[1,1,2,2,1,1], [2,2,1,1,2,2], [1,1,2,2,1,1], [2,2,1,1,2,2], [1,1,2,2,1,1]]
+    assert batches == ground_truth
 
-        # Sanity checks.
-        assert self.total_samples > 0, \
-            'no sample to consume: {}'.format(self.total_samples)
-        assert self.batch_size > 0
+    # checkpoint
+    dataset1 = [1, 2]
+    sampler_train = MultiDatasetSampler([2], 3, [1], consumed_samples=3, num_inference_per_prompt=2, shuffle=False, is_eval=False)
+    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn)
+    data_iter = iter(dataloader)
+    batches = []
+    for i in range(5):
+        batches.append(next(data_iter))
+    ground_truth = [[2,2,1,1,2,2], [1,1,2,2,1,1], [2,2,1,1,2,2], [1,1,2,2,1,1], [2,2,1,1,2,2]]
+    assert batches == ground_truth
 
-    def __len__(self):
-        return self.total_samples
-
-    def set_epoch(self, epoch):
-        self.curr_seed = self.base_seed + epoch
+def multiple_dataset():
     
+    # evaluation
+    dataset1 = [1, 2, 3, 4, 5]
+    dataset2 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
+    sampler_eval = MultiDatasetSampler([5, 9], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=True)
+    dataloader = RLHFDataLoader([dataset1, dataset2], sampler_eval, collate_fn=collate_fn)
+    ground_truth = [[1, 1, 2, 2, 3, 3], [4, 4, 5, 5, 'a', 'a'], ['b', 'b', 'c', 'c', 'd', 'd'], ['e', 'e', 'f', 'f', 'g', 'g'], ['h', 'h', 'i', 'i']]
+    batches = []
+    for d in dataloader:
+        batches.append(d)
+    assert batches == ground_truth
 
-    def __iter__(self):
-        active_total_samples = self.total_samples - self.last_batch_size
-        self.epoch = self.consumed_samples // active_total_samples
-        current_epoch_samples = self.consumed_samples % active_total_samples
-        assert current_epoch_samples % self.batch_size == 0
+    # training
+    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False)
+    dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
+    data_iter = iter(dataloader)
+    sequence = []
+    for i in range(10):
+        sequence.extend(next(data_iter))
+    # num_inference_per_prompt
+    assert len(sequence) == 10 * 2 * 5
 
-        self.set_epoch(self.epoch)
-        random_idx = [i for i in range(self.total_samples)]
-        offset = current_epoch_samples
-        idx_range = random_idx[offset:]
+    for i in range(0, len(sequence) // 2, 2):
+        assert sequence[i] == sequence[i + 1]
 
-        batch = []
-        # Last batch if not complete will be dropped.
-        print(idx_range)
-        for idx in idx_range:
-            batch.append(idx)
-            print(batch)
-            if len(batch) == self.batch_size:
-                self.consumed_samples += self.batch_size
-                print(batch)
-                yield batch
-                batch = []
-
-def test_case3():
-    dataset1 = ['1', '2', '3']
-    dataset2 = ['a', 'b']
-
-    ratio = [2, 1]
-
-    batch_sampler = RLHFSampler(3, batch_size=3, consumed_samples=3)
-
-    data_iter = iter(RLHFDataLoader(datasets=[dataset1, dataset2], sampler=batch_sampler, consume_ratio=ratio, dataset_ratio=[3,2], num_inference_per_prompt=2))
-    for i in range(20):
-        print(next(data_iter))
-
-
-
+    # data checkpoint
+    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=15, num_inference_per_prompt=2, shuffle=True, is_eval=False)
+    dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
+    data_iter = iter(dataloader)
+    new_sequence = []
+    for i in range(10):
+        new_sequence.extend(next(data_iter))
+    assert sequence[30:] == new_sequence[:len(sequence) - 30]
 
 if __name__ == "__main__":
-    train_prompts = ['a', 'b', 'c', 'd', 'e', 'f']
-    # test_case1()
-    # test_case2()
-    test_case3()
-
+    single_dataset()
+    multiple_dataset()
