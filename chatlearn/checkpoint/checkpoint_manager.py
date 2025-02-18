@@ -27,7 +27,7 @@ def path_exists(path):
 class CheckpointManager:
     """Checkpoint Manager"""
 
-    def __init__(self, model, path, max_ckpt_nums, load_iteration=None, config_to_check={}):
+    def __init__(self, model, path, max_ckpt_nums, load_iteration=None, config_to_check=None):
         self._path = path
         self._max_ckpt_nums = max_ckpt_nums
         self._meta_file = os.path.join(self._path, "latest_checkpointed_iteration.txt")
@@ -37,7 +37,7 @@ class CheckpointManager:
         self._meta = None
         self._model = model
         self._resumed = False
-        self._config_to_check = config_to_check
+        self._config_to_check = {} if config_to_check is None else config_to_check
 
 
     def _get_checkpoint_path_name(self, replica_id, step):

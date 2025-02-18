@@ -146,6 +146,8 @@ class EpisodeDataSampler:
                 self.episode_offset = 0
 
 class RLHFSingleSampler:
+    """RLHF sampler for a dataset.
+    """
 
     def __init__(self, total_samples, consumed_samples, shuffle=True, seed=0):
         self.total_samples = total_samples
@@ -170,16 +172,18 @@ class RLHFSingleSampler:
                 g = torch.Generator()
                 g.manual_seed(self.curr_epoch + self.seed)
                 self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
-        
+
         batch.extend(self.random_idx[self.offset : self.offset + num])
         self.offset += num
         return batch
-    
+
 class MultiDatasetSampler:
+    """RLHF sampler for multiple datasets.
+    """
     def __init__(
-        self, 
-        dataset_sizes, 
-        batch_size, 
+        self,
+        dataset_sizes,
+        batch_size,
         data_ratio=None,
         consumed_samples=0,
         num_inference_per_prompt=1,
@@ -188,7 +192,7 @@ class MultiDatasetSampler:
         is_eval=False,
         init_shuffle_prompt=0
     ):
-    
+
         self.dataset_sizes = dataset_sizes
         self.dataset_num = len(dataset_sizes)
         self.batch_size = batch_size
@@ -201,7 +205,12 @@ class MultiDatasetSampler:
         if not self.is_eval:
             self.data_ratio = [1] * self.dataset_num if data_ratio is None else data_ratio
             consumed_each, self.dataset_remains = self.cal_consumed_each(self.consumed_samples, self.data_ratio)
-            self.samplers = [RLHFSingleSampler(self.dataset_sizes[i], consumed_each[i], shuffle=self.shuffle, seed=self.seeds[i]) for i in range(self.dataset_num)] 
+            self.samplers = [
+                RLHFSingleSampler(
+                    self.dataset_sizes[i], consumed_each[i], shuffle=self.shuffle, seed=self.seeds[i]
+                )
+                for i in range(self.dataset_num)
+            ]
 
         assert init_shuffle_prompt == 0, "init_shuffle_prompt=1, 2 is not supported yet"
         assert self.consumed_samples % batch_size == 0, "consumed samples must be integer multiple of batch_size"
@@ -221,13 +230,13 @@ class MultiDatasetSampler:
             i = (i + 1) % self.dataset_num
 
         return consumed_each, dataset_remains
-    
+
     def __iter__(self):
         if self.is_eval:
             idxes = []
             for i in range(self.dataset_num):
                 idxes.extend([(i, j) for j in range(self.dataset_sizes[i])])
-            
+
             for i in range(0, len(idxes), self.batch_size):
                 # if self.drop_last and len(idxes) - i >= self.batch_size:
                 #     batch = [idxes[i + j] for j in range(self.batch_size)]
@@ -255,4 +264,3 @@ class MultiDatasetSampler:
                 for idx in batch_idxes:
                     duplicated_batch.extend([idx for i in range(self.num_inference_per_prompt)])
                 yield duplicated_batch
-

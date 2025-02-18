@@ -45,7 +45,46 @@ class Environment(Executor):
         self.data_iter = None
         self._padding_config = {}
 
-    def set_dataset(self, all_datasets):
+    def set_dataset(self, dataset):
+        """Set dataset for the environment.
+
+        Args:
+            dataset (list): a list of prompts strs
+
+        Returns:
+            Environment instance: return environment
+        """
+        assert isinstance(dataset, list), (
+            f"expect the dataset to be a list of prompts, got {type(dataset)}"
+        )
+        assert isinstance(dataset[0], list) is False, (
+            "expect only one dataset to be set, if you want to use more "
+            "than one dataset, please try `set_multiple_datasets`"
+        )
+        self._all_datasets = [dataset]
+        return self
+
+    def set_multiple_datasets(self, all_datasets):
+        """Set multiple datasets for the environment.
+
+        Args:
+            dataset (list): a list of prompts strs
+
+        Returns:
+            Environment instance: return environment
+        """
+        # sanity check
+        assert len(all_datasets) >= 1, (
+            f"expect at least one dataset, got {len(all_datasets)} datasets."
+        )
+        assert isinstance(all_datasets, list), (
+            f"expect datasets to be a list, got {type(all_datasets)}"
+        )
+        for dataset in all_datasets:
+            assert isinstance(dataset, list), (
+                f"expect each dataset to be a list of prompts, got {type(dataset)}"
+            )
+
         self._all_datasets = all_datasets
         return self
 

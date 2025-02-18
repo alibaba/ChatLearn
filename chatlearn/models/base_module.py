@@ -419,9 +419,20 @@ class BaseModule:
         """
         all_datasets = self.build_all_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
-        #data_ratio = self.runtime_args.data_ratio
-        data_ratio = self.runtime_args.data_ratio.split(',')
-        data_ratio = [int(r) for r in data_ratio]
+        data_ratio = self.runtime_args.data_ratio
+
+        if data_ratio is None:
+            data_ratio = [1] * len(all_datasets)
+        elif isinstance(data_ratio, int):
+            data_ratio = [data_ratio] * len(all_datasets)
+        elif isinstance(data_ratio, list):
+            assert len(data_ratio) == len(all_datasets), (
+                "expect data_ratio to be a list with the same length as the number of datasets, "
+                f"got {len(data_ratio)} and {len(all_datasets)}."
+            )
+        else:
+            raise TypeError(f"unexpected data_ratio type {type(data_ratio)}, expect int or List.")
+
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
@@ -474,10 +485,6 @@ class BaseModule:
 
         if data_ratio is None:
             data_ratio = [1]
-        elif len(all_datasets) > 1:
-            assert isinstance(data_ratio, list) and len(data_ratio) == len(all_datasets), (
-                "data_ratio should be a list with the same length as the number of datasets"
-            )
 
         all_dataset_len = sum(len(dataset) for dataset in all_datasets)
         if len(all_datasets) == 1:
