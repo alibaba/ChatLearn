@@ -420,7 +420,7 @@ class BaseModule:
         all_datasets = self.build_all_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
         data_ratio = self.runtime_args.data_ratio
-
+        shuffle = self.runtime_args.shuffle
         if data_ratio is None:
             data_ratio = [1] * len(all_datasets)
         elif isinstance(data_ratio, int):
@@ -432,7 +432,6 @@ class BaseModule:
             )
         else:
             raise TypeError(f"unexpected data_ratio type {type(data_ratio)}, expect int or List.")
-
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
@@ -445,6 +444,7 @@ class BaseModule:
                                            dynamic_batch_size_flag=dynamic_batch_size_flag,
                                            consumed_samples=consumed_samples,
                                            data_ratio=data_ratio,
+                                           shuffle=shuffle,
                                            drop_last=drop_last)
 
         if is_eval:
@@ -463,6 +463,7 @@ class BaseModule:
                          dynamic_batch_size_flag=False,
                          consumed_samples=0,
                          data_ratio=None,
+                         shuffle=True,
                          drop_last=False):
         """
         build the dataloader for the model
@@ -487,7 +488,7 @@ class BaseModule:
             data_ratio = [1]
 
         all_dataset_len = sum(len(dataset) for dataset in all_datasets)
-        if len(all_datasets) == 1:
+        if len(all_datasets) == 1 and not shuffle:
             if is_eval:
                 batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
                     consumed_samples=0,
@@ -513,17 +514,25 @@ class BaseModule:
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
                     batch_size=batch_size,
                     shuffle=False,
-                    is_eval=True
+                    is_eval=True,
+                    data_parallel_rank=self.replica_id,
+                    data_parallel_size=self._num_replica
                 )
             else:
+                if "num_inference_per_prompt" in self.model_args:
+                    num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
+                else:
+                    num_inference_per_prompt = 1
                 batch_sampler = MultiDatasetSampler(
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
-                    batch_size=batch_size // (self.model_args["num_inference_per_prompt"] if "num_inference_per_prompt" in self.model_args else 1),
+                    batch_size=batch_size // num_inference_per_prompt,
                     data_ratio=data_ratio,
                     consumed_samples=consumed_samples,
-                    num_inference_per_prompt=(self.model_args["num_inference_per_prompt"] if "num_inference_per_prompt" in self.model_args else 1),
-                    shuffle=True,
-                    is_eval=False
+                    num_inference_per_prompt=num_inference_per_prompt,
+                    shuffle=shuffle,
+                    is_eval=False,
+                    data_parallel_rank=self.replica_id,
+                    data_parallel_size=self._num_replica
                 )
             return RLHFDataLoader(all_datasets, batch_sampler, collate_fn=collate_fn)
 
