@@ -420,7 +420,7 @@ class BaseModule:
         all_datasets = self.build_all_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
         data_ratio = self.runtime_args.data_ratio
-        shuffle = self.runtime_args.shuffle
+        shuffle = self.runtime_args.data_shuffle
         if data_ratio is None:
             data_ratio = [1] * len(all_datasets)
         elif isinstance(data_ratio, int):
@@ -526,7 +526,7 @@ class BaseModule:
                     num_inference_per_prompt = 1
                 batch_sampler = MultiDatasetSampler(
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
-                    batch_size=batch_size // num_inference_per_prompt,
+                    batch_size=batch_size,
                     data_ratio=data_ratio,
                     consumed_samples=consumed_samples,
                     num_inference_per_prompt=num_inference_per_prompt,
