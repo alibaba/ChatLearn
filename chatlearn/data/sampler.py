@@ -194,9 +194,11 @@ class MultiDatasetSampler:
         is_eval=False,
         init_shuffle_prompt=0,
         data_parallel_rank=0,
-        data_parallel_size=1
+        data_parallel_size=1,
+        dynamic_batch_size_flag=False
     ):
-
+        self.remainder = (sum(dataset_sizes) - consumed_samples) % data_parallel_size \
+            if dynamic_batch_size_flag else 0
         self.dataset_sizes = dataset_sizes
         self.dataset_num = len(dataset_sizes)
         self.micro_batch_size = batch_size
@@ -220,7 +222,8 @@ class MultiDatasetSampler:
             ]
 
         assert init_shuffle_prompt == 0, "init_shuffle_prompt=1, 2 is not supported yet"
-        assert self.consumed_samples % self.batch_size == 0, "consumed samples must be integer multiple of micro_batch_size times data_parallel_size"
+        if not eval:
+            assert self.consumed_samples % self.batch_size == 0, "consumed samples must be integer multiple of micro_batch_size times data_parallel_size"
 
     def cal_consumed_each(self, consumed_samples, data_ratio):
         multiples = consumed_samples // sum(data_ratio)
@@ -244,14 +247,20 @@ class MultiDatasetSampler:
             for i in range(self.dataset_num):
                 idxes.extend([(i, j) for j in range(self.dataset_sizes[i])])
 
-            for i in range(0, len(idxes), self.batch_size):
-                batch = [idxes[i + j] for j in range(min(self.batch_size, len(idxes) - i))]
-                left, right = min(self.data_parallel_rank * self.micro_batch_size, len(batch)), min((self.data_parallel_rank + 1) * self.micro_batch_size, len(batch))
-                batch = batch[left : right]
-                duplicated_batch = []
-                for data in batch:
-                    duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
-                yield duplicated_batch
+            if self.data_parallel_rank >= self.remainder:
+                batch_size_list = [self.micro_batch_size + 1] * self.remainder + \
+                    [self.micro_batch_size] * (self.data_parallel_size - self.remainder)
+            else:
+                batch_size_list = [self.micro_batch_size] * self.remainder + \
+                    [self.micro_batch_size - 1] * (self.data_parallel_size - self.remainder)
+            real_batch_size = sum(batch_size_list)
+            left = sum(batch_size_list[:self.data_parallel_rank])
+            right = sum(batch_size_list[:self.data_parallel_rank + 1])
+            batch = idxes[left : right]
+            duplicated_batch = []
+            for data in batch:
+                duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
+            yield duplicated_batch
         else:
             while True:
                 batch_idxes = []
