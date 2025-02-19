@@ -21,7 +21,7 @@ def single_dataset():
 
     # training
     dataset1 = [1, 2]
-    sampler_train = MultiDatasetSampler([2], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False)
+    sampler_train = MultiDatasetSampler([2], 6, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False)
     dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     batches = []
@@ -32,7 +32,7 @@ def single_dataset():
 
     # checkpoint
     dataset1 = [1, 2]
-    sampler_train = MultiDatasetSampler([2], 3, [1], consumed_samples=3, num_inference_per_prompt=2, shuffle=False, is_eval=False)
+    sampler_train = MultiDatasetSampler([2], 6, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=False, is_eval=False)
     dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     batches = []
@@ -56,26 +56,28 @@ def multiple_dataset():
         assert batches == ground_truth
 
     # training
-    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False)
+    sampler_train = MultiDatasetSampler([5, 9], 10, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False)
     dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
     data_iter = iter(dataloader)
     sequence = []
     for i in range(10):
-        sequence.extend(next(data_iter))
+        it = next(data_iter)
+        sequence.extend(it)
     # num_inference_per_prompt
-    assert len(sequence) == 10 * 2 * 5
+    assert len(sequence) == 10 * 10
 
     for i in range(0, len(sequence) // 2, 2):
         assert sequence[i] == sequence[i + 1]
 
     # data checkpoint
-    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=15, num_inference_per_prompt=2, shuffle=True, is_eval=False)
+    sampler_train = MultiDatasetSampler([5, 9], 10, [1, 3], consumed_samples=20, num_inference_per_prompt=2, shuffle=True, is_eval=False)
     dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
     data_iter = iter(dataloader)
     new_sequence = []
     for i in range(10):
-        new_sequence.extend(next(data_iter))
-    assert sequence[30:] == new_sequence[:len(sequence) - 30]
+        it = next(data_iter)
+        new_sequence.extend(it)
+    assert sequence[20:] == new_sequence[:len(sequence) - 20]
 
 def multi_replica():
     # evaluation
@@ -101,10 +103,10 @@ def multi_replica():
         data_iter2 = cycle(iter(dataloader2)) # reset
         assert batches == ground_truth2
 
+    # training
     dataset1 = [1, 2, 3, 4, 5]
     dataset2 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
-    # training
-    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=0, data_parallel_size=2)
+    sampler_train = MultiDatasetSampler([5, 9], 10, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=0, data_parallel_size=2)
     dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
     data_iter = iter(dataloader)
     sequence = []
@@ -113,7 +115,7 @@ def multi_replica():
         sequence.extend(next(data_iter))
     assert sequence == ground_truth
 
-    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=1, data_parallel_size=2)
+    sampler_train = MultiDatasetSampler([5, 9], 10, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=1, data_parallel_size=2)
     dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
     data_iter = iter(dataloader)
     sequence = []
