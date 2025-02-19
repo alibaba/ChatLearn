@@ -356,8 +356,10 @@ class Engine(BaseEngine):
             logger.info(f"finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
+        if self.runtime_args.enable_eval_before_training:
+            self.evaluate(-1)
         if dump_root_path:
-            logger.info("dump parameters after syncnizing...")
+            logger.info("dump parameters after synchronizing...")
             self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
             logger.info("finish dump parameters, ChatLearn will exit")
             return
