@@ -102,8 +102,8 @@ ppo_value = PPOValue("ppo_value")
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-data = [torch.Tensor([i]) for i in range(8)]
-data2 = [torch.Tensor([i]) for i in range(8,24)]
+data = [torch.Tensor([i]) for i in range(9)]
+data2 = [torch.Tensor([i]) for i in range(9,24)]
 
 engine.set_multiple_datasets([data, data2])
 engine.learn()

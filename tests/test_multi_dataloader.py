@@ -80,6 +80,44 @@ def multiple_dataset():
         new_sequence.extend(next(data_iter))
     assert sequence[30:] == new_sequence[:len(sequence) - 30]
 
+def multi_replica():
+    # evaluation
+    dataset1 = [1, 2, 3, 4, 5]
+    dataset2 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
+    sampler_eval = MultiDatasetSampler([5, 9], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=True, data_parallel_rank=1, data_parallel_size=2)
+    dataloader = RLHFDataLoader([dataset1, dataset2], sampler_eval, collate_fn=collate_fn)
+    ground_truth = [[4, 4, 5, 5, 'a', 'a'], ['e', 'e', 'f', 'f', 'g', 'g']]
+    data_iter = cycle(iter(dataloader))
+    for i in range(5):
+        batches = []
+        for j in range(2):
+            batches.append(next(data_iter))
+        # print(batches)
+        data_iter = cycle(iter(dataloader)) # reset
+        assert batches == ground_truth
+
+    # training
+    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=0, data_parallel_size=2)
+    dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
+    data_iter = iter(dataloader)
+    sequence = []
+    ground_truth = [1, 1, 'a', 'a', 'b', 'b', 'c', 'c', 2, 2, 'h', 'h', 'i', 'i', 4, 4, 'a', 'a', 'b', 'b', 1, 1, 'g', 'g', 'h', 'h', 'i', 'i', 2, 2]
+    for i in range(3):
+        sequence.extend(next(data_iter))
+    assert sequence == ground_truth
+
+    sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=1, data_parallel_size=2)
+    dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)
+    data_iter = iter(dataloader)
+    sequence = []
+    ground_truth = ['d', 'd', 'e', 'e', 'f', 'f', 3, 3, 'g', 'g', 'c', 'c', 5, 5, 'd', 'd', 'e', 'e', 'f', 'f', 'a', 'a', 'b', 'b', 'c', 'c', 3, 3, 'd', 'd']
+    for i in range(3):
+        sequence.extend(next(data_iter))
+    assert sequence == ground_truth
+
+
+
 if __name__ == "__main__":
     single_dataset()
     multiple_dataset()
+    multi_replica()
