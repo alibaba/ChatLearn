@@ -9,14 +9,13 @@ def collate_fn(batch):
 def single_dataset():
     # evaluation
     dataset = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
-    sampler_eval = MultiDatasetSampler([len(dataset)], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=True)
+    sampler_eval = MultiDatasetSampler([len(dataset)], 9, consumed_samples=0, num_inference_per_prompt=1, shuffle=False, is_eval=True)
     dataloader = RLHFDataLoader([dataset], sampler_eval, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     for i in range(5):
-        batches = []
-        for j in range(5):
-            batches.append(next(data_iter))
-        ground_truth = [['a', 'a', 'b', 'b', 'c', 'c'], ['d', 'd', 'e', 'e', 'f', 'f'], ['g', 'g', 'h', 'h', 'i', 'i'], ['a', 'a', 'b', 'b', 'c', 'c'], ['d', 'd', 'e', 'e', 'f', 'f']]
+        batches = next(data_iter)
+        ground_truth = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
+        # print(batches)
         assert batches == ground_truth
         data_iter = cycle(iter(dataloader))
 
@@ -47,14 +46,12 @@ def multiple_dataset():
     # evaluation
     dataset1 = [1, 2, 3, 4, 5]
     dataset2 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
-    sampler_eval = MultiDatasetSampler([5, 9], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=True)
+    sampler_eval = MultiDatasetSampler([5, 9], 14, consumed_samples=0, num_inference_per_prompt=1, shuffle=False, is_eval=True)
     dataloader = RLHFDataLoader([dataset1, dataset2], sampler_eval, collate_fn=collate_fn)
-    ground_truth = [[1, 1, 2, 2, 3, 3], [4, 4, 5, 5, 'a', 'a'], ['b', 'b', 'c', 'c', 'd', 'd'], ['e', 'e', 'f', 'f', 'g', 'g']]
+    ground_truth = dataset1 + dataset2
     data_iter = cycle(iter(dataloader))
     for i in range(5):
-        batches = []
-        for j in range(4):
-            batches.append(next(data_iter))
+        batches = next(data_iter)
         data_iter = cycle(iter(dataloader)) # reset
         assert batches == ground_truth
 
@@ -83,19 +80,29 @@ def multiple_dataset():
 def multi_replica():
     # evaluation
     dataset1 = [1, 2, 3, 4, 5]
-    dataset2 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
-    sampler_eval = MultiDatasetSampler([5, 9], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=True, data_parallel_rank=1, data_parallel_size=2)
-    dataloader = RLHFDataLoader([dataset1, dataset2], sampler_eval, collate_fn=collate_fn)
-    ground_truth = [[4, 4, 5, 5, 'a', 'a'], ['e', 'e', 'f', 'f', 'g', 'g']]
-    data_iter = cycle(iter(dataloader))
+    dataset2 = ['a', 'b']
+    sampler_eval1 = MultiDatasetSampler([5, 2], 4, consumed_samples=0, num_inference_per_prompt=1, shuffle=False, is_eval=True, data_parallel_rank=0, data_parallel_size=2, dynamic_batch_size_flag=True)
+    dataloader1 = RLHFDataLoader([dataset1, dataset2], sampler_eval1, collate_fn=collate_fn)
+    ground_truth1 = [1, 2, 3, 4]
+    data_iter1 = cycle(iter(dataloader1))
     for i in range(5):
-        batches = []
-        for j in range(2):
-            batches.append(next(data_iter))
+        batches = next(data_iter1)
         # print(batches)
-        data_iter = cycle(iter(dataloader)) # reset
-        assert batches == ground_truth
+        data_iter1 = cycle(iter(dataloader1)) # reset
+        assert batches == ground_truth1
 
+    sampler_eval2 = MultiDatasetSampler([5, 2], 3, consumed_samples=0, num_inference_per_prompt=1, shuffle=False, is_eval=True, data_parallel_rank=1, data_parallel_size=2, dynamic_batch_size_flag=True)
+    dataloader2 = RLHFDataLoader([dataset1, dataset2], sampler_eval2, collate_fn=collate_fn)
+    ground_truth2 = [5, 'a', 'b']
+    data_iter2 = cycle(iter(dataloader2))
+    for i in range(5):
+        batches = next(data_iter2)
+        # print(batches)
+        data_iter2 = cycle(iter(dataloader2)) # reset
+        assert batches == ground_truth2
+
+    dataset1 = [1, 2, 3, 4, 5]
+    dataset2 = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']
     # training
     sampler_train = MultiDatasetSampler([5, 9], 5, [1, 3], consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=0, data_parallel_size=2)
     dataloader = RLHFDataLoader(datasets=[dataset1, dataset2], sampler=sampler_train, collate_fn=collate_fn)

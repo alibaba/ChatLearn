@@ -516,7 +516,8 @@ class BaseModule:
                     shuffle=False,
                     is_eval=True,
                     data_parallel_rank=self.replica_id,
-                    data_parallel_size=self._num_replica
+                    data_parallel_size=self._num_replica,
+                    dynamic_batch_size_flag=dynamic_batch_size_flag
                 )
             else:
                 if "num_inference_per_prompt" in self.model_args:
