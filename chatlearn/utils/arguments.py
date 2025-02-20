@@ -287,7 +287,7 @@ class RuntimeConfig(BaseConfig):
     #: [optional]: the ratio for each kind of data_path in a training episode, default: None
     data_ratio: Optional[Union[List[int], int]] = None
     #: [optional]: shuffle in each epoch of dataset, default: True
-    shuffle: Optional[bool] = True
+    data_shuffle: Optional[bool] = True
     #: [optional]: colocate models into the same device
     colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval
