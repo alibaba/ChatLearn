@@ -16,9 +16,9 @@
 
 import math
 import random
+import copy
 import ray
 import torch
-
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
 from chatlearn.utils import future
@@ -317,13 +317,21 @@ class RLHFDataLoader:
         self,
         datasets,
         sampler,
-        collate_fn=None):
+        collate_fn=None,
+        add_uid=False,
+        data_parallel_rank=0,
+        data_parallel_size=1,
+        num_inference_per_prompt=1):
         """generate prompts data loader"""
 
         self.datasets = datasets
         self.dataset_num = len(self.datasets)
         self.sampler = sampler
         self.collate_fn = collate_fn
+        self.add_uid = add_uid
+        self.data_parallel_rank = data_parallel_rank
+        self.data_parallel_size = data_parallel_size
+        self.num_inference_per_prompt = num_inference_per_prompt
 
     def __iter__(self):
         self.sampler_iter = iter(self.sampler)
@@ -331,10 +339,23 @@ class RLHFDataLoader:
             try:
                 batch_idxes = next(self.sampler_iter)
                 batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx in batch_idxes]
+                if self.add_uid:
+                    batch = self.update_data_uid(batch)
                 if self.collate_fn is not None:
                     yield self.collate_fn(batch)
                 else:
                     yield default_collate(batch)
             except StopIteration:
                 self.sampler_iter = iter(self.sampler)
-                
+
+    def update_data_uid(self, batch):
+        micro_batch_size = len(batch)
+        updated_batch = []
+        for i, data in enumerate(batch):
+            assert isinstance(data, dict), "add uid only support dict type data"
+            copy_data = copy.deepcopy(data)
+            assert 'prompt' in copy_data, "add uid only support dict type data with prompt key"
+            copy_data['prompt']['uid'] = \
+                str((self.data_parallel_rank * micro_batch_size + i) // self.num_inference_per_prompt)
+            updated_batch.append(copy_data)
+        return updated_batch
