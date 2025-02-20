@@ -393,7 +393,7 @@ class BaseModule:
 
         Args
         ----
-            train_prompts_list: List[Str]
+            train_prompts_list: List[List[Str]]
                 A list of prompt string lists.
         Returns
         -------
