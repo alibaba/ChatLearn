@@ -1708,7 +1708,8 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                     actor_mappings_list,
                     requires_grad=requires_grad,
                     filter_fn=None,
-                    param_group="default"
+                    param_group="default",
+                    dryrun=dryrun
                 )
                 logger.info("complete to sync all moe experts")
 
