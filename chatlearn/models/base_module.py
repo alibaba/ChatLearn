@@ -509,6 +509,10 @@ class BaseModule:
                 all_datasets[0], batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
             )
         else:
+            if "num_inference_per_prompt" in self.model_args:
+                num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
+            else:
+                num_inference_per_prompt = 1
             if is_eval:
                 batch_sampler = MultiDatasetSampler(
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
@@ -520,10 +524,6 @@ class BaseModule:
                     dynamic_batch_size_flag=dynamic_batch_size_flag
                 )
             else:
-                if "num_inference_per_prompt" in self.model_args:
-                    num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
-                else:
-                    num_inference_per_prompt = 1
                 batch_sampler = MultiDatasetSampler(
                     dataset_sizes=[len(dataset) for dataset in all_datasets],
                     batch_size=batch_size,
@@ -535,7 +535,15 @@ class BaseModule:
                     data_parallel_rank=self.replica_id,
                     data_parallel_size=self._num_replica
                 )
-            return RLHFDataLoader(all_datasets, batch_sampler, collate_fn=collate_fn)
+            return RLHFDataLoader(
+                all_datasets,
+                batch_sampler,
+                collate_fn=collate_fn,
+                add_uid=True,
+                data_parallel_rank=self.replica_id,
+                data_parallel_size=self._num_replica,
+                num_inference_per_prompt=num_inference_per_prompt
+            )
 
     def reset_eval_data_iter(self):
         """

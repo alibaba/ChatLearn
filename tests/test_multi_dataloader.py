@@ -124,9 +124,42 @@ def multi_replica():
         sequence.extend(next(data_iter))
     assert sequence == ground_truth
 
+def uid():
+    # training
+    dataset1 = [
+        {"prompt": {"1": 1}}, {"prompt": {"2": 2}}, 
+        {"prompt": {"a": 'a'}}, {"prompt": {"b": 'b'}}, {"prompt": {"c": 'c'}}]
+    sampler_train = MultiDatasetSampler([5], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=0, data_parallel_size=2)
+    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn, num_inference_per_prompt=2, add_uid=True, data_parallel_rank=0, data_parallel_size=2)
+    data_iter = iter(dataloader)
+    ground_truth = [
+        {'prompt': {'1': 1, 'uid': '0'}}, {'prompt': {'1': 1, 'uid': '0'}}, 
+        {'prompt': {'2': 2, 'uid': '1'}}, {'prompt': {'b': 'b', 'uid': '0'}}, 
+        {'prompt': {'b': 'b', 'uid': '0'}}, {'prompt': {'c': 'c', 'uid': '1'}}, 
+        {'prompt': {'2': 2, 'uid': '0'}}, {'prompt': {'2': 2, 'uid': '0'}}, 
+        {'prompt': {'a': 'a', 'uid': '1'}}]
+    sequence = []
+    for i in range(3):
+        sequence.extend(next(data_iter))
+    assert sequence == ground_truth
+
+    sampler_train = MultiDatasetSampler([5], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=1, data_parallel_size=2)
+    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn, num_inference_per_prompt=2, add_uid=True, data_parallel_rank=1, data_parallel_size=2)
+    data_iter = iter(dataloader)
+    ground_truth = [
+        {'prompt': {'2': 2, 'uid': '1'}}, {'prompt': {'a': 'a', 'uid': '2'}}, 
+        {'prompt': {'a': 'a', 'uid': '2'}}, {'prompt': {'c': 'c', 'uid': '1'}}, 
+        {'prompt': {'1': 1, 'uid': '2'}}, {'prompt': {'1': 1, 'uid': '2'}}, 
+        {'prompt': {'a': 'a', 'uid': '1'}}, {'prompt': {'b': 'b', 'uid': '2'}}, 
+        {'prompt': {'b': 'b', 'uid': '2'}}]
+    sequence = []
+    for i in range(3):
+        sequence.extend(next(data_iter))
+    assert sequence == ground_truth
 
 
 if __name__ == "__main__":
     single_dataset()
     multiple_dataset()
     multi_replica()
+    uid()
