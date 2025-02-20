@@ -98,6 +98,7 @@ function run_all_tests {
   RUN_FLAG=0 run_test python test_rlhf_ckpt_data_ratio_replica.py -c "configs/rlhf.yaml"
   RUN_FLAG="resume" run_test python test_rlhf_ckpt_data_ratio_replica.py -c "configs/rlhf.yaml"
   run_test python test_multi_dataloader.py
+  run_test python test_align_out_queue.py
   run_test python test_timers.py
   run_test python test_rlhf_no_replica.py -c "configs/rlhf.yaml"
   run_test python test_rlhf_replica2.py -c "configs/rlhf.yaml"
@@ -147,6 +148,7 @@ elif [ "$1" == "test_o1" ]; then
 elif [ "$1" == "test_sprl" ]; then
   run_test python train_sprl.py -c configs/sprl.yaml
 elif [ "$1" == "test_data" ]; then
+  run_test python test_align_out_queue.py
   run_test python test_data_dp.py -c "configs/rlhf.yaml"
   run_test python test_data_dp_zero.py -c "configs/rlhf.yaml"
   run_test python test_data_dp_ep.py -c "configs/rlhf.yaml"

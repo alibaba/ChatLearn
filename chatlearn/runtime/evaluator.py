@@ -58,9 +58,9 @@ class Evaluator(Environment):
             if self.first_model.use_vllm_backend:
                 remainder = self.sample_per_episode % self.models[0].num_replica
                 batch_size_plus = 1 if idx < remainder else 0
-                batch_size = self.batch_size + batch_size_plus
+                batch_size = self.batch_size() + batch_size_plus
             else:
-                batch_size = self.batch_size
+                batch_size = self.batch_size()
             if batch_size > 0:
                 ref = model_replica.master._build_dataloader.remote(
                     self._all_datasets, batch_size, dynamic_batch_size_flag=self.first_model.use_vllm_backend, is_eval=True)
