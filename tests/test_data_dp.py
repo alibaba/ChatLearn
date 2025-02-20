@@ -196,7 +196,7 @@ assert engine.trainer.batch_per_episode == 16
 assert engine.trainer.num_iteration() == 16
 assert engine.trainer.num_micro_batch_per_dp == 2
 
-assert len(engine.env._dataset) == 512, len(engine.env._dataset)
+assert len(engine.env._all_datasets[0]) == 512, len(engine.env._all_datasets[0])
 
 assert_consumed_samples(
     engine,

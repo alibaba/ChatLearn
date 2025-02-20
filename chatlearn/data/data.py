@@ -16,12 +16,11 @@
 
 import math
 import random
-from itertools import cycle
-
 import ray
 import torch
-from torch.nn.utils.rnn import pad_sequence
 
+from torch.nn.utils.rnn import pad_sequence
+from torch.utils.data import default_collate
 from chatlearn.utils import future
 
 
@@ -309,26 +308,33 @@ class EpisodeRelayBuffer:
     def episode_id(self):
         return self._episode_id
 
-
 class RLHFDataLoader:
     """
     RLHF data loader
     """
 
-    def __init__(self, dataset, batch_size):
+    def __init__(
+        self,
+        datasets,
+        sampler,
+        collate_fn=None):
         """generate prompts data loader"""
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.data_iter = cycle(iter(self.dataset))
+
+        self.datasets = datasets
+        self.dataset_num = len(self.datasets)
+        self.sampler = sampler
+        self.collate_fn = collate_fn
 
     def __iter__(self):
-        batch_data = []
-        for _, item in enumerate(self.data_iter):
-            batch_data.append(item)
-            if len(batch_data) == self.batch_size:
-                batched = batching(batch_data)
-                yield batched
-                batch_data = []
-        if len(batch_data) > 0:
-            batched = batching(batch_data)
-            yield batched
+        self.sampler_iter = iter(self.sampler)
+        while True:
+            try:
+                batch_idxes = next(self.sampler_iter)
+                batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx in batch_idxes]
+                if self.collate_fn is not None:
+                    yield self.collate_fn(batch)
+                else:
+                    yield default_collate(batch)
+            except StopIteration:
+                self.sampler_iter = iter(self.sampler)
+                

@@ -17,7 +17,7 @@
 import argparse
 import ast
 import os
-from typing import List
+from typing import List, Optional, Union
 
 import yaml
 
@@ -282,8 +282,12 @@ class RuntimeConfig(BaseConfig):
     save_episode_interval: int = None
     #: [optional] log time and memory per `log_interval` iterations.
     log_interval: int = 1
-    #: [required]: data_path for dataset
-    data_path: str = None
+    #: [required]: data_path for dataset or a List of data_path for different kind of datasets
+    data_path: Optional[Union[List[str], str]] = None
+    #: [optional]: the ratio for each kind of data_path in a training episode, default: None
+    data_ratio: Optional[Union[List[int], int]] = None
+    #: [optional]: shuffle in each epoch of dataset, default: True
+    data_shuffle: Optional[bool] = True
     #: [optional]: colocate models into the same device
     colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval
@@ -439,6 +443,9 @@ class Config(BaseConfig):
                         for group in value:
                             colocation_list.append(group.replace(' ', '').split(','))
                         value = colocation_list
+                    elif attribute == "data_ratio":
+                        if isinstance(value, str):
+                            value = [int(v) for v in value.split(',')]
                 else:
                     value = default_value
                 original_value = getattr(instance, attribute)
@@ -516,6 +523,14 @@ class Config(BaseConfig):
         assert self.runtime_args.stream_data_loader_type.lower() in ["fixed", "dynamic"]
         assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
         assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)
+        if isinstance(self.runtime_args.data_path, list):
+            assert self.runtime_args.data_ratio is not None and isinstance(self.runtime_args.data_ratio, list), (
+                f"expect data_ratio to be list when data_path is list, got {self.runtime_args.data_ratio}"
+            )
+            assert len(self.runtime_args.data_path) == len(self.runtime_args.data_ratio), (
+                "expect data_path and data_ratio to have same length, "
+                f"got {len(self.runtime_args.data_path)} and {len(self.runtime_args.data_ratio)}"
+            )
         for model_name, model_args in self.models.items():
             if model_args.num_gpu >= 1:
                 if model_args.gpu_per_process is None:

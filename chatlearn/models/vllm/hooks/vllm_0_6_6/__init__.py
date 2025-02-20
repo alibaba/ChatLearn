@@ -16,7 +16,7 @@
 
 from ... import is_vllm_v2
 
-assert is_vllm_v2(), "vLLM-0.6.6 only supports vLLM Module v2."
+# assert is_vllm_v2(), "vLLM-0.6.6 only supports vLLM Module v2."
 
 from . import async_llm_engine
 from . import input_preprocess

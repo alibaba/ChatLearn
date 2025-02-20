@@ -225,6 +225,9 @@ class ParameterSyncGroup:
     def empty_add_recv_actor(self, src_rank, dst_rank):
         return
 
+    def warmup_groups(self):
+        return
+
     def add_recv_actor(self, src_rank, dst_rank):
         src_actor = self.src_model.get_actor(src_rank)
         self.insert_actor2rank(src_actor, src_rank)

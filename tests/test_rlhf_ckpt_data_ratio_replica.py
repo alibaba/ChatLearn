@@ -83,13 +83,14 @@ class PPOValue(TorchModule):
 run = os.environ["RUN_FLAG"]
 
 chatlearn.init()
+chatlearn.get_args().runtime_args.data_ratio = [1,1]
 if run == "resume":
     chatlearn.get_args().runtime_args.load_data_checkpoint_iteration = 2
 chatlearn.get_args().models["policy"].num_gpu = 2
 chatlearn.get_args().models["policy"].generation_batch_size = 4
-chatlearn.get_args().runtime_args.data_checkpoint_path = os.path.join(os.getcwd(), "checkpoint2")
+chatlearn.get_args().runtime_args.data_checkpoint_path = os.path.join(os.getcwd(), "checkpoint4")
 chatlearn.get_args().runtime_args.save_episode_interval = 1
-chatlearn.get_args().runtime_args.num_episode = 4
+chatlearn.get_args().runtime_args.num_episode = 5
 chatlearn.get_args().runtime_args.train_global_batch_size = 8
 chatlearn.get_args().runtime_args.sample_per_episode = 16
 policy = PolicyModel("policy")
@@ -101,11 +102,14 @@ ppo_value = PPOValue("ppo_value")
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-data = [torch.Tensor([i]) for i in range(100)]
-engine.set_dataset(data)
+data = [torch.Tensor([i]) for i in range(9)]
+data2 = [torch.Tensor([i]) for i in range(9,24)]
+
+engine.set_multiple_datasets([data, data2])
 engine.learn()
+
 if run == "resume":
-    assert engine._start_episode == 1
+    assert engine._start_episode == 1, engine._start_episode
     data = {}
     for fn in os.listdir(chatlearn.get_args().runtime_args.data_checkpoint_path):
         if not fn.endswith('.pkl'):
@@ -114,8 +118,12 @@ if run == "resume":
         with open(os.path.join(chatlearn.get_args().runtime_args.data_checkpoint_path, fn), 'rb') as f:
             data[fn] = pickle.load(f)
     for replica in range(2):
-        for i in range(2, 8):
+        for i in range(2, 10):
             fn_resume = f"data_replica{replica}_{i}_2.pkl"
             fn = f"data_replica{replica}_{i}.pkl"
-            assert (data[fn_resume]['query'] == data[fn]['query']).all()
-assert engine.trainer.iteration == 8, engine.trainer.iteration
+            assert (data[fn]['query'] == data[fn_resume]['query']).all(), (
+                f"train_iteration {i}: expect data and resumed data to be the same, "
+                f"got {data[fn]['query']} and {data[fn_resume]['query']}"
+            )
+
+assert engine.trainer.iteration == 10, engine.trainer.iteration
