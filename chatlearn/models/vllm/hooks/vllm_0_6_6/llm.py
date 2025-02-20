@@ -16,7 +16,7 @@
 
 from typing import Any, Dict, Optional, Union
 
-# pylint: disable=unused-import,wildcard-import,unused-argument
+# pylint: disable=unused-import,wildcard-import,unused-argument,unexpected-keyword-arg
 from vllm.engine.arg_utils import AsyncEngineArgs, HfOverrides, TaskOption, PoolerConfig
 from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.entrypoints import llm

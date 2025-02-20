@@ -15,8 +15,9 @@
 """data sampler."""
 
 from itertools import chain
-from chatlearn.utils import utils
+
 import torch
+from chatlearn.utils import utils
 
 class SingleDataSampler:
     """SingleDataSampler"""
@@ -228,7 +229,11 @@ class MultiDatasetSampler:
             consumed_each, self.dataset_remains = self.cal_consumed_each(self.consumed_samples, self.data_ratio)
             self.samplers = [
                 RLHFSingleSampler(
-                    self.dataset_sizes[i], consumed_each[i], shuffle=self.shuffle, seed=self.seeds[i], num_inference_per_prompt=num_inference_per_prompt
+                    self.dataset_sizes[i],
+                    consumed_each[i],
+                    shuffle=self.shuffle,
+                    seed=self.seeds[i],
+                    num_inference_per_prompt=num_inference_per_prompt
                 )
                 for i in range(self.dataset_num)
             ]
@@ -261,7 +266,6 @@ class MultiDatasetSampler:
             else:
                 batch_size_list = [self.micro_batch_size] * self.remainder + \
                     [self.micro_batch_size - 1] * (self.data_parallel_size - self.remainder)
-            real_batch_size = sum(batch_size_list)
             left = sum(batch_size_list[:self.data_parallel_rank])
             right = sum(batch_size_list[:self.data_parallel_rank + 1])
             batch = idxes[left : right]

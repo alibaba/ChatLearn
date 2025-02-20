@@ -17,7 +17,7 @@
 
 import torch
 
-# pylint: disable=unused-import,wildcard-import,unused-argument
+# pylint: disable=unused-import,wildcard-import,unused-argument,unexpected-keyword-arg,no-value-for-parameter
 from vllm.model_executor.model_loader import loader
 from vllm.model_executor.model_loader.loader import device_loading_context, _initialize_model
 from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
