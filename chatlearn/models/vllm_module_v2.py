@@ -38,6 +38,7 @@ try:
 except ImportError:
     InferenceMemoryManager = None
 
+# pylint: disable=unexpected-keyword-arg
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """VLLMModuleV2"""
 

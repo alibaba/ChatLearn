@@ -36,6 +36,7 @@ from ray._private.worker import print_to_stdstream
 from ray.util.scheduling_strategies import NodeAffinitySchedulingStrategy
 from chatlearn.utils.utils import get_ray_status
 
+# pylint: disable=unexpected-keyword-arg
 # Logger for this module. It should be configured at the entry point
 # into the program using Ray. Ray provides a default configuration at
 # entry/init points.
