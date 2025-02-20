@@ -136,8 +136,8 @@ class CheckpointManager:
         if meta is not None:
             self._model.runtime_args.consumed_samples = meta["consumed_samples"]
             log_rank_0(f"set consumed_samples to {meta['consumed_samples']}")
-            self._model.runtime_args.data_ratio = meta["data_ratio"]
-            log_rank_0(f"set data_ratio to {meta['data_ratio']}")
+            self._model.runtime_args.data_ratio = data_ratio = meta.get("data_ratio", None)
+            log_rank_0(f"set data_ratio to {data_ratio}")
         self._resumed = True
         return meta
 
