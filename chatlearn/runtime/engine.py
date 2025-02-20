@@ -255,7 +255,7 @@ class Engine(BaseEngine):
         assert isinstance(dataset, list), (
             f"expect datasets to be a list, got {type(dataset)}"
         )
-        assert isinstance(dataset[0], list) is False, (
+        assert not isinstance(dataset[0], list), (
             "expect only one dataset to be set, if you want to use more "
             "than one dataset, please try `set_multiple_datasets`"
         )
@@ -624,7 +624,7 @@ class EvalEngine(Engine):
         assert isinstance(dataset, list), (
             f"expect datasets to be a list, got {type(dataset)}"
         )
-        assert isinstance(dataset[0], list) is False, (
+        assert not isinstance(dataset[0], list), (
             "expect only one dataset to be set, if you want to use more "
             "than one dataset, please try `set_multiple_datasets`"
         )

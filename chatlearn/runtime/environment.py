@@ -57,7 +57,7 @@ class Environment(Executor):
         assert isinstance(dataset, list), (
             f"expect the dataset to be a list of prompts, got {type(dataset)}"
         )
-        assert isinstance(dataset[0], list) is False, (
+        assert not isinstance(dataset[0], list), (
             "expect only one dataset to be set, if you want to use more "
             "than one dataset, please try `set_multiple_datasets`"
         )
@@ -95,9 +95,12 @@ class Environment(Executor):
         logger.info("start set dataset for data_producer")
         refs = []
         if self.models[0].module_args.batch_generation.ranking:
-            for dataset in self._all_datasets:
+            for i, dataset in enumerate(self._all_datasets):
                 episode_per_epoch = math.ceil(len(dataset) / self.sample_per_episode)
-                dataset = batch_generation_ranking(dataset, episode_per_epoch, self.sample_per_episode)
+                self._all_datasets[i] = batch_generation_ranking(
+                    dataset, episode_per_epoch, self.sample_per_episode
+                )
+
         for policy_replica in self.data_producer.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._all_datasets,
                                                                  self.batch_size)
