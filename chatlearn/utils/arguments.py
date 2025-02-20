@@ -345,6 +345,8 @@ class RuntimeConfig(BaseConfig):
     validate_param_sync: bool = False
     #: whether to eval before training
     enable_eval_before_training: bool = False
+    #: policy to regroup queue
+    policy_to_regroup_queue: str = "global_barrier"
 
     def __init__(self):
         super().__init__()
