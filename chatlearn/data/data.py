@@ -108,7 +108,7 @@ def batch_shuffle(data, batch_size):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, batch_size, padding_config=None, max_relay_episode=0, relay_episode_offset=0):
+    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_relay_episode=0, relay_episode_offset=0, global_batch_size=-1):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -117,7 +117,7 @@ class StreamDataset:
             self._dynamic_dataset = False
         else:
             self._dynamic_dataset = True
-        self.batch_size = batch_size
+        self.batch_size = micro_batch_size
         self._padding_config = padding_config if padding_config is not None else {}
         self._padding_value = {key: value["padding_value"] for key, value in padding_config.items()}
         self._padding_type = {key: value["padding_type"] for key, value in padding_config.items()}
@@ -126,6 +126,9 @@ class StreamDataset:
         self._max_relay_episode = max_relay_episode
         self._relay_episode_offset = relay_episode_offset
         self._episode_relay_buffers = []
+
+        # ChunkFlow: Params for ChunkFlow
+        self.prefetch_batch_cnt= micro_batch_size if global_batch_size < 0 else global_batch_size
 
     def shuffle(self, batch_size=None):
         """
@@ -154,15 +157,21 @@ class StreamDataset:
         """
         produce_index = 0
         batch_count = 0
+        prefetched_batch_list = []
         while produce_index < self._total_samples:
             # read from cache
             if len(self.relay_buffer) < self._total_samples:
                 while len(self.relay_buffer) < self._total_samples and \
                     (len(self.relay_buffer) - produce_index) < self.batch_size:
                     self.relay_buffer.add_raw_batch()
-            batched_data = self._get_batch(produce_index)
-            yield batched_data
-            batch_count += 1
+            prefetched_batch_list.append(self._get_batch(produce_index))
+            if len(prefetched_batch_list) == self.prefetch_batch_cnt:
+                # ChunkFlow: Sort by sample length for better balance across data parallel ranks
+                prefetched_batch_list.sort(key=lambda x: len(x["response_ids"][0]))
+                for batched_data in prefetched_batch_list:
+                    yield batched_data
+                    batch_count += 1
+                prefetched_batch_list.clear()
             produce_index += self.batch_size
         assert batch_count == math.ceil(self._total_samples / self.batch_size)
         assert produce_index >= len(self.relay_buffer), \
