@@ -9,12 +9,14 @@ n: 1
 ignore_eos: ${policy_ignore_eos:False}
 top_p: ${policy_top_p:0.9}
 top_k: ${policy_top_k:-1}
+min_p: ${policy_min_p:0.0}
 temperature: ${policy_temperature:1.0}
 use_beam_search: ${policy_use_beam_search:False}
 
 eval_temperature: ${eval_temperature:1.0}
 eval_top_k: ${eval_top_k:-1}
 eval_top_p: ${eval_top_p:0.9}
+eval_min_p: ${eval_min_p:0.0}
 
 apply_replica_id_to_seed: ${apply_replica_id_to_seed:True}
 
