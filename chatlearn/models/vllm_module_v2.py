@@ -281,6 +281,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                 "temperature", 1.0)
         top_p = self.model_args.get("eval_top_p", 1.0) if is_eval else self.model_args.get("top_p", 1.0)
         top_k = self.model_args.get("eval_top_k", -1) if is_eval else self.model_args.get("top_k", -1)
+        min_p = self.model_args.get("eval_min_p", 0.0) if is_eval else self.model_args.get("min_p", 0.0)
         presence_penalty = self.model_args.get("eval_presence_penalty", 0.0) if is_eval else self.model_args.get(
             "presence_penalty", 0.0)
         frequency_penalty = self.model_args.get("eval_frequency_penalty", 0.0) if is_eval else self.model_args.get(
@@ -298,6 +299,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
+            min_p=min_p,
             ignore_eos=self.model_args.get("ignore_eos"),
             stop=stop,
             logprobs=self.model_args.get("logprobs", 1),
