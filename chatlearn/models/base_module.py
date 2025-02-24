@@ -420,17 +420,6 @@ class BaseModule:
         consumed_samples = 0
         data_ratio = self.runtime_args.data_ratio
         shuffle = self.runtime_args.data_shuffle
-        if data_ratio is None:
-            data_ratio = [1] * len(all_datasets)
-        elif isinstance(data_ratio, int):
-            data_ratio = [data_ratio] * len(all_datasets)
-        # elif isinstance(data_ratio, list):
-        #     assert len(data_ratio) == len(all_datasets), (
-        #         "expect data_ratio to be a list with the same length as the number of datasets, "
-        #         f"got {len(data_ratio)} and {len(all_datasets)}."
-        #     )
-        else:
-            raise TypeError(f"unexpected data_ratio type {type(data_ratio)}, expect int or List.")
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
@@ -482,32 +471,6 @@ class BaseModule:
             f"data_ratio: {data_ratio}",
             self._logger
         )
-
-        if data_ratio is None:
-            data_ratio = [1]
-
-        # all_dataset_len = sum(len(dataset) for dataset in all_datasets)
-        # if len(all_datasets) == 1 and not shuffle:
-        #     if is_eval:
-        #         batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
-        #             consumed_samples=0,
-        #             micro_batch_size=batch_size,
-        #             data_parallel_rank=self.replica_id,
-        #             data_parallel_size=self._num_replica,
-        #             dynamic_batch_size_flag=dynamic_batch_size_flag,
-        #             drop_last=False)
-        #     else:
-        #         batch_sampler = EpisodeDataSampler(total_samples=all_dataset_len,
-        #             consumed_samples=consumed_samples,
-        #             micro_batch_size=batch_size,
-        #             data_parallel_rank=self.replica_id,
-        #             data_parallel_size=self._num_replica,
-        #             sample_per_episode=self.runtime_args.sample_per_episode,
-        #             drop_last=drop_last)
-        #     return DataLoader(
-        #         all_datasets[0], batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
-        #     )
-        # else:
         if "num_inference_per_prompt" in self.model_args:
             num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
         else:
