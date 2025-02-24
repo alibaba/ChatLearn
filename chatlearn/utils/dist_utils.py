@@ -13,10 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 """distributed utils"""
-
 from collections import defaultdict
 import torch
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
+from chatlearn.utils.logger import setup_logger
+
+logger = setup_logger()
 
 
 def bucket_tensors(tensors, bucket_size_mb):
@@ -35,7 +37,7 @@ def bucket_tensors(tensors, bucket_size_mb):
     buf_dict = defaultdict(lambda: [[], 0])
     dense_buckets = []
     sparse_bucket = []
-    for tensor in tensors:
+    for name, tensor in tensors:
         if tensor.is_sparse:
             sparse_bucket.append(tensor)
             continue
@@ -45,7 +47,7 @@ def bucket_tensors(tensors, bucket_size_mb):
         if size_limit > 0 and buf_and_size[1] + size > size_limit and buf_and_size[1] > 0: # pylint: disable=chained-comparison
             dense_buckets.append(buf_and_size[0])
             buf_and_size = buf_dict[t] = [[], 0]
-        buf_and_size[0].append(tensor)
+        buf_and_size[0].append((name, tensor))
         buf_and_size[1] += size
     for buf, _ in buf_dict.values():
         if len(buf) > 0:
@@ -67,7 +69,7 @@ def bucket_tensors_two_stage_generator(tensor_generator, bucket_size_mb, stage2=
     """
     size_limit = bucket_size_mb * 1024 * 1024
     buf_dict = defaultdict(lambda: [[], 0])
-    for tensor, buffer_num in tensor_generator():
+    for name, tensor, buffer_num in tensor_generator():
         if tensor.is_sparse:
             yield tensor, False
             continue
@@ -89,7 +91,7 @@ def bucket_tensors_two_stage_generator(tensor_generator, bucket_size_mb, stage2=
             empty_or_curr_tensor = tensor
         buf_and_size[0].append((
             empty_or_curr_tensor,
-            [size // tensor.element_size(), buffer_multiple, tensor]
+            [size // tensor.element_size(), buffer_multiple, tensor, name]
         ))
         buf_and_size[1] += size
     for buf, size in buf_dict.values():
@@ -102,21 +104,25 @@ def unflatten_dense_tensors(flat_tensors, tensors, sizes, num_ranks):
 
     offset = 0
     for size_multiple, tensor in zip(sizes, tensors):
-        size, multiple, orig_tensor = size_multiple
+        size, multiple, orig_tensor, _ = size_multiple
         assert offset <= flat_tensors.numel()
         assert len(flat_tensors.shape) == 1
         flat_tensor = flat_tensors[offset:offset+size]
         per_size = size // multiple
         for rank in range(num_ranks):
+            if orig_tensor.element_size() == 1 and orig_tensor.stride(0) == 1:
+                orig_shape = orig_tensor.t().shape
+            else:
+                orig_shape = orig_tensor.shape
             if multiple > 1:
                 assert (flat_tensor.numel() //  multiple) == tensor.numel(), \
                     f"flat_tensor: {flat_tensor.shape} should be {multiple} times of tensor {orig_tensor.shape}, \
                         per_size: {per_size} total_size: {size} num_ranks: {num_ranks} offset: {offset}"
-                all_buffers[rank].append(flat_tensor[rank * per_size:(rank + 1) * per_size].view(orig_tensor.shape))
+                all_buffers[rank].append(flat_tensor[rank * per_size:(rank + 1) * per_size].view(orig_shape))
             else:
                 assert flat_tensor.numel() == orig_tensor.numel(), \
                     f"flat_tensor: {flat_tensor.shape} orig_tensor: {orig_tensor.shape}"
-                all_buffers[rank].append(flat_tensor.view(orig_tensor.shape))
+                all_buffers[rank].append(flat_tensor.view(orig_shape))
         del flat_tensor
         offset += size
     del flat_tensors
@@ -127,15 +133,16 @@ def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
     """
     coalesced communication for dense parameters
     """
-    flat_tensors = _flatten_dense_tensors(bucket)
+    view_bucket = [t if t.dtype != torch.float8_e4m3fn else t.view(torch.uint8) for t in bucket]
+    flat_tensors = _flatten_dense_tensors(view_bucket)
     comm_call(flat_tensors, *extra_args)
     if tensor_changed:
-        for tensor, synced in zip(
-            bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
-            tensor.copy_(synced)
+        for tensor, synced in zip(bucket, _unflatten_dense_tensors(flat_tensors, bucket)):
+            if tensor.element_size() == 1 and tensor.stride(0) == 1:
+                synced = synced.view(tensor.t().shape).t()
+            tensor.copy_(synced.view(tensor.dtype))
 
-
-def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0):
+def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0, to_rank=0):
     """
     coalesced communication for dense parameters
     """
@@ -144,10 +151,12 @@ def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_c
     num_ranks = 1
     orig_tensor_ele = 0
     orig_tensors = []
+    orig_names = []
     for tensor, size in bucket:
-        all_tensors.append(tensor)
+        all_tensors.append(tensor if tensor.dtype != torch.float8_e4m3fn else tensor.view(torch.uint8))
         all_sizes.append(size)
         orig_tensors.append(size[2])
+        orig_names.append(size[3])
         orig_tensor_ele += size[2].numel()
         num_ranks = max(num_ranks, size[1])
     flat_tensors = _flatten_dense_tensors(all_tensors)
@@ -156,10 +165,13 @@ def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_c
     if tensor_changed:
         index = 0 if stage2 else index
         all_buffers = unflatten_dense_tensors(flat_tensors, orig_tensors, all_sizes, num_ranks)
-        for tensor, synced in zip(orig_tensors, all_buffers[index]):
+        for name, tensor, synced in zip(orig_names, orig_tensors, all_buffers[index]):
             assert tensor.numel() == synced.numel(), \
                 f"rank {rank} tensor {tensor.shape} should be equal to synced.shape {synced.shape}, for all_sizes {all_sizes}"
-            tensor.copy_(synced)
+            if tensor.element_size() == 1 and tensor.stride(0) == 1:
+                logger.debug(f"{to_rank=} weight {name} will be transposed!")
+                synced = synced.t()
+            tensor.copy_(synced.view(tensor.dtype))
         del all_buffers[index]
         return all_buffers
     return None
