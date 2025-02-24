@@ -17,6 +17,9 @@
 import importlib
 from enum import Enum
 
+# Magic Num
+DYNAMIC_BATCH_SIZE = -1
+
 # LoRA
 LORA_WEIGHT_PREFIX = "lora"
 LORA_LAYER = "ColumnParallelLinear,Embedding,LinearLayer,RowParallelLinear,VocabParallelEmbedding"

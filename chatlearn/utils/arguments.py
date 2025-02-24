@@ -21,7 +21,10 @@ from typing import List, Optional, Union
 
 import yaml
 
-from chatlearn.utils.constant import LORA_LAYER, RAY_PG_STRATEGY, PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE, TrainingShffuleMode
+from chatlearn.utils.constant import (
+    DYNAMIC_BATCH_SIZE, LORA_LAYER, RAY_PG_STRATEGY,
+    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE,
+    TrainingShffuleMode)
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -219,7 +222,7 @@ class ModelConfig(BaseConfig):
     #: [optional] placeholder for other args
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
-    generation_batch_size: int = -1
+    generation_batch_size: int = None
     #: lora config
     lora: LoraConfig = None
     #: batch generation config
@@ -546,7 +549,9 @@ class Config(BaseConfig):
                 else:
                     assert model_args.cpu_per_process <= model_args.num_cpu, \
                         f"{model_name}: cpu_per_process: {model_args.cpu_per_process}, num_cpu: {model_args.num_cpu}"
-            if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
+            if model_args.generation_batch_size is not None and model_args.generation_batch_size <= 0:
+                model_args.generation_batch_size = DYNAMIC_BATCH_SIZE
+            if model_args.generation_batch_size is None:
                 if self.runtime_args.generation_batch_size:
                     model_args.generation_batch_size = self.runtime_args.generation_batch_size
             for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size"]:
