@@ -25,10 +25,9 @@ import ray
 import ray.util.collective as col
 from ray.util.collective.collective_group.base_collective_group import BaseGroup
 from ray.util.collective.collective_group.nccl_collective_group import NCCLGroup
-from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler, MultiDatasetSampler
+from chatlearn.data.sampler import MultiDatasetSampler
 from chatlearn.data.data import RLHFDataLoader
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
@@ -425,11 +424,11 @@ class BaseModule:
             data_ratio = [1] * len(all_datasets)
         elif isinstance(data_ratio, int):
             data_ratio = [data_ratio] * len(all_datasets)
-        elif isinstance(data_ratio, list):
-            assert len(data_ratio) == len(all_datasets), (
-                "expect data_ratio to be a list with the same length as the number of datasets, "
-                f"got {len(data_ratio)} and {len(all_datasets)}."
-            )
+        # elif isinstance(data_ratio, list):
+        #     assert len(data_ratio) == len(all_datasets), (
+        #         "expect data_ratio to be a list with the same length as the number of datasets, "
+        #         f"got {len(data_ratio)} and {len(all_datasets)}."
+        #     )
         else:
             raise TypeError(f"unexpected data_ratio type {type(data_ratio)}, expect int or List.")
         if not is_eval:
@@ -487,63 +486,67 @@ class BaseModule:
         if data_ratio is None:
             data_ratio = [1]
 
-        all_dataset_len = sum(len(dataset) for dataset in all_datasets)
-        if len(all_datasets) == 1 and not shuffle:
-            if is_eval:
-                batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
-                    consumed_samples=0,
-                    micro_batch_size=batch_size,
-                    data_parallel_rank=self.replica_id,
-                    data_parallel_size=self._num_replica,
-                    dynamic_batch_size_flag=dynamic_batch_size_flag,
-                    drop_last=False)
-            else:
-                batch_sampler = EpisodeDataSampler(total_samples=all_dataset_len,
-                    consumed_samples=consumed_samples,
-                    micro_batch_size=batch_size,
-                    data_parallel_rank=self.replica_id,
-                    data_parallel_size=self._num_replica,
-                    sample_per_episode=self.runtime_args.sample_per_episode,
-                    drop_last=drop_last)
-            return DataLoader(
-                all_datasets[0], batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
-            )
+        # all_dataset_len = sum(len(dataset) for dataset in all_datasets)
+        # if len(all_datasets) == 1 and not shuffle:
+        #     if is_eval:
+        #         batch_sampler = SingleDataSampler(total_samples=all_dataset_len,
+        #             consumed_samples=0,
+        #             micro_batch_size=batch_size,
+        #             data_parallel_rank=self.replica_id,
+        #             data_parallel_size=self._num_replica,
+        #             dynamic_batch_size_flag=dynamic_batch_size_flag,
+        #             drop_last=False)
+        #     else:
+        #         batch_sampler = EpisodeDataSampler(total_samples=all_dataset_len,
+        #             consumed_samples=consumed_samples,
+        #             micro_batch_size=batch_size,
+        #             data_parallel_rank=self.replica_id,
+        #             data_parallel_size=self._num_replica,
+        #             sample_per_episode=self.runtime_args.sample_per_episode,
+        #             drop_last=drop_last)
+        #     return DataLoader(
+        #         all_datasets[0], batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
+        #     )
+        # else:
+        if "num_inference_per_prompt" in self.model_args:
+            num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
         else:
-            if "num_inference_per_prompt" in self.model_args:
-                num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
-            else:
-                num_inference_per_prompt = 1
-            if is_eval:
-                batch_sampler = MultiDatasetSampler(
-                    dataset_sizes=[len(dataset) for dataset in all_datasets],
-                    batch_size=batch_size,
-                    shuffle=False,
-                    is_eval=True,
-                    data_parallel_rank=self.replica_id,
-                    data_parallel_size=self._num_replica,
-                    dynamic_batch_size_flag=dynamic_batch_size_flag
-                )
-            else:
-                batch_sampler = MultiDatasetSampler(
-                    dataset_sizes=[len(dataset) for dataset in all_datasets],
-                    batch_size=batch_size,
-                    data_ratio=data_ratio,
-                    consumed_samples=consumed_samples,
-                    num_inference_per_prompt=num_inference_per_prompt,
-                    shuffle=shuffle,
-                    is_eval=False,
-                    data_parallel_rank=self.replica_id,
-                    data_parallel_size=self._num_replica
-                )
-            return RLHFDataLoader(
-                all_datasets,
-                batch_sampler,
-                collate_fn=collate_fn,
-                add_uid=True,
+            num_inference_per_prompt = 1
+        vllm_prompt_key = self.model_args["vllm_prompt_key"] \
+            if "vllm_prompt_key" in self.model_args else "prompt"
+        if is_eval:
+            batch_sampler = MultiDatasetSampler(
+                dataset_sizes=[len(dataset) for dataset in all_datasets],
+                batch_size=batch_size,
+                shuffle=False,
+                is_eval=True,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
-                num_inference_per_prompt=num_inference_per_prompt
+                dynamic_batch_size_flag=dynamic_batch_size_flag
             )
+        else:
+            batch_sampler = MultiDatasetSampler(
+                dataset_sizes=[len(dataset) for dataset in all_datasets],
+                batch_size=batch_size,
+                data_ratio=data_ratio,
+                consumed_samples=consumed_samples,
+                num_inference_per_prompt=num_inference_per_prompt,
+                shuffle=shuffle,
+                is_eval=False,
+                data_parallel_rank=self.replica_id,
+                data_parallel_size=self._num_replica,
+                drop_last=drop_last
+            )
+        return RLHFDataLoader(
+            all_datasets,
+            batch_sampler,
+            collate_fn=collate_fn,
+            add_uid=True,
+            data_parallel_rank=self.replica_id,
+            data_parallel_size=self._num_replica,
+            num_inference_per_prompt=num_inference_per_prompt,
+            vllm_prompt_key=vllm_prompt_key
+        )
 
     def reset_eval_data_iter(self):
         """

@@ -127,39 +127,77 @@ def multi_replica():
 def uid():
     # training
     dataset1 = [
-        {"prompt": {"1": 1}}, {"prompt": {"2": 2}}, 
-        {"prompt": {"a": 'a'}}, {"prompt": {"b": 'b'}}, {"prompt": {"c": 'c'}}]
+        {"prompt1": {"1": 1}}, {"prompt1": {"2": 2}}, 
+        {"prompt1": {"a": 'a'}}, {"prompt1": {"b": 'b'}}, {"prompt1": {"c": 'c'}}]
     sampler_train = MultiDatasetSampler([5], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=0, data_parallel_size=2)
-    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn, num_inference_per_prompt=2, add_uid=True, data_parallel_rank=0, data_parallel_size=2)
+    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn, num_inference_per_prompt=2, add_uid=True, data_parallel_rank=0, data_parallel_size=2, vllm_prompt_key="prompt1")
     data_iter = iter(dataloader)
     ground_truth = [
-        {'prompt': {'1': 1, 'uid': '0'}}, {'prompt': {'1': 1, 'uid': '0'}}, 
-        {'prompt': {'2': 2, 'uid': '1'}}, {'prompt': {'b': 'b', 'uid': '0'}}, 
-        {'prompt': {'b': 'b', 'uid': '0'}}, {'prompt': {'c': 'c', 'uid': '1'}}, 
-        {'prompt': {'2': 2, 'uid': '0'}}, {'prompt': {'2': 2, 'uid': '0'}}, 
-        {'prompt': {'a': 'a', 'uid': '1'}}]
+        {'prompt1': {'1': 1, 'uid': '0'}}, {'prompt1': {'1': 1, 'uid': '0'}}, 
+        {'prompt1': {'2': 2, 'uid': '1'}}, {'prompt1': {'b': 'b', 'uid': '0'}}, 
+        {'prompt1': {'b': 'b', 'uid': '0'}}, {'prompt1': {'c': 'c', 'uid': '1'}}, 
+        {'prompt1': {'2': 2, 'uid': '0'}}, {'prompt1': {'2': 2, 'uid': '0'}}, 
+        {'prompt1': {'a': 'a', 'uid': '1'}}]
     sequence = []
     for i in range(3):
         sequence.extend(next(data_iter))
     assert sequence == ground_truth
 
     sampler_train = MultiDatasetSampler([5], 3, consumed_samples=0, num_inference_per_prompt=2, shuffle=False, is_eval=False, data_parallel_rank=1, data_parallel_size=2)
-    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn, num_inference_per_prompt=2, add_uid=True, data_parallel_rank=1, data_parallel_size=2)
+    dataloader = RLHFDataLoader(datasets=[dataset1], sampler=sampler_train, collate_fn=collate_fn, num_inference_per_prompt=2, add_uid=True, data_parallel_rank=1, data_parallel_size=2, vllm_prompt_key="prompt1")
     data_iter = iter(dataloader)
     ground_truth = [
-        {'prompt': {'2': 2, 'uid': '1'}}, {'prompt': {'a': 'a', 'uid': '2'}}, 
-        {'prompt': {'a': 'a', 'uid': '2'}}, {'prompt': {'c': 'c', 'uid': '1'}}, 
-        {'prompt': {'1': 1, 'uid': '2'}}, {'prompt': {'1': 1, 'uid': '2'}}, 
-        {'prompt': {'a': 'a', 'uid': '1'}}, {'prompt': {'b': 'b', 'uid': '2'}}, 
-        {'prompt': {'b': 'b', 'uid': '2'}}]
+        {'prompt1': {'2': 2, 'uid': '1'}}, {'prompt1': {'a': 'a', 'uid': '2'}}, 
+        {'prompt1': {'a': 'a', 'uid': '2'}}, {'prompt1': {'c': 'c', 'uid': '1'}}, 
+        {'prompt1': {'1': 1, 'uid': '2'}}, {'prompt1': {'1': 1, 'uid': '2'}}, 
+        {'prompt1': {'a': 'a', 'uid': '1'}}, {'prompt1': {'b': 'b', 'uid': '2'}}, 
+        {'prompt1': {'b': 'b', 'uid': '2'}}]
     sequence = []
     for i in range(3):
         sequence.extend(next(data_iter))
     assert sequence == ground_truth
 
+def drop_last():
+
+    # drop_last
+    dataset = [1, 2, 3, 4, 5, 6, 7]
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches = []
+    for i in range(5):
+        batches.extend(next(data_iter))
+
+    # drop_last_ckpt
+    dataset = [1, 2, 3, 4, 5, 6, 7]
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches1 = []
+    for i in range(5):
+        batches1.extend(next(data_iter))
+    assert batches1[:-3] == batches[3:]
+
+    # drop_last
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches = []
+    for i in range(5):
+        batches.extend(next(data_iter))
+    
+    # drop_last_ckpt
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches2 = []
+    for i in range(5):
+        batches2.extend(next(data_iter))
+    assert batches2[:-3] == batches[3:]
 
 if __name__ == "__main__":
     single_dataset()
     multiple_dataset()
     multi_replica()
     uid()
+    drop_last()
