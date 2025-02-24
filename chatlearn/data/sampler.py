@@ -257,6 +257,18 @@ class MultiDatasetSampler:
         assert self.consumed_samples % self.num_inference_per_prompt == 0, "consumed samples must be integer multiple of num_inference_per_prompt"
 
         if not self.is_eval:
+            if data_ratio is None:
+                data_ratio = [1] * self.dataset_num
+            elif isinstance(data_ratio, int):
+                data_ratio = [data_ratio] * self.dataset_num
+            elif isinstance(data_ratio, list):
+                assert len(data_ratio) == self.dataset_num, (
+                    "expect data_ratio to be a list with the same length as the number of datasets, "
+                    f"got {len(data_ratio)} and {self.dataset_num}."
+                )
+            else:
+                raise TypeError(f"unexpected data_ratio type {type(data_ratio)}, expect int or List.")
+
             self.data_ratio = [self.num_inference_per_prompt] * self.dataset_num if data_ratio is None \
                 else [r * self.num_inference_per_prompt for r in data_ratio]
             consumed_each, self.dataset_remains = self.cal_consumed_each(self.consumed_samples, self.data_ratio)
