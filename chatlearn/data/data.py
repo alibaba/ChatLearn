@@ -17,8 +17,10 @@
 import math
 import random
 import copy
+import os
 import ray
 import torch
+
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
 from chatlearn.utils import future
@@ -223,7 +225,8 @@ class StreamDataset:
 
             # this function will sync until all data computing finished,
             # which will block training until environment rollout finished.
-            relay_buffer.sync()
+            if os.getenv("SKIP_GENERATION", None) is None:
+                relay_buffer.sync()
             if relay_sample_fn is not None:
                 buffer = relay_sample_fn(self._episode_relay_buffers)
             else:

@@ -386,10 +386,14 @@ class Engine(BaseEngine):
             logger.info(f"start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             if self.env.timers is None:
                 self.env.set_timers(self.timers)
-            logger.info(f"start to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
-            queue = self.env.make_experiences()
-            logger.info(f"complete to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
-            self.timers("set_train_dataset").start()
+            queue = []
+            if os.getenv("SKIP_GENERATION", None) is None:
+                logger.info(f"start to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
+                queue = self.env.make_experiences()
+                logger.info(f"complete to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
+                self.timers("set_train_dataset").start()
+            else:
+                logger.info(f"Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
                                                   self.runtime_args.sample_per_episode)
             future.wait(refs)
