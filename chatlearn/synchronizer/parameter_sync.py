@@ -14,6 +14,7 @@
 # ==============================================================================
 """Sync parameters"""
 
+import os
 import concurrent.futures
 import traceback
 import time
@@ -97,6 +98,10 @@ class ParameterSyncGroup:
         self.sorted_send_actors = None
         self.sorted_send_actors_stage2 = None
         self.actor2synchronizer = {}
+
+        self._enable_fp8_quant = os.environ.get("ENABLE_ON_THE_FLY_FP8_QUANT", "0") not in ["0", False, "false", 0]
+        if self._enable_fp8_quant:
+            logger.info("On the fly fp8 quantization will be enabled during parameter sync process")
 
         self.setup_collective_group()
 
@@ -748,7 +753,12 @@ class ParameterSyncGroup:
             if stage2:
                 self.set_sync_param_names_stage2(send_actor, recv_actor, self.actor2rank[recv_actor], requires_grad, filter_fn, param_group)
             else:
-                self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
+                refs = []
+                refs.append(recv_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
+                refs.append(send_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
+                future.get(refs)
+                # NOTE(lanbo.llb): logic in in the up 4lines are work-aorunds, since we need tp_num_mapping to set before fp8 quantize
+                self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, fp8_quantize=self._enable_fp8_quant)
                 pipe_stage = self.get_actor_pipe_rank(send_actor)
 
                 shape_refs = []
@@ -766,9 +776,7 @@ class ParameterSyncGroup:
                     buffer_num[recv_name_and_shape[0]] = ele_buffer_num
                     tp_division[send_name_and_shape[0]] = ele_buffer_num
                 refs = []
-                refs.append(recv_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
                 refs.append(recv_actor.set_buffer_num.remote(buffer_num))
-                refs.append(send_actor.set_tp_num_mapping.remote(self.tp_num_mapping))
                 refs.append(send_actor.set_tp_division.remote(tp_division))
                 future.get(refs)
         refs = []
@@ -789,7 +797,7 @@ class ParameterSyncGroup:
     def sync_broadcast(self, actors, group_name, requires_grad=None, filter_fn=None, param_group="default"):
         send_actor = actors[0]
         for recv_actor in actors[1:]:
-            self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group)
+            self.set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, fp8_quantize=self._enable_fp8_quant)
         pipe_stage = self.get_actor_pipe_rank(send_actor)
         refs = []
         for rank, actor in enumerate(actors):
@@ -926,17 +934,18 @@ class ParameterSyncGroup:
             future.get(refs)
         return src_names, dst_names
 
-    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True):
-        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor, param_group), \
+    def set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None,
+                             param_group="default", should_map_name=True, fp8_quantize=False):
+        src_names, dst_names = utils.get_or_cache(self._send_recv_param_names, (send_actor, recv_actor, param_group, fp8_quantize), \
             lambda: self._set_sync_param_names(send_actor, recv_actor, requires_grad, filter_fn, param_group, should_map_name))
-        logger.debug(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names[:5]} -> {dst_names[:5]}")
         pipe_stage = self.get_actor_pipe_rank(send_actor)
 
         refs = []
-        refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage))
-        refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage))
+        refs.append(send_actor.reset_sync_parameters.remote(src_names, pipe_stage, fp8_quantize=fp8_quantize))
+        refs.append(recv_actor.reset_sync_parameters.remote(dst_names, pipe_stage, fp8_quantize=False))
         future.get(refs)
 
+        logger.info(f"{self.actor2rank[send_actor]} -> {self.actor2rank[recv_actor]}: {src_names} -> {dst_names}")
         return src_names, dst_names
 
     def create_broadcast_group(self, send_actor, recv_actors, group_name=None, param_group="default"):
