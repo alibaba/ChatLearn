@@ -321,7 +321,8 @@ class RLHFDataLoader:
         add_uid=False,
         data_parallel_rank=0,
         data_parallel_size=1,
-        num_inference_per_prompt=1):
+        num_inference_per_prompt=1,
+        vllm_prompt_key="prompt"):
         """generate prompts data loader"""
 
         self.datasets = datasets
@@ -332,6 +333,7 @@ class RLHFDataLoader:
         self.data_parallel_rank = data_parallel_rank
         self.data_parallel_size = data_parallel_size
         self.num_inference_per_prompt = num_inference_per_prompt
+        self.vllm_prompt_key = vllm_prompt_key
 
     def __iter__(self):
         self.sampler_iter = iter(self.sampler)
@@ -352,10 +354,14 @@ class RLHFDataLoader:
         micro_batch_size = len(batch)
         updated_batch = []
         for i, data in enumerate(batch):
-            assert isinstance(data, dict), "add uid only support dict type data"
-            copy_data = copy.deepcopy(data)
-            assert 'prompt' in copy_data, "add uid only support dict type data with prompt key"
-            copy_data['prompt']['uid'] = \
-                str((self.data_parallel_rank * micro_batch_size + i) // self.num_inference_per_prompt)
-            updated_batch.append(copy_data)
+            if isinstance(data, dict) and self.vllm_prompt_key in data \
+                and isinstance(data[self.vllm_prompt_key], dict):
+                # assert isinstance(data, dict), "add uid only support dict type data"
+                copy_data = copy.deepcopy(data)
+                # assert self.vllm_prompt_key in copy_data, "add uid only support dict type data with prompt key"
+                copy_data[self.vllm_prompt_key]['uid'] = \
+                    str((self.data_parallel_rank * micro_batch_size + i) // self.num_inference_per_prompt)
+                updated_batch.append(copy_data)
+            else:
+                updated_batch.append(data)
         return updated_batch
