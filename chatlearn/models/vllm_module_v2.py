@@ -375,7 +375,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             self.reinit_cache_engine()
         parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
 
-        outputs = self.run_vllm(parsed_prompts, sampling_params)
+        outputs = []
+        if os.getenv("SKIP_GENERATION", None) is None:
+            outputs = self.run_vllm(parsed_prompts, sampling_params)
         return outputs
 
     def is_last_rank(self):
