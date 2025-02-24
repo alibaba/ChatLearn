@@ -64,7 +64,7 @@ def concat_along_batch(tensors):
 
 
 def split_list(lst, n):
-    assert len(lst) % n == 0
+    assert len(lst) % n == 0, f"{len(lst)} % {n} != 0"
     k = len(lst) // n
     return [lst[i*k:(i+1)*k] for i in range(n)]
 
@@ -115,9 +115,6 @@ class Executor:
     @property
     def timers(self):
         return self._timers
-
-    def batch_per_episode(self):
-        return self._batch_per_episode
 
     def _set_flow(self, flow):
         """
@@ -238,7 +235,6 @@ class Executor:
             out_queues.append(out_queue)
         return out_queues
 
-
     def get_all_merged_data(self, queues, out_queue, encode=True):
         logger.info("start to align output queues for training.")
         queues = self.align_out_queues(queues, True)
@@ -252,9 +248,9 @@ class Executor:
         if not model_node.input_nodes:
             return in_queues
         out_queues = [None] * len(in_queues)
-        num_consumers = self.batch_size(model_node.model)
+        num_consumers = self.batch_per_episode(model_node.model)
         for index, (input_node, in_queue) in enumerate(zip(model_node.input_nodes, in_queues)):
-            num_producers = self.batch_size(input_node.model)
+            num_producers = self.batch_per_episode(input_node.model)
             if not is_eval:
                 assert num_consumers % num_producers == 0 or \
                     num_producers % num_consumers == 0
@@ -266,8 +262,8 @@ class Executor:
             while in_queue.qsize() > 0:
                 res = in_queue.get()
                 res = future.get(decode_data(res)[1])
-                if num_producers > num_consumers:
-                    res_list = split_along_batch(res, num_producers // num_consumers)
+                if num_producers < num_consumers:
+                    res_list = split_along_batch(res, num_consumers // num_producers)
                     qsize = out_queues[index].qsize()
                     for idx, ele in enumerate(res_list):
                         out_queues[index].put(encode_data(qsize+idx, ele))
@@ -275,7 +271,7 @@ class Executor:
                     res_list = []
                 else:
                     res_list.append(res)
-                    if len(res_list) == num_consumers // num_producers or \
+                    if len(res_list) == num_producers // num_consumers or \
                             (is_eval and not in_queue.qsize()):
                         res = concat_along_batch(res_list)
                         qsize = out_queues[index].qsize()

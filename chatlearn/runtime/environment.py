@@ -146,20 +146,16 @@ class Environment(Executor):
         if model is None:
             model = self.models[0]
 
-        batch_size = self.batch_size(model)
-
         num_replica = len(model.replicas)
-        num_batch = self.sample_per_episode // (num_replica * batch_size) * num_replica
-        remainder = self.sample_per_episode % (num_replica * batch_size)
-        if remainder > 0 and model.use_vllm_backend:
-            if self.sample_per_episode >= num_replica:
-                _batch_per_episode = num_replica
-            else:
-                _batch_per_episode = self.sample_per_episode
-        elif remainder >= num_replica:
-            _batch_per_episode = num_batch + num_replica
+        if self.sample_per_episode >= num_replica:
+            _batch_per_episode = num_replica
         else:
-            _batch_per_episode = num_batch + remainder
+            _batch_per_episode = self.sample_per_episode
+        dp_size = len(model.replicas[0].dp_rank_to_actors)
+        if dp_size > 1:
+            _batch_per_episode *= dp_size
+
+
         return _batch_per_episode
 
     def num_iteration(self, model=None):

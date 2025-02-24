@@ -156,7 +156,7 @@ def preprocess_compute(func, trainable):
                 input_data = args[0]
             else:
                 input_data = None
-            if input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
+            if generation_batch_size != -1 and input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []
