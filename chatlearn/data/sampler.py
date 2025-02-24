@@ -250,8 +250,6 @@ class MultiDatasetSampler:
         self.seeds = [0] * self.dataset_num if seed is None else [seed] * self.dataset_num
         self.drop_last = drop_last
 
-        if not self.is_eval and data_ratio is not None:
-            assert len(data_ratio) == self.dataset_num
         assert init_shuffle_prompt == 0, "init_shuffle_prompt=1, 2 is not supported yet"
         assert self.consumed_samples % self.batch_size == 0, "consumed samples must be integer multiple of micro_batch_size times data_parallel_size"
         assert self.consumed_samples % self.num_inference_per_prompt == 0, "consumed samples must be integer multiple of num_inference_per_prompt"
