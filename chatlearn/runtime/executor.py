@@ -19,11 +19,11 @@ from collections import defaultdict
 from itertools import cycle
 from ray.util.queue import Queue
 import torch
-import torch.nn.functional as F
 
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.model_flow import ModelFlow
 from chatlearn.utils import future
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from .utils import encode_data, decode_data
@@ -31,39 +31,6 @@ from .utils import FlowParser
 
 
 LOG_START = ">>>>>>>>>>>"
-
-
-def concat_along_batch(tensors):
-    batched = {}
-    if tensors[0] is None:
-        return batched
-    for key in tensors[0].keys():
-        to_batch = [results[key] for results in tensors]
-        if isinstance(to_batch[0], torch.Tensor):
-            if len(to_batch[0].shape) == 2:
-                max_dim_1 = max([ele.shape[1] for ele in to_batch]) # pylint: disable=consider-using-generator
-                pad_value = 0.0 if to_batch[0].dtype in [torch.float32, torch.float16, torch.bfloat16] else 0
-                value = [
-                    F.pad(
-                        ele,
-                        (0, max_dim_1 - ele.shape[1]),
-                        value=pad_value,
-                    )
-                    for ele in to_batch
-                ]
-                batched[key] = torch.vstack(value)
-            elif len(to_batch[0].shape) == 1:
-                batched[key] = torch.concat(to_batch)
-            else:
-                raise RuntimeError(f"unsupported shape for in_queue rebatching. expect 1 or 2. while {to_batch[0].shape}")
-        elif isinstance(to_batch[0], list):
-            batched[key] = []
-            for seq in to_batch:
-                batched[key].extend(seq)
-        else:
-            raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat : {to_batch[0]}")
-
-    return batched
 
 
 def split_list(lst, n):
@@ -227,36 +194,37 @@ class Executor:
             res_list = []
             while queue.qsize() > 0:
                 res = queue.get()
-                res = future.get(decode_data(res)[1] if encode else res)
+                res = decode_data(res)[1] if encode else res
                 res_list.append(res)
-                if len(res_list) == num_producers // min_qsize:
-                    res = concat_along_batch(res_list)
-                    qsize = out_queue.qsize()
-                    out_queue.put(encode_data(qsize, res) if encode else res)
-                    del res_list
-                    res_list = []
+
+            division = num_producers // min_qsize
+            in_qsize = len(res_list)
+            out_qsize = in_qsize // division
+            for q_idx in range(out_qsize):
+                start = q_idx * division
+                end = start + division
+                out_queue.put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
             out_queues.append(out_queue)
         return out_queues
 
     def get_all_merged_data(self, queues, out_queue, encode=True):
-        logger.info("start to align output queues for training.")
+        logger.info(f"start to align output queues with sizes {[ele.qsize() for ele in queues]}.")
         queues = self.align_out_queues(queues, True)
-        logger.info("complete to align output queues for training.")
+        logger.info(f"complete to align output queues, sizes of output_queues are {[ele.qsize() for ele in queues]}.")
         queue0 = queues[0]
         while queue0.qsize() > 0:
             res = self.get_merged_data(queues, encode)
             out_queue.put(res)
 
-    def rebatch_all_merged_data(self, model_node, in_queues, is_eval=False):
+    def rebatch_all_merged_data(self, model_node, in_queues, is_eval=False):# pylint: disable=unused-argument
         if not model_node.input_nodes:
             return in_queues
         out_queues = [None] * len(in_queues)
         num_consumers = self.batch_per_episode(model_node.model)
         for index, (input_node, in_queue) in enumerate(zip(model_node.input_nodes, in_queues)):
             num_producers = self.batch_per_episode(input_node.model)
-            if not is_eval:
-                assert num_consumers % num_producers == 0 or \
-                    num_producers % num_consumers == 0
+            # TODO(jiangle.jl): support two-stage index for one2many scene
+            assert num_producers % num_consumers == 0
             if num_producers == num_consumers:
                 out_queues[index] = in_queue
                 continue
@@ -264,23 +232,16 @@ class Executor:
             res_list = []
             while in_queue.qsize() > 0:
                 res = in_queue.get()
-                res = future.get(decode_data(res)[1])
-                if num_producers < num_consumers:
-                    res_list = split_along_batch(res, num_consumers // num_producers)
-                    qsize = out_queues[index].qsize()
-                    for idx, ele in enumerate(res_list):
-                        out_queues[index].put(encode_data(qsize+idx, ele))
-                    del res_list
-                    res_list = []
-                else:
-                    res_list.append(res)
-                    if len(res_list) == num_producers // num_consumers or \
-                            (is_eval and not in_queue.qsize()):
-                        res = concat_along_batch(res_list)
-                        qsize = out_queues[index].qsize()
-                        out_queues[index].put(encode_data(qsize, res))
-                        del res_list
-                        res_list = []
+                res = decode_data(res)[1]
+                res_list.append(res)
+            division = num_producers // num_consumers
+            in_qsize = len(res_list)
+            out_qsize = in_qsize // division
+            for q_idx in range(out_qsize):
+                start = q_idx * division
+                end = start + division
+                out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
+
         return out_queues
 
     def get_next_data(self, in_queue, model_node, micro_batch_index):
@@ -409,7 +370,9 @@ class Executor:
             # barrier to regroup all queues of producer node
             if not isinstance(queues, list):
                 queues = [queues]
+            logger.info(f"TONGYI regroup_inqueue in_queue {model_node}:  {[ele.qsize() for ele in queues]}")
             out_queues = self.rebatch_all_merged_data(model_node, queues, is_eval=is_eval)
+            logger.info(f"TONGYI regroup_inqueue out_queues {model_node}:  {[ele.qsize() for ele in out_queues]}")
             return out_queues
         else:
             raise RuntimeError(f"Unsupported policy_to_regroup_queue {self.args.policy_to_regroup_queue}.")

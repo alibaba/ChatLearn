@@ -24,6 +24,8 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
 from chatlearn.utils import future
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
+from chatlearn.utils.utils import regroup_by_concat_along_batch
 
 
 def get_iter_keys(data):
@@ -277,6 +279,8 @@ class EpisodeRelayBuffer:
         merged_data = {}
         for item in data:
             local_data = future.get(item)
+            if CHATLEARN_REGROUP_TAG in local_data:
+                local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
             merged_data.update(local_data)
         samples = split_batch(merged_data)
         if self._rollout_batch_size < 0:
