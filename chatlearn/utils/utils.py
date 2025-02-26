@@ -27,6 +27,7 @@ from types import SimpleNamespace
 
 import pynvml
 import torch
+import torch.nn.functional as F
 from chatlearn.utils.logger import logger
 
 
@@ -308,3 +309,36 @@ def multi_thread_data_processing(num_threads: int, all_data: list, process_one_d
     execute_in_parallel(thread_fn, thread_args)
 
     return result
+
+
+def regroup_by_concat_along_batch(tensors):
+    batched = {}
+    if tensors[0] is None:
+        return batched
+    for key in tensors[0].keys():
+        to_batch = [results[key] for results in tensors]
+        if isinstance(to_batch[0], torch.Tensor):
+            if len(to_batch[0].shape) == 2:
+                max_dim_1 = max([ele.shape[1] for ele in to_batch]) # pylint: disable=consider-using-generator
+                pad_value = 0.0 if to_batch[0].dtype in [torch.float32, torch.float16, torch.bfloat16] else 0
+                value = [
+                    F.pad(
+                        ele,
+                        (0, max_dim_1 - ele.shape[1]),
+                        value=pad_value,
+                    )
+                    for ele in to_batch
+                ]
+                batched[key] = torch.vstack(value)
+            elif len(to_batch[0].shape) == 1:
+                batched[key] = torch.concat(to_batch)
+            else:
+                raise RuntimeError(f"unsupported shape for in_queue rebatching. expect 1 or 2. while {to_batch[0].shape}")
+        elif isinstance(to_batch[0], list):
+            batched[key] = []
+            for seq in to_batch:
+                batched[key].extend(seq)
+        else:
+            raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat : {to_batch[0]}")
+
+    return batched

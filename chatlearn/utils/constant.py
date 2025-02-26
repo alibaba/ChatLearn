@@ -17,6 +17,9 @@
 import importlib
 from enum import Enum
 
+# Regroup
+CHATLEARN_REGROUP_TAG = "chatlearn_regroup_tag"
+
 # Magic Num
 DYNAMIC_BATCH_SIZE = -1
 

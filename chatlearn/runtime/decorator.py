@@ -24,8 +24,10 @@ import ray
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.utils import future
 from chatlearn.utils import utils
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
+from chatlearn.utils.utils import regroup_by_concat_along_batch
 
 
 def monitor_error(func, func_name):
@@ -94,7 +96,6 @@ def split_along_batch(batch, new_batch_size):
         new_batches.append(new_batch)
     return new_batches
 
-
 def concat_along_batch(tensors):
     batched = {}
     if tensors[0] is None:
@@ -123,12 +124,28 @@ def preprocess_compute(func, trainable):
 
     def inner(self, *args, **kwargs):
         args = future.get(args)
-        if not trainable and len(args) > 1:
-            if all(isinstance(arg, dict) for arg in args):
-                merged = {}
-                for arg in args:
-                    merged.update(arg)
-                args = [merged]
+        assert isinstance(args, (list, tuple)), f"expect args is a list, while {type(args)}, args: {args}."
+        if not trainable:
+            self._logger.info(f"TONGYI start to merge data for {self.name}.")
+            if len(args) > 1:
+                self._logger.info(f"TONGYI preprocess_compute model {self.name} has inputs from {len(args)} input node.")
+
+                for idx, arg_obj in enumerate(args):
+                    if CHATLEARN_REGROUP_TAG in arg_obj:
+                        args[idx] = regroup_by_concat_along_batch(arg_obj[CHATLEARN_REGROUP_TAG])
+                    assert isinstance(args[idx], dict), \
+                        f"expect output arg for {self.name} to be a dict, while {type(args[idx])}, arg: {args[idx]}"
+                if all(isinstance(arg, dict) for arg in args):
+                    merged = {}
+                    for arg in args:
+                        merged.update(arg)
+                    args = [merged]
+            else:
+                if CHATLEARN_REGROUP_TAG in args[0]:
+                    self._logger.info(f"TONGYI preprocess_compute {self.name} \
+                        len(args[0][{CHATLEARN_REGROUP_TAG}]): {len(args[0][CHATLEARN_REGROUP_TAG])}")
+                    args = [regroup_by_concat_along_batch(args[0][CHATLEARN_REGROUP_TAG])]
+            self._logger.info(f"TONGYI complete to merge data for {self.name}.")
 
         def get_kwarg(key):
             return kwargs.pop(key) if key in kwargs else False
