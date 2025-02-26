@@ -30,6 +30,9 @@ from .utils import encode_data, decode_data
 from .utils import FlowParser
 
 
+LOG_START = ">>>>>>>>>>>"
+
+
 def concat_along_batch(tensors):
     batched = {}
     if tensors[0] is None:
@@ -412,6 +415,7 @@ class Executor:
             raise RuntimeError(f"Unsupported policy_to_regroup_queue {self.args.policy_to_regroup_queue}.")
 
     def compute_loop_one_model(self, model_node, num_batch=None):
+        logger.info(f"{LOG_START} start compute_loop for {model_node}, is_eval={self.is_eval}")
         model = model_node.model
         is_eval = self.is_eval
 
@@ -420,16 +424,21 @@ class Executor:
 
         func_name = model_node.func_name
         if model_node.remote_objects_to_wait:
+            logger.info(f"{LOG_START} start to wait colocate models to finish for {model_node}")
             model_node.wait_colocate_models_to_finish(self.timers, func_name)
+            logger.info(f"{LOG_START} complete to wait colocate models to finish for {model_node}")
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
         in_queue = model_node.get_input_queues()
-        logger.info(f"start to regroup in_queue for {model_node}")
 
+        logger.info(f"{LOG_START} start to regroup in_queue for {model_node}")
         in_queue = self.regroup_inqueue(model_node, in_queue, is_eval=is_eval)
+        logger.info(f"{LOG_START} complete to regroup in_queue for {model_node}")
+
         if isinstance(in_queue, list) and len(in_queue) == 1:
             in_queue = in_queue[0]
         results = []
+        logger.info(f"{LOG_START} start to generate_step_one_model for {model_node}")
         self.timers(f"{model.name}").start()
         for step in range(num_batch):
             to_empty_cache = step >= last_step_start and (model.is_colocate or model.module_args.force_free_memory)
