@@ -24,13 +24,12 @@ from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.model_flow import ModelFlow
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from .utils import encode_data, decode_data
 from .utils import FlowParser
 
-
-LOG_START = ">>>>>>>>>>>"
 
 
 def split_list(lst, n):
@@ -208,9 +207,9 @@ class Executor:
         return out_queues
 
     def get_all_merged_data(self, queues, out_queue, encode=True):
-        logger.info(f"start to align output queues with sizes {[ele.qsize() for ele in queues]}.")
+        logger.info(f"{LOG_START} start to align output queues with sizes {[ele.qsize() for ele in queues]}.")
         queues = self.align_out_queues(queues, True)
-        logger.info(f"complete to align output queues, sizes of output_queues are {[ele.qsize() for ele in queues]}.")
+        logger.info(f"{LOG_START} complete to align output queues, sizes of output_queues are {[ele.qsize() for ele in queues]}.")
         queue0 = queues[0]
         while queue0.qsize() > 0:
             res = self.get_merged_data(queues, encode)
@@ -370,9 +369,9 @@ class Executor:
             # barrier to regroup all queues of producer node
             if not isinstance(queues, list):
                 queues = [queues]
-            logger.info(f"TONGYI regroup_inqueue in_queue {model_node}:  {[ele.qsize() for ele in queues]}")
+            logger.info(f"{LOG_START} regroup_inqueue in_queue {model_node}:  {[ele.qsize() for ele in queues]}")
             out_queues = self.rebatch_all_merged_data(model_node, queues, is_eval=is_eval)
-            logger.info(f"TONGYI regroup_inqueue out_queues {model_node}:  {[ele.qsize() for ele in out_queues]}")
+            logger.info(f"{LOG_START} regroup_inqueue out_queues {model_node}:  {[ele.qsize() for ele in out_queues]}")
             return out_queues
         else:
             raise RuntimeError(f"Unsupported policy_to_regroup_queue {self.args.policy_to_regroup_queue}.")
@@ -415,14 +414,14 @@ class Executor:
         if model_node.next_colocate_node:
             # before the execution of next colocate model, perform the wait, since we want to empty the cache.
             logger.info(
-                f"Model {model_node.next_colocate_node} will wait model {model} to finish since they are colocated")
+                f"{LOG_START} Model {model_node.next_colocate_node} will wait model {model} to finish since they are colocated")
             self._models_and_results_to_wait = model_node.next_colocate_node.add_dependent_colocate_model_results(
                 model_node, results, self._models_and_results_to_wait)
         elif model.colocate_models or model.trainable:
             # 1. the model may colocate with training/inference, so we should wait until the end of compute_loop
             # 2. the model is trainable and it does not have next_colocate_model, we should make sure it is finished before parameter_sync
             # so we add them to a temp list
-            logger.info(f"Sync {model} in the end of {self.__class__.__name__}")
+            logger.info(f"{LOG_START} Sync {model} in the end of {self.__class__.__name__}")
             self._models_and_results_to_wait.append((model_node, results))
 
     def compute_loop(self, out_queue, num_batch=None):

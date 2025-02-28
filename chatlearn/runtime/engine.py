@@ -28,12 +28,11 @@ from chatlearn.runtime.trainer import Trainer
 from chatlearn.schedule.model_manager import ModelManager
 from chatlearn.schedule.resource_manager import ResourceManager
 from chatlearn.utils import future
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.timer import Timers
-
-LOG_START = ">>>>>>>>>>>"
 
 
 class BaseEngine:
@@ -83,10 +82,10 @@ class BaseEngine:
                 ref_set_src += remote_dst_model.set_src_parameter_model(remote_src_model)
             future.wait(ref_set_src)
         # include compile in init, compile dependencies need to be called serially
-        logger.info(get_full_proc_memory_info('Before model init'))
+        logger.info(get_full_proc_memory_info(f"{LOG_START} Before model init"))
         for model in self.remote_models:
             model.init()
-        logger.info(get_full_proc_memory_info('After model init'))
+        logger.info(get_full_proc_memory_info(f"{LOG_START} After model init"))
         # do not include compile dependencies in setup
         # if the program hang in setup, may try to set concurrent_setup to False.
         self.timers("setup_models").start()
@@ -100,10 +99,10 @@ class BaseEngine:
             future.wait(refs_val)
         else:
             for model in self.remote_models:
-                logger.info(f"start setup and validate {model.name}")
+                logger.info(f"{LOG_START} start setup and validate {model.name}")
                 future.wait(model.model_setup())
                 future.wait(model.validate())
-                logger.info(f"done setup and validate {model.name}")
+                logger.info(f"{LOG_START} done setup and validate {model.name}")
         self.timers("setup_models").stop()
         logger.info(
             f"{LOG_START} setup_models summary {self.timers.log(names=['setup_models'])}")
@@ -337,7 +336,7 @@ class Engine(BaseEngine):
         self._resume_from_data_checkpoint()
         # Enable chunkflow optimization
         enable_chunkflow_optimization = os.environ.get("ENABLE_CHUNKFLOW_OPTIMIZATION", "False") in ["True", "true", "1", 1]
-        logger.info(f"Check ENABLE_CHUNKFLOW_OPTIMIZATION={enable_chunkflow_optimization} for chunkflow optimization")
+        logger.info(f"{LOG_START} Check ENABLE_CHUNKFLOW_OPTIMIZATION={enable_chunkflow_optimization} for chunkflow optimization")
         data_loader = StreamDataset.remote(self.runtime_args.stream_data_loader_type,
                                            self.runtime_args.train_micro_batch_size,
                                            self.env._padding_config,
@@ -352,7 +351,7 @@ class Engine(BaseEngine):
         if dump_root_path:
             if os.path.exists(dump_root_path):
                 shutil.rmtree(dump_root_path)
-            logger.info("dump parameters before syncnizing...")
+            logger.info("{LOG_START} dump parameters before syncnizing...")
             self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
         if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "false") == "true":
@@ -360,15 +359,15 @@ class Engine(BaseEngine):
             self.model_manager.sync_parameters(requires_grad=False, validate=False, dryrun=True)
             self.model_manager.warmup_collective_topology()
             self.timers("warmup_sync_parameters").stop()
-            logger.info(f"finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
+            logger.info(f"{LOG_START} finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
         self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
         self.timers("sync_parameters").stop()
         if self.runtime_args.enable_eval_before_training:
             self.evaluate(-1)
         if dump_root_path:
-            logger.info("dump parameters after synchronizing...")
+            logger.info("{LOG_START} dump parameters after synchronizing...")
             self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
-            logger.info("finish dump parameters, ChatLearn will exit")
+            logger.info("{LOG_START} finish dump parameters, ChatLearn will exit")
             return
         logger.info(
             f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} "
@@ -383,17 +382,17 @@ class Engine(BaseEngine):
                     torch.cuda.cudart().cudaProfilerStop()
             self.timers("episode").start()
             self.before_episode()
-            logger.info(f"start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
+            logger.info(f"{LOG_START} start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             if self.env.timers is None:
                 self.env.set_timers(self.timers)
             queue = []
             if os.getenv("SKIP_GENERATION", None) is None:
-                logger.info(f"start to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
+                logger.info(f"{LOG_START} start to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
                 queue = self.env.make_experiences()
-                logger.info(f"complete to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
+                logger.info(f"{LOG_START} complete to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
                 self.timers("set_train_dataset").start()
             else:
-                logger.info(f"Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
+                logger.info(f"{LOG_START} Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
                                                   self.runtime_args.sample_per_episode)
             future.wait(refs)
@@ -402,17 +401,17 @@ class Engine(BaseEngine):
                 validate = self.runtime_args.validate_param_sync and episode_id < 2
                 self.timers("set_train_dataset").stop()
                 self.trainer.set_data_loader(data_loader)
-                logger.info("set dataloader for trainer done")
-                logger.info(get_full_proc_memory_info(f'Before train {episode_id}'))
+                logger.info("{LOG_START} set dataloader for trainer done")
+                logger.info(get_full_proc_memory_info(f"{LOG_START} Before train {episode_id}"))
                 if self.trainer.timers is None:
                     self.trainer.set_timers(self.timers)
                 self.trainer.train(episode_id)
-                logger.info(get_full_proc_memory_info(f'After train {episode_id}'))
-                logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
+                logger.info(get_full_proc_memory_info(f"{LOG_START} After train {episode_id}"))
+                logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
                 self.model_manager.sync_parameters(episode_id + 1, validate=validate)
                 self.timers("sync_parameters").stop()
-                logger.info(f"train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
+                logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             self.after_episode()
             self.timers("episode").stop()
             self.logging_summary(episode_id)
@@ -421,7 +420,7 @@ class Engine(BaseEngine):
 
         self.timers("chatlearn").stop()
         logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
-        logger.info(f"train {self._name} done")
+        logger.info(f"{LOG_START} train {self._name} done")
 
     def _resume_from_data_checkpoint(self):
         if self.runtime_args.data_checkpoint_path:
@@ -434,7 +433,7 @@ class Engine(BaseEngine):
                     self._start_episode = meta["episode"] + 1
                     self.trainer.iteration = meta["train_iteration"]
                     if self.trainer.iteration > 0:
-                        logger.info(f"ChatLearn continue train with meta {meta}")
+                        logger.info(f"{LOG_START} continue train with meta {meta}")
 
     def dump_parameters(self, dump_path):
         for _, model in enumerate(self.models):
@@ -464,7 +463,7 @@ class Engine(BaseEngine):
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
             self.timers("save_checkpoint").stop()
-            logger.info(f"save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
+            logger.info(f"{LOG_START} save checkpoint episode {episode_id}, train iteration {self.trainer.iteration} done")
 
     def evaluate(self, episode_id):
         """
@@ -475,12 +474,12 @@ class Engine(BaseEngine):
                 (episode_id + 1) % self.runtime_args.eval_episode_interval == 0:
             if self.evaluator.timers is None:
                 self.evaluator.set_timers(self.timers)
-            logger.info("start evaluate")
+            logger.info("{LOG_START} start evaluate")
             self.timers("evaluate").start()
             self.evaluator.eval(episode_id, self.trainer.iteration)
             self.timers("evaluate").stop()
             super().logging_summary(episode_id)
-            logger.info(f"evaluate done {self.timers.log(names=['evaluate'])}")
+            logger.info(f"{LOG_START} evaluate done {self.timers.log(names=['evaluate'])}")
 
 
 class RLHFEngine(Engine):

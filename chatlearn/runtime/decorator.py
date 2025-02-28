@@ -25,6 +25,7 @@ from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 from chatlearn.utils.utils import regroup_by_concat_along_batch
@@ -126,9 +127,9 @@ def preprocess_compute(func, trainable):
         args = future.get(args)
         assert isinstance(args, (list, tuple)), f"expect args is a list, while {type(args)}, args: {args}."
         if not trainable:
-            self._logger.info(f"TONGYI start to merge data for {self.name}.")
+            self._logger.info(f"{LOG_START} start to merge data for {self.name}.")
             if len(args) > 1:
-                self._logger.info(f"TONGYI preprocess_compute model {self.name} has inputs from {len(args)} input node.")
+                self._logger.info(f"{LOG_START} preprocess_compute model {self.name} has inputs from {len(args)} input node.")
 
                 for idx, arg_obj in enumerate(args):
                     if CHATLEARN_REGROUP_TAG in arg_obj:
@@ -142,10 +143,10 @@ def preprocess_compute(func, trainable):
                     args = [merged]
             else:
                 if CHATLEARN_REGROUP_TAG in args[0]:
-                    self._logger.info(f"TONGYI preprocess_compute {self.name} \
+                    self._logger.info(f"{LOG_START} preprocess_compute {self.name} \
                         len(args[0][{CHATLEARN_REGROUP_TAG}]): {len(args[0][CHATLEARN_REGROUP_TAG])}")
                     args = [regroup_by_concat_along_batch(args[0][CHATLEARN_REGROUP_TAG])]
-            self._logger.info(f"TONGYI complete to merge data for {self.name}.")
+            self._logger.info(f"{LOG_START} complete to merge data for {self.name}.")
 
         def get_kwarg(key):
             return kwargs.pop(key) if key in kwargs else False

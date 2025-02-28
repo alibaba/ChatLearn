@@ -101,7 +101,7 @@ class Timers:
         all_keys = self.timers.keys()
         name2log = {}
         assert normalizer > 0.0
-        string = 'time (s)'
+        string = 'time (min)'
         if e2e_cost is not None:
             string += ' | e2e_cost: {:.2f}'.format(e2e_cost)
         for name in all_keys:
@@ -112,7 +112,7 @@ class Timers:
                 self.timers[name].reset()
                 continue
             elapsed_time, num = self.timers[name].elapsed(reset=reset, return_num=True)
-            elapsed_time = elapsed_time * 1.0 / normalizer
+            elapsed_time = elapsed_time * 1.0 / 60 / normalizer
 
             if num >= 1:
                 avg_elapsed_time = elapsed_time / num
