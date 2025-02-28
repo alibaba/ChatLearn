@@ -1314,12 +1314,17 @@ class ParameterSyncGroup:
         logger.info(f"Use {max_workers} workers for routed experts synchoronization, src_pp_size: {src_pp_size} .")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             indexed_sorted_send_actors = list(enumerate(sorted_send_actors))
-            groups = [
-                indexed_sorted_send_actors[i:i + src_pp_size]
-                for i in range(0, len(indexed_sorted_send_actors), src_pp_size)
-            ]
+            if src_pp_size == 1: # broadcast by parallel
+                groups = [indexed_sorted_send_actors]
+            else:
+                groups = [
+                    indexed_sorted_send_actors[i:i + src_pp_size]
+                    for i in range(0, len(indexed_sorted_send_actors), src_pp_size)
+                ]
+            logger.info(f"sync for tp_num_mapping_eq_1, num of groups:{len(groups)}")
 
             for group in groups:
+                t1 = time.time()
                 futures = []
                 for _, send_actor in group:
                     recv_actors = actor_mappings[send_actor]
@@ -1339,6 +1344,7 @@ class ParameterSyncGroup:
                                 self.sync_send_recv, send_actor, recv_actor, requires_grad, filter_fn=filter_fn, param_group=param_group
                             ))
 
+                t2 = time.time()
                 for _future in concurrent.futures.as_completed(futures):
                     try:
                         _future.result()
@@ -1346,6 +1352,8 @@ class ParameterSyncGroup:
                         traceback.print_exc()
                         raise RuntimeError(f"Parameter sync thread generated an exception: {e}") from e
                 concurrent.futures.wait(futures)
+                t3 = time.time()
+                logger.info(f"sync for tp_num_mapping_eq_1, submit time(s):{(t2-t1)}, sync time(s):{(t3-t2)}")
 
     def _single_thread_sync(self, actor_mappings_list:List, requires_grad=None, filter_fn=None, param_group="default"):
         assert len(actor_mappings_list) == 1
