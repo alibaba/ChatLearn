@@ -127,9 +127,10 @@ def preprocess_compute(func, trainable):
         args = future.get(args)
         assert isinstance(args, (list, tuple)), f"expect args is a list, while {type(args)}, args: {args}."
         if not trainable:
-            self._logger.info(f"{LOG_START} start to merge data for {self.name}.")
+            self._logger.info(f"{LOG_START} start to merge data for {self.name} replica {self.replica_id}.")
             if len(args) > 1:
-                self._logger.info(f"{LOG_START} preprocess_compute model {self.name} has inputs from {len(args)} input node.")
+                self._logger.info(f"{LOG_START} preprocess_compute model {self.name} replica {self.replica_id} \
+                    has inputs from {len(args)} input node.")
 
                 for idx, arg_obj in enumerate(args):
                     if CHATLEARN_REGROUP_TAG in arg_obj:
@@ -143,7 +144,7 @@ def preprocess_compute(func, trainable):
                     args = [merged]
             else:
                 if CHATLEARN_REGROUP_TAG in args[0]:
-                    self._logger.info(f"{LOG_START} preprocess_compute {self.name} \
+                    self._logger.info(f"{LOG_START} preprocess_compute {self.name} replica {self.replica_id} \
                         len(args[0][{CHATLEARN_REGROUP_TAG}]): {len(args[0][CHATLEARN_REGROUP_TAG])}")
                     args = [regroup_by_concat_along_batch(args[0][CHATLEARN_REGROUP_TAG])]
             self._logger.info(f"{LOG_START} complete to merge data for {self.name}.")
