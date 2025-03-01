@@ -1308,7 +1308,7 @@ class ParameterSyncGroup:
                     "keys": [send_actor],
                     "values": rank_dict.copy()
                 })
-        total_elements = sum(len(group["key"]) for group in groups)
+        total_elements = sum(len(group["keys"]) for group in groups)
         assert total_elements == len(send_actors), \
                 (f"needed total elements of groups {total_elements} == len of send_actors \
                 {len(send_actors)} in param sync.")
