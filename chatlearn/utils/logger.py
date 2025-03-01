@@ -24,6 +24,8 @@ from tqdm import tqdm
 def setup_logger(log_level=None, model_name=None, ip_addr=None):
     logger_name = "ChatLearn" if model_name is None else f"ChatLearn-{model_name}"
     _logger = logging.getLogger(logger_name)
+    _logger.handlers.clear()
+    _logger.propagate = False
     if log_level is None:
         log_level = logging.INFO
     _logger.setLevel(log_level)
