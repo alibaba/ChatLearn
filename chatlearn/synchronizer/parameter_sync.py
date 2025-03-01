@@ -1290,6 +1290,34 @@ class ParameterSyncGroup:
         self.timers("stage2").stop()
         logger.info(f"finish stage2| {self.timers.log(names=['stage2'])}")
 
+    def split_sync_groups(self, send_actors, actor_mappings):
+        groups = []
+        for send_actor in send_actors:
+            recv_actors = actor_mappings[send_actor]
+            rank_dict = [self.actor2rank[actor] for actor in [send_actor] + recv_actors]
+            # gen groups
+            placed = False
+            for group in groups:
+                if set(group["values"]).isdisjoint(rank_dict):
+                    group["keys"].append(send_actor)
+                    group["values"] = group["values"] + rank_dict
+                    placed = True
+                    break
+            if not placed:
+                groups.append({
+                    "keys": [send_actor],
+                    "values": rank_dict.copy()
+                })
+        total_elements = sum(len(group["key"]) for group in groups)
+        assert total_elements == len(send_actors), \
+                (f"needed total elements of groups {total_elements} == len of send_actors \
+                {len(send_actors)} in param sync.")
+        for group in groups:
+            assert len(group["values"]) == len(set(group["values"])), \
+                (f"the elements must be all different in group: {group['values']}")
+        logger.info(f"split_sync_groups: {groups}")
+        return [g["keys"] for g in groups]
+
     def _multi_thread_sync_for_tp_num_mapping_eq_1(
         self, send_actors_list:List, actor_mappings_list:List,
         requires_grad=None, filter_fn=None, param_group="default", dryrun=False
@@ -1302,22 +1330,15 @@ class ParameterSyncGroup:
         max_workers = self._calculate_max_workers(sorted_send_actors, actor_mappings)
         src_pp_size = self.num_src_pipeline_stage
 
-        logger.info(f"Use {max_workers} workers for routed experts synchoronization, src_pp_size: {src_pp_size} .")
+        groups = self.split_sync_groups(sorted_send_actors, actor_mappings)
+        logger.info(f"Use {max_workers} workers for tp_num_mapping_eq_1 synchoronization, \
+                src_pp_size: {src_pp_size}, groups: {len(groups)}.")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            indexed_sorted_send_actors = list(enumerate(sorted_send_actors))
-            if src_pp_size == 1: # broadcast by parallel
-                groups = [indexed_sorted_send_actors]
-            else:
-                groups = [
-                    indexed_sorted_send_actors[i:i + src_pp_size]
-                    for i in range(0, len(indexed_sorted_send_actors), src_pp_size)
-                ]
-            logger.info(f"sync for tp_num_mapping_eq_1, num of groups:{len(groups)}")
 
             for group in groups:
                 t1 = time.time()
                 futures = []
-                for _, send_actor in group:
+                for send_actor in group:
                     recv_actors = actor_mappings[send_actor]
                     logger.info(f"Sending from {[self.actor2rank[send_actor]]} to {[self.actor2rank[actor] for actor in recv_actors]}.")
                     if self._comm_type == PARAM_SYNC_COMM_TYPE.BROADCAST:
