@@ -38,7 +38,8 @@ enforce_eager: ${enforce_eager:True}
 # cache config
 block_size: ${cache_block_size:16}
 gpu_memory_utilization: ${gpu_memory_utilization:0.5}
-swap_space: ${swap_space:4}
+swap_space: ${swap_space:16}
+preemption_mode: ${preemption_mode:'recompute'}
 sliding_window: ${sliding_window:None}
 max_seq_len_to_capture: ${max_seq_len_to_capture:32768}
 

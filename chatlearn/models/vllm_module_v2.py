@@ -126,7 +126,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             trust_remote_code=True,
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
-            distributed_executor_backend="ray")
+            distributed_executor_backend="ray",
+            preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
+            swap_space=self.model_args.get("swap_space", 16))
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
 
 
@@ -192,7 +194,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             trust_remote_code=True,
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
-            distributed_executor_backend="ray")
+            distributed_executor_backend="ray",
+            preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
+            swap_space=self.model_args.get("swap_space", 16))
         self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
         self.offload_for_workers()
         self.empty_cuda_graph_for_workers()
