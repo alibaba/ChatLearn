@@ -291,6 +291,8 @@ class RuntimeConfig(BaseConfig):
     data_ratio: Optional[Union[List[int], int]] = None
     #: [optional]: shuffle in each epoch of dataset, default: True
     data_shuffle: Optional[bool] = True
+    #: [optional]: rerank batch of data by row, default: True
+    data_rerank: Optional[bool] = True
     #: [optional]: colocate models into the same device
     colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval

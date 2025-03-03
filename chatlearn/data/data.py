@@ -176,6 +176,10 @@ class StreamDataset:
                     batch_count += 1
                 prefetched_batch_list.clear()
             produce_index += self.batch_size
+        if len(prefetched_batch_list) != 0:
+            for batched_data in prefetched_batch_list:
+                yield batched_data
+                batch_count += 1
         assert batch_count == math.ceil(self._total_samples / self.batch_size)
         assert produce_index >= len(self.relay_buffer), \
                f"produce_index: {produce_index} < len(self.relay_buffer) {len(self.relay_buffer)}"
@@ -347,9 +351,10 @@ class RLHFDataLoader:
         while True:
             try:
                 batch_idxes = next(self.sampler_iter)
-                batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx in batch_idxes]
+                batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx, _ in batch_idxes]
+                id_in_episode = [id for _, _, id in batch_idxes]
                 if self.add_uid:
-                    batch = self.update_data_uid(batch)
+                    batch = self.update_data_uid(batch, id_in_episode)
                 if self.collate_fn is not None:
                     yield self.collate_fn(batch)
                 else:
@@ -357,8 +362,7 @@ class RLHFDataLoader:
             except StopIteration:
                 self.sampler_iter = iter(self.sampler)
 
-    def update_data_uid(self, batch):
-        micro_batch_size = len(batch)
+    def update_data_uid(self, batch, id_in_episode):
         updated_batch = []
         for i, data in enumerate(batch):
             if isinstance(data, dict) and self.vllm_prompt_key in data \
@@ -366,8 +370,7 @@ class RLHFDataLoader:
                 # assert isinstance(data, dict), "add uid only support dict type data"
                 copy_data = copy.deepcopy(data)
                 # assert self.vllm_prompt_key in copy_data, "add uid only support dict type data with prompt key"
-                copy_data[self.vllm_prompt_key]['uid'] = \
-                    str((self.data_parallel_rank * micro_batch_size + i) // self.num_inference_per_prompt)
+                copy_data[self.vllm_prompt_key]['uid'] = str(id_in_episode[i])
                 updated_batch.append(copy_data)
             else:
                 updated_batch.append(data)

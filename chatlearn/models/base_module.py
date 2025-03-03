@@ -420,6 +420,7 @@ class BaseModule:
         consumed_samples = 0
         data_ratio = self.runtime_args.data_ratio
         shuffle = self.runtime_args.data_shuffle
+        data_rerank = self.runtime_args.data_rerank
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
@@ -433,7 +434,8 @@ class BaseModule:
                                            consumed_samples=consumed_samples,
                                            data_ratio=data_ratio,
                                            shuffle=shuffle,
-                                           drop_last=drop_last)
+                                           drop_last=drop_last,
+                                           data_rerank=data_rerank)
 
         if is_eval:
             self._eval_dataloader = dataloader
@@ -452,7 +454,8 @@ class BaseModule:
                          consumed_samples=0,
                          data_ratio=None,
                          shuffle=True,
-                         drop_last=False):
+                         drop_last=False,
+                         data_rerank=True):
         """
         build the dataloader for the model
         Args:
@@ -498,7 +501,8 @@ class BaseModule:
                 is_eval=False,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
-                drop_last=drop_last
+                drop_last=0 if drop_last else 2,
+                data_rerank=data_rerank
             )
         return RLHFDataLoader(
             all_datasets,

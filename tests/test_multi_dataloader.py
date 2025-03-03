@@ -157,11 +157,11 @@ def uid():
         sequence.extend(next(data_iter))
     assert sequence == ground_truth
 
-def drop_last():
+def drop_last0():
 
     # drop_last
     dataset = [1, 2, 3, 4, 5, 6, 7]
-    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=True)
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=0)
     dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     batches = []
@@ -170,7 +170,7 @@ def drop_last():
 
     # drop_last_ckpt
     dataset = [1, 2, 3, 4, 5, 6, 7]
-    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=True)
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=0)
     dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     batches1 = []
@@ -179,7 +179,7 @@ def drop_last():
     assert batches1[:-3] == batches[3:]
 
     # drop_last
-    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=True)
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=0)
     dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     batches = []
@@ -187,7 +187,7 @@ def drop_last():
         batches.extend(next(data_iter))
     
     # drop_last_ckpt
-    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=True)
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=0)
     dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
     data_iter = cycle(iter(dataloader))
     batches2 = []
@@ -195,9 +195,89 @@ def drop_last():
         batches2.extend(next(data_iter))
     assert batches2[:-3] == batches[3:]
 
+def drop_last1():
+
+    # drop_last
+    dataset = [1, 2, 3, 4, 5, 6, 7]
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=1)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches = []
+    for i in range(5):
+        batches.extend(next(data_iter))
+
+    # drop_last_ckpt
+    dataset = [1, 2, 3, 4, 5, 6, 7]
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=1)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches1 = []
+    for i in range(5):
+        batches1.extend(next(data_iter))
+    assert batches1[:-1] == batches[3:]
+
+    # drop_last
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=1)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches = []
+    for i in range(5):
+        batches.extend(next(data_iter))
+    
+    # drop_last_ckpt
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=1)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches2 = []
+    for i in range(5):
+        batches2.extend(next(data_iter))
+    assert batches2[:-1] == batches[3:]
+
+def rerank():
+    # drop_last
+    dataset = [1, 2, 3, 4, 5, 6, 7]
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=0, data_rerank=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches0 = []
+    for i in range(5):
+        batches0.extend(next(data_iter))
+
+    # drop_last_ckpt
+    dataset = [1, 2, 3, 4, 5, 6, 7]
+    sampler1 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=0, data_parallel_size=2, drop_last=0, data_rerank=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler1, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches1 = []
+    for i in range(5):
+        batches1.extend(next(data_iter))
+    assert batches1[:-3] == batches0[3:]
+
+    # drop_last
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=0, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=0, data_rerank=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches2 = []
+    for i in range(5):
+        batches2.extend(next(data_iter))
+    
+    # drop_last_ckpt
+    sampler2 = MultiDatasetSampler([7], 3, [1], consumed_samples=6, num_inference_per_prompt=2, shuffle=True, is_eval=False, data_parallel_rank=1, data_parallel_size=2, drop_last=0, data_rerank=True)
+    dataloader = RLHFDataLoader(datasets=[dataset], sampler=sampler2, collate_fn=collate_fn)
+    data_iter = cycle(iter(dataloader))
+    batches3 = []
+    for i in range(5):
+        batches3.extend(next(data_iter))
+    assert batches3[:-3] == batches2[3:]
+
+    assert batches0 == batches2 and batches1 == batches3
+
+
 if __name__ == "__main__":
     single_dataset()
     multiple_dataset()
     multi_replica()
     uid()
-    drop_last()
+    drop_last0()
+    drop_last1()
+    rerank()
