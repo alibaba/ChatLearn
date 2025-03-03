@@ -20,9 +20,9 @@ import copy
 import os
 import ray
 import torch
-
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
+from chatlearn.utils.logger import logger
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch
@@ -355,6 +355,7 @@ class RLHFDataLoader:
                 id_in_episode = [id for _, _, id in batch_idxes]
                 if self.add_uid:
                     batch = self.update_data_uid(batch, id_in_episode)
+                    logger.info(f"====DataLoader yield UID: {[b[self.vllm_prompt_key]['uid'] for b in batch]}")
                 if self.collate_fn is not None:
                     yield self.collate_fn(batch)
                 else:

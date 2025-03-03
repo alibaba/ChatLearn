@@ -489,6 +489,7 @@ class BaseModule:
             num_inference_per_prompt = 1
         vllm_prompt_key = self.model_args["vllm_prompt_key"] \
             if "vllm_prompt_key" in self.model_args else "prompt"
+        self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
                 dataset_sizes=[len(dataset) for dataset in all_datasets],
