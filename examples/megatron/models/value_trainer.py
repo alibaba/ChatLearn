@@ -25,14 +25,14 @@ except ImportError:
 from megatron.training import get_timers
 from megatron.training import get_tokenizer
 from megatron.training import print_rank_0
-from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 from megatron.training.utils import average_losses_across_data_parallel_group
 from megatron.training.utils import calc_params_l2_norm
 
 from chatlearn.utils import to_device
 from .value_model import ValueModel as LegacyValueModel
 from .mcore_value_model import MCoreValueModel
-from .utils import tensorboard_scalar_dict, training_log, get_eos_id
+from .utils import tensorboard_scalar_dict, wandb_scalar_dict, training_log, get_eos_id
 from .base_trainer import BaseTrainer
 from .constants import get_ltor_masks_and_position_ids_rlhf, select_actions_from_right_padded, pad_to_max_len
 
@@ -184,12 +184,17 @@ class ValueTrainer(BaseTrainer):
 
                 # actual log
                 writer = get_tensorboard_writer()
+                wandb_writer = get_wandb_writer()
 
                 after_episode_dict = {
                     "value/explained_variance_dp": self.stats["value/explained_variance_dp"]
                 }
                 tensorboard_scalar_dict(writer, prefix="", global_step=self.args.consumed_train_samples,
                                         scalar_dict=after_episode_dict)
+                if wandb_writer:
+                    wandb_scalar_dict(wandb_writer, prefix="", global_step=self.args.consumed_train_samples,
+                                            scalar_dict=after_episode_dict)
+
 
     def before_episode(self):
         '''

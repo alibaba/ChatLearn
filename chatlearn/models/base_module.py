@@ -19,6 +19,8 @@ from itertools import cycle
 import math
 import time
 import os
+import numpy as np
+
 import torch
 
 import ray
@@ -117,6 +119,7 @@ class BaseModule:
         # current compute iteration
         self._iteration = 0
         self._train_iteration = 0
+        self._episode_id = 0
         self.enable_lora = self._module_args.lora.enable_lora
         self._finalized = False
         self._resume_training = False
@@ -261,9 +264,14 @@ class BaseModule:
                 if meta:
                     self._resume_training = self.runtime_args.consumed_samples > 0
                     start_episode = meta["episode"] + 1
+                    self._episode_id = start_episode
                     self._iteration = start_episode * math.ceil(self.runtime_args.sample_per_episode / \
                         self._num_replica / self.module_args.generation_batch_size)
-                    log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}", self._logger)
+
+                    log_rank_0(
+                        f"{self.name} resume training {self._resume_training}: "
+                        f"set start iteration to {self._iteration} and episode id to {self._episode_id}",
+                        self._logger)
         self.setup()
 
     def forward_step(self, data, iteration):
@@ -371,6 +379,7 @@ class BaseModule:
         """
         Operations after one episode.
         """
+        self._episode_id += 1
 
     def build_dataset(self, train_prompts, is_eval=False):
         """
@@ -1077,6 +1086,46 @@ class BaseModule:
         """
         if self._timers:
             return self._timers.log(e2e_cost=e2e_cost)
+
+    def merge_metrics(self, metric_list):
+        merged_metrics = {}
+        for metrics in metric_list:
+            for key, value in metrics.items():
+                if key in merged_metrics:
+                    merged_metrics[key].append(value)
+                else:
+                    merged_metrics[key] = [value]
+        return merged_metrics
+
+    def reduce_metrics(self, merged_metrics):
+        reduced_metrics = {}
+        for key, value_list in merged_metrics.items():
+            if isinstance(value_list[0], torch.Tensor):
+                value = torch.mean(torch.Tensor(value_list))
+            else:
+                value = np.mean(value_list)
+            reduced_metrics[key] = value
+        return reduced_metrics
+
+    def merge_and_reduce_metrics(self, metric_list):
+        log_rank_0(f"metric_list = {metric_list}", self._logger)
+        # sanity check
+        assert isinstance(metric_list, list)
+
+        if len(metric_list) == 0:
+            return {}
+
+        first_metric_len = len(metric_list[0])
+        for i, metric in enumerate(metric_list):
+            if len(metric) != first_metric_len:
+                log_rank_0(
+                    f"WARNING! length of metrics are not the same for {i}-th metric ({len(metric)}) "
+                    f"and the first one ({first_metric_len})! This is weird and please check!", self._logger
+                )
+
+        merged_metrics = self.merge_metrics(metric_list)
+        reduced_metrics = self.reduce_metrics(merged_metrics)
+        return reduced_metrics
 
     def add_padding_config(self, key, padding_value=0.0, padding_type="right"):
         """

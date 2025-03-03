@@ -27,7 +27,7 @@ from megatron.training import get_args
 from megatron.training import get_model
 from megatron.training import get_tokenizer
 from megatron.training import print_rank_0
-from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 from megatron.training.utils import get_ltor_masks_and_position_ids
 
 import chatlearn
@@ -37,7 +37,7 @@ from chatlearn.utils.megatron_utils import load_checkpoint
 from examples.megatron.data.reward_dataset import preprocess
 from .reward_model import RewardModel as LegacyRewardModel
 from .mcore_reward_model import MCoreRewardModel
-from .utils import tensorboard_scalar_dict, get_eos_id
+from .utils import tensorboard_scalar_dict, wandb_scalar_dict, get_eos_id
 from .constants import RunningMoments, get_running_stats, reset_running_stats
 from .forward_step import forward_step_helper
 
@@ -468,6 +468,7 @@ class RewardInference(MegatronModule):
 
     def log_each_step(self, iteration):
         writer = get_tensorboard_writer()
+        wandb_writer = get_wandb_writer()
         stats_episode = get_running_stats(self.per_episode_metrics)
         stats_episode.update(self.stats)
 
@@ -479,6 +480,10 @@ class RewardInference(MegatronModule):
             tensorboard_scalar_dict(writer, prefix=f"rewards_each/replica_id{self.replica_id}",
                                     global_step=iteration,
                                     scalar_dict=stats_episode)
+            if wandb_writer:
+                wandb_scalar_dict(wandb_writer, prefix=f"rewards_each/replica_id{self.replica_id}",
+                        global_step=iteration,
+                        scalar_dict=stats_episode)
         # reset runnings
         reset_running_stats(self.per_episode_metrics)
 

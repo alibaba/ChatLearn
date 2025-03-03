@@ -35,7 +35,7 @@ try:
     from megatron.training import get_num_microbatches
 except ImportError:
     from megatron.core.num_microbatches_calculator import get_num_microbatches
-from megatron.training.global_vars import get_tensorboard_writer
+from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 from megatron.training.training import print_datetime
 from torchtyping import TensorType
 
@@ -105,6 +105,7 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
     args = get_args()
     timers = get_timers()
     writer = get_tensorboard_writer()
+    wandb_writer = get_wandb_writer()
 
     # Advanced, skipped, and Nan iterations.
     advanced_iters_key = 'advanced iterations'
@@ -275,6 +276,12 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                                         scalar_dict=iter_dict)
                 tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples,
                                         scalar_dict=consumed_train_samples_dict)
+                if wandb_writer:
+                    wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=stats)
+                    wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples,
+                                            scalar_dict=iter_dict)
+                    wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples,
+                                            scalar_dict=consumed_train_samples_dict)
 
 
         else:
@@ -283,6 +290,11 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples,
                                     scalar_dict=consumed_train_samples_dict)
             tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=stats)
+            if wandb_writer:
+                wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=iter_dict)
+                wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples,
+                                        scalar_dict=consumed_train_samples_dict)
+                wandb_scalar_dict(wandb_writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=stats)
 
 
 def get_tensor_stats(xs: torch.Tensor, mask: torch.Tensor, n: int):
@@ -356,6 +368,15 @@ def tensorboard_scalar_dict(tensorboard_writer, prefix, global_step, scalar_dict
         for key, value in scalar_dict.items():
             name = '{}/{}'.format(prefix, key)
             tensorboard_writer.add_scalar(name, value, global_step)
+
+def wandb_scalar_dict(wandb_writer, prefix, global_step, scalar_dict):
+    if isinstance(scalar_dict, (float, int)):
+        name = prefix
+        value = scalar_dict
+        wandb_writer.log({f"{name}": value}, global_step)
+    else:
+        for key, value in scalar_dict.items():
+            wandb_writer.log({f"{prefix}/{key}": value}, global_step)
 
 
 def get_loss_mask(all_tokens_right_padded, pad_token_id, prompt_sizes):
