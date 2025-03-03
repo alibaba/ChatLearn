@@ -158,17 +158,27 @@ class RLHFSingleSampler:
         shuffle=True,
         seed=0,
         num_inference_per_prompt=1,
-        drop_last=False):
+        drop_last=2):
 
-        self.total_samples = total_samples
-        self.consumed_samples = consumed_samples
-        self.actual_samples = total_samples * num_inference_per_prompt \
-            // batch_size * batch_size if drop_last else total_samples * num_inference_per_prompt
-        self.curr_epoch = consumed_samples // self.actual_samples
-        self.shuffle = shuffle
-        self.seed = seed
+        """
+        drop_last:
+            0: drop last
+            1: return remaining samples
+            2: loop back to the beginning
+        """
+
         self.num_inference_per_prompt = num_inference_per_prompt
         self.drop_last = drop_last
+        self.shuffle = shuffle
+        self.seed = seed
+        self.total_samples = total_samples
+        self.consumed_samples = consumed_samples
+
+        self.actual_samples = total_samples * num_inference_per_prompt \
+            // batch_size * batch_size if self.drop_last == 0 else total_samples * num_inference_per_prompt
+        self.offset = consumed_samples % self.actual_samples
+
+        self.curr_epoch = consumed_samples // self.actual_samples
         if self.shuffle:
             g = torch.Generator()
             g.manual_seed(self.curr_epoch + self.seed)
@@ -178,11 +188,11 @@ class RLHFSingleSampler:
         self.duplicated_random_idx = []
         for ridx in self.random_idx:
             self.duplicated_random_idx.extend([ridx] * self.num_inference_per_prompt)
-        self.offset = consumed_samples % self.actual_samples
+
 
     def get_next(self, num):
         batch = []
-        if self.drop_last:
+        if self.drop_last == 0:
             assert num <= self.total_samples * self.num_inference_per_prompt, \
                 'drop_last does not support batch_size larger than dataset size'
             if num > self.total_samples * self.num_inference_per_prompt - self.offset:
@@ -197,6 +207,22 @@ class RLHFSingleSampler:
                         self.duplicated_random_idx.extend([ridx] * self.num_inference_per_prompt)
             batch.extend(self.duplicated_random_idx[self.offset : self.offset + num])
             self.offset = self.offset + num
+            return batch
+        elif self.drop_last == 1:
+            if num > self.total_samples * self.num_inference_per_prompt - self.offset:
+                batch.extend(self.duplicated_random_idx[self.offset : self.total_samples * self.num_inference_per_prompt])
+                self.offset = 0
+                self.curr_epoch += 1
+                if self.shuffle:
+                    g = torch.Generator()
+                    g.manual_seed(self.curr_epoch + self.seed)
+                    self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
+                    self.duplicated_random_idx = []
+                    for ridx in self.random_idx:
+                        self.duplicated_random_idx.extend([ridx] * self.num_inference_per_prompt)
+            else:
+                batch.extend(self.duplicated_random_idx[self.offset : self.offset + num])
+                self.offset = self.offset + num
             return batch
         else:
             while num >= self.total_samples * self.num_inference_per_prompt - self.offset:
@@ -233,8 +259,15 @@ class MultiDatasetSampler:
         data_parallel_rank=0,
         data_parallel_size=1,
         dynamic_batch_size_flag=False,
-        drop_last=False
+        drop_last=2,
+        data_rerank=False
     ):
+        """
+        drop_last:
+            0: drop last
+            1: return remaining samples
+            2: loop back to the beginning
+        """
         self.remainder = (sum(dataset_sizes) - consumed_samples) % data_parallel_size \
             if dynamic_batch_size_flag else 0
         self.dataset_sizes = dataset_sizes
@@ -248,7 +281,11 @@ class MultiDatasetSampler:
         self.num_inference_per_prompt = num_inference_per_prompt
         self.shuffle = shuffle
         self.seeds = [0] * self.dataset_num if seed is None else [seed] * self.dataset_num
-        self.drop_last = drop_last
+        if self.dataset_num == 1:
+            self.drop_last = drop_last
+        else:
+            self.drop_last = 2
+        self.data_rerank = data_rerank
 
         assert init_shuffle_prompt == 0, "init_shuffle_prompt=1, 2 is not supported yet"
         assert self.consumed_samples % self.batch_size == 0, "consumed samples must be integer multiple of micro_batch_size times data_parallel_size"
@@ -303,7 +340,7 @@ class MultiDatasetSampler:
         if self.is_eval:
             idxes = []
             for i in range(self.dataset_num):
-                idxes.extend([(i, j) for j in range(self.dataset_sizes[i])])
+                idxes.extend([(i, j, (len(idxes) + j) // self.num_inference_per_prompt) for j in range(self.dataset_sizes[i])])
 
             if self.data_parallel_rank >= self.remainder:
                 batch_size_list = [self.micro_batch_size + 1] * self.remainder + \
@@ -319,24 +356,40 @@ class MultiDatasetSampler:
                 duplicated_batch.extend([data for i in range(self.num_inference_per_prompt)])
             yield duplicated_batch
         else:
-            if self.dataset_num == 1 and self.drop_last:
-                while True:
+            while True:
+                if self.drop_last == 0:
                     batch = self.samplers[0].get_next(self.batch_size)
-                    batch_idxes = [(0, batch[i]) for i in range(self.batch_size)]
-                    batch_idxes = batch_idxes[self.data_parallel_rank * self.micro_batch_size : (self.data_parallel_rank + 1) * self.micro_batch_size]
-                    yield batch_idxes
-            else:
-                while True:
+                    batch_idxes = [(0, batch[i], i // self.num_inference_per_prompt) for i in range(self.batch_size)]
+                    if self.data_rerank:
+                        batch_idxes = batch_idxes[self.data_parallel_rank : : self.data_parallel_size]
+                    else:
+                        batch_idxes = \
+                            batch_idxes[self.data_parallel_rank * self.micro_batch_size : (self.data_parallel_rank + 1) * self.micro_batch_size]
+                elif self.drop_last == 1:
+                    batch = self.samplers[0].get_next(self.batch_size)
+                    batch_idxes = [(0, batch[i], i // self.num_inference_per_prompt) for i in range(len(batch))]
+                    if self.data_rerank:
+                        batch_idxes = batch_idxes[self.data_parallel_rank : : self.data_parallel_size]
+                    else:
+                        batch_size_list = [len(batch_idxes) // self.data_parallel_size] * self.data_parallel_size
+                        for i in range(len(batch_idxes) % self.data_parallel_size):
+                            batch_size_list[i] += 1
+                        batch_idxes = \
+                            batch_idxes[sum(batch_size_list[:self.data_parallel_rank]) : sum(batch_size_list[:self.data_parallel_rank + 1])]
+                else:
                     batch_idxes = []
                     dataset_id = 0
                     while len(batch_idxes) != self.batch_size:
                         data_num = min(self.dataset_remains[dataset_id], self.batch_size - len(batch_idxes))
                         self.dataset_remains[dataset_id] -= data_num
                         batch = self.samplers[dataset_id].get_next(data_num)
-                        batch_idxes.extend([(dataset_id, batch[i]) for i in range(data_num)])
+                        batch_idxes.extend([(dataset_id, batch[i], (len(batch_idxes) + i) // self.num_inference_per_prompt) for i in range(data_num)])
                         dataset_id = (dataset_id + 1) % self.dataset_num
                         if self.dataset_remains == [0] * self.dataset_num:
                             self.dataset_remains = self.data_ratio[:]
-
-                    batch_idxes = batch_idxes[self.data_parallel_rank * self.micro_batch_size : (self.data_parallel_rank + 1) * self.micro_batch_size]
-                    yield batch_idxes
+                    if self.data_rerank:
+                        batch_idxes = batch_idxes[self.data_parallel_rank : : self.data_parallel_size]
+                    else:
+                        batch_idxes = \
+                            batch_idxes[self.data_parallel_rank * self.micro_batch_size : (self.data_parallel_rank + 1) * self.micro_batch_size]
+                yield batch_idxes
