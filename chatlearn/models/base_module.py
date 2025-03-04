@@ -136,6 +136,7 @@ class BaseModule:
         self._sync_dst_rank_to_src_ranks = {}
         self._expert_sync_buffer = {}
         self._synchronizer = None
+        self.wandb_writer = None
 
     def get_sync_buffer(self):
         return self._sync_buffer
@@ -608,6 +609,13 @@ class BaseModule:
         for group_name in self._group_names:
             self._destroy_collective_group(group_name)
         self._group_names = []
+
+    def clean(self):
+        """
+        :meta private:
+        """
+        if self.wandb_writer:
+            self.wandb_writer.finish()
 
     def get_local_param_ranks(self):
         """

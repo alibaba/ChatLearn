@@ -342,3 +342,32 @@ def regroup_by_concat_along_batch(tensors):
             raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat : {to_batch[0]}")
 
     return batched
+
+def wandb_scalar_dict(wandb_writer, prefix, global_step, scalar_dict):
+    if isinstance(scalar_dict, (float, int)):
+        name = prefix
+        value = scalar_dict
+        wandb_writer.log({f"{name}": value, f"{name}/step": global_step})
+    else:
+        scalar_dict_with_prefix = {}
+        if prefix is None or prefix == "": # there is no common prefix
+            step_dict = {}
+            scalar_keys = list(scalar_dict.keys())
+            for key in scalar_keys:
+                step_prefix = key.split('/')[0]
+                step_key = step_prefix + '/step'
+                if step_key in step_dict:
+                    continue
+                step_dict[step_key] = global_step
+            scalar_dict_with_prefix.update(step_dict)
+            scalar_dict_with_prefix.update(scalar_dict)
+        else: # all k-v pairs in the scalar dict share the same prefix
+            rstripped_key = prefix.rstrip('/')
+            step_metric_key = f"{rstripped_key}/step"
+            step_metric_value = global_step
+            scalar_dict_with_prefix[step_metric_key] = step_metric_value
+            for key, value in scalar_dict.items():
+                scalar_dict_with_prefix[f"{rstripped_key}/{key}"] = value
+
+        logger.info(f"wandb logging: {scalar_dict_with_prefix}")
+        wandb_writer.log(scalar_dict_with_prefix, step=global_step)

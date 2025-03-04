@@ -352,6 +352,10 @@ class RuntimeConfig(BaseConfig):
     enable_eval_before_training: bool = False
     #: policy to regroup queue
     policy_to_regroup_queue: str = "global_barrier"
+    #: configuration file path for logging
+    log_config_file: str = ""
+    #: [optional] placeholder for log_args_dict
+    log_args_dict: dict = None
 
     def __init__(self):
         super().__init__()
@@ -506,6 +510,10 @@ class Config(BaseConfig):
             set_param(param_dict["rlhf"], RuntimeConfig, self.runtime_args)
         if "runtime_env" in param_dict:
             set_param(param_dict["runtime_env"], RuntimeEnvConfig, self.env_args)
+
+        if self.runtime_args.log_config_file:
+            self.runtime_args.log_config_file = get_path(self.runtime_args.log_config_file, self.config_dir)
+            self.runtime_args.log_args_dict = parse_args_from_yaml(self.runtime_args.log_config_file, self.config_dir)
 
         def _get_and_check_type(value, default_value, key):
             # To be noticed: all str type values should in lower case.
