@@ -422,12 +422,23 @@ class ModelManager:
             concurrent.futures.wait(futures)
 
     def clean(self):
+        clean_refs = []
+        for dist_model in self._name2distmodel.values():
+            for dist_actor in dist_model.replicas:
+                for actor in dist_actor.all_actors:
+                    clean_refs.append(actor.clean.remote())
+        future.wait(clean_refs)
+
         for group in self.parameter_sync_groups.values():
             group.destroy_collective_group()
         for dist_model in self._name2distmodel.values():
             for dist_actor in dist_model.replicas:
                 for actor in dist_actor.all_actors:
-                    ray.kill(actor)
+                    try:
+                        ray.kill(actor)
+                    except Exception:
+                        logger.info("Encountering exceptions in cleaning actors, but ok")
+                        continue
         ray.kill(self._storage)
         ray.kill(self.error_signal)
         self.resouce_manager.remove_placement_groups()

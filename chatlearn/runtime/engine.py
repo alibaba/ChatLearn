@@ -31,7 +31,7 @@ from chatlearn.utils import future
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.utils.utils import get_full_proc_memory_info, wandb_scalar_dict
 from chatlearn.utils.timer import Timers
 
 
@@ -43,6 +43,7 @@ class BaseEngine:
         self.global_args = get_args()
         self.runtime_args = self.global_args.runtime_args
         self._timers = Timers()
+        self.wandb_writer = None
 
     def set_timers(self, _timers):
         self._timers = _timers
@@ -58,6 +59,40 @@ class BaseEngine:
         if self._timers:
             return self._timers.log(reset=False, return_dict=True)
 
+    def _setup_wandb(self):
+        # engine won't setup wandb if log_config_file is not specified or enable_wandb is False
+        if self.runtime_args.log_args_dict is None or not self.runtime_args.log_args_dict['enable_wandb']:
+            self.wandb_writer = None
+            logger.info("wandb is disabled in engine.")
+            return
+
+        try:
+            import wandb # pylint:disable=import-outside-toplevel
+            wandb_name = "timer_summary"
+            wandb_kwargs = {
+                'dir': self.runtime_args.log_args_dict['wandb_dir'],
+                'name': wandb_name,
+                'project': self.runtime_args.log_args_dict['wandb_project'],
+                'id': f"{self.runtime_args.log_args_dict['wandb_id']}_{wandb_name}",
+                'resume': self.runtime_args.log_args_dict['wandb_resume'],
+                'group': self.runtime_args.log_args_dict['wandb_group'],
+                'job_type': "timer",
+                'reinit': False,
+                'config': self.runtime_args.log_args_dict,
+            }
+            logger.info(f"========WANDB_ARGS: {wandb_kwargs}")
+            wandb.init(**wandb_kwargs)
+            # define our custom x axis metric
+            wandb.define_metric("engine/timer_summary/step", hidden=True)
+            # set all other engine/timer_summary metrics to use this step
+            wandb.define_metric("engine/timer_summary/*", step_metric="engine/timer_summary/step")
+        except Exception:
+            self.wandb_writer = None
+            logger.info("wandb_writer is empty. please check wandb in timer_summary")
+        else:
+            self.wandb_writer = wandb
+            logger.info("init wandb_writer in engine successfully")
+
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
         self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
@@ -69,6 +104,7 @@ class BaseEngine:
         """
         :meta private:
         """
+        self._setup_wandb()
         self._create_remote_models()
         # for ease to access model by self.{model_name}
         for model in self.remote_models:
@@ -155,8 +191,11 @@ class BaseEngine:
             summary = summary[-1] if isinstance(summary, list) else summary
             logger.info(f"{LOG_START} [{model.name}] {summary}")
         self.logging_memory()
+        return e2e_time_dict
 
     def stop(self):
+        if self.wandb_writer:
+            self.wandb_writer.finish()
         self.model_manager.clean()
 
 
@@ -301,11 +340,14 @@ class Engine(BaseEngine):
         """
         :meta private:
         """
-        super().logging_summary(iteration)
+        e2e_time_dict = super().logging_summary(iteration)
         episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
         logger.info(
             f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
+        episode_stats.update(e2e_time_dict)
         self.episode_stats = episode_stats
+        if self.wandb_writer:
+            wandb_scalar_dict(self.wandb_writer, "engine/timer_summary/learn/", iteration + 1, episode_stats)
         return episode_stats
 
     def set_relay_sample_fn(self, relay_sample_fn):
@@ -478,8 +520,20 @@ class Engine(BaseEngine):
             self.timers("evaluate").start()
             self.evaluator.eval(episode_id, self.trainer.iteration)
             self.timers("evaluate").stop()
-            super().logging_summary(episode_id)
-            logger.info(f"{LOG_START} evaluate done {self.timers.log(names=['evaluate'])}")
+
+            e2e_time_dict = super().logging_summary(episode_id)
+
+            eval_episode_str, eval_episode_stats = self.timers.log(names=['evaluate'], return_dict=True)
+            logger.info(f"{LOG_START} evaluate done {eval_episode_str}")
+
+            eval_episode_stats.update(e2e_time_dict)
+            if self.wandb_writer:
+                wandb_scalar_dict(
+                    self.wandb_writer,
+                    "engine/timer_summary/evaluate/",
+                    episode_id + 1,
+                    eval_episode_stats
+                )
 
 
 class RLHFEngine(Engine):
