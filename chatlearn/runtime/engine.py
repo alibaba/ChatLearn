@@ -16,6 +16,7 @@
 
 import os
 import shutil
+import time
 import torch
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
@@ -104,12 +105,17 @@ class BaseEngine:
         """
         :meta private:
         """
+        logger.info(f"{LOG_START} setup, start to create_remote_models")
+        t1 = time.time()
         self._setup_wandb()
         self._create_remote_models()
+        t2 = time.time()
+        logger.info(f"{LOG_START} setup, finished to create_remote_models(s):{(t2-t1)}")
         # for ease to access model by self.{model_name}
         for model in self.remote_models:
             setattr(self, model.name, model)
 
+        logger.info(f"{LOG_START} setup, start to set_src_parameter_model")
         if hasattr(self, '_param_sync_pairs'):
             ref_set_src = []
             for src_model, dst_model in self._param_sync_pairs:
@@ -117,6 +123,8 @@ class BaseEngine:
                 remote_dst_model = getattr(self, dst_model.name)
                 ref_set_src += remote_dst_model.set_src_parameter_model(remote_src_model)
             future.wait(ref_set_src)
+        t3 = time.time()
+        logger.info(f"{LOG_START} setup, finished to set_src_parameter_model(s):{(t3-t2)}")
         # include compile in init, compile dependencies need to be called serially
         logger.info(get_full_proc_memory_info(f"{LOG_START} Before model init"))
         for model in self.remote_models:
@@ -255,13 +263,21 @@ class Engine(BaseEngine):
         """
         :meta private:
         """
+        logger.info(f"{LOG_START} create_remote_models, start to create resource_manager")
+        t1 = time.time()
         resource_manager = ResourceManager(self._models)
+        t2 = time.time()
+        logger.info(f"{LOG_START} create_remote_models, finished to create resource_manager(s):{(t2-t1)}")
         self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
         for src_model, dst_model in self._param_sync_pairs:
             self.model_manager.set_parameter_sync(src_model, dst_model)
         self.model_manager.remote()
+        t3 = time.time()
+        logger.info(f"{LOG_START} create_remote_models, finished to set_parameter_sync(s):{(t3-t2)}")
         self.remote_models = self.model_manager.dist_models
         self.named_models = {model.name: model for model in self.remote_models}
+        t4 = time.time()
+        logger.info(f"{LOG_START} create_remote_models, finished to get named_models(s):{(t4-t3)}")
 
     def setup(self):
         """
