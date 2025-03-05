@@ -33,10 +33,12 @@ from chatlearn.data.sampler import MultiDatasetSampler
 from chatlearn.data.data import RLHFDataLoader
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
+from chatlearn.utils.logger import logger
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr
@@ -53,6 +55,7 @@ class BaseModule:
     """
 
     def __init__(self, name, args=None, replica_id=0):
+        logger.info(f"{LOG_START} basemodule {name} init start")
         self.name = name
         if args is None:
             global_args = get_args()
@@ -137,6 +140,7 @@ class BaseModule:
         self._expert_sync_buffer = {}
         self._synchronizer = None
         self.wandb_writer = None
+        logger.info(f"{LOG_START} basemodule {name} init done")
 
     def get_sync_buffer(self):
         return self._sync_buffer

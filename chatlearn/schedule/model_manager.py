@@ -17,6 +17,7 @@
 import concurrent.futures
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+import time
 
 import ray
 import ray.experimental.state.api
@@ -29,6 +30,7 @@ from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
 from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
@@ -77,6 +79,8 @@ class ModelManager:
         """
         convert model to remote
         """
+        logger.info(f"{LOG_START} model_manager start to convert model to remote")
+        t1 = time.time()
         if self.converted:
             return self.dist_models
 
@@ -96,6 +100,8 @@ class ModelManager:
                            f"while the number of required gpus is {total_gpu_required}, " + \
                            f"there is {self.resouce_manager.total_gpu - total_gpu_required} wasted gpus")
 
+        t2 = time.time()
+        logger.info(f"{LOG_START} model_manager convert model to remote, get_total_gpu_required(s):{(t2-t1)}")
         env_list = []
         for group in self.runtime_args.colocation:
             colocate_models = [self._name2distmodel[name] for name in group]
@@ -108,12 +114,16 @@ class ModelManager:
                 future.wait(set_colocate)
             for name in group:
                 remote_states.add(name)
+        t3 = time.time()
+        logger.info(f"{LOG_START} model_manager convert model to remote, set_colocate(s):{(t3-t2)}")
         for model in self.dist_models:
             # place non-colocate models
             if model.name not in remote_states:
                 self.place_models_to_remote_devices([model], env_list)
         self.set_dist_env_concurrent(env_list)
         self.converted = True
+        t4 = time.time()
+        logger.info(f"{LOG_START} model_manager convert model to remote, place_models_to_remote_devices(s):{(t4-t3)}")
         return self.dist_models
 
     def build_parameter_group(self):
