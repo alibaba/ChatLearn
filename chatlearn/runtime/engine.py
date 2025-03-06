@@ -115,16 +115,6 @@ class BaseEngine:
         for model in self.remote_models:
             setattr(self, model.name, model)
 
-        logger.info(f"{LOG_START} setup, start to set_src_parameter_model")
-        if hasattr(self, '_param_sync_pairs'):
-            ref_set_src = []
-            for src_model, dst_model in self._param_sync_pairs:
-                remote_src_model = getattr(self, src_model.name)
-                remote_dst_model = getattr(self, dst_model.name)
-                ref_set_src += remote_dst_model.set_src_parameter_model(remote_src_model)
-            future.wait(ref_set_src)
-        t3 = time.time()
-        logger.info(f"{LOG_START} setup, finished to set_src_parameter_model(s):{(t3-t2)}")
         # include compile in init, compile dependencies need to be called serially
         logger.info(get_full_proc_memory_info(f"{LOG_START} Before model init"))
         for model in self.remote_models:
@@ -256,7 +246,6 @@ class Engine(BaseEngine):
             destination model to sync parameters
         """
         self._param_sync_pairs.append((src_model, dst_model))
-        dst_model.set_src_parameter_model(src_model)
         return self
 
     def _create_remote_models(self):

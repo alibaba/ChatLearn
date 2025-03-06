@@ -61,12 +61,11 @@ class PolicyInference(MegatronModule):
         # Set up model and load checkpoint
         model = get_model(self.model_provider, wrap_with_ddp=False)
         self.tokenizer = get_tokenizer()
-        if self.args.load and self.src_parameter_model is None:
-            # if self.src_parameter_model is not None, we broadcast parameters from src_parameter_model to current model
+        if self.args.load:
             torch.distributed.barrier()
             load_checkpoint(model, None, None, adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint)
             torch.distributed.barrier()
-        elif self.args.load is None and self.src_parameter_model is None:
+        else:
             print_rank_0(f"Warning: Using random parameter for {self.name} model.")
 
         assert len(model) == 1, "Above condition should have caught this"

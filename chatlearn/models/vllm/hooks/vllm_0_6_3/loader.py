@@ -85,8 +85,7 @@ def load_model(self, *, model_config,
             model = _initialize_model(model_config, self.load_config,
                                         lora_config, cache_config,
                                         scheduler_config)
-        if self.load_config.model_loader_extra_config.get("need_load_ckpt", True) and \
-                self.load_config.model_loader_extra_config["load"] is not None:
+        if self.load_config.model_loader_extra_config["load"] is not None:
             qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
             qwen2.Qwen2ForCausalLM.load_weights = load_weights
             qwen2_moe.Qwen2MoeForCausalLM.load_state_dict = load_state_dict
