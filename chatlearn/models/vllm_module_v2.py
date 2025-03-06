@@ -91,7 +91,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
         if load_format == LoadFormat.DUMMY:
-            self.model_args["need_load_ckpt"] = self.src_parameter_model is None
             model_loader_extra_config = self.model_args
         else:
             model_loader_extra_config = None
@@ -161,7 +160,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
         if load_format == LoadFormat.DUMMY:
-            self.model_args["need_load_ckpt"] = self.src_parameter_model is None
             model_loader_extra_config = self.model_args
         else:
             model_loader_extra_config = None

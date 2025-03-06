@@ -207,10 +207,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
     def setup(self):
         """Set up model and load checkpoint"""
-        need_load_ckpt = self.src_parameter_model is None
-        model = [get_model(self.model_provider, self.model_args, need_load_ckpt)]
+        model = [get_model(self.model_provider, self.model_args)]
 
-        if self.model_args["load"] is None and need_load_ckpt:
+        if self.model_args["load"] is None:
             print_rank_0(f"Warning: Using random parameter for {self.name} model.")
 
         assert len(model) == 1, "Above condition should have caught this"

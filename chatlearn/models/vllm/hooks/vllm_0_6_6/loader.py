@@ -84,8 +84,7 @@ def load_model(self, vllm_config: VllmConfig):# -> nn.Module:
             model = _initialize_model(vllm_config=vllm_config)
         # NOTE(woosuk): For accurate performance evaluation, we assign
         # random values to the weights.
-        if self.load_config.model_loader_extra_config.get("need_load_ckpt", True) and \
-                self.load_config.model_loader_extra_config["load"] is not None:
+        if self.load_config.model_loader_extra_config["load"] is not None:
             qwen2.Qwen2ForCausalLM.load_state_dict = load_state_dict
             qwen2.Qwen2ForCausalLM.load_weights = load_weights
             qwen2_moe.Qwen2MoeForCausalLM.load_state_dict = load_state_dict
