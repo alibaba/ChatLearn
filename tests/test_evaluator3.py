@@ -39,22 +39,27 @@ def eval_flow(batch):
     r1 = reward.forward_step(r0)
     return r1
 
-def eval_post_process(results, eval_info):
-    results = results["reward"]
-    results = listdict_to_dictlist(results)
-    eval_num = len(results['reward_out']) * results['reward_out'][0].shape[0]
-    assert eval_num == chatlearn.get_args().runtime_args.get('eval_data_num_limit'), \
-        f"expect the number of evaluated samples is equal to eval_data_num_limit, but get {eval_num} " \
-        f"and {chatlearn.get_args().runtime_args.get('eval_data_num_limit')} respectively"
-    assert torch.min(results['reward_out'][0]) == 32
-    assert torch.max(results['reward_out'][0]) == 33
-    assert torch.min(results['reward_out'][1]) == 34
-    assert torch.max(results['reward_out'][1]) == 35
+class CustomEvaluator(Evaluator):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def post_process(self, results, eval_info):
+        results = results["reward"]
+        results = listdict_to_dictlist(results)
+        eval_num = len(results['reward_out']) * results['reward_out'][0].shape[0]
+        assert eval_num == chatlearn.get_args().runtime_args.get('eval_data_num_limit'), \
+            f"expect the number of evaluated samples is equal to eval_data_num_limit, but get {eval_num} " \
+            f"and {chatlearn.get_args().runtime_args.get('eval_data_num_limit')} respectively"
+        assert torch.min(results['reward_out'][0]) == 32
+        assert torch.max(results['reward_out'][0]) == 33
+        assert torch.min(results['reward_out'][1]) == 34
+        assert torch.max(results['reward_out'][1]) == 35
+        return results
 
 eval_num_limit = chatlearn.get_args().runtime_args.get('eval_data_num_limit')
 eval_num_limit = min(eval_num_limit, len(val_data))
 val_data = val_data[:eval_num_limit]
-evaluator = Evaluator(eval_flow).set_dataset(val_data).set_post_process_func(eval_post_process)
+evaluator = CustomEvaluator(eval_flow).set_dataset(val_data)
 engine.set_evaluator(evaluator)
 
 engine.set_dataset(train_data)

@@ -23,7 +23,6 @@ from megatron.core import mpu
 from megatron.training import arguments
 from megatron.training import get_args, get_tokenizer
 from megatron.training import print_rank_0
-from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 from megatron.inference.text_generation.communication import broadcast_float_list, \
     broadcast_int_list, broadcast_tensor
 from megatron.inference.text_generation.generation import generate_tokens_probs_and_return_on_first_stage
@@ -36,7 +35,7 @@ from chatlearn.utils.megatron_utils import load_checkpoint
 from examples.megatron.data.prompt_dataset import PromptPipeline
 from .policy_model import PolicyModel as LegacyPolicyModel
 from .mcore_policy_model import MCorePolicyModel
-from .utils import tensorboard_scalar_dict, wandb_scalar_dict , get_loss_mask, get_eos_id
+from .utils import get_loss_mask, get_eos_id
 
 
 class PolicyInference(MegatronModule):
@@ -85,6 +84,8 @@ class PolicyInference(MegatronModule):
         # init num
         get_args().entropy_num = 0
         get_args().latest_entropies = []
+
+        self._metric_prefix = "policy_inference"
 
     def build_dataset(self, train_prompts, is_eval=False):
         args = get_args()
@@ -405,13 +406,7 @@ class PolicyInference(MegatronModule):
     def forward_step(self, data, iteration=0):
         return self._forward_step(data, iteration, eval_mode=False)
 
-    def log_entropy(self, iteration_for_log):
-
-        # log
-
-        writer = get_tensorboard_writer()
-        wandb_writer = get_wandb_writer()
-
+    def log_entropy(self, iteration_for_log): # pylint: disable=unused-argument
         # RL related stats: global
         if torch.distributed.is_initialized():
             if torch.distributed.get_rank() == (
@@ -426,11 +421,7 @@ class PolicyInference(MegatronModule):
                               "max_latest_entropy": np.max(get_args().latest_entropies),
                               "mean_latest_entropy": np.mean(get_args().latest_entropies),
                               }
-                tensorboard_scalar_dict(writer, prefix=f"policy_inference/replica_id{self.replica_id}",
-                                        global_step=iteration_for_log, scalar_dict=stats_args)
-                if wandb_writer:
-                    wandb_scalar_dict(wandb_writer, prefix=f"policy_inference/replica_id{self.replica_id}",
-                                            global_step=iteration_for_log, scalar_dict=stats_args)
+                self._metric_list.append(stats_args)
 
         else:
             # actual log
@@ -442,11 +433,7 @@ class PolicyInference(MegatronModule):
                           "max_latest_entropy": np.max(get_args().latest_entropies),
                           "mean_latest_entropy": np.mean(get_args().latest_entropies),
                           }
-            tensorboard_scalar_dict(writer, prefix=f"policy_inference/replica_id{self.replica_id}",
-                                    global_step=iteration_for_log, scalar_dict=stats_args)
-            if wandb_writer:
-                wandb_scalar_dict(wandb_writer, prefix=f"policy_inference/replica_id{self.replica_id}",
-                        global_step=iteration_for_log, scalar_dict=stats_args)
+            self._metric_list.append(stats_args)
 
         get_args().entropy_sum = 0
         get_args().entropy_num = 0

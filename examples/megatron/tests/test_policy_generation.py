@@ -17,8 +17,7 @@
 import os
 from tqdm import tqdm
 
-from examples.megatron.models.utils import write_jsonl
-from examples.megatron.models.train_helper import get_prompts
+from examples.megatron.models.utils import write_jsonl, get_prompts
 import chatlearn
 from chatlearn import EvalEngine
 

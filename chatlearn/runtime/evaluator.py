@@ -20,7 +20,9 @@ import ray
 from chatlearn.runtime.environment import Environment
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
+from chatlearn.utils.utils import map_reduce_metrics
 from chatlearn.data.ranking import batch_generation_ranking
+
 
 # pylint: disable=not-callable
 class Evaluator(Environment):
@@ -37,8 +39,9 @@ class Evaluator(Environment):
 
     def __init__(self, model_flow):
         super().__init__(model_flow)
-        self._post_process_func = None
         self.is_eval = True
+        self._metric_prefix = "eval"
+        self._metric_list = []
 
     @property
     def sample_per_episode(self):
@@ -79,21 +82,6 @@ class Evaluator(Environment):
             merged_data_list.append(res)
         return merged_data_list
 
-    def set_post_process_func(self, post_process_func):
-        """
-        Set post process function for model evaluation results.
-
-        Args
-        ----
-        post_process_func
-
-            This function accept two arguments.
-            1. results: a list of evaluation results
-            2. eval_info: a dict meta that contains "train_iteration" and "episode_iteration"
-        """
-        self._post_process_func = post_process_func
-        return self
-
     def eval(self, cur_iter=None, train_iteration=None):
         """
         Evaluating.
@@ -124,12 +112,32 @@ class Evaluator(Environment):
                 model_name = self.model_flow.return_model_nodes[i].name
                 all_results[model_name].append(batch)
 
-        if self._post_process_func is not None:
-            eval_info = {}
-            if cur_iter is not None:
-                eval_info["episode_iteration"] = cur_iter
-            if train_iteration is not None:
-                eval_info["train_iteration"] = train_iteration
-            self._post_process_func(all_results, eval_info)
-        return all_results
+        eval_info = {}
+        if cur_iter is not None:
+            eval_info["episode_iteration"] = cur_iter
+        if train_iteration is not None:
+            eval_info["train_iteration"] = train_iteration
+        processed_results = self.post_process(all_results, eval_info)
+        return processed_results
+
+    def post_process(self, results, eval_info): # pylint: disable=unused-argument
+        """
+        Default post-process function for model evaluation results.
+
+        Args
+        ----
+            results: list[]
+                a list of evaluation results
+            eval_info: dict[]
+                a meta that contains "train_iteration" and "episode_iteration"
+        """
+        return results
+
+    def get_and_clear_metrics(self):
+        if self._metric_list is None or len(self._metric_list) == 0:
+            return self._metric_prefix, {}
+
+        reduced_metrics = map_reduce_metrics(self._metric_list)
+        self._metric_list = []
+        return self._metric_prefix, reduced_metrics
 # pylint: disable=not-callable

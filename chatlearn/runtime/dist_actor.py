@@ -95,7 +95,10 @@ class DistActor:
             # ray.actor.ActorMethod
             if func_name.startswith('_'):
                 continue
-            dist_call = partial(self.call_remote_funcs, func_name)
+            if func_name in ["get_and_clear_metrics"]:
+                dist_call = partial(self.call_actor_remote_func, self.tailer, func_name)
+            else:
+                dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
     def call_actor_remote_func(self, actor, func_name, *args, **kwargs):
@@ -288,6 +291,8 @@ class DistVLLMActor(DistTorchActor):
                 dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
                 dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
+            elif func_name in ["get_and_clear_metrics"]:
+                dist_call = partial(self.call_actor_remote_func, self.tailer, func_name)
             else: # needed to check for other call_funs.
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
@@ -371,6 +376,7 @@ class DistModel:
         for func_name in ["model_setup",
                           "before_episode",
                           "after_episode",
+                          "get_and_clear_metrics",
                           "validate",
                           "destroy_collective_group",
                           "terminate",

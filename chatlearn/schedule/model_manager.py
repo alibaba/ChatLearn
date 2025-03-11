@@ -432,13 +432,6 @@ class ModelManager:
             concurrent.futures.wait(futures)
 
     def clean(self):
-        clean_refs = []
-        for dist_model in self._name2distmodel.values():
-            for dist_actor in dist_model.replicas:
-                for actor in dist_actor.all_actors:
-                    clean_refs.append(actor.clean.remote())
-        future.wait(clean_refs)
-
         for group in self.parameter_sync_groups.values():
             group.destroy_collective_group()
         for dist_model in self._name2distmodel.values():

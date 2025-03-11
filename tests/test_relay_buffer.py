@@ -6,6 +6,7 @@ import ray
 import chatlearn
 from chatlearn import RLHFEngine
 from chatlearn import TorchModule
+from chatlearn.data.data import RelaySampleManager
 
 
 class CustomDataset(Dataset):
@@ -88,24 +89,25 @@ value = ValueModel("value")
 ppo_policy = PPOPolicy("ppo_policy")
 ppo_value = PPOValue("ppo_value")
 
-def relay_sample_fn(episode_relay_buffers):
-    buffers = []
-    for relay_buffer in episode_relay_buffers:
-        buffers += relay_buffer.buffer
-    episode_id = episode_relay_buffers[-1].episode_id
-    assert len(buffers) == (episode_id+1) * sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
-    queries = [buffer['query'] for buffer in buffers]
-    queries = [int(q[0].item()) for q in queries]
-    if episode_id == 0:
-        assert queries == list(range(16))
-    if episode_id == 1:
-        assert queries == list(range(32))
-    if episode_id == 2:
-        assert queries == list(range(35)) + list(range(13))
-    return buffers
+class RelaySampleManagerTester(RelaySampleManager):
+    def __call__(self, episode_relay_buffers):
+        buffers = []
+        for relay_buffer in episode_relay_buffers:
+            buffers += relay_buffer.buffer
+        episode_id = episode_relay_buffers[-1].episode_id
+        assert len(buffers) == (episode_id+1) * sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
+        queries = [buffer['query'] for buffer in buffers]
+        queries = [int(q[0].item()) for q in queries]
+        if episode_id == 0:
+            assert queries == list(range(16))
+        if episode_id == 1:
+            assert queries == list(range(32))
+        if episode_id == 2:
+            assert queries == list(range(35)) + list(range(13))
+        return buffers
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-engine.set_relay_sample_fn(relay_sample_fn)
+engine.set_relay_sample_manager(RelaySampleManagerTester)
 assert policy.num_replica == 1
 assert reference.num_replica == 1
 data = []

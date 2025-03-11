@@ -20,7 +20,6 @@ from pathlib import Path
 import math
 import time
 import os
-import numpy as np
 
 import torch
 
@@ -42,7 +41,7 @@ from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.logger import logger
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
-from chatlearn.utils.utils import get_host_addr
+from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
 
 
@@ -140,7 +139,8 @@ class BaseModule:
         self._sync_dst_rank_to_src_ranks = {}
         self._expert_sync_buffer = {}
         self._synchronizer = None
-        self.wandb_writer = None
+        self._metric_prefix = ""
+        self._metric_list = []
         self._stage_resume_done = False
         logger.info(f"{LOG_START} basemodule {name} init done")
 
@@ -612,13 +612,6 @@ class BaseModule:
         for group_name in self._group_names:
             self._destroy_collective_group(group_name)
         self._group_names = []
-
-    def clean(self):
-        """
-        :meta private:
-        """
-        if self.wandb_writer:
-            self.wandb_writer.finish()
 
     def get_local_param_ranks(self):
         """
@@ -1097,47 +1090,18 @@ class BaseModule:
         :meta private:
         """
         if self._timers:
-            return self._timers.log(e2e_cost=e2e_cost)
+            return self._timers.log(return_dict=True, e2e_cost=e2e_cost)
 
-    def merge_metrics(self, metric_list):
-        merged_metrics = {}
-        for metrics in metric_list:
-            for key, value in metrics.items():
-                if key in merged_metrics:
-                    merged_metrics[key].append(value)
-                else:
-                    merged_metrics[key] = [value]
-        return merged_metrics
+    def get_and_clear_metrics(self):
+        """
+        get logging metrics
+        """
+        if self._metric_list is None or len(self._metric_list) == 0:
+            return self._metric_prefix, {}
 
-    def reduce_metrics(self, merged_metrics):
-        reduced_metrics = {}
-        for key, value_list in merged_metrics.items():
-            if isinstance(value_list[0], torch.Tensor):
-                value = torch.mean(torch.Tensor(value_list))
-            else:
-                value = np.mean(value_list)
-            reduced_metrics[key] = value
-        return reduced_metrics
-
-    def merge_and_reduce_metrics(self, metric_list):
-        log_rank_0(f"metric_list = {metric_list}", self._logger)
-        # sanity check
-        assert isinstance(metric_list, list)
-
-        if len(metric_list) == 0:
-            return {}
-
-        first_metric_len = len(metric_list[0])
-        for i, metric in enumerate(metric_list):
-            if len(metric) != first_metric_len:
-                log_rank_0(
-                    f"WARNING! length of metrics are not the same for {i}-th metric ({len(metric)}) "
-                    f"and the first one ({first_metric_len})! This is weird and please check!", self._logger
-                )
-
-        merged_metrics = self.merge_metrics(metric_list)
-        reduced_metrics = self.reduce_metrics(merged_metrics)
-        return reduced_metrics
+        reduced_metrics = map_reduce_metrics(self._metric_list)
+        self._metric_list = []
+        return self._metric_prefix, reduced_metrics
 
     def add_padding_config(self, key, padding_value=0.0, padding_type="right"):
         """

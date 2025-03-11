@@ -75,11 +75,9 @@ except ImportError:
 # megatron.global_vars.*
 try:
     from megatron.global_vars import get_tensorboard_writer
-    from megatron.global_vars import get_wandb_writer
     from megatron.global_vars import set_global_variables
 except ImportError:
     from megatron.training.global_vars import get_tensorboard_writer
-    from megatron.training.global_vars import get_wandb_writer
     from megatron.training.global_vars import set_global_variables
 
 # megatron.initialize.*

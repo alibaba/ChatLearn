@@ -18,6 +18,8 @@ import math
 import random
 import copy
 import os
+from typing import List, Dict
+
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -25,7 +27,7 @@ from torch.utils.data import default_collate
 from chatlearn.utils.logger import logger
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
-from chatlearn.utils.utils import regroup_by_concat_along_batch
+from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
 
 
 def get_iter_keys(data):
@@ -129,6 +131,7 @@ class StreamDataset:
         self._max_relay_episode = max_relay_episode
         self._relay_episode_offset = relay_episode_offset
         self._episode_relay_buffers = []
+        self.relay_sample_manager = None
 
         # ChunkFlow: Params for ChunkFlow
         self.prefetch_batch_cnt= micro_batch_size if global_batch_size < 0 else global_batch_size
@@ -221,7 +224,7 @@ class StreamDataset:
         """
         return self._has_next
 
-    def set_dataset(self, queue, episode_id, relay_sample_fn=None, sample_per_episode=-1):
+    def set_dataset(self, queue, episode_id, relay_sample_manager=None, sample_per_episode=-1):
         relay_buffer = EpisodeRelayBuffer(episode_id, queue=queue)
         if self._max_relay_episode > 0 and episode_id >= self._relay_episode_offset:
             self._episode_relay_buffers.append(relay_buffer)
@@ -233,10 +236,11 @@ class StreamDataset:
             # which will block training until environment rollout finished.
             if os.getenv("SKIP_GENERATION", None) is None:
                 relay_buffer.sync()
-            if relay_sample_fn is not None:
-                buffer = relay_sample_fn(self._episode_relay_buffers)
-            else:
+            if relay_sample_manager is None:
                 raise Exception("default relay sample function is not currently supported")
+
+            self.relay_sample_manager = relay_sample_manager
+            buffer = self.relay_sample_manager(self._episode_relay_buffers)
             self.relay_buffer = EpisodeRelayBuffer(episode_id, buffer=buffer)
             self._total_samples = len(self.relay_buffer)
             self._read_data_complete = True
@@ -258,6 +262,9 @@ class StreamDataset:
 
     def batch_per_episode(self):
         return math.ceil(self._total_samples / self.batch_size)
+
+    def get_and_clear_metrics(self):
+        return self.relay_sample_manager.get_and_clear_metrics()
 
 
 class EpisodeRelayBuffer:
@@ -318,6 +325,28 @@ class EpisodeRelayBuffer:
     @property
     def episode_id(self):
         return self._episode_id
+
+
+class RelaySampleManager:
+    """
+    Relay sample Manager, users should inherit it to self-defined relay samples for trainer
+    """
+    def __init__(self, global_args):
+        self.args = global_args
+        self._metric_prefix = "relay"
+        self._metric_list = []
+
+    def __call__(self, episode_relay_buffers: List[EpisodeRelayBuffer]) -> List[Dict]:
+        raise NotImplementedError("default relay sample function is not currently supported")
+
+    def get_and_clear_metrics(self):
+        if self._metric_list is None or len(self._metric_list) == 0:
+            return self._metric_prefix, {}
+
+        reduced_metrics = map_reduce_metrics(self._metric_list)
+        self._metric_list = []
+        return self._metric_prefix, reduced_metrics
+
 
 class RLHFDataLoader:
     """
