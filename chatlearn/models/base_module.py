@@ -420,7 +420,7 @@ class BaseModule:
             )
         return all_datasets
 
-    def _build_dataloader(self, data, batch_size, dynamic_batch_size_flag=False, is_eval=False):
+    def _build_dataloader(self, data, sample_per_episode, is_eval=False):
         """
         build and set the dataloader for the model
 
@@ -441,10 +441,9 @@ class BaseModule:
         collate_fn = all_datasets[0].collate_fn if hasattr(all_datasets[0], 'collate_fn') else None
         drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
         dataloader = self.build_dataloader(all_datasets,
-                                           batch_size=batch_size,
+                                           sample_per_episode=sample_per_episode,
                                            collate_fn=collate_fn,
                                            is_eval=is_eval,
-                                           dynamic_batch_size_flag=dynamic_batch_size_flag,
                                            consumed_samples=consumed_samples,
                                            data_ratio=data_ratio,
                                            shuffle=shuffle,
@@ -461,10 +460,9 @@ class BaseModule:
 
     def build_dataloader(self,
                          all_datasets,
-                         batch_size,
+                         sample_per_episode,
                          collate_fn=None,
                          is_eval=False,
-                         dynamic_batch_size_flag=False,
                          consumed_samples=0,
                          data_ratio=None,
                          shuffle=True,
@@ -498,17 +496,16 @@ class BaseModule:
         if is_eval:
             batch_sampler = MultiDatasetSampler(
                 dataset_sizes=[len(dataset) for dataset in all_datasets],
-                batch_size=batch_size,
+                sample_per_episode=sample_per_episode,
                 shuffle=False,
                 is_eval=True,
                 data_parallel_rank=self.replica_id,
-                data_parallel_size=self._num_replica,
-                dynamic_batch_size_flag=dynamic_batch_size_flag
+                data_parallel_size=self._num_replica
             )
         else:
             batch_sampler = MultiDatasetSampler(
                 dataset_sizes=[len(dataset) for dataset in all_datasets],
-                batch_size=batch_size,
+                sample_per_episode=sample_per_episode,
                 data_ratio=data_ratio,
                 consumed_samples=consumed_samples,
                 num_inference_per_prompt=num_inference_per_prompt,
@@ -516,7 +513,7 @@ class BaseModule:
                 is_eval=False,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
-                drop_last=0 if drop_last else 2,
+                drop_last="drop" if drop_last else "cycle",
                 data_rerank=data_rerank
             )
         return RLHFDataLoader(

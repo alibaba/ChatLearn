@@ -103,7 +103,7 @@ class Environment(Executor):
 
         for policy_replica in self.data_producer.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._all_datasets,
-                                                                 self.batch_size())
+                                                                 self.sample_per_episode)
             refs.append(ref)
         future.get(refs)
         logger.info("set dataset for data_producer done")
