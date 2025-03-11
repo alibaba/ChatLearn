@@ -372,7 +372,11 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         )
         return outputs
 
-    def generate_vllm(self, query, is_eval, is_first_run=True):
+    def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
+        # resume from stage checkpoint.
+        outputs = self.load_stage_outputs(is_eval, iteration)
+        if outputs is not None:
+            return outputs
         if is_first_run: # using for multi-round generate
             self.reinit_cache_engine()
         parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
@@ -380,6 +384,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         outputs = []
         if os.getenv("SKIP_GENERATION", None) is None:
             outputs = self.run_vllm(parsed_prompts, sampling_params)
+
+        # save stage outputs for resume.
+        self.save_stage_outputs(is_eval, outputs, iteration)
         return outputs
 
     def is_last_rank(self):
