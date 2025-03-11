@@ -55,3 +55,4 @@ vllm_load_format: ${vllm_load_format:dummy}
 apply_replica_id_to_seed: ${apply_replica_id_to_seed:True}
 
 drop_last: ${drop_last:False}
+enable_stage_resume: ${enable_policy_stage_resume:False}

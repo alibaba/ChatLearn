@@ -16,6 +16,7 @@
 
 from collections import defaultdict
 from itertools import cycle
+from pathlib import Path
 import math
 import time
 import os
@@ -140,6 +141,7 @@ class BaseModule:
         self._expert_sync_buffer = {}
         self._synchronizer = None
         self.wandb_writer = None
+        self._stage_resume_done = False
         logger.info(f"{LOG_START} basemodule {name} init done")
 
     def get_sync_buffer(self):
@@ -1291,3 +1293,58 @@ class BaseModule:
         :meta private:
         """
         return 0
+
+    def enable_stage_resume(self, is_eval):
+        """
+        check whether to resume stage outputs.
+        """
+        if is_eval:
+            return False
+        if self.model_args.get("enable_stage_resume", False):
+            assert self.runtime_args.data_checkpoint_path, \
+                "data_checkpoint_path must be set for stage resume."
+            return True
+        return False
+
+    def get_stage_outputs_path(self, iteration):
+        """
+        get path for stage outputs.
+        """
+        save_dir = self.runtime_args.data_checkpoint_path
+        save_path = f"{save_dir}/{iteration}/{self.name}_replica_{self.replica_id}.pt"
+        save_path_meta = f"{save_dir}/{iteration}/{self.name}_replica_{self.replica_id}_meta.txt"
+        return save_path, save_path_meta
+
+    def load_stage_outputs(self, is_eval, iteration):
+        """
+        load stage outputs for resume.
+        """
+        outputs = None
+        # only load once for each launching.
+        if self.enable_stage_resume(is_eval) and not self._stage_resume_done:
+            self._stage_resume_done = True
+            save_path, save_path_meta=self.get_stage_outputs_path(iteration)
+            if os.path.exists(save_path) and os.path.exists(save_path_meta):
+                try:
+                    with open(save_path_meta, "r", encoding='utf-8') as f:
+                        replica_id = int(f.readline())
+                    if replica_id == self.replica_id:
+                        outputs = torch.load(save_path)
+                        logger.info(f"resume stage outputs for model:{self.name}, path:{save_path}")
+                except ValueError:
+                    logger.warning(f"ignore incomplete stage outputs, path:{save_path}")
+        return outputs
+
+    def save_stage_outputs(self, is_eval, outputs, iteration):
+        """
+        save stage outputs for resume.
+        """
+        if self.enable_stage_resume(is_eval):
+            save_path, save_path_meta=self.get_stage_outputs_path(iteration)
+            logger.info(f"Start to save stage outputs:{save_path}")
+            Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+            torch.save(outputs, save_path)
+            # save meta
+            with open(save_path_meta, "w", encoding='utf-8') as f:
+                f.write(f"{self.replica_id}")
+            logger.info(f"Finished to save stage outputs:{save_path}")

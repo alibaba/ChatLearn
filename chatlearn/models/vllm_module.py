@@ -652,7 +652,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         return self.model_config.hf_config.num_hidden_layers
 
-    def generate_vllm(self, query, is_eval):
+    def generate_vllm(self, query, is_eval, iteration=0): # pylint: disable=unused-argument
         num_gpu_blocks, num_cpu_blocks = self.profile_cache_blocks()
         num_blocks = torch.tensor([num_gpu_blocks, num_cpu_blocks], device='cuda')
         torch.distributed.all_reduce(num_blocks, op=torch.distributed.ReduceOp.MIN)
