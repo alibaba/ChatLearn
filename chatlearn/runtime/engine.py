@@ -28,12 +28,14 @@ from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.schedule.model_manager import ModelManager
 from chatlearn.schedule.resource_manager import ResourceManager
+from chatlearn.schedule.metric_manager import MetricManager
 from chatlearn.utils import future
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from chatlearn.utils.utils import get_full_proc_memory_info, wandb_scalar_dict
+from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.timer import Timers
+from chatlearn.utils.utils import map_reduce_metrics
 
 
 class BaseEngine:
@@ -44,7 +46,7 @@ class BaseEngine:
         self.global_args = get_args()
         self.runtime_args = self.global_args.runtime_args
         self._timers = Timers()
-        self.wandb_writer = None
+        self.writer_dict = {}
 
     def set_timers(self, _timers):
         self._timers = _timers
@@ -60,40 +62,6 @@ class BaseEngine:
         if self._timers:
             return self._timers.log(reset=False, return_dict=True)
 
-    def _setup_wandb(self):
-        # engine won't setup wandb if log_config_file is not specified or enable_wandb is False
-        if self.runtime_args.log_args_dict is None or not self.runtime_args.log_args_dict['enable_wandb']:
-            self.wandb_writer = None
-            logger.info("wandb is disabled in engine.")
-            return
-
-        try:
-            import wandb # pylint:disable=import-outside-toplevel
-            wandb_name = "timer_summary"
-            wandb_kwargs = {
-                'dir': self.runtime_args.log_args_dict['wandb_dir'],
-                'name': wandb_name,
-                'project': self.runtime_args.log_args_dict['wandb_project'],
-                'id': f"{self.runtime_args.log_args_dict['wandb_id']}_{wandb_name}",
-                'resume': self.runtime_args.log_args_dict['wandb_resume'],
-                'group': self.runtime_args.log_args_dict['wandb_group'],
-                'job_type': "timer",
-                'reinit': False,
-                'config': self.runtime_args.log_args_dict,
-            }
-            logger.info(f"========WANDB_ARGS: {wandb_kwargs}")
-            wandb.init(**wandb_kwargs)
-            # define our custom x axis metric
-            wandb.define_metric("engine/timer_summary/step", hidden=True)
-            # set all other engine/timer_summary metrics to use this step
-            wandb.define_metric("engine/timer_summary/*", step_metric="engine/timer_summary/step")
-        except Exception:
-            self.wandb_writer = None
-            logger.info("wandb_writer is empty. please check wandb in timer_summary")
-        else:
-            self.wandb_writer = wandb
-            logger.info("init wandb_writer in engine successfully")
-
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
         self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
@@ -101,13 +69,16 @@ class BaseEngine:
         self.remote_models = self.model_manager.dist_models
         self.named_models = {model.name: model for model in self.remote_models}
 
+    def _create_metric_manager(self):
+        self.metric_manager = MetricManager(self.global_args)
+
     def setup(self):
         """
         :meta private:
         """
         logger.info(f"{LOG_START} setup, start to create_remote_models")
+        self._create_metric_manager()
         t1 = time.time()
-        self._setup_wandb()
         self._create_remote_models()
         t2 = time.time()
         logger.info(f"{LOG_START} setup, finished to create_remote_models(s):{(t2-t1)}")
@@ -183,17 +154,24 @@ class BaseEngine:
             time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_time_dict.get(model.name, None))
             refs.append(time_ref)
         summaries = future.get(refs)
+        for key, value in e2e_time_dict.items():
+            e2e_time_dict[key] = {'e2e': value}
 
+        logger.info(f"e2e_time_dict: {e2e_time_dict}")
+        logger.info(f"summaries: {summaries}")
         logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
-            summary = summary[-1] if isinstance(summary, list) else summary
-            logger.info(f"{LOG_START} [{model.name}] {summary}")
+            summary_str, summary_dict = summary[-1] if isinstance(summary, list) else summary
+            logger.info(f"{LOG_START} [{model.name}] {summary_str}")
+            if model.name not in e2e_time_dict:
+                e2e_time_dict[model.name] = {}
+            e2e_time_dict[model.name].update(summary_dict)
+
         self.logging_memory()
         return e2e_time_dict
 
     def stop(self):
-        if self.wandb_writer:
-            self.wandb_writer.finish()
+        self.metric_manager.stop()
         self.model_manager.clean()
 
 
@@ -226,10 +204,10 @@ class Engine(BaseEngine):
         self.evaluator = evaluator
         self._start_episode = 0
         self._all_datasets = None
-        self._post_process_func = None
+        self._post_process = None
         self._drop_last = False
         self._wrap_data = True
-        self._relay_sample_fn = None
+        self._relay_sample_manager = None
         self._data_loader = None
         self._param_sync_pairs = []
         self._name = name
@@ -345,25 +323,77 @@ class Engine(BaseEngine):
         """
         :meta private:
         """
+        ## 1. model e2e time
         e2e_time_dict = super().logging_summary(iteration)
-        episode_str, episode_stats = self.timers.log(names=['episode', 'sync_parameters'], return_dict=True)
-        logger.info(
-            f"{LOG_START} {self._name} episode summary, episode iteration {iteration + 1} {episode_str}")
-        episode_stats.update(e2e_time_dict)
-        self.episode_stats = episode_stats
-        if self.wandb_writer:
-            wandb_scalar_dict(self.wandb_writer, "engine/timer_summary/learn/", iteration + 1, episode_stats)
-        return episode_stats
+        # flatten time to name/<e2e or forward_step or eval_step and so on>
+        model_time_dict = {}
+        for model in self.remote_models:
+            model_e2e_time_dict = e2e_time_dict.get(model.name, {})
+            for key, value in model_e2e_time_dict.items():
+                model_time_dict[f"{model.name}/{key}"] = value
 
-    def set_relay_sample_fn(self, relay_sample_fn):
+        ## 2. episode time
+        timer_names = ['sync_parameters',]
+        # timer_names before episode looping
+        if iteration == -1 and self.evaluator and self.runtime_args.enable_eval_before_training:
+            timer_names.append('evaluate')
+        # timer_names in episode looping
+        elif iteration >= 0:
+            timer_names.extend(['episode','train',])
+            if self.runtime_args.save_episode_interval and \
+                    (iteration + 1) % self.runtime_args.save_episode_interval == 0:
+                timer_names.append('save_checkpoint')
+            if self.evaluator is not None and \
+                    self.runtime_args.eval_episode_interval and \
+                    (iteration + 1) % self.runtime_args.eval_episode_interval == 0:
+                timer_names.append('evaluate')
+
+        episode_str, episode_metrics = self.timers.log(names=timer_names, return_dict=True)
+
+        log_str = f"{LOG_START} {self._name} episode summary, episode {iteration + 1} {episode_str}"
+        logger.info(log_str)
+
+        ## 3. log model e2e time and episode time
+        episode_metrics.update(model_time_dict)
+        self.metric_manager.log("engine/timer_summary", iteration + 1, episode_metrics)
+
+        ## 4. log before episode looping
+        if iteration == -1:
+            if self.evaluator and self.runtime_args.enable_eval_before_training:
+                prefix, evaluate_metrics = self.evaluator.get_and_clear_metrics()
+                self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
+            return
+
+        ## 5. log in episode looping
+        # Train metrics
+        for model in self.remote_models:
+            # all_metric_tuples is like
+            # [rank n-1, rank 2n-1, ...]
+            # each rank refers to a tuple like (prefix, metric)
+            all_metric_tuples = future.get(model.get_and_clear_metrics())
+            prefix = all_metric_tuples[0][0]
+            last_rank_metrics = [metric_tuple[1] for metric_tuple in all_metric_tuples]
+            model_metrics = map_reduce_metrics(last_rank_metrics)
+            self.metric_manager.log(prefix, iteration + 1, model_metrics)
+        # Reward metrics
+        if self._data_loader:
+            prefix, train_reward_metrics = future.get(self._data_loader.get_and_clear_metrics.remote())
+            self.metric_manager.log(prefix, iteration + 1, train_reward_metrics)
+        # Evaluate metrics
+        if self.evaluator:
+            prefix, evaluate_metrics = self.evaluator.get_and_clear_metrics()
+            self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
+
+
+    def set_relay_sample_manager(self, relay_sample_manager):
         """
-        Set custom relay_sample_fn.
+        Set custom relay_sample_manager.
 
         Args
         ----
-            relay_sample_fn: inputs List[EpisodeRelayBuffer], return a list of dict.
+            relay_sample_manager: inputs List[EpisodeRelayBuffer], return a list of dict.
         """
-        self._relay_sample_fn = relay_sample_fn
+        self._relay_sample_manager = relay_sample_manager
 
     def learn(self):
         self.timers("chatlearn").start()
@@ -384,21 +414,23 @@ class Engine(BaseEngine):
         # Enable chunkflow optimization
         enable_chunkflow_optimization = os.environ.get("ENABLE_CHUNKFLOW_OPTIMIZATION", "False") in ["True", "true", "1", 1]
         logger.info(f"{LOG_START} Check ENABLE_CHUNKFLOW_OPTIMIZATION={enable_chunkflow_optimization} for chunkflow optimization")
-        data_loader = StreamDataset.remote(self.runtime_args.stream_data_loader_type,
-                                           self.runtime_args.train_micro_batch_size,
-                                           self.env._padding_config,
-                                           self.runtime_args.max_relay_episode,
-                                           self.runtime_args.relay_episode_offset,
-                                           self.runtime_args.train_global_batch_size \
-                                               if enable_chunkflow_optimization \
-                                               else self.runtime_args.train_micro_batch_size)
+        data_loader = StreamDataset.remote(
+            self.runtime_args.stream_data_loader_type,
+            self.runtime_args.train_micro_batch_size,
+            self.env._padding_config,
+            self.runtime_args.max_relay_episode,
+            self.runtime_args.relay_episode_offset,
+            self.runtime_args.train_global_batch_size \
+                if enable_chunkflow_optimization \
+                else self.runtime_args.train_micro_batch_size
+        )
 
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")
         if dump_root_path:
             if os.path.exists(dump_root_path):
                 shutil.rmtree(dump_root_path)
-            logger.info("{LOG_START} dump parameters before syncnizing...")
+            logger.info(f"{LOG_START} dump parameters before syncnizing...")
             self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
         if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "false") == "true":
@@ -412,14 +444,13 @@ class Engine(BaseEngine):
         if self.runtime_args.enable_eval_before_training:
             self.evaluate(-1)
         if dump_root_path:
-            logger.info("{LOG_START} dump parameters after synchronizing...")
+            logger.info(f"{LOG_START} dump parameters after synchronizing...")
             self.dump_parameters(os.path.join(dump_root_path, "after_sync_parameter"))
-            logger.info("{LOG_START} finish dump parameters, ChatLearn will exit")
+            logger.info(f"{LOG_START} finish dump parameters, ChatLearn will exit")
             return
-        logger.info(
-            f"{LOG_START} {self._name} sync_parameters summary {self.timers.log(names=['sync_parameters'])} "
-            + get_full_proc_memory_info('After first param sync')
-        )
+        logger.info(get_full_proc_memory_info('After first param sync'))
+        self.logging_summary(-1)
+
         self._data_loader = data_loader
         for episode_id in range(self._start_episode, self.runtime_args.num_episode):
             if self.runtime_args.nsys:
@@ -440,7 +471,7 @@ class Engine(BaseEngine):
                 self.timers("set_train_dataset").start()
             else:
                 logger.info(f"{LOG_START} Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
-            refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_fn,
+            refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_manager,
                                                   self.runtime_args.sample_per_episode)
             future.wait(refs)
             if self.trainer is not None:
@@ -448,22 +479,22 @@ class Engine(BaseEngine):
                 validate = self.runtime_args.validate_param_sync and episode_id < 2
                 self.timers("set_train_dataset").stop()
                 self.trainer.set_data_loader(data_loader)
-                logger.info("{LOG_START} set dataloader for trainer done")
+                logger.info(f"{LOG_START} set dataloader for trainer done")
                 logger.info(get_full_proc_memory_info(f"{LOG_START} Before train {episode_id}"))
                 if self.trainer.timers is None:
                     self.trainer.set_timers(self.timers)
                 self.trainer.train(episode_id)
                 logger.info(get_full_proc_memory_info(f"{LOG_START} After train {episode_id}"))
-                logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
                 self.model_manager.sync_parameters(episode_id + 1, validate=validate)
                 self.timers("sync_parameters").stop()
                 logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
-            self.after_episode()
+            logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
             self.timers("episode").stop()
-            self.logging_summary(episode_id)
             self.save_checkpoint(episode_id)
             self.evaluate(episode_id)
+            self.after_episode()
+            self.logging_summary(episode_id)
 
         self.timers("chatlearn").stop()
         logger.info(f"{LOG_START} {self._name} overall summary {self.timers.log(names=['chatlearn'])}")
@@ -521,24 +552,11 @@ class Engine(BaseEngine):
                 (episode_id + 1) % self.runtime_args.eval_episode_interval == 0:
             if self.evaluator.timers is None:
                 self.evaluator.set_timers(self.timers)
-            logger.info("{LOG_START} start evaluate")
+            logger.info(f"{LOG_START} start evaluate")
             self.timers("evaluate").start()
             self.evaluator.eval(episode_id, self.trainer.iteration)
             self.timers("evaluate").stop()
-
-            e2e_time_dict = super().logging_summary(episode_id)
-
-            eval_episode_str, eval_episode_stats = self.timers.log(names=['evaluate'], return_dict=True)
-            logger.info(f"{LOG_START} evaluate done {eval_episode_str}")
-
-            eval_episode_stats.update(e2e_time_dict)
-            if self.wandb_writer:
-                wandb_scalar_dict(
-                    self.wandb_writer,
-                    "engine/timer_summary/evaluate/",
-                    episode_id + 1,
-                    eval_episode_stats
-                )
+            logger.info(f"{LOG_START} evaluate done")
 
 
 class RLHFEngine(Engine):
@@ -674,7 +692,6 @@ class EvalEngine(Engine):
         super().setup()
         self.evaluator.set_multiple_datasets(self._all_datasets)
         self.evaluator.set_timers(self.timers)
-        self.evaluator.set_post_process_func(self._post_process_func)
 
     def set_dataset(self, dataset):
         """
@@ -717,20 +734,6 @@ class EvalEngine(Engine):
             )
 
         self._all_datasets = all_datasets
-        return self
-
-    def set_post_process_func(self, post_process_func):
-        """
-        Set post process function.
-
-        Args
-        ----
-        post_process_func
-            This function accept two arguments.
-            1. results: a list of evaluation results
-            2. eval_info: a dict meta that contains "train_iteration" and "episode_iteration"
-        """
-        self._post_process_func = post_process_func
         return self
 
     def eval(self, cur_iter=None, train_iteration=None):

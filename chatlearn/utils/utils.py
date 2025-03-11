@@ -26,6 +26,7 @@ from contextlib import closing
 from types import SimpleNamespace
 
 import pynvml
+import numpy as np
 import torch
 import torch.nn.functional as F
 from chatlearn.utils.logger import logger
@@ -343,31 +344,70 @@ def regroup_by_concat_along_batch(tensors):
 
     return batched
 
-def wandb_scalar_dict(wandb_writer, prefix, global_step, scalar_dict):
-    if isinstance(scalar_dict, (float, int)):
-        name = prefix
-        value = scalar_dict
-        wandb_writer.log({f"{name}": value, f"{name}/step": global_step})
-    else:
-        scalar_dict_with_prefix = {}
-        if prefix is None or prefix == "": # there is no common prefix
-            step_dict = {}
-            scalar_keys = list(scalar_dict.keys())
-            for key in scalar_keys:
-                step_prefix = key.split('/')[0]
-                step_key = step_prefix + '/step'
-                if step_key in step_dict:
-                    continue
-                step_dict[step_key] = global_step
-            scalar_dict_with_prefix.update(step_dict)
-            scalar_dict_with_prefix.update(scalar_dict)
-        else: # all k-v pairs in the scalar dict share the same prefix
-            rstripped_key = prefix.rstrip('/')
-            step_metric_key = f"{rstripped_key}/step"
-            step_metric_value = global_step
-            scalar_dict_with_prefix[step_metric_key] = step_metric_value
-            for key, value in scalar_dict.items():
-                scalar_dict_with_prefix[f"{rstripped_key}/{key}"] = value
 
-        logger.info(f"wandb logging: {scalar_dict_with_prefix}")
-        wandb_writer.log(scalar_dict_with_prefix, step=global_step)
+def listdict_to_dictlist(ld, list_extend=True):
+    '''
+    [{k1: v11, k2: v2}, {k1: v12, k2: v2},....] => {k1: [v11, v12..], k2: [v21, v22...]}
+    if v11 is list then k1: v11 + v12
+    :param ld:
+    :return:
+    '''
+    res = copy.deepcopy(ld[0])
+    for res_key, v in res.items():
+        if list_extend and isinstance(res[res_key], list):
+            continue
+
+        res[res_key] = [v]
+
+    for d in ld[1:]:
+        for key, v in d.items():
+            if list_extend and isinstance(d[key], list):
+                res[key].extend(v)
+            else:
+                res[key].append(v)
+
+    return res
+
+
+def map_metrics(metric_list):
+    mapped_metrics = {}
+    for metrics in metric_list:
+        for key, value in metrics.items():
+            if key in mapped_metrics:
+                mapped_metrics[key].append(value)
+            else:
+                mapped_metrics[key] = [value]
+    return mapped_metrics
+
+
+def reduce_metrics(merged_metrics):
+    # [TODO:baodong.lh] support custom_op like min, max to reduce metrics
+    reduced_metrics = {}
+    for key, value_list in merged_metrics.items():
+        if isinstance(value_list[0], torch.Tensor):
+            value = torch.mean(torch.Tensor(value_list))
+        else:
+            value = np.mean(value_list)
+        reduced_metrics[key] = value
+    return reduced_metrics
+
+
+def map_reduce_metrics(metric_list):
+    # [TODO:baodong.lh] imporve performance by distributing the task to per-replica
+    # sanity check
+    assert isinstance(metric_list, list)
+
+    if len(metric_list) == 0:
+        return {}
+
+    first_metric_len = len(metric_list[0])
+    for i, metric in enumerate(metric_list):
+        if len(metric) != first_metric_len:
+            logger.info(
+                f"WARNING! length of metrics are not the same for {i}-th metric ({len(metric)}) "
+                f"and the first one ({first_metric_len})! This is weird and please check!"
+            )
+
+    mapped_metrics = map_metrics(metric_list)
+    reduced_metrics = reduce_metrics(mapped_metrics)
+    return reduced_metrics

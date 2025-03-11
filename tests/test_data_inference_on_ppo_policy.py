@@ -10,6 +10,7 @@ from chatlearn.models.base_module import BaseModule
 from chatlearn import Engine
 from chatlearn import TorchModule
 from chatlearn.utils import future
+from chatlearn.data.data import RelaySampleManager
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.trainer import Trainer
 from utils import assert_consumed_samples
@@ -181,15 +182,16 @@ ppo_policy = PPOPolicy("ppo_policy")
 
 engine = FakeGRPOEngine(policy, reference, reward, ppo_policy)
 
-def relay_sample_fn(episode_relay_buffers):
-    buffer = episode_relay_buffers[-1].buffer
-    episode_id = episode_relay_buffers[-1]._episode_id
-    assert len(buffer) == 1024
-    for i in range(len(buffer)):
-        assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
-    return buffer
+class RelaySampleManagerTester(RelaySampleManager):
+    def __call__(self, episode_relay_buffers):
+        buffer = episode_relay_buffers[-1].buffer
+        episode_id = episode_relay_buffers[-1]._episode_id
+        assert len(buffer) == 1024
+        for i in range(len(buffer)):
+            assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
+        return buffer
 
-engine.set_relay_sample_fn(relay_sample_fn)
+engine.set_relay_sample_manager(RelaySampleManagerTester)
 assert policy.num_replica == 1
 assert reference.num_replica == 4
 assert reward.num_replica == 4

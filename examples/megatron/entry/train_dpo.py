@@ -17,7 +17,7 @@
 import random
 
 from examples.megatron.models import PolicyReference, PolicyTrainer
-from examples.megatron.models.train_helper import get_prompts
+from examples.megatron.models.utils import get_prompts
 import chatlearn
 from chatlearn import DPOEngine
 

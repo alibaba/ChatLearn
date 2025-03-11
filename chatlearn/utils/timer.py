@@ -96,7 +96,7 @@ class Timers:
             value = self.timers[name].elapsed(reset=reset) / normalizer
             writer.add_scalar(name + '-time', value, iteration)
 
-    def log(self, names=None, normalizer=1.0, reset=True, return_dict=False, e2e_cost=None):
+    def log(self, names=None, normalizer=1.0, reset=True, return_dict=False, e2e_cost=None, skip_zero=True):
         """Log a group of timers."""
         all_keys = self.timers.keys()
         name2log = {}
@@ -112,6 +112,8 @@ class Timers:
                 self.timers[name].reset()
                 continue
             elapsed_time, num = self.timers[name].elapsed(reset=reset, return_num=True)
+            if skip_zero and elapsed_time < 1e-6: # less than 1 us, we attribute it as not executed.
+                continue
             elapsed_time = elapsed_time * 1.0 / 60 / normalizer
 
             if num >= 1:

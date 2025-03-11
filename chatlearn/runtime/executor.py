@@ -77,6 +77,7 @@ class Executor:
         self._timers = None
         self.model2iter = {}
         self.merged_buffer = defaultdict(dict)
+        self._metric_list = []
 
     def set_timers(self, _timers):
         self._timers = _timers

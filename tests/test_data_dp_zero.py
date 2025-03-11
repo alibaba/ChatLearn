@@ -9,6 +9,7 @@ import chatlearn
 from chatlearn import RLHFEngine
 from chatlearn import TorchModule
 from chatlearn.utils import future
+from chatlearn.data.data import RelaySampleManager
 from utils import assert_consumed_samples
 
 
@@ -163,15 +164,16 @@ ppo_value = PPOValue("ppo_value")
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-def relay_sample_fn(episode_relay_buffers):
-    buffer = episode_relay_buffers[-1].buffer
-    episode_id = episode_relay_buffers[-1]._episode_id
-    assert len(buffer) == 256
-    for i in range(len(buffer)):
-        assert int(buffer[i]['query'][0].item()) == i + episode_id * 256
-    return buffer
+class RelaySampleManagerTester(RelaySampleManager):
+    def __call__(self, episode_relay_buffers):
+        buffer = episode_relay_buffers[-1].buffer
+        episode_id = episode_relay_buffers[-1]._episode_id
+        assert len(buffer) == 256
+        for i in range(len(buffer)):
+            assert int(buffer[i]['query'][0].item()) == i + episode_id * 256
+        return buffer
 
-engine.set_relay_sample_fn(relay_sample_fn)
+engine.set_relay_sample_manager(RelaySampleManagerTester)
 assert policy.num_replica == 1
 assert reference.num_replica == 1
 assert reward.num_replica == 1

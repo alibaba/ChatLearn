@@ -13,13 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 """reward math model"""
+import copy
 from collections import defaultdict
 import numpy as np
 import torch
-from megatron.training.global_vars import get_tensorboard_writer, get_wandb_writer
 
 from chatlearn import BaseModule
-from .utils import tensorboard_scalar_dict, wandb_scalar_dict
 from .constants import RunningMoments, get_running_stats, reset_running_stats
 from .rm_sys.math_rule_rm import MathRuleRM
 
@@ -32,8 +31,7 @@ class MathReward(BaseModule):
         self.stats = {}
         self.running = RunningMoments()
         self.per_episode_metrics = defaultdict(RunningMoments)
-        self.writer = get_tensorboard_writer()
-        self.wandb_writer = get_wandb_writer()
+        self._metric_prefix = "rewards_each"
 
     def forward_step(self, data, iteration=0):
         answers = data['answer']
@@ -105,11 +103,7 @@ class MathReward(BaseModule):
         stats_episode["exp_scores/running_math_std"] = self.running.std
 
         print(f"score only/running_math_mean {self.running.mean}", flush=True)
-        tensorboard_scalar_dict(self.writer, prefix=f"rewards_each/replica_id{self.replica_id}",
-                                global_step=self._iteration,
-                                scalar_dict=stats_episode)
-        if self.wandb_writer:
-            wandb_scalar_dict(self.wandb_writer, prefix=f"rewards_each/replica_id{self.replica_id}",
-                        global_step=self._iteration,
-                        scalar_dict=stats_episode)
+        if self.is_last_rank():
+            stats_episode_copy = copy.deepcopy(stats_episode)
+            self._metric_list.append(stats_episode_copy)
         reset_running_stats(self.per_episode_metrics)
