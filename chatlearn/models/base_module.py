@@ -81,7 +81,10 @@ class BaseModule:
                 * args.expert_model_parallel_size
                 * args.zero_size
             )
-            assert self._num_gpu_per_replica <= self.total_gpu
+            assert self._num_gpu_per_replica <= self.total_gpu, \
+                f"_num_gpu_per_replica {self._num_gpu_per_replica} larger than total_gpu {self.total_gpu} " + \
+                f"tp_size: {args.tensor_model_parallel_size} pp_size: {args.pipeline_model_parallel_size} " + \
+                f"ep_size: {args.expert_model_parallel_size} zero_size: {args.zero_size}"
             assert self.total_gpu % self._num_gpu_per_replica == 0
             if not self.trainable:
                 self._num_replica = args.num_gpu // self._num_gpu_per_replica

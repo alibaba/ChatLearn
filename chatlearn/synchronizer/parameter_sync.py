@@ -165,6 +165,13 @@ class ParameterSyncGroup:
         return self._num_dst_expert_parallel
 
     def setup_collective_group(self):
+        """
+        Set up collective group for parameter sync. The group consists of all actors from both model's (src & dst) replicas.
+        For P2P Sync, create the group directly. Assigning each actor an uniq rank id.
+        For Broadcast, assigning the rank id only, and defer the group creation during the first parameter sync happens
+        TODO-1: Maybe can remove the P2P sync method in the future for code clarity
+        TODO-2: the _setup_ranks is a public method of DistActor class but named with a leading _ which makes it looks like a private method
+        """
         refs = []
         # we put src_model first, so we don't need to change the rank of training model
         models = [self.src_model, self.dst_model]
@@ -286,6 +293,10 @@ class ParameterSyncGroup:
                     [self.src_model.get_actor(src_rank) for src_rank in src_replica_ranks])
 
     def get_src_and_dst_dp_ranks(self, is_except_routed_experts=False):
+        """
+        Return:
+            The DP Group List for src & dst model [[DP-0], [DP-1] ... [DP-N]]
+        """
         dst_dp_ranks = self.dst_model.all_ranks
         local_src_ranks = future.get(self.src_model.replicas[0].get_local_param_ranks())
         if local_src_ranks[0] is None or dst_dp_ranks is None:
@@ -301,6 +312,8 @@ class ParameterSyncGroup:
             dp_rank_to_ranks[dp_rank].append(local_ranks[dp_rank])
         if is_except_routed_experts:
             # for weight except routed expert, ep_size using for data parallel.
+            # TODO-1 The logic here is a little bit complicate, it would be better to move to a seperate function
+            # TODO-2 The logic here is about HEP, would be better called from class ParameterSyncGroupwithHEP
             src_hep_size = self.num_src_expert_parallel * self.num_src_tensor_parallel
             new_dict = defaultdict(list)
             idx = 0
@@ -422,9 +435,14 @@ class ParameterSyncGroup:
         return dst_rank, is_collide
 
     def build_rank_mapping(self, add_recv_actor_fn=None):
-        # setup rank mapping for src parameter and dst parameter
-        # get rank for one src_model, without model replicas
-
+        """
+        setup rank mapping for src parameter and dst parameter
+        get rank for one src_model, without model replicas
+        for each DP Group:
+            for each TP & EP Group:
+                for each PP Group:
+                    mapping[src] = dst
+        """
         if add_recv_actor_fn is None:
             add_recv_actor_fn = self.add_recv_actor
 
@@ -1458,6 +1476,12 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
         super().__init__(src_model, dst_model, group_name, frequency, error_signal)
 
     def setup_rank_mapping(self):
+        """
+        For now, we only allow parameter sync between two models that
+        dst model tp size >= src model tp size
+        && dst model ep size <= src model ep size
+        There is no more restiction regarding PP and DP
+        """
         self.tp_num_mapping = self.num_dst_tensor_parallel // self.num_src_tensor_parallel
         self.ep_num_mapping = self.num_dst_expert_parallel / self.num_src_expert_parallel
         self.hep_num_mapping = self.num_dst_hyper_expert_parallel / self.num_src_hyper_expert_parallel
