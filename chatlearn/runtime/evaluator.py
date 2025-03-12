@@ -65,12 +65,8 @@ class Evaluator(Environment):
             else:
                 batch_size = self.batch_size()
             if batch_size > 0:
-                if self.first_model.use_vllm_backend:
-                    ref = model_replica.master._build_dataloader.remote(
-                        self._all_datasets, self.sample_per_episode, is_eval=True)
-                else:
-                    ref = model_replica.master._build_dataloader.remote(
-                        self._all_datasets, batch_size * self.models[0].num_replica, is_eval=True)
+                ref = model_replica.master._build_dataloader.remote(
+                    self._all_datasets, self.sample_per_episode, is_eval=True)
                 refs.append(ref)
         future.get(refs)
 

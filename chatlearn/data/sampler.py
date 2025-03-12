@@ -326,9 +326,9 @@ class MultiDatasetSampler:
             idxes = []
             for dataset_idx, dataset_size in enumerate(self.dataset_sizes):
                 idxes.extend([(dataset_idx, j, (len(idxes) + j)) for j in range(dataset_size)])
-            idxes = idxes[:self.sample_per_episode]
-            batch = idxes[start : end]
-            yield batch
+            for i in range(0, len(idxes), self.sample_per_episode):
+                episode_samples = idxes[i : i + self.sample_per_episode]
+                yield episode_samples[start : end]
         else:
             num_samples = self.sample_per_episode // self.num_inference_per_prompt
             while True:
