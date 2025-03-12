@@ -1,16 +1,20 @@
+models:
+    policy:
+        model_config_file: model.yaml
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
 
-generate_config:
-    num_beams: 1
-    num_return_sequences: 1
-    temperature: 1.0
-    do_sample: True
-    early_stopping: True
-    top_k: 1
-    top_p: 0.9
-    repetition_penalty: 1.0
-    length_penalty: 1.0
-    min_length: 5
-    max_length: 4096
-    no_repeat_ngram_size: 2
-    eos_token_id: 102
+    reference:
+        model_config_file: model.yaml
+        num_gpu: 1
+        gpu_per_process: 1
+        trainable: False
 
+
+runtime:
+    num_rollout_worker: 1
+    num_iteration: 5000
+    sample_per_episode: 1000
+    num_training_epoch: ${num_training_epoch:3}
+    unknown_args: "test_unknown"
