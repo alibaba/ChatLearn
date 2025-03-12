@@ -191,7 +191,8 @@ class RelaySampleManagerTester(RelaySampleManager):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
         return buffer
 
-engine.set_relay_sample_manager(RelaySampleManagerTester)
+relay_sample_manager = RelaySampleManagerTester(chatlearn.get_args())
+engine.set_relay_sample_manager(relay_sample_manager)
 assert policy.num_replica == 1
 assert reference.num_replica == 4
 assert reward.num_replica == 4

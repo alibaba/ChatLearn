@@ -53,3 +53,5 @@ runtime:
     sample_per_episode: 16
     num_training_epoch: 1
     save_episode_interval: 200
+    data_shuffle: False
+    data_rerank: False

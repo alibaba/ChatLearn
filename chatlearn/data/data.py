@@ -24,7 +24,6 @@ import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
-from chatlearn.utils.logger import logger
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
@@ -384,7 +383,6 @@ class RLHFDataLoader:
                 id_in_episode = [id for _, _, id in batch_idxes]
                 if self.add_uid:
                     batch = self.update_data_uid(batch, id_in_episode)
-                    logger.info(f"====DataLoader yield UID: {[b[self.vllm_prompt_key]['uid'] for b in batch]}")
                 if self.collate_fn is not None:
                     yield self.collate_fn(batch)
                 else:
@@ -397,9 +395,7 @@ class RLHFDataLoader:
         for i, data in enumerate(batch):
             if isinstance(data, dict) and self.vllm_prompt_key in data \
                 and isinstance(data[self.vllm_prompt_key], dict):
-                # assert isinstance(data, dict), "add uid only support dict type data"
                 copy_data = copy.deepcopy(data)
-                # assert self.vllm_prompt_key in copy_data, "add uid only support dict type data with prompt key"
                 copy_data[self.vllm_prompt_key]['uid'] = str(id_in_episode[i])
                 updated_batch.append(copy_data)
             else:

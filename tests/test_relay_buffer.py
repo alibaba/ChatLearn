@@ -107,7 +107,8 @@ class RelaySampleManagerTester(RelaySampleManager):
         return buffers
 
 engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-engine.set_relay_sample_manager(RelaySampleManagerTester)
+relay_sample_manager = RelaySampleManagerTester(chatlearn.get_args())
+engine.set_relay_sample_manager(relay_sample_manager)
 assert policy.num_replica == 1
 assert reference.num_replica == 1
 data = []

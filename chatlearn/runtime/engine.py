@@ -157,8 +157,6 @@ class BaseEngine:
         for key, value in e2e_time_dict.items():
             e2e_time_dict[key] = {'e2e': value}
 
-        logger.info(f"e2e_time_dict: {e2e_time_dict}")
-        logger.info(f"summaries: {summaries}")
         logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
             summary_str, summary_dict = summary[-1] if isinstance(summary, list) else summary

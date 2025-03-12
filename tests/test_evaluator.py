@@ -54,4 +54,4 @@ out = []
 for value in results:
     out += value['query']
 out = sorted(out)
-assert out == train_prompts
+assert out == train_prompts, f"out = {out}, train_prompts = {train_prompts}"
