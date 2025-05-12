@@ -124,7 +124,7 @@ class Environment(Executor):
                 for replica in model_node.model.replicas:
                     refs.append(replica.vllm_engine.setup_vllm.remote(
                         replica.all_actors))
-                future.wait(refs)
+                future.wait(refs, return_output=True)
 
     @property
     def sample_per_episode(self):

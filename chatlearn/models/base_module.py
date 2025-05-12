@@ -80,6 +80,7 @@ class BaseModule:
                 * args.pipeline_model_parallel_size
                 * args.expert_model_parallel_size
                 * args.zero_size
+                * args.fsdp_size
             )
             assert self._num_gpu_per_replica <= self.total_gpu, \
                 f"_num_gpu_per_replica {self._num_gpu_per_replica} larger than total_gpu {self.total_gpu} " + \

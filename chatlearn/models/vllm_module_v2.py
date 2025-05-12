@@ -19,7 +19,7 @@ import inspect
 import os
 
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoConfig
 from vllm import SamplingParams
 from vllm.config import LoadFormat
 from vllm.entrypoints.llm import LLM
@@ -34,7 +34,7 @@ from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
 from .torch_module import TorchModule
 try:
-    from .megatron.memory_manager import InferenceMemoryManager
+    from .vllm.inference import InferenceMemoryManager
 except ImportError:
     InferenceMemoryManager = None
 
@@ -65,7 +65,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.tokenizer = None
         self._model = None
         self.llm = None
+        self.model_config =  AutoConfig.from_pretrained(self.model_args['tokenizer'])
         self.set_vllm_pp_layer_partition()
+        self._metric_prefix = 'vllm_inference'
 
     def add_extra_args(self, parser):
         """
@@ -123,7 +125,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             disable_log_requests=self.model_args.get("disable_log_requests", True),
             disable_log_stats=self.model_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            enforce_eager=self.model_args.get("enforce_eager", False),
+            enforce_eager=self.model_args.get("enforce_eager", True),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
@@ -199,7 +201,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.offload_for_workers()
         self.empty_cuda_graph_for_workers()
         self.empty_cache_for_workers()
-
     def dump_parameters(self, dump_path_root):
         self.onload_for_workers()
         self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
@@ -229,7 +230,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
-        num_layers = self.model_args.get("num_layers")
+        num_layers = self.model_config.num_hidden_layers
         remainder = num_layers % pipeline_world_size
 
         if not self.model_args.get("allow_padding_num_layers", None):
@@ -278,7 +279,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
-        if not self.model_args.get("use_beam_search"):
+        if not self.model_args.get("use_beam_search", False):
             temperature = self.model_args.get("eval_temperature", 1.0) if is_eval else self.model_args.get(
                 "temperature", 1.0)
         top_p = self.model_args.get("eval_top_p", 1.0) if is_eval else self.model_args.get("top_p", 1.0)
@@ -294,7 +295,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if stop is not None and isinstance(stop, str):
             stop = stop.split(";")
         sampling_params = SamplingParams(
-            n=self.model_args.get("n"),
+            n=self.model_args.get("n", 1),
             presence_penalty=presence_penalty,
             frequency_penalty=frequency_penalty,
             repetition_penalty=repetition_penalty,
@@ -302,7 +303,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             top_p=top_p,
             top_k=top_k,
             min_p=min_p,
-            ignore_eos=self.model_args.get("ignore_eos"),
+            ignore_eos=self.model_args.get("ignore_eos", False),
             stop=stop,
             logprobs=self.model_args.get("logprobs", 1),
             detokenize=self.model_args.get("detokenize", False),
@@ -311,8 +312,15 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         )
         # VLLMVersion.v_0_3_0, VLLMVersion.v_0_5_1
         if hasattr(sampling_params, 'use_beam_search'):
-            sampling_params.use_beam_search = self.model_args.get("use_beam_search")
+            sampling_params.use_beam_search = self.model_args.get("use_beam_search", False)
         return sampling_params
+
+    def update_weights_from_ipc_handles(self, reduce_data):
+
+        for name, reduced in reduce_data.items():
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor = rebuild_func(*rebuild_args)
+            self.model.load_weights([(name, reconstructed_tensor)])
 
     def _convert_v1_inputs(self, prompts, prompt_token_ids):
         num_requests = len(prompts)
@@ -384,7 +392,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         outputs = []
         if os.getenv("SKIP_GENERATION", None) is None:
             outputs = self.run_vllm(parsed_prompts, sampling_params)
-
         # save stage outputs for resume.
         self.save_stage_outputs(is_eval, outputs, iteration)
         return outputs
@@ -557,7 +564,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             num_cpu_blocks //= self.module_args.pipeline_model_parallel_size
 
         BlockSpaceManagerImpl = get_block_manager_cls(version)
-        for scheduler in self.llm.llm_engine.scheduler:
+        for scheduler in self.llm.llm_engine.scheduler: # pylint: disable=not-an-iterable
             scheduler.block_manager = BlockSpaceManagerImpl( # pylint: disable=abstract-class-instantiated
                 block_size=self.llm.llm_engine.cache_config.block_size,
                 num_gpu_blocks=self.llm.llm_engine.cache_config.num_gpu_blocks,

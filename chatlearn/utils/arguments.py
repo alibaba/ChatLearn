@@ -18,6 +18,7 @@ import argparse
 import ast
 import os
 from typing import List, Optional, Union
+import re
 
 import yaml
 
@@ -61,6 +62,12 @@ def parse_value(value):
                 else:
                     logger.warning(f"cannot find value for {env_name}, set to None")
                     value = None
+        # handling scientific notation(e.g., "5e-6", "5E+10")
+        elif re.match(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$", value):
+            try:
+                value = float(value)
+            except:
+                pass
     return value
 
 
@@ -111,6 +118,7 @@ def parse_args():
         config_dir = None
         args_yaml = None
     config = Config(args_yaml, config_dir)
+
     return config
 
 
@@ -214,6 +222,8 @@ class ModelConfig(BaseConfig):
     expert_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
+    #: [optional] FSDP parallel size
+    fsdp_size: int = None
     #: [optional] config file for model
     model_config_file: str = ""
     config_dir: str = ""
@@ -571,6 +581,16 @@ class Config(BaseConfig):
                 elif getattr(model_args, key) is None:
                     setattr(model_args, key, 1)
 
+            for key in ["fsdp_size"]:
+                if getattr(model_args, key) is not None:
+                    setattr(model_args, key, getattr(model_args, key))
+                    if getattr(model_args, key) == -1:
+                        print(f"set_fsdp_size {getattr(model_args, key)} to num_gpu: {model_args.num_gpu}")
+                        setattr(model_args, key, model_args.num_gpu)
+                    assert getattr(model_args, key) >= 1
+                elif getattr(model_args, key) is None:
+                    setattr(model_args, key, 1)
+
             ep_size = model_args.args_dict.get("expert_model_parallel_size")
             moe_ep_size = model_args.args_dict.get("moe_expert_model_parallel_size")
             if ep_size is not None and moe_ep_size is not None:
@@ -590,6 +610,7 @@ class Config(BaseConfig):
 
             if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1 or model_args.expert_model_parallel_size > 1:
                 assert model_args.zero_size == 1 or model_args.zero_size is None
+                assert model_args.fsdp_size == 1 or model_args.fsdp_size is None
                 assert model_args.num_gpu % (
                     model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size) == 0, \
                     f"{model_name}: num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size * " \
@@ -604,9 +625,16 @@ class Config(BaseConfig):
                 if model_args.zero_size > 1:
                     assert model_args.num_gpu % model_args.zero_size == 0
                     model_args.num_replica = model_args.num_gpu // model_args.zero_size
+                elif model_args.fsdp_size > 1:
+                    # For FSDP, num_gpu must be divisible by fsdp_size
+                    assert model_args.num_gpu % model_args.fsdp_size == 0
+                    model_args.num_replica = model_args.num_gpu // (
+                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size \
+                            * model_args.expert_model_parallel_size * model_args.fsdp_size)
                 else:
                     model_args.num_replica = model_args.num_gpu // (
                         model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size)
+
             elif model_args.num_cpu >= 1:
                 model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
             assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \

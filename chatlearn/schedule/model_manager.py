@@ -24,12 +24,14 @@ import ray.experimental.state.api
 
 from chatlearn.data.storage import Storage
 from chatlearn.launcher import dlc_utils
+from chatlearn import FSDPModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
 from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
+from chatlearn.synchronizer.parameter_sync_fsdp import FSDP2VllmParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
@@ -87,10 +89,10 @@ class ModelManager:
         self._name2distmodel = {}
         remote_states = set()
         for model in self.local_models:
+            # create dist model object for each local model
             dist_model = self._to_dist_model(model)
             self.dist_models.append(dist_model)
             self._name2distmodel[model.name] = dist_model
-
         total_gpu_required = self._get_total_gpu_required()
         if total_gpu_required > self.resouce_manager.total_gpu:
             raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " + \
@@ -134,7 +136,16 @@ class ModelManager:
                 f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
             group_name = self._get_group_name(src_model, dst_model)
             sync_frequency = self._get_sync_frequency(dst_model)
-            if megatron_version == MegatronVersion.V4:
+
+            if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
+                sync_group = FSDP2VllmParameterSyncGroup(
+                    self._name2distmodel[src_model.name],
+                    self._name2distmodel[dst_model.name],
+                    group_name,
+                    sync_frequency,
+                    self.error_signal
+                )
+            elif megatron_version == MegatronVersion.V4:
                 logger.info("QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
                 sync_group = ParameterSyncGroupwithHEP(
                     self._name2distmodel[src_model.name],
@@ -190,6 +201,7 @@ class ModelManager:
                     episode_offset % sync_group.frequency == 0:
                 sync_group: ParameterSyncGroup = sync_group
 
+                # src_model, dst_model type: DistModel
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
                 future.wait(src_model.onload(
                     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
@@ -305,9 +317,14 @@ class ModelManager:
         return final_packs
 
     def place_gpu_models(self, gpu_models, env_list=None):
+        """ place DistModel to gpu
+        GPU models: Lis[DistModel]
+        """
         if not gpu_models:
             return
         max_gpu = max(m.total_gpu for m in gpu_models)
+
+        # create placement groups
         placement_group = self.resouce_manager.create_placement_group(max_gpu)
         for i, _ in enumerate(placement_group.bundle_specs):
             self.placement_groups.append((placement_group, i))
@@ -330,6 +347,8 @@ class ModelManager:
             model.set_colocate_models(colocate_models)
 
         def _get_model_replica_from_pack(gpu_index, model_pack):
+            # for gpu rank between N * model.num_gpu_per_replica to (N + 1) *  model.num_gpu_per_replica
+            # this function will return the same replica
             gpu_offset = 0
             for model in model_pack:
                 if gpu_index < gpu_offset + model.total_gpu:
@@ -340,6 +359,7 @@ class ModelManager:
                 gpu_offset += model.total_gpu
         # 1. we list the models to place on each device
         # 2. for device i, the number of models is N, then the num_gpus for each ray actor is 1.0/N
+        # replica here is DistActor
         gpu_to_replicas = []
         for i in range(max_gpu):
             colocate_models = []
@@ -349,6 +369,7 @@ class ModelManager:
                     colocate_models.append(replica)
             gpu_to_replicas.append(colocate_models)
 
+        # For each gpu rank, create actor for each replica
         for i, replicas in enumerate(gpu_to_replicas):
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
@@ -359,7 +380,6 @@ class ModelManager:
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
                 replica.create_actor(num_gpus, placement_group, group)
-
         models_to_revert = self._find_param_recv_models(gpu_models)
         for model in gpu_models:
             if model in models_to_revert: # pylint: disable=simplifiable-if-statement
@@ -407,6 +427,8 @@ class ModelManager:
         gpu_models = [model for model in models if model.total_gpu > 0]
         self.place_gpu_models(gpu_models, env_list)
         self.place_cpu_models(cpu_models)
+
+        # DistActor.preprocess_actors will add remote call for each function in Actor
         for model in models:
             for replica in model.replicas:
                 replica.preprocess_actors()

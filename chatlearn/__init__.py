@@ -22,6 +22,7 @@ from chatlearn.models.base_module import BaseModule
 from chatlearn.models.deepspeed_module import DeepSpeedModule
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.torch_module import TorchModule
+from chatlearn.models.fsdp_module import FSDPModule
 from chatlearn.runtime.engine import DPOEngine
 from chatlearn.runtime.engine import Engine
 from chatlearn.runtime.engine import Environment

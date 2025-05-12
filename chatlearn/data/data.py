@@ -122,9 +122,11 @@ class StreamDataset:
         else:
             self._dynamic_dataset = True
         self.batch_size = micro_batch_size
+
         self._padding_config = padding_config if padding_config is not None else {}
         self._padding_value = {key: value["padding_value"] for key, value in padding_config.items()}
         self._padding_type = {key: value["padding_type"] for key, value in padding_config.items()}
+
         if max_relay_episode < 0:
             max_relay_episode = math.inf
         self._max_relay_episode = max_relay_episode
@@ -172,7 +174,9 @@ class StreamDataset:
             prefetched_batch_list.append(self._get_batch(produce_index))
             if len(prefetched_batch_list) == self.prefetch_batch_cnt:
                 # ChunkFlow: Sort by sample length for better balance across data parallel ranks
-                prefetched_batch_list.sort(key=lambda x: len(x["response_ids"][0]))
+                # TODO: fix hardcode key for sample len
+                if "response_ids" in prefetched_batch_list[0].keys():
+                    prefetched_batch_list.sort(key=lambda x: len(x["response_ids"][0]))
                 for batched_data in prefetched_batch_list:
                     yield batched_data
                     batch_count += 1
@@ -263,8 +267,11 @@ class StreamDataset:
         return math.ceil(self._total_samples / self.batch_size)
 
     def get_and_clear_metrics(self):
-        return self.relay_sample_manager.get_and_clear_metrics()
-
+        # TODO: deal with situation that relay_sample_manager is None
+        try:
+            return self.relay_sample_manager.get_and_clear_metrics()
+        except Exception:
+            return "no relay", {}
 
 class EpisodeRelayBuffer:
     """EpisodeRelayBuffer"""
