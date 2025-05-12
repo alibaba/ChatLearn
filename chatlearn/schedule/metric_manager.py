@@ -13,10 +13,11 @@
 # limitations under the License.
 # ==============================================================================
 """metric manager"""
+import traceback
 
 import wandb
-
 from torch.utils.tensorboard import SummaryWriter
+
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.logger import logger
 
@@ -77,6 +78,7 @@ class MetricManager:
             logger.info(f"WANDB_ARGS: {wandb_kwargs}")
             wandb.init(**wandb_kwargs)
         except Exception:
+            traceback.print_exc()
             self.wandb_writer = None
             logger.warning(f"{LOG_START} setup wandb failed, wandb_writer is set to empty.")
         else:
@@ -85,7 +87,7 @@ class MetricManager:
 
     def log(self, prefix:str, global_step:int, scalar_dict):
         prefix = prefix.rstrip('/')
-        logger.info(f"step {global_step}: logging metric {scalar_dict}")
+        logger.info(f"step {global_step} prefix {prefix}: logging metric {scalar_dict}")
         for writer_name, _ in self.writer_dict.items():
             if writer_name == 'tensorboard':
                 self._tensorboard_scalar_dict(prefix, global_step, scalar_dict)

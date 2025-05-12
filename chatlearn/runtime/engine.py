@@ -368,7 +368,16 @@ class Engine(BaseEngine):
             # all_metric_tuples is like
             # [rank n-1, rank 2n-1, ...]
             # each rank refers to a tuple like (prefix, metric)
+            # example1 [[('vllm_inference', {'prompt_token_length': 108.5})], [('vllm_inference', {'prompt_token_length': 121.75})]]
+            # example2 [('', {})]
+            # example3  [('', {'train_reward_score': 0.78125}), ('', {'train_reward_score': 0.625})]
+
             all_metric_tuples = future.get(model.get_and_clear_metrics())
+            if isinstance(all_metric_tuples[0], list):
+                all_metric_tuples_flaten = []
+                for item in all_metric_tuples:
+                    all_metric_tuples_flaten += item
+                all_metric_tuples = all_metric_tuples_flaten
             prefix = all_metric_tuples[0][0]
             last_rank_metrics = [metric_tuple[1] for metric_tuple in all_metric_tuples]
             model_metrics = map_reduce_metrics(last_rank_metrics)
@@ -471,7 +480,7 @@ class Engine(BaseEngine):
                 logger.info(f"{LOG_START} Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_manager,
                                                   self.runtime_args.sample_per_episode)
-            future.wait(refs)
+            future.wait(refs, return_output=True)
             if self.trainer is not None:
                 # validate parameter sync in the first two episodes
                 validate = self.runtime_args.validate_param_sync and episode_id < 2

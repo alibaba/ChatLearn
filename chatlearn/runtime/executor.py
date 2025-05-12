@@ -23,7 +23,7 @@ import torch
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.model_flow import ModelFlow
 from chatlearn.utils import future
-from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
@@ -182,6 +182,7 @@ class Executor:
 
     @staticmethod
     def align_out_queues(queues, encode=False):
+        # TODO: deal with one2many scene
         out_queues = []
         min_qsize = min([ele.qsize() for ele in queues]) # pylint: disable=consider-using-generator
         for queue in queues:
@@ -223,25 +224,39 @@ class Executor:
         num_consumers = self.batch_per_episode(model_node.model)
         for index, (input_node, in_queue) in enumerate(zip(model_node.input_nodes, in_queues)):
             num_producers = self.batch_per_episode(input_node.model)
-            # TODO(jiangle.jl): support two-stage index for one2many scene
-            assert num_producers % num_consumers == 0
             if num_producers == num_consumers:
                 out_queues[index] = in_queue
-                continue
-            out_queues[index] = Queue()
-            res_list = []
-            while in_queue.qsize() > 0:
-                res = in_queue.get()
-                res = decode_data(res)[1]
-                res_list.append(res)
-            division = num_producers // num_consumers
-            in_qsize = len(res_list)
-            out_qsize = in_qsize // division
-            for q_idx in range(out_qsize):
-                start = q_idx * division
-                end = start + division
-                out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
-
+            else:
+                out_queues[index] = Queue()
+                res_list = []
+                while in_queue.qsize() > 0:
+                    res = in_queue.get()
+                    res = decode_data(res)[1]
+                    res_list.append(res)
+                if num_producers > num_consumers:
+                # Deal with the case where num_producers > num_consumers
+                    assert num_producers % num_consumers == 0, \
+                        f"many2one: num_producers: {num_producers}, num_consumers: {num_consumers}, len inqueue: {len(in_queues)}"
+                    division = num_producers // num_consumers
+                    in_qsize = len(res_list)
+                    out_qsize = in_qsize // division
+                    for q_idx in range(out_qsize):
+                        start = q_idx * division
+                        end = start + division
+                        out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
+                else:
+                    # Deal with the case where num_producers < num_consumers
+                    # TODO: add index for one2many case
+                    assert num_consumers % num_producers == 0, \
+                        f"one2many: num_producers: {num_producers}, num_consumers: {num_consumers}, len inqueue: {len(in_queues)}"
+                    division = num_consumers // num_producers
+                    in_qsize = len(res_list)
+                    out_qsize = in_qsize * division
+                    for q_idx in range(out_qsize):
+                        start = q_idx // division
+                        end = start + 1
+                        out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG: res_list[start:end],
+                                                              INDEX_TAG: (q_idx % division, division)}))
         return out_queues
 
     def get_next_data(self, in_queue, model_node, micro_batch_index):

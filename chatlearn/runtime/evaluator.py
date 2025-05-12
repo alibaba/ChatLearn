@@ -100,7 +100,7 @@ class Evaluator(Environment):
         if isinstance(result_refs[0][0], ray.ObjectRef):
             data_list = future.wait(result_refs, desc="evaluator", return_output=True)
         else:
-            data_list = result_refs[0]
+            data_list = result_refs[0] # List[Dict]
         results = [data_list[i:i + element_size] for i in range(0, len(data_list), element_size)]
         all_results = defaultdict(list)
         for batches in results:
