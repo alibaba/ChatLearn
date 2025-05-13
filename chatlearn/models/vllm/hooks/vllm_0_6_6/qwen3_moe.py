@@ -21,6 +21,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Inference-only Qwen2MoE model compatible with HuggingFace weights."""
+# pylint: skip-file
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import torch
