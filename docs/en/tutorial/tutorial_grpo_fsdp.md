@@ -1,6 +1,6 @@
 # End-to-End GRPO Training Tutorial with FSDP
 
-This document provides instructions for end-to-end training using the ChatLearn, pytorch FSDP and vLLM framework, and the qwen2.5 model.
+This document provides instructions for end-to-end training using the ChatLearn, pytorch FSDP and vLLM framework, and the qwen3 model.
 
 ## Environment Setup
 1. Docker Image Preparation
@@ -13,7 +13,7 @@ If you're training on the PAI DLC/DSW environment, you can use the image with ta
 2. Code Preparation & Installing Additional Dependencies
 
 ```bash
-pip install vllm==0.6.6 cupy-cuda12x==13.4.1 wandb==0.19.11 ray==2.40.0
+pip install vllm==0.6.6 cupy-cuda12x==13.4.1 wandb==0.19.11 ray==2.40.0 transformers==4.51.3
 git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 
@@ -26,14 +26,14 @@ modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/M
 # preprocess dataset
 python examples/fsdp/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen2.5-7B-Instruct --local_dir Qwen2.5-7B-Instruct
+modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
 
 ## Training
 You can run the following command to start training:
 
 ```bash
-bash examples/fsdp/scripts/train_grpo_qwen.sh
+bash examples/fsdp/scripts/train_grpo_qwen3.sh
 ```
 
 ## Using Wandb

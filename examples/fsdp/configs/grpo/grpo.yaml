@@ -58,3 +58,4 @@ runtime:
   eval_episode_interval: ${eval_episode_interval:5}
   log_config_file: log.yaml
   data_checkpoint_path: ${data_checkpoint_path}
+  enable_eval_before_training: ${enable_eval_before_training:False}

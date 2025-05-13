@@ -4,7 +4,7 @@ set -x
 # set path
 export CHATLEARN=$(pwd)
 export model_path="${CHATLEARN}/Qwen2.5-7B-Instruct"
-export exp_name=$(date +%F)-grpo
+export exp_name=$(date +%F)-qwen2.5-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
 export eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json
@@ -18,7 +18,7 @@ cd $CHATLEARN/examples/fsdp/
 source scripts/base_env.sh
 
 # Env setup
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+# export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 export RAY_DEDUP_LOGS=1
 export NCCL_NVLS_ENABLE=0
 
@@ -53,4 +53,4 @@ export enable_eval_before_training=True
 export eval_episode_interval=5
 export save_episode_interval=5
 
-python entry/train_grpo.py -c configs/qwen2_grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}
+python entry/train_grpo.py -c configs/grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}

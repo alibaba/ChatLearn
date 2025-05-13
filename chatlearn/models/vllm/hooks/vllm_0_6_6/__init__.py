@@ -23,3 +23,4 @@ from . import llm_engine
 from . import loader
 from . import ray_gpu_executor
 from . import worker_base
+from . import registry

@@ -34,7 +34,8 @@ class VLLMPolicyInference(VLLMModule):
         seq_length = self.model_args.get("seq_length")
 
         prompts_dataset = VLLMPromptPipeline(
-            prompts, seq_length, self.tokenizer.tokenizer, num_inference_per_prompt)
+            prompts, seq_length, self.tokenizer.tokenizer, \
+            num_inference_per_prompt, enable_thinking=self.model_args.get("enable_thinking", False))
 
         return prompts_dataset
 
