@@ -37,7 +37,7 @@ class VLLMPromptPipeline(Dataset):
     {"input_ids": prompt_ids, "prompt": prompt}
     """
 
-    def __init__(self, data_list: List[Dict], seq_length: int, tokenizer: AutoTokenizer = None, num_inference_per_prompt: int = 1):# pylint: disable=super-init-not-called
+    def __init__(self, data_list: List[Dict], seq_length: int, tokenizer: AutoTokenizer = None, num_inference_per_prompt: int = 1, enable_thinking = False):# pylint: disable=super-init-not-called
         super().__init__()
 
         self.tokenizer = tokenizer
@@ -48,7 +48,7 @@ class VLLMPromptPipeline(Dataset):
             data_source = data_item.get("data_source", "")
             ground_truth = data_item['reward_model']['ground_truth']
             if isinstance(prompt, list):
-                prompt = self.tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True)
+                prompt = self.tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
             input_ids = self.tokenizer.encode(prompt)
             processed_data = {"input_ids": input_ids, "prompt": prompt, "data_source": data_source, "ground_truth": ground_truth}
             if seq_length > len(input_ids):

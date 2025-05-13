@@ -26,6 +26,7 @@ eval_repetition_penalty: ${policy_eval_repetition_penalty:1.0}
 # dataset
 vllm_prompt_key: ${vllm_prompt_key:prompt}
 vllm_input_ids_key: ${vllm_input_ids_key:input_ids}
+enable_thinking: ${enable_thinking:False}
 
 # scheduler config
 max_num_batched_tokens: ${max_num_batched_tokens:32768}

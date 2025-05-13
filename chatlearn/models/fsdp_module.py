@@ -239,7 +239,7 @@ class FSDPModule(TorchModule):
         self.setup_distributed()
         args = dict_to_simplenamespace(self.model_args)
         self.args = args
-        model = self.create_model(args.pretrain_or_model, torch_dtype=torch.float32)
+        model = self.create_model(args.pretrain_or_model, torch_dtype=torch.bfloat16)
         self.tokenizer = AutoTokenizer.from_pretrained(
             args.pretrain_or_model, trust_remote_code=True, use_fast=True
         )
@@ -256,13 +256,14 @@ class FSDPModule(TorchModule):
             cpu_offload=None,
             auto_wrap_policy=auto_wrap_policy,
             device_id=torch.cuda.current_device(),
-            sharding_strategy=sharding_strategy,  # zero3
+            sharding_strategy=sharding_strategy,
             mixed_precision=mix_precision_config,
             sync_module_states=True,
             param_init_fn=FSDPModule.init_fn,
             device_mesh=self.device_mesh,
             forward_prefetch=False,
         )
+        self.model.to(torch.float32)
         FSDP.set_state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT)
         if not self.trainable:
             self.optimizer = None
