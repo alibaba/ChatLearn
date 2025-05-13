@@ -37,7 +37,7 @@ bash examples/fsdp/scripts/train_grpo_qwen3.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen.sh](examples/fsdp/scripts/train_grpo_qwen.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../examples/fsdp/scripts/train_grpo_qwen3.sh):
 
 ```bash
 export enable_wandb=True
