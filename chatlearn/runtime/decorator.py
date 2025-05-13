@@ -24,8 +24,11 @@ import ray
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.utils import future
 from chatlearn.utils import utils
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
+from chatlearn.utils.utils import regroup_by_concat_along_batch, slice_by_index_along_batch
 
 
 def monitor_error(func, func_name):
@@ -94,9 +97,11 @@ def split_along_batch(batch, new_batch_size):
         new_batches.append(new_batch)
     return new_batches
 
-
 def concat_along_batch(tensors):
     batched = {}
+    if tensors[0] is None:
+        return batched
+
     for key in tensors[0].keys():
         to_batch = [results[key] for results in tensors]
         if isinstance(to_batch[0], torch.Tensor):
@@ -106,7 +111,8 @@ def concat_along_batch(tensors):
             for seq in to_batch:
                 batched[key].extend(seq)
         else:
-            raise Exception(f"unkown types {type(to_batch[0])}to concat")
+            raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat")
+
     return batched
 
 
@@ -119,12 +125,28 @@ def preprocess_compute(func, trainable):
 
     def inner(self, *args, **kwargs):
         args = future.get(args)
-        if not trainable and len(args) > 1:
-            if all(isinstance(arg, dict) for arg in args):
+        assert isinstance(args, (list, tuple)), f"expect args is a list, while {type(args)}, args: {args}."
+        batched_data_list = [None] * len(args)
+        if not trainable:
+            self._logger.info(f"{LOG_START} start to merge data for {self.name} replica {self.replica_id}.")
+            self._logger.info(f"{LOG_START} preprocess_compute model {self.name} replica {self.replica_id} \
+                has inputs from {len(args)} input node.")
+
+            for idx, arg_obj in enumerate(args):
+                batched_data_list[idx] = arg_obj
+                if CHATLEARN_REGROUP_TAG in arg_obj:
+                    batched_data_list[idx] = regroup_by_concat_along_batch(arg_obj[CHATLEARN_REGROUP_TAG])
+                if INDEX_TAG in arg_obj:
+                    batched_data_list[idx] = slice_by_index_along_batch(batched_data_list[idx], arg_obj[INDEX_TAG])
+                assert isinstance(batched_data_list[idx], dict), \
+                    f"expect output arg for {self.name} to be a dict, while {type(batched_data_list[idx])}, arg: {batched_data_list[idx]}"
+            if all(isinstance(batched_data, dict) for batched_data in batched_data_list):
                 merged = {}
-                for arg in args:
-                    merged.update(arg)
+                for batched_data in batched_data_list:
+                    merged.update(batched_data)
                 args = [merged]
+
+            self._logger.info(f"{LOG_START} complete to merge data for {self.name}.")
 
         def get_kwarg(key):
             return kwargs.pop(key) if key in kwargs else False
@@ -152,7 +174,7 @@ def preprocess_compute(func, trainable):
                 input_data = args[0]
             else:
                 input_data = None
-            if input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
+            if generation_batch_size != -1 and input_data is not None and input_batch > generation_batch_size and not hasattr(self, 'generate_vllm'):
                 args = list(args)
                 batches = split_along_batch(input_data, generation_batch_size)
                 results = []

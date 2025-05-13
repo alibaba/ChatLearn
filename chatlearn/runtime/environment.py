@@ -41,12 +41,51 @@ class Environment(Executor):
         super().__init__(model_flow)
         self._batch_size = None
         self._batch_per_episode = None
-        self._dataset = None
+        self._all_datasets = None
         self.data_iter = None
         self._padding_config = {}
 
     def set_dataset(self, dataset):
-        self._dataset = dataset
+        """Set dataset for the environment.
+
+        Args:
+            dataset (list): a list of prompts strs
+
+        Returns:
+            Environment instance: return environment
+        """
+        assert isinstance(dataset, list), (
+            f"expect the dataset to be a list of prompts, got {type(dataset)}"
+        )
+        assert not isinstance(dataset[0], list), (
+            "expect only one dataset to be set, if you want to use more "
+            "than one dataset, please try `set_multiple_datasets`"
+        )
+        self._all_datasets = [dataset]
+        return self
+
+    def set_multiple_datasets(self, all_datasets):
+        """Set multiple datasets for the environment.
+
+        Args:
+            dataset (list): a list of prompts strs
+
+        Returns:
+            Environment instance: return environment
+        """
+        # sanity check
+        assert len(all_datasets) >= 1, (
+            f"expect at least one dataset, got {len(all_datasets)} datasets."
+        )
+        assert isinstance(all_datasets, list), (
+            f"expect datasets to be a list, got {type(all_datasets)}"
+        )
+        for dataset in all_datasets:
+            assert isinstance(dataset, list), (
+                f"expect each dataset to be a list of prompts, got {type(dataset)}"
+            )
+
+        self._all_datasets = all_datasets
         return self
 
     def setup_dataset(self):
@@ -56,11 +95,15 @@ class Environment(Executor):
         logger.info("start set dataset for data_producer")
         refs = []
         if self.models[0].module_args.batch_generation.ranking:
-            episode_per_epoch = math.ceil(len(self._dataset) / self.sample_per_episode)
-            self._dataset = batch_generation_ranking(self._dataset, episode_per_epoch, self.sample_per_episode)
+            for i, dataset in enumerate(self._all_datasets):
+                episode_per_epoch = math.ceil(len(dataset) / self.sample_per_episode)
+                self._all_datasets[i] = batch_generation_ranking(
+                    dataset, episode_per_epoch, self.sample_per_episode
+                )
+
         for policy_replica in self.data_producer.replicas:
-            ref = policy_replica.master._build_dataloader.remote(self._dataset,
-                                                                 self.batch_size)
+            ref = policy_replica.master._build_dataloader.remote(self._all_datasets,
+                                                                 self.sample_per_episode)
             refs.append(ref)
         future.get(refs)
         logger.info("set dataset for data_producer done")
@@ -81,41 +124,39 @@ class Environment(Executor):
                 for replica in model_node.model.replicas:
                     refs.append(replica.vllm_engine.setup_vllm.remote(
                         replica.all_actors))
-                future.wait(refs)
+                future.wait(refs, return_output=True)
 
     @property
     def sample_per_episode(self):
         return self.args.sample_per_episode
 
-    @property
-    def batch_size(self):
-        if self._batch_size is not None:
-            return self._batch_size
-        if self.first_model.use_vllm_backend:
-            num_replica = len(self.models[0].replicas)
-            self._batch_size = self.sample_per_episode // num_replica
-        else:
-            self._batch_size = self.models[0].module_args.generation_batch_size
+    def batch_size(self, model=None):
+        if model is None:
+            model = self.models[0]
 
-        return self._batch_size
-
-    @property
-    def batch_per_episode(self):
-        if self._batch_per_episode is not None:
-            return self._batch_per_episode
-        num_replica = len(self.models[0].replicas)
-        num_batch = self.sample_per_episode // (num_replica * self.batch_size) * num_replica
-        remainder = self.sample_per_episode % (num_replica * self.batch_size)
-        if remainder > 0 and self.first_model.use_vllm_backend:
-            if self.sample_per_episode >= num_replica:
-                self._batch_per_episode = num_replica
-            else:
-                self._batch_per_episode = self.sample_per_episode
-        elif remainder >= num_replica:
-            self._batch_per_episode = num_batch + num_replica
+        if model.use_vllm_backend:
+            num_replica = len(model.replicas)
+            batch_size = self.sample_per_episode // num_replica
         else:
-            self._batch_per_episode = num_batch + remainder
-        return self._batch_per_episode
+            batch_size = model.module_args.generation_batch_size
+
+        return batch_size
+
+    def batch_per_episode(self, model=None):
+        if model is None:
+            model = self.models[0]
+
+        num_replica = len(model.replicas)
+        if self.sample_per_episode >= num_replica:
+            _batch_per_episode = num_replica
+        else:
+            _batch_per_episode = self.sample_per_episode
+        dp_size = len(model.replicas[0].dp_rank_to_actors)
+        if dp_size > 1:
+            _batch_per_episode *= dp_size
+
+
+        return _batch_per_episode
 
     def num_iteration(self, model=None):
         """Calculate the number of iterations for a model in the environment.
@@ -129,23 +170,30 @@ class Environment(Executor):
         if model is None:
             model = self.models[0]
 
+        _batch_per_episode = self.batch_per_episode(model)
+        dp_size = len(model.replicas[0].dp_rank_to_actors)
         if model.module_args.zero_size > 1:
-            assert self.batch_per_episode % model.module_args.zero_size == 0
-            return self.batch_per_episode // model.module_args.zero_size
-        elif model.module_args.expert_model_parallel_size > 1:
-            assert self.batch_per_episode % model.module_args.expert_model_parallel_size == 0, (
-                f"batch per episode ({self.batch_per_episode}) must be divisible by expert model parallel "
-                f"size ({model.module_args.expert_model_parallel_size})."
+            assert _batch_per_episode % model.module_args.zero_size == 0
+            return _batch_per_episode // model.module_args.zero_size
+        elif dp_size > 1: # for trainable model or ep model
+            if _batch_per_episode < dp_size:
+                raise NotImplementedError(
+                    "Currently ChaLearn requires batch_per_episode >= len(dp_rank_to_actors), "
+                    f"got {_batch_per_episode} and {dp_size}. "
+                    f"Please allocate more replicas to inference model {model.name} to walk-around the issue."
+                )
+            assert _batch_per_episode % dp_size == 0, (
+                "Inner loop in Executor.generate_step_one_model_internal() depends on dp_size of each replica."
             )
-            return self.batch_per_episode // model.module_args.expert_model_parallel_size
+            return _batch_per_episode // dp_size
         else:
-            return self.batch_per_episode
+            return _batch_per_episode
 
     def execute(self, is_eval):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
         # prepare batches for all model replicas
-        for mb in range(self.batch_per_episode):
+        for mb in range(self.batch_per_episode(self.models[0])):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
@@ -192,7 +240,7 @@ class MCTSEnv(Environment):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
         args = []
-        for mb in range(self.batch_per_episode):
+        for mb in range(self.batch_per_episode()):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
@@ -258,7 +306,7 @@ class SPRLEnv(Environment):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
         args = []
-        for mb in range(self.batch_per_episode):
+        for mb in range(self.batch_per_episode()):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)

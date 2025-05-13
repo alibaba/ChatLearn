@@ -1,0 +1,14 @@
+generate_config:
+    num_beams: 1
+    num_return_sequences: 1
+    temperature: 1.0
+    do_sample: True
+    early_stopping: True
+    top_k: 1
+    top_p: 0.9
+    repetition_penalty: 1.0
+    length_penalty: 1.0
+    min_length: 5
+    max_length: 4096
+    no_repeat_ngram_size: 2
+    eos_token_id: 102

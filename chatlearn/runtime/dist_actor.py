@@ -30,6 +30,7 @@ vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
     from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+    from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
 RAY_REMOTE = "remote"
 
@@ -234,12 +235,17 @@ class DistVLLMActor(DistTorchActor):
         self.vllm_engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
-        kwargs = {
-            "worker_module_name": "vllm.worker.worker",
-            "worker_class_name": "Worker",
-            "worker_class_fn": None,
-            "trust_remote_code": True,
-        }
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            kwargs = {
+                "worker_module_name": "vllm.worker.worker",
+                "worker_class_name": "Worker",
+                "worker_class_fn": None,
+                "trust_remote_code": True,
+            }
+        else:
+            kwargs = {
+                "vllm_actor_type" : "worker"
+            }
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
@@ -282,6 +288,8 @@ class DistVLLMActor(DistTorchActor):
                 dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
                 dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
+            elif func_name in ["get_and_clear_metrics"]:
+                dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
             else: # needed to check for other call_funs.
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
@@ -365,6 +373,7 @@ class DistModel:
         for func_name in ["model_setup",
                           "before_episode",
                           "after_episode",
+                          "get_and_clear_metrics",
                           "validate",
                           "destroy_collective_group",
                           "terminate",

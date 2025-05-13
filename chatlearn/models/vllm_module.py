@@ -207,10 +207,9 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
 
     def setup(self):
         """Set up model and load checkpoint"""
-        need_load_ckpt = self.src_parameter_model is None
-        model = [get_model(self.model_provider, self.model_args, need_load_ckpt)]
+        model = [get_model(self.model_provider, self.model_args)]
 
-        if self.model_args["load"] is None and need_load_ckpt:
+        if self.model_args["load"] is None:
             print_rank_0(f"Warning: Using random parameter for {self.name} model.")
 
         assert len(model) == 1, "Above condition should have caught this"
@@ -479,6 +478,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
             temperature = self.model_args.get("eval_temperature", 1.0) if is_eval else self.model_args.get("temperature", 1.0)
         top_p = self.model_args.get("eval_top_p", 1.0) if is_eval else self.model_args.get("top_p", 1.0)
         top_k = self.model_args.get("eval_top_k", -1) if is_eval else self.model_args.get("top_k", -1)
+        min_p = self.model_args.get("eval_min_p", 0.0) if is_eval else self.model_args.get("min_p", 0.0)
         presence_penalty = self.model_args.get("eval_presence_penalty", 0.0) if is_eval else self.model_args.get("presence_penalty", 0.0)
         frequency_penalty = self.model_args.get("eval_frequency_penalty", 0.0) if is_eval else self.model_args.get("frequency_penalty", 0.0)
         repetition_penalty = self.model_args.get("eval_repetition_penalty", 1.0) if is_eval else self.model_args.get("repetition_penalty", 1.0)
@@ -509,13 +509,14 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,
+                    min_p=min_p,
                     use_beam_search=self.model_args.get("use_beam_search"),
                     ignore_eos=self.model_args.get("ignore_eos"),
                     stop=stop,
                     max_tokens=max_tokens,
                     logprobs=1,
                     prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-                    skip_special_tokens=False
+                    skip_special_tokens=self.model_args.get('skip_special_tokens', True)
                 )
             elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
                 sampling_params = SamplingParams(
@@ -526,12 +527,13 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
                     temperature=temperature,
                     top_p=top_p,
                     top_k=top_k,
+                    min_p=min_p,
                     ignore_eos=self.model_args.get("ignore_eos"),
                     stop=stop,
                     max_tokens=max_tokens,
                     logprobs=1,
                     prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-                    skip_special_tokens=False
+                    skip_special_tokens=self.model_args.get('skip_special_tokens', True)
                 )
             else:
                 raise RuntimeError(f"Unsupported vllm version {CURRENT_VLLM_VERSION}, expect one of {list(VLLMVersion)}")
@@ -650,7 +652,7 @@ class VLLMModule(TorchModule, LLMEngine, LLM):
         """
         return self.model_config.hf_config.num_hidden_layers
 
-    def generate_vllm(self, query, is_eval):
+    def generate_vllm(self, query, is_eval, iteration=0): # pylint: disable=unused-argument
         num_gpu_blocks, num_cpu_blocks = self.profile_cache_blocks()
         num_blocks = torch.tensor([num_gpu_blocks, num_cpu_blocks], device='cuda')
         torch.distributed.all_reduce(num_blocks, op=torch.distributed.ReduceOp.MIN)

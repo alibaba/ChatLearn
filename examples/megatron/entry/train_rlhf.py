@@ -18,10 +18,10 @@ import random
 import os
 
 from examples.megatron.models import PolicyReference, PolicyTrainer, RewardInference, ValueInference, ValueTrainer
-from examples.megatron.models.train_helper import eval_post_process, get_prompts
+from examples.megatron.models.utils import get_prompts
+from examples.megatron.models.eval_post_process import EvaluatorPostProcess
 
 import chatlearn
-from chatlearn import Evaluator
 from chatlearn import RLHFEngine
 
 # pylint: disable=invalid-envvar-default,bad-exception-cause,ungrouped-imports
@@ -64,9 +64,8 @@ if __name__ == "__main__":
         if eval_num_limit:
             eval_num_limit = min(eval_num_limit, len(val_prompts))
             val_prompts = val_prompts[:eval_num_limit]
-        evaluator = Evaluator(eval_flow) \
-            .set_dataset(val_prompts) \
-            .set_post_process_func(eval_post_process)
+        evaluator = EvaluatorPostProcess(eval_flow) \
+            .set_dataset(val_prompts)
         engine.set_evaluator(evaluator)
     engine.set_dataset(train_prompts)
     engine.learn()

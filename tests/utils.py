@@ -1,4 +1,7 @@
 import copy
+import logging
+import traceback
+import time
 
 from torch.utils.data import Dataset
 
@@ -98,4 +101,70 @@ def listdict_to_dictlist(ld, list_extend=True):
 
 def assert_consumed_samples(engine, model_names, ground_truth:int):
     for model_name in model_names:
-        assert future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples == ground_truth
+        assert future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples == ground_truth, (
+            f"model {model_name} consumed "
+            f"{future.get(engine.named_models[model_name].replicas[0].get_runtime_args()[0]).consumed_samples} samples, "
+            f"while ground_truth = {ground_truth}, "
+        )
+
+
+class TestCaseRunner():
+    def __init__(self):
+        self.passed = []
+        self.failed = []
+        # We want enable debug logging for Test
+        self._set_log_level_debug()
+
+    def _set_log_level_debug(self, level=logging.DEBUG):
+        # 获取根Logger并设置级别
+        logger = logging.getLogger("ChatLearn")
+        logger.setLevel(level)
+        for handler in logger.handlers:
+            handler.setLevel(level)
+    def run_test_case(self, case):
+        try:
+            print(f"\033[1;33m=========Test Case {case.__name__} starting =========\033[0m")
+            case()
+            print(f"\033[1;32m=========Test Case {case.__name__} passed =========\033[0m")
+
+            self.passed.append(case.__name__)
+        except Exception as e:
+            print (f"Caught an Execption Error {e}")
+            traceback.print_exc()
+            print(f"\033[1;31m=========Test Case {case.__name__} failed =========\033[0m")
+            self.failed.append(case.__name__)
+    
+    def report(self, seconds_used):
+        total = len(self.passed) + len(self.failed)
+        print(f"\033[1;32m=========Test Case Time:  {seconds_used} seconds=========\033[0m")
+        print(f"\033[1;32m=========Test Case Total:  {total}=========\033[0m")
+        print(f"\033[1;32m=========Test Case Passed: {len(self.passed)}=========\033[0m")
+        for case in self.passed:
+            print(f"\033[1;32mTest Case {case} passed\033[0m")
+
+        if len(self.failed) == 0:
+            print(f"\033[1;32m=========Test Case Passed Rate: 100% =========\033[0m")
+            return 0
+
+        print(f"\033[1;31m=========Test Case Failed: {len(self.failed)}=========\033[0m")
+        for case in self.failed:
+            print(f"\033[1;31mTest Case {case} failed!\033[0m")
+
+        result = "{:.2f} %".format(len(self.passed) * 100 / total)
+        print(f"\033[1;31m=========Test Case Passed Rate: {result} =========\033[0m")
+        return 1
+
+def run_test(cases, name = None):
+    # run all cases if not name, or run name only
+    runner = TestCaseRunner()
+    ts = time.time()
+    for case in cases:
+        if name is not None:
+            if case.__name__ == name:
+                runner.run_test_case(case)
+                break
+        else:
+            runner.run_test_case(case)
+    te = time.time()
+    seconds_used = "{:.2f}".format(te - ts)
+    return runner.report(seconds_used)

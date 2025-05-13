@@ -71,7 +71,7 @@ class VLLMPolicyInference(VLLMModule):
         return self._forward_step(data, iteration, True)
 
     def _forward_step(self, data, iteration, is_eval): # pylint: disable=unused-argument
-        outputs = self.generate_vllm(data, is_eval)
+        outputs = self.generate_vllm(data, is_eval, iteration=iteration)
         if outputs is not None:
             rets = self.decode_internal(outputs)
             return rets

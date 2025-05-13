@@ -556,13 +556,13 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
     return args
 
 
-def get_model(model_provider, args, need_load_ckpt=True):
+def get_model(model_provider, args):
     with _set_default_torch_dtype(args.get("params_dtype")):
         # Create a model instance.
         # The weights will be initialized as empty tensors.
         model = model_provider()
         model = model.cuda()
-        if args["load"] and need_load_ckpt:
+        if args["load"]:
             model.load_weights()
         else:
             # For accurate performance evaluation, we assign
@@ -608,7 +608,7 @@ def _init_distributed_environment(args):
             world_size=args.world_size, rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes))
 
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3]:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         _WORLD = None
         if _WORLD is None:
             ranks = list(range(torch.distributed.get_world_size()))
@@ -874,7 +874,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Transformer Layers
     print("Converting transformer layers")
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         start_layer_idx, _ = get_pp_indices(
             hf_config.num_hidden_layers,
             pp_rank,
@@ -1239,7 +1239,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # Transformer Layers
     print("Converting transformer layers")
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
         start_layer_idx, _ = get_pp_indices(
             hf_config.num_hidden_layers,
             pp_rank,

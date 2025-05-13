@@ -19,23 +19,26 @@ import inspect
 import os
 
 import torch
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoConfig
 from vllm import SamplingParams
 from vllm.config import LoadFormat
 from vllm.entrypoints.llm import LLM
 from vllm.executor.ray_utils import RayWorkerWrapper
 
+from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
+from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
 from .torch_module import TorchModule
 try:
-    from .megatron.memory_manager import InferenceMemoryManager
+    from .vllm.inference import InferenceMemoryManager
 except ImportError:
     InferenceMemoryManager = None
 
+# pylint: disable=unexpected-keyword-arg
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     """VLLMModuleV2"""
 
@@ -49,14 +52,22 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         assert common_methods == {'__init__'}, \
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
-        if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-            RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
+                RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        else:
+            if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
+                vllm_config = self.init_engine_args()
+                RayWorkerWrapper.__init__(self, vllm_config=vllm_config) # pylint: disable=non-parent-init-called
+
         os.environ['VLLM_HOST_IP'] = self.get_address()
 
         self.tokenizer = None
         self._model = None
         self.llm = None
+        self.model_config =  AutoConfig.from_pretrained(self.model_args['tokenizer'])
         self.set_vllm_pp_layer_partition()
+        self._metric_prefix = 'vllm_inference'
 
     def add_extra_args(self, parser):
         """
@@ -74,6 +85,53 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         group.add_argument('--distributed-timeout-minutes', type=int, default=10,
                            help='Timeout minutes for torch.distributed.')
         return parser
+
+    def init_engine_args(self):
+        dtype = self.model_args.get("dtype", "bfloat16")
+        if self.model_args.get("fp16", False):
+            dtype = "float16"
+
+        load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
+        if load_format == LoadFormat.DUMMY:
+            model_loader_extra_config = self.model_args
+        else:
+            model_loader_extra_config = None
+
+        if self.model_args.get("apply_replica_id_to_seed", True):
+            seed = self.model_args.get("seed", 0) + self.replica_id
+        else:
+            seed = self.model_args.get("seed", 0)
+
+        from vllm.engine.arg_utils import AsyncEngineArgs # pylint: disable=import-outside-toplevel
+        from vllm.usage.usage_lib import UsageContext # pylint: disable=import-outside-toplevel
+        self.engine_args = AsyncEngineArgs(
+            model=self.model_args['tokenizer'],
+            tokenizer=self.model_args['tokenizer'],
+            max_seq_len_to_capture=self.model_args.get("max_seq_len_to_capture", 32768),
+            seed=seed,
+            # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
+            load_format=load_format,
+            model_loader_extra_config=model_loader_extra_config,
+            # parallelism strategy
+            tensor_parallel_size=self.module_args.tensor_model_parallel_size,
+            pipeline_parallel_size=self.module_args.pipeline_model_parallel_size,
+            dtype=dtype,
+            # scheduling strategy
+            max_num_seqs=self.module_args.generation_batch_size,
+            max_num_batched_tokens = self.model_args.get("max_num_batched_tokens", None),
+            num_scheduler_steps=self.model_args.get("num_scheduler_steps", 1),
+            gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
+            # logger
+            disable_log_requests=self.model_args.get("disable_log_requests", True),
+            disable_log_stats=self.model_args.get("disable_log_stats", True),
+            trust_remote_code=True,
+            enforce_eager=self.model_args.get("enforce_eager", True),
+            disable_custom_all_reduce=True,
+            distributed_executor_backend="ray",
+            preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
+            swap_space=self.model_args.get("swap_space", 16))
+        return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
+
 
     def init(self):
         """
@@ -104,7 +162,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
         if load_format == LoadFormat.DUMMY:
-            self.model_args["need_load_ckpt"] = self.src_parameter_model is None
             model_loader_extra_config = self.model_args
         else:
             model_loader_extra_config = None
@@ -117,7 +174,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self.llm = LLM(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
-            max_seq_len_to_capture=self.model_args.get("seq_length"),
+            max_seq_len_to_capture=self.model_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
@@ -137,11 +194,30 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             trust_remote_code=True,
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
-            distributed_executor_backend="ray")
+            distributed_executor_backend="ray",
+            preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
+            swap_space=self.model_args.get("swap_space", 16))
         self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
         self.offload_for_workers()
         self.empty_cuda_graph_for_workers()
         self.empty_cache_for_workers()
+    def dump_parameters(self, dump_path_root):
+        self.onload_for_workers()
+        self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
+
+    def worker_dump_parameters(self, dump_path_root):
+        tp_rank = self.tensor_parallel_rank()
+        model = self.model
+        if isinstance(model, list):
+            model = model[0]
+
+        dir_path = os.path.join(dump_path_root, str(tp_rank))
+        if not os.path.exists(dir_path):
+            os.makedirs(dir_path)
+        self._logger.info(f"dump parameters to {dir_path}")
+        for name, param in self.named_parameters.items():
+            pt_file = os.path.join(dir_path, name)
+            torch.save(param.data.clone(), pt_file)
 
     def init_memory_manager(self):
         if self.module_args.offload_weights:
@@ -154,7 +230,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
-        num_layers = self.model_args.get("num_layers")
+        num_layers = self.model_config.num_hidden_layers
         remainder = num_layers % pipeline_world_size
 
         if not self.model_args.get("allow_padding_num_layers", None):
@@ -203,11 +279,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
-        if not self.model_args.get("use_beam_search"):
+        if not self.model_args.get("use_beam_search", False):
             temperature = self.model_args.get("eval_temperature", 1.0) if is_eval else self.model_args.get(
                 "temperature", 1.0)
         top_p = self.model_args.get("eval_top_p", 1.0) if is_eval else self.model_args.get("top_p", 1.0)
         top_k = self.model_args.get("eval_top_k", -1) if is_eval else self.model_args.get("top_k", -1)
+        min_p = self.model_args.get("eval_min_p", 0.0) if is_eval else self.model_args.get("min_p", 0.0)
         presence_penalty = self.model_args.get("eval_presence_penalty", 0.0) if is_eval else self.model_args.get(
             "presence_penalty", 0.0)
         frequency_penalty = self.model_args.get("eval_frequency_penalty", 0.0) if is_eval else self.model_args.get(
@@ -215,26 +292,35 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         repetition_penalty = self.model_args.get("eval_repetition_penalty", 1.0) if is_eval else self.model_args.get(
             "repetition_penalty", 1.0)
         stop = self.model_args.get("stop_token_list", None)
-        if isinstance(stop, str):
+        if stop is not None and isinstance(stop, str):
             stop = stop.split(";")
         sampling_params = SamplingParams(
-            n=self.model_args.get("n"),
+            n=self.model_args.get("n", 1),
             presence_penalty=presence_penalty,
             frequency_penalty=frequency_penalty,
             repetition_penalty=repetition_penalty,
             temperature=temperature,
             top_p=top_p,
             top_k=top_k,
-            ignore_eos=self.model_args.get("ignore_eos"),
+            min_p=min_p,
+            ignore_eos=self.model_args.get("ignore_eos", False),
             stop=stop,
-            logprobs=1,
+            logprobs=self.model_args.get("logprobs", 1),
+            detokenize=self.model_args.get("detokenize", False),
             prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-            skip_special_tokens=False
+            skip_special_tokens=self.model_args.get('skip_special_tokens', True)
         )
         # VLLMVersion.v_0_3_0, VLLMVersion.v_0_5_1
         if hasattr(sampling_params, 'use_beam_search'):
-            sampling_params.use_beam_search = self.model_args.get("use_beam_search")
+            sampling_params.use_beam_search = self.model_args.get("use_beam_search", False)
         return sampling_params
+
+    def update_weights_from_ipc_handles(self, reduce_data):
+
+        for name, reduced in reduce_data.items():
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor = rebuild_func(*rebuild_args)
+            self.model.load_weights([(name, reconstructed_tensor)])
 
     def _convert_v1_inputs(self, prompts, prompt_token_ids):
         num_requests = len(prompts)
@@ -256,9 +342,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
 
         return inputs
 
-    def generate_vllm(self, query, is_eval, is_first_run=True):
-        if is_first_run: # using for multi-round generate
-            self.reinit_cache_engine()
+    def preprocess_inputs(self, query, is_eval):
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
 
@@ -286,11 +370,30 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             parsed_prompts.append(item)
             sampling_params.append(sampling_param)
 
+        return parsed_prompts, sampling_params
+
+    def run_vllm(self, parsed_prompts, sampling_params):
         outputs = self.llm.generate(
             parsed_prompts,
             sampling_params,
-            use_tqdm=True,
+            use_tqdm=True
         )
+        return outputs
+
+    def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
+        # resume from stage checkpoint.
+        outputs = self.load_stage_outputs(is_eval, iteration)
+        if outputs is not None:
+            return outputs
+        if is_first_run: # using for multi-round generate
+            self.reinit_cache_engine()
+        parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
+
+        outputs = []
+        if os.getenv("SKIP_GENERATION", None) is None:
+            outputs = self.run_vllm(parsed_prompts, sampling_params)
+        # save stage outputs for resume.
+        self.save_stage_outputs(is_eval, outputs, iteration)
         return outputs
 
     def is_last_rank(self):
@@ -342,6 +445,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         return get_pipeline_model_parallel_rank()
+
+    def tensor_model_parallel_size(self):
+        return self.tensor_and_expert_model_parallel_size()
+
+    def expert_model_parallel_size(self):
+        return 1
 
     def tensor_and_expert_model_parallel_size(self):
         """
@@ -436,8 +545,37 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                 self.worker.model_runner.graph_runners[i] = {}
                 self.worker.model_runner.graph_memory_pool = None
 
+    def reset_block_manager(self):
+        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
+            version = "selfattn"
+            if (self.llm.llm_engine.scheduler_config.embedding_mode
+                    or self.llm.llm_engine.cache_config.is_attention_free):
+                version = "placeholder"
+        else:
+            version = "selfattn"
+            if (self.llm.llm_engine.scheduler_config.runner_type == "pooling"
+                    or self.llm.llm_engine.cache_config.is_attention_free):
+                version = "placeholder"
+        num_gpu_blocks = self.llm.llm_engine.cache_config.num_gpu_blocks
+        if num_gpu_blocks:
+            num_gpu_blocks //= self.module_args.pipeline_model_parallel_size
+        num_cpu_blocks = self.llm.llm_engine.cache_config.num_cpu_blocks
+        if num_cpu_blocks:
+            num_cpu_blocks //= self.module_args.pipeline_model_parallel_size
+
+        BlockSpaceManagerImpl = get_block_manager_cls(version)
+        for scheduler in self.llm.llm_engine.scheduler: # pylint: disable=not-an-iterable
+            scheduler.block_manager = BlockSpaceManagerImpl( # pylint: disable=abstract-class-instantiated
+                block_size=self.llm.llm_engine.cache_config.block_size,
+                num_gpu_blocks=self.llm.llm_engine.cache_config.num_gpu_blocks,
+                num_cpu_blocks=self.llm.llm_engine.cache_config.num_cpu_blocks,
+                sliding_window=self.llm.llm_engine.cache_config.sliding_window,
+                enable_caching=self.llm.llm_engine.cache_config.enable_prefix_caching)
+
     def reinit_cache_engine(self):
         # reinit cache engine
         self.llm.llm_engine.model_executor._run_workers("clear_cache")
         self.llm.llm_engine._initialize_kv_caches()
+        # reset block menager
+        self.reset_block_manager()
         self.llm.llm_engine.model_executor._run_workers("clear_cache")

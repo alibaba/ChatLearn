@@ -16,26 +16,32 @@
 
 from collections import defaultdict
 from itertools import cycle
+from pathlib import Path
 import math
+import time
 import os
+
+import torch
 
 import ray
 import ray.util.collective as col
 from ray.util.collective.collective_group.base_collective_group import BaseGroup
 from ray.util.collective.collective_group.nccl_collective_group import NCCLGroup
-from torch.utils.data import DataLoader
 from torch._utils import _flatten_dense_tensors, _unflatten_dense_tensors
 
-from chatlearn.data.sampler import SingleDataSampler, EpisodeDataSampler
+from chatlearn.data.sampler import MultiDatasetSampler
+from chatlearn.data.data import RLHFDataLoader
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.utils import future
+from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.dist_utils import bucket_tensors, coalesced_comm_dense
 from chatlearn.utils.dist_utils import bucket_tensors_two_stage_generator, coalesced_comm_dense_two_stage
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
+from chatlearn.utils.logger import logger
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
-from chatlearn.utils.utils import get_host_addr
+from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
 
 
@@ -49,6 +55,7 @@ class BaseModule:
     """
 
     def __init__(self, name, args=None, replica_id=0):
+        logger.info(f"{LOG_START} basemodule {name} init start")
         self.name = name
         if args is None:
             global_args = get_args()
@@ -73,8 +80,12 @@ class BaseModule:
                 * args.pipeline_model_parallel_size
                 * args.expert_model_parallel_size
                 * args.zero_size
+                * args.fsdp_size
             )
-            assert self._num_gpu_per_replica <= self.total_gpu
+            assert self._num_gpu_per_replica <= self.total_gpu, \
+                f"_num_gpu_per_replica {self._num_gpu_per_replica} larger than total_gpu {self.total_gpu} " + \
+                f"tp_size: {args.tensor_model_parallel_size} pp_size: {args.pipeline_model_parallel_size} " + \
+                f"ep_size: {args.expert_model_parallel_size} zero_size: {args.zero_size}"
             assert self.total_gpu % self._num_gpu_per_replica == 0
             if not self.trainable:
                 self._num_replica = args.num_gpu // self._num_gpu_per_replica
@@ -115,6 +126,7 @@ class BaseModule:
         # current compute iteration
         self._iteration = 0
         self._train_iteration = 0
+        self._episode_id = 0
         self.enable_lora = self._module_args.lora.enable_lora
         self._finalized = False
         self._resume_training = False
@@ -128,8 +140,13 @@ class BaseModule:
         self._tp_division = {}
         self._tp_num_mapping = 1
         self._sync_buffer = defaultdict(list)
+        self._sync_dst_rank_to_src_ranks = {}
         self._expert_sync_buffer = {}
         self._synchronizer = None
+        self._metric_prefix = ""
+        self._metric_list = []
+        self._stage_resume_done = False
+        logger.info(f"{LOG_START} basemodule {name} init done")
 
     def get_sync_buffer(self):
         return self._sync_buffer
@@ -258,9 +275,14 @@ class BaseModule:
                 if meta:
                     self._resume_training = self.runtime_args.consumed_samples > 0
                     start_episode = meta["episode"] + 1
+                    self._episode_id = start_episode
                     self._iteration = start_episode * math.ceil(self.runtime_args.sample_per_episode / \
                         self._num_replica / self.module_args.generation_batch_size)
-                    log_rank_0(f"{self.name} resume training {self._resume_training}: set start iteration to {self._iteration}", self._logger)
+
+                    log_rank_0(
+                        f"{self.name} resume training {self._resume_training}: "
+                        f"set start iteration to {self._iteration} and episode id to {self._episode_id}",
+                        self._logger)
         self.setup()
 
     def forward_step(self, data, iteration):
@@ -368,6 +390,7 @@ class BaseModule:
         """
         Operations after one episode.
         """
+        self._episode_id += 1
 
     def build_dataset(self, train_prompts, is_eval=False):
         """
@@ -383,7 +406,27 @@ class BaseModule:
                 Dataset with user-defined collate_fn
         """
 
-    def _build_dataloader(self, data, batch_size, dynamic_batch_size_flag=False, is_eval=False):
+    def build_all_dataset(self, train_prompts_list, is_eval=False):
+        """
+        Build all prompt datasets
+
+        Args
+        ----
+            train_prompts_list: List[List[Str]]
+                A list of prompt string lists.
+        Returns
+        -------
+            List[torch.utils.data.Dataset]
+                A list of Dataset with user-defined collate_fn
+        """
+        all_datasets = []
+        for train_prompts in train_prompts_list:
+            all_datasets.append(
+                self.build_dataset(train_prompts, is_eval)
+            )
+        return all_datasets
+
+    def _build_dataloader(self, data, sample_per_episode, is_eval=False):
         """
         build and set the dataloader for the model
 
@@ -393,20 +436,25 @@ class BaseModule:
 
         :meta private:
         """
-        dataset = self.build_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
+        all_datasets = self.build_all_dataset(data, is_eval) # pylint: disable=assignment-from-no-return
         consumed_samples = 0
+        data_ratio = self.runtime_args.data_ratio
+        shuffle = self.runtime_args.data_shuffle
+        data_rerank = self.runtime_args.data_rerank
         if not is_eval:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
-        collate_fn = dataset.collate_fn if hasattr(dataset, 'collate_fn') else None
+        collate_fn = all_datasets[0].collate_fn if hasattr(all_datasets[0], 'collate_fn') else None
         drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
-        dataloader = self.build_dataloader(dataset,
-                                           batch_size=batch_size,
+        dataloader = self.build_dataloader(all_datasets,
+                                           sample_per_episode=sample_per_episode,
                                            collate_fn=collate_fn,
                                            is_eval=is_eval,
-                                           dynamic_batch_size_flag=dynamic_batch_size_flag,
                                            consumed_samples=consumed_samples,
-                                           drop_last=drop_last)
+                                           data_ratio=data_ratio,
+                                           shuffle=shuffle,
+                                           drop_last=drop_last,
+                                           data_rerank=data_rerank)
 
         if is_eval:
             self._eval_dataloader = dataloader
@@ -417,44 +465,72 @@ class BaseModule:
             self._dataloader = dataloader
 
     def build_dataloader(self,
-                         dataset,
-                         batch_size,
+                         all_datasets,
+                         sample_per_episode,
                          collate_fn=None,
                          is_eval=False,
-                         dynamic_batch_size_flag=False,
                          consumed_samples=0,
-                         drop_last=False):
+                         data_ratio=None,
+                         shuffle=True,
+                         drop_last=False,
+                         data_rerank=True):
         """
         build the dataloader for the model
         Args:
-            dataset: a torch.utils.data.Dataset object
+            all_datasets: a list of torch.utils.data.Dataset objects
             batch_size: how many samples per batch to load
             collate_fn: set when loading from an map-style dataset (defulat: `None`)
             is_eval: set to `True` to build a dataloader for evaluation (default: `False`)
             consumed_samples: consumed samples (default: `0`)
+            data_ratio: ratio of samples for each dataset (default: `None`)
             drop_last: whether to drop last samples (default: `False`)
 
         :meta private:
         """
-        log_rank_0(f"Creating DataLoader... consumed_samples: {consumed_samples}", self._logger)
-        if is_eval:
-            batch_sampler = SingleDataSampler(total_samples=len(dataset),
-                consumed_samples=0,
-                micro_batch_size=batch_size,
-                data_parallel_rank=self.replica_id,
-                data_parallel_size=self._num_replica,
-                dynamic_batch_size_flag=dynamic_batch_size_flag,
-                drop_last=False)
+        log_rank_0(
+            f"Creating DataLoader... consumed_samples: {consumed_samples}, "
+            f"data_ratio: {data_ratio}",
+            self._logger
+        )
+        if "num_inference_per_prompt" in self.model_args:
+            num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
         else:
-            batch_sampler = EpisodeDataSampler(total_samples=len(dataset),
+            num_inference_per_prompt = 1
+        vllm_prompt_key = self.model_args["vllm_prompt_key"] \
+            if "vllm_prompt_key" in self.model_args else "prompt"
+        self._logger.info(f"====Data Rerank: {data_rerank}")
+        if is_eval:
+            batch_sampler = MultiDatasetSampler(
+                dataset_sizes=[len(dataset) for dataset in all_datasets],
+                sample_per_episode=sample_per_episode,
+                shuffle=False,
+                is_eval=True,
+                data_parallel_rank=self.replica_id,
+                data_parallel_size=self._num_replica
+            )
+        else:
+            batch_sampler = MultiDatasetSampler(
+                dataset_sizes=[len(dataset) for dataset in all_datasets],
+                sample_per_episode=sample_per_episode,
+                data_ratio=data_ratio,
                 consumed_samples=consumed_samples,
-                micro_batch_size=batch_size,
+                num_inference_per_prompt=num_inference_per_prompt,
+                shuffle=shuffle,
+                is_eval=False,
                 data_parallel_rank=self.replica_id,
                 data_parallel_size=self._num_replica,
-                sample_per_episode=self.runtime_args.sample_per_episode,
-                drop_last=drop_last)
-        return DataLoader(
-            dataset, batch_sampler=batch_sampler, collate_fn=collate_fn, pin_memory=True
+                drop_last="drop" if drop_last else "cycle",
+                data_rerank=data_rerank
+            )
+        return RLHFDataLoader(
+            all_datasets,
+            batch_sampler,
+            collate_fn=collate_fn,
+            add_uid=True,
+            data_parallel_rank=self.replica_id,
+            data_parallel_size=self._num_replica,
+            num_inference_per_prompt=num_inference_per_prompt,
+            vllm_prompt_key=vllm_prompt_key
         )
 
     def reset_eval_data_iter(self):
@@ -495,6 +571,16 @@ class BaseModule:
         self._world_size = world_size
         col.init_collective_group(
             world_size, rank, backend=backend, group_name=group_name)
+
+    def broadcast_dummy_tensor_send(self, src_rank, group_name):
+        x = torch.zeros(1, device="cuda")
+        col.broadcast(x, src_rank=src_rank, group_name=group_name)
+        del x
+
+    def broadcast_dummy_tensor_recv(self, src_rank, group_name):
+        x = torch.zeros(1, device="cuda")
+        col.broadcast(x, src_rank=src_rank, group_name=group_name)
+        del x
 
     def _destroy_collective_group(self, group_name):
         """
@@ -823,6 +909,8 @@ class BaseModule:
                 In (8 -> 8), we need to send tp_slice of 'to_rank' 9, so set buffer_rank 9 to fetch tensors in sync buffer.
         """
         tensor_changed = rank != src_rank
+        start = time.time()
+        arguments = f"{to_rank}_{buffer_rank}_{rank}_{src_rank}_{group_name}_{pipe_stage}_{stage2}"
 
         if stage2:
             if tensor_changed:
@@ -830,8 +918,12 @@ class BaseModule:
             else:
                 parameters_to_sync = self._parameters_to_send
         else:
-            del self._sync_buffer
-            self._sync_buffer = defaultdict(list)
+            if rank not in self._sync_dst_rank_to_src_ranks:
+                self._sync_dst_rank_to_src_ranks.update({rank:[src_rank]})
+                del self._sync_buffer
+                self._sync_buffer = defaultdict(list)
+            else:
+                self._sync_dst_rank_to_src_ranks[rank].append(src_rank)
             parameters_to_sync = self._parameters_to_sync
 
         def tensor_generator():
@@ -899,7 +991,7 @@ class BaseModule:
                     for key, value in all_buffers.items():
                         cpu_value = []
                         for tensor in value:
-                            cpu_value.append(tensor.cpu()) # save gpu memory
+                            cpu_value.append(tensor.cpu().pin_memory()) # save gpu memory
                         del value
                         self._sync_buffer[key] += cpu_value
                     del all_buffers
@@ -908,9 +1000,11 @@ class BaseModule:
                 col.broadcast(bucket_or_tensor, src_rank, group_name)
                 sparse_bucket_num += 1
 
-        debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
+        if stage2:
+            self._sync_dst_rank_to_src_ranks = {}
 
-        self.empty_cache()
+        self._logger.debug(f"broadcast_parameter_two_stage {arguments} done using {time.time()-start} seconds")
+        debug_rank_0(f"{self.name} Got dense_buckets {dense_bucket_num}, sparse_bucket {sparse_bucket_num}", self._logger)
 
     def send_parameter(self, dst_rank, group_name, pipe_stage=0):
         """
@@ -1000,7 +1094,18 @@ class BaseModule:
         :meta private:
         """
         if self._timers:
-            return self._timers.log(e2e_cost=e2e_cost)
+            return self._timers.log(return_dict=True, e2e_cost=e2e_cost)
+
+    def get_and_clear_metrics(self):
+        """
+        get logging metrics
+        """
+        if self._metric_list is None or len(self._metric_list) == 0:
+            return self._metric_prefix, {}
+
+        reduced_metrics = map_reduce_metrics(self._metric_list)
+        self._metric_list = []
+        return self._metric_prefix, reduced_metrics
 
     def add_padding_config(self, key, padding_value=0.0, padding_type="right"):
         """
@@ -1156,3 +1261,58 @@ class BaseModule:
         :meta private:
         """
         return 0
+
+    def enable_stage_resume(self, is_eval):
+        """
+        check whether to resume stage outputs.
+        """
+        if is_eval:
+            return False
+        if self.model_args.get("enable_stage_resume", False):
+            assert self.runtime_args.data_checkpoint_path, \
+                "data_checkpoint_path must be set for stage resume."
+            return True
+        return False
+
+    def get_stage_outputs_path(self, iteration):
+        """
+        get path for stage outputs.
+        """
+        save_dir = self.runtime_args.data_checkpoint_path
+        save_path = f"{save_dir}/{iteration}/{self.name}_replica_{self.replica_id}.pt"
+        save_path_meta = f"{save_dir}/{iteration}/{self.name}_replica_{self.replica_id}_meta.txt"
+        return save_path, save_path_meta
+
+    def load_stage_outputs(self, is_eval, iteration):
+        """
+        load stage outputs for resume.
+        """
+        outputs = None
+        # only load once for each launching.
+        if self.enable_stage_resume(is_eval) and not self._stage_resume_done:
+            self._stage_resume_done = True
+            save_path, save_path_meta=self.get_stage_outputs_path(iteration)
+            if os.path.exists(save_path) and os.path.exists(save_path_meta):
+                try:
+                    with open(save_path_meta, "r", encoding='utf-8') as f:
+                        replica_id = int(f.readline())
+                    if replica_id == self.replica_id:
+                        outputs = torch.load(save_path)
+                        logger.info(f"resume stage outputs for model:{self.name}, path:{save_path}")
+                except ValueError:
+                    logger.warning(f"ignore incomplete stage outputs, path:{save_path}")
+        return outputs
+
+    def save_stage_outputs(self, is_eval, outputs, iteration):
+        """
+        save stage outputs for resume.
+        """
+        if self.enable_stage_resume(is_eval):
+            save_path, save_path_meta=self.get_stage_outputs_path(iteration)
+            logger.info(f"Start to save stage outputs:{save_path}")
+            Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+            torch.save(outputs, save_path)
+            # save meta
+            with open(save_path_meta, "w", encoding='utf-8') as f:
+                f.write(f"{self.replica_id}")
+            logger.info(f"Finished to save stage outputs:{save_path}")
