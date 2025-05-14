@@ -42,8 +42,9 @@ By providing a comprehensive and efficient framework, ChatLearn empowers researc
 
 Please refer to the [documentation](https://chatlearn.readthedocs.io/en/latest/) for a quick start.
 
-1. [Environment and Code Setup](docs/en/installation.md) 
-2. [End-to-End Training Tutorial with LLaMA/LLaMA2 Model](docs/en/tutorial/tutorial_llama2.md)
+1. [Environment and Code Setup](docs/en/installation.md)
+2. [End-to-End GRPO Training Tutorial with FSDP](docs/en/tutorial/tutorial_grpo_fsdp.md)
+3. [End-to-End Training Tutorial with LLaMA/LLaMA2 Model](docs/en/tutorial/tutorial_llama2.md)
 
 
 # Performance

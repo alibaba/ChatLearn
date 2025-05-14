@@ -21,12 +21,15 @@ import subprocess
 import textwrap
 import time
 import math
+import copy
 import concurrent.futures
 from contextlib import closing
 from types import SimpleNamespace
 
 import pynvml
+import numpy as np
 import torch
+import torch.nn.functional as F
 from chatlearn.utils.logger import logger
 
 
@@ -308,3 +311,113 @@ def multi_thread_data_processing(num_threads: int, all_data: list, process_one_d
     execute_in_parallel(thread_fn, thread_args)
 
     return result
+
+
+def regroup_by_concat_along_batch(tensors):
+    batched = {}
+    if tensors[0] is None:
+        return batched
+    for key in tensors[0].keys():
+        to_batch = [results[key] for results in tensors]
+        if isinstance(to_batch[0], torch.Tensor):
+            if len(to_batch[0].shape) == 2:
+                max_dim_1 = max([ele.shape[1] for ele in to_batch]) # pylint: disable=consider-using-generator
+                pad_value = 0.0 if to_batch[0].dtype in [torch.float32, torch.float16, torch.bfloat16] else 0
+                value = [
+                    F.pad(
+                        ele,
+                        (0, max_dim_1 - ele.shape[1]),
+                        value=pad_value,
+                    )
+                    for ele in to_batch
+                ]
+                batched[key] = torch.vstack(value)
+            elif len(to_batch[0].shape) == 1:
+                batched[key] = torch.concat(to_batch)
+            else:
+                raise RuntimeError(f"unsupported shape for in_queue rebatching. expect 1 or 2. while {to_batch[0].shape}")
+        elif isinstance(to_batch[0], list):
+            batched[key] = []
+            for seq in to_batch:
+                batched[key].extend(seq)
+        else:
+            raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat : {to_batch[0]}")
+
+    return batched
+
+def slice_by_index_along_batch(batched_input, index):
+    start = index[0]
+    offset = index[1]
+    batched = {}
+    for key in batched_input.keys():
+        if isinstance(batched_input[key], torch.Tensor):
+            batched[key] = batched_input[key][start::offset,...]
+        elif isinstance(batched_input[key], list):
+            batched[key] = batched_input[key][start::offset]
+    return batched
+def listdict_to_dictlist(ld, list_extend=True):
+    '''
+    [{k1: v11, k2: v2}, {k1: v12, k2: v2},....] => {k1: [v11, v12..], k2: [v21, v22...]}
+    if v11 is list then k1: v11 + v12
+    :param ld:
+    :return:
+    '''
+    res = copy.deepcopy(ld[0])
+    for res_key, v in res.items():
+        if list_extend and isinstance(res[res_key], list):
+            continue
+
+        res[res_key] = [v]
+
+    for d in ld[1:]:
+        for key, v in d.items():
+            if list_extend and isinstance(d[key], list):
+                res[key].extend(v)
+            else:
+                res[key].append(v)
+
+    return res
+
+
+def map_metrics(metric_list):
+    mapped_metrics = {}
+    for metrics in metric_list:
+        for key, value in metrics.items():
+            if key in mapped_metrics:
+                mapped_metrics[key].append(value)
+            else:
+                mapped_metrics[key] = [value]
+    return mapped_metrics
+
+
+def reduce_metrics(merged_metrics):
+    # [TODO:baodong.lh] support custom_op like min, max to reduce metrics
+    reduced_metrics = {}
+    for key, value_list in merged_metrics.items():
+        if isinstance(value_list[0], torch.Tensor):
+            value = torch.mean(torch.Tensor(value_list))
+        else:
+            value = np.mean(value_list)
+        reduced_metrics[key] = value
+    return reduced_metrics
+
+
+def map_reduce_metrics(metric_list):
+    # [TODO:baodong.lh] imporve performance by distributing the task to per-replica
+    # sanity check
+    assert isinstance(metric_list, list)
+
+    if len(metric_list) == 0:
+        return {}
+
+    first_metric_len = len(metric_list[0])
+    for i, metric in enumerate(metric_list):
+        if len(metric) != first_metric_len:
+            logger.info(
+                f"WARNING! length of metrics are not the same for {i}-th metric ({len(metric)}) "
+                f"and the first one ({first_metric_len})! This is weird and please check!"
+            )
+
+    mapped_metrics = map_metrics(metric_list)
+    reduced_metrics = reduce_metrics(mapped_metrics)
+    return reduced_metrics

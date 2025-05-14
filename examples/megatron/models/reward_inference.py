@@ -14,6 +14,7 @@
 # ==============================================================================
 """reward inference"""
 
+import copy
 import codecs
 import json
 import re
@@ -27,7 +28,6 @@ from megatron.training import get_args
 from megatron.training import get_model
 from megatron.training import get_tokenizer
 from megatron.training import print_rank_0
-from megatron.training.global_vars import get_tensorboard_writer
 from megatron.training.utils import get_ltor_masks_and_position_ids
 
 import chatlearn
@@ -37,7 +37,7 @@ from chatlearn.utils.megatron_utils import load_checkpoint
 from examples.megatron.data.reward_dataset import preprocess
 from .reward_model import RewardModel as LegacyRewardModel
 from .mcore_reward_model import MCoreRewardModel
-from .utils import tensorboard_scalar_dict, get_eos_id
+from .utils import get_eos_id
 from .constants import RunningMoments, get_running_stats, reset_running_stats
 from .forward_step import forward_step_helper
 
@@ -140,6 +140,8 @@ class RewardInference(MegatronModule):
         self.add_padding_config("action_logprobs", 0.0)
         self.add_padding_config("action_values", 0.0)
         self.add_padding_config("action_rewards", 0.0)
+
+        self._metric_prefix = "rewards_each"
 
     def normalized_and_clip(self, scores):
         if self.model_args['scale_reward'] == "running":
@@ -455,7 +457,7 @@ class RewardInference(MegatronModule):
                     f"all_logprobs[i].size() {all_logprobs[i].size(0)} all_values[i].size(0) {all_values[i].size(0)}"
 
         if self.args.log_interval > 0 and iteration % self.args.log_interval == 0 and mpu.is_pipeline_last_stage():
-            self.log_each_step(iteration)
+            self.log_each_step()
 
         res_dict = {"all_token_ids_right_padded": all_tokens_right_padded, "action_start_indices": starts,
                 "action_logprobs": all_logprobs, "action_rewards": all_rewards, "loss_mask": loss_mask,
@@ -466,8 +468,7 @@ class RewardInference(MegatronModule):
 
         return res_dict
 
-    def log_each_step(self, iteration):
-        writer = get_tensorboard_writer()
+    def log_each_step(self):
         stats_episode = get_running_stats(self.per_episode_metrics)
         stats_episode.update(self.stats)
 
@@ -476,9 +477,8 @@ class RewardInference(MegatronModule):
 
         # RL related stats: global
         if self.is_last_rank():
-            tensorboard_scalar_dict(writer, prefix=f"rewards_each/replica_id{self.replica_id}",
-                                    global_step=iteration,
-                                    scalar_dict=stats_episode)
+            stats_episode_copy = copy.deepcopy(stats_episode)
+            self._metric_list.append(stats_episode_copy)
         # reset runnings
         reset_running_stats(self.per_episode_metrics)
 

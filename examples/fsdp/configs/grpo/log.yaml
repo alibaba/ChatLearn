@@ -1,0 +1,14 @@
+log_dir: ${log_dir:<default log root path>}
+
+enable_tensorboard: ${enable_tensorboard:False}
+tensorboard_dir: ${tensorboard_dir:<>}
+
+enable_wandb: ${enable_wandb:False}
+wandb_dir: ${wandb_dir}
+wandb_project: ${wandb_project}
+wandb_id: ${exp_name}
+wandb_name: ${exp_name}
+wandb_resume: ${WANDB_RESUME:allow}
+
+# export WANDB_DISABLE_CODE="true"
+# export WANDB_IGNORE_GLOBS="*.patch"

@@ -16,13 +16,17 @@
 
 import math
 import random
-from itertools import cycle
+import copy
+import os
+from typing import List, Dict
 
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
-
+from torch.utils.data import default_collate
 from chatlearn.utils import future
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
+from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
 
 
 def get_iter_keys(data):
@@ -94,11 +98,21 @@ def split_batch(batch):
     return samples
 
 
+def batch_shuffle(data, batch_size):
+    num_batches = len(data) // batch_size
+    batches = [data[batch_size*i:batch_size*(i+1)] for i in range(num_batches)]
+    random.shuffle(batches)
+
+    shuffled_data = [item for batch in batches for item in batch]
+
+    return shuffled_data
+
+
 @ray.remote
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, batch_size, padding_config=None, max_relay_episode=0, relay_episode_offset=0):
+    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_relay_episode=0, relay_episode_offset=0, global_batch_size=-1):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -107,21 +121,27 @@ class StreamDataset:
             self._dynamic_dataset = False
         else:
             self._dynamic_dataset = True
-        self.batch_size = batch_size
+        self.batch_size = micro_batch_size
+
         self._padding_config = padding_config if padding_config is not None else {}
         self._padding_value = {key: value["padding_value"] for key, value in padding_config.items()}
         self._padding_type = {key: value["padding_type"] for key, value in padding_config.items()}
+
         if max_relay_episode < 0:
             max_relay_episode = math.inf
         self._max_relay_episode = max_relay_episode
         self._relay_episode_offset = relay_episode_offset
         self._episode_relay_buffers = []
+        self.relay_sample_manager = None
 
-    def shuffle(self):
+        # ChunkFlow: Params for ChunkFlow
+        self.prefetch_batch_cnt= micro_batch_size if global_batch_size < 0 else global_batch_size
+
+    def shuffle(self, batch_size=None):
         """
         shuffle relay buffer
         """
-        self.relay_buffer.shuffle()
+        self.relay_buffer.shuffle(batch_size)
         self.iter = self.__iter__() # pylint: disable=unnecessary-dunder-call
         self._has_next = True
 
@@ -144,16 +164,28 @@ class StreamDataset:
         """
         produce_index = 0
         batch_count = 0
+        prefetched_batch_list = []
         while produce_index < self._total_samples:
             # read from cache
             if len(self.relay_buffer) < self._total_samples:
                 while len(self.relay_buffer) < self._total_samples and \
                     (len(self.relay_buffer) - produce_index) < self.batch_size:
                     self.relay_buffer.add_raw_batch()
-            batched_data = self._get_batch(produce_index)
-            yield batched_data
-            batch_count += 1
+            prefetched_batch_list.append(self._get_batch(produce_index))
+            if len(prefetched_batch_list) == self.prefetch_batch_cnt:
+                # ChunkFlow: Sort by sample length for better balance across data parallel ranks
+                # TODO: fix hardcode key for sample len
+                if "response_ids" in prefetched_batch_list[0].keys():
+                    prefetched_batch_list.sort(key=lambda x: len(x["response_ids"][0]))
+                for batched_data in prefetched_batch_list:
+                    yield batched_data
+                    batch_count += 1
+                prefetched_batch_list.clear()
             produce_index += self.batch_size
+        if len(prefetched_batch_list) != 0:
+            for batched_data in prefetched_batch_list:
+                yield batched_data
+                batch_count += 1
         assert batch_count == math.ceil(self._total_samples / self.batch_size)
         assert produce_index >= len(self.relay_buffer), \
                f"produce_index: {produce_index} < len(self.relay_buffer) {len(self.relay_buffer)}"
@@ -195,7 +227,7 @@ class StreamDataset:
         """
         return self._has_next
 
-    def set_dataset(self, queue, episode_id, relay_sample_fn=None, sample_per_episode=-1):
+    def set_dataset(self, queue, episode_id, relay_sample_manager=None, sample_per_episode=-1):
         relay_buffer = EpisodeRelayBuffer(episode_id, queue=queue)
         if self._max_relay_episode > 0 and episode_id >= self._relay_episode_offset:
             self._episode_relay_buffers.append(relay_buffer)
@@ -205,11 +237,13 @@ class StreamDataset:
 
             # this function will sync until all data computing finished,
             # which will block training until environment rollout finished.
-            relay_buffer.sync()
-            if relay_sample_fn is not None:
-                buffer = relay_sample_fn(self._episode_relay_buffers)
-            else:
+            if os.getenv("SKIP_GENERATION", None) is None:
+                relay_buffer.sync()
+            if relay_sample_manager is None:
                 raise Exception("default relay sample function is not currently supported")
+
+            self.relay_sample_manager = relay_sample_manager
+            buffer = self.relay_sample_manager(self._episode_relay_buffers)
             self.relay_buffer = EpisodeRelayBuffer(episode_id, buffer=buffer)
             self._total_samples = len(self.relay_buffer)
             self._read_data_complete = True
@@ -232,6 +266,12 @@ class StreamDataset:
     def batch_per_episode(self):
         return math.ceil(self._total_samples / self.batch_size)
 
+    def get_and_clear_metrics(self):
+        # TODO: deal with situation that relay_sample_manager is None
+        try:
+            return self.relay_sample_manager.get_and_clear_metrics()
+        except Exception:
+            return "no relay", {}
 
 class EpisodeRelayBuffer:
     """EpisodeRelayBuffer"""
@@ -256,6 +296,8 @@ class EpisodeRelayBuffer:
         merged_data = {}
         for item in data:
             local_data = future.get(item)
+            if CHATLEARN_REGROUP_TAG in local_data:
+                local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
             merged_data.update(local_data)
         samples = split_batch(merged_data)
         if self._rollout_batch_size < 0:
@@ -266,8 +308,11 @@ class EpisodeRelayBuffer:
     def queue_not_empty(self):
         return self.queue.qsize() > 0
 
-    def shuffle(self):
-        random.shuffle(self._buffer)
+    def shuffle(self, batch_size):
+        if batch_size is None:
+            random.shuffle(self._buffer)
+            return
+        self._buffer = batch_shuffle(self._buffer, batch_size)
 
     def get_samples(self, start_index, end_index):
         return self._buffer[start_index: end_index]
@@ -288,25 +333,78 @@ class EpisodeRelayBuffer:
         return self._episode_id
 
 
+class RelaySampleManager:
+    """
+    Relay sample Manager, users should inherit it to self-defined relay samples for trainer
+    """
+    def __init__(self, global_args):
+        self.args = global_args
+        self._metric_prefix = "relay"
+        self._metric_list = []
+
+    def __call__(self, episode_relay_buffers: List[EpisodeRelayBuffer]) -> List[Dict]:
+        raise NotImplementedError("default relay sample function is not currently supported")
+
+    def get_and_clear_metrics(self):
+        if self._metric_list is None or len(self._metric_list) == 0:
+            return self._metric_prefix, {}
+
+        reduced_metrics = map_reduce_metrics(self._metric_list)
+        self._metric_list = []
+        return self._metric_prefix, reduced_metrics
+
+
 class RLHFDataLoader:
     """
     RLHF data loader
     """
 
-    def __init__(self, dataset, batch_size):
+    def __init__(
+        self,
+        datasets,
+        sampler,
+        collate_fn=None,
+        add_uid=False,
+        data_parallel_rank=0,
+        data_parallel_size=1,
+        num_inference_per_prompt=1,
+        vllm_prompt_key="prompt"):
         """generate prompts data loader"""
-        self.dataset = dataset
-        self.batch_size = batch_size
-        self.data_iter = cycle(iter(self.dataset))
+
+        self.datasets = datasets
+        self.dataset_num = len(self.datasets)
+        self.sampler = sampler
+        self.collate_fn = collate_fn
+        self.add_uid = add_uid
+        self.data_parallel_rank = data_parallel_rank
+        self.data_parallel_size = data_parallel_size
+        self.num_inference_per_prompt = num_inference_per_prompt
+        self.vllm_prompt_key = vllm_prompt_key
 
     def __iter__(self):
-        batch_data = []
-        for _, item in enumerate(self.data_iter):
-            batch_data.append(item)
-            if len(batch_data) == self.batch_size:
-                batched = batching(batch_data)
-                yield batched
-                batch_data = []
-        if len(batch_data) > 0:
-            batched = batching(batch_data)
-            yield batched
+        self.sampler_iter = iter(self.sampler)
+        while True:
+            try:
+                batch_idxes = next(self.sampler_iter)
+                batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx, _ in batch_idxes]
+                id_in_episode = [id for _, _, id in batch_idxes]
+                if self.add_uid:
+                    batch = self.update_data_uid(batch, id_in_episode)
+                if self.collate_fn is not None:
+                    yield self.collate_fn(batch)
+                else:
+                    yield default_collate(batch)
+            except StopIteration:
+                self.sampler_iter = iter(self.sampler)
+
+    def update_data_uid(self, batch, id_in_episode):
+        updated_batch = []
+        for i, data in enumerate(batch):
+            if isinstance(data, dict) and self.vllm_prompt_key in data \
+                and isinstance(data[self.vllm_prompt_key], dict):
+                copy_data = copy.deepcopy(data)
+                copy_data[self.vllm_prompt_key]['uid'] = str(id_in_episode[i])
+                updated_batch.append(copy_data)
+            else:
+                updated_batch.append(data)
+        return updated_batch

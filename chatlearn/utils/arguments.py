@@ -17,11 +17,15 @@
 import argparse
 import ast
 import os
-from typing import List
+from typing import List, Optional, Union
+import re
 
 import yaml
 
-from chatlearn.utils.constant import LORA_LAYER, RAY_PG_STRATEGY, PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE
+from chatlearn.utils.constant import (
+    DYNAMIC_BATCH_SIZE, LORA_LAYER, RAY_PG_STRATEGY,
+    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE,
+    TrainingShffuleMode)
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -58,6 +62,12 @@ def parse_value(value):
                 else:
                     logger.warning(f"cannot find value for {env_name}, set to None")
                     value = None
+        # handling scientific notation(e.g., "5e-6", "5E+10")
+        elif re.match(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$", value):
+            try:
+                value = float(value)
+            except Exception:
+                pass
     return value
 
 
@@ -108,6 +118,7 @@ def parse_args():
         config_dir = None
         args_yaml = None
     config = Config(args_yaml, config_dir)
+
     return config
 
 
@@ -211,6 +222,8 @@ class ModelConfig(BaseConfig):
     expert_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
+    #: [optional] FSDP parallel size
+    fsdp_size: int = None
     #: [optional] config file for model
     model_config_file: str = ""
     config_dir: str = ""
@@ -219,7 +232,7 @@ class ModelConfig(BaseConfig):
     #: [optional] placeholder for other args
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
-    generation_batch_size: int = -1
+    generation_batch_size: int = None
     #: lora config
     lora: LoraConfig = None
     #: batch generation config
@@ -282,8 +295,14 @@ class RuntimeConfig(BaseConfig):
     save_episode_interval: int = None
     #: [optional] log time and memory per `log_interval` iterations.
     log_interval: int = 1
-    #: [required]: data_path for dataset
-    data_path: str = None
+    #: [required]: data_path for dataset or a List of data_path for different kind of datasets
+    data_path: Optional[Union[List[str], str]] = None
+    #: [optional]: the ratio for each kind of data_path in a training episode, default: None
+    data_ratio: Optional[Union[List[int], int]] = None
+    #: [optional]: shuffle in each epoch of dataset, default: True
+    data_shuffle: Optional[bool] = True
+    #: [optional]: rerank batch of data by row, default: True
+    data_rerank: Optional[bool] = False
     #: [optional]: colocate models into the same device
     colocation: List[str] = []
     #: [optional]: eval every N episode, if 0, will not eval
@@ -319,6 +338,8 @@ class RuntimeConfig(BaseConfig):
     max_relay_episode: int = 0
     #: relay after n episodes
     relay_episode_offset: int = 0
+    #: training shuffle mode
+    training_shuffle_mode: str = TrainingShffuleMode.BATCH
     #: consumed samples
     consumed_samples: int = 0
     #: concurrent model setup
@@ -337,6 +358,14 @@ class RuntimeConfig(BaseConfig):
     output_dir: str = "./"
     #: validate param sync
     validate_param_sync: bool = False
+    #: whether to eval before training
+    enable_eval_before_training: bool = False
+    #: policy to regroup queue
+    policy_to_regroup_queue: str = "global_barrier"
+    #: configuration file path for logging
+    log_config_file: str = ""
+    #: [optional] placeholder for log_args_dict
+    log_args_dict: dict = None
 
     def __init__(self):
         super().__init__()
@@ -435,6 +464,9 @@ class Config(BaseConfig):
                         for group in value:
                             colocation_list.append(group.replace(' ', '').split(','))
                         value = colocation_list
+                    elif attribute == "data_ratio":
+                        if isinstance(value, str):
+                            value = [int(v) for v in value.split(',')]
                 else:
                     value = default_value
                 original_value = getattr(instance, attribute)
@@ -489,6 +521,10 @@ class Config(BaseConfig):
         if "runtime_env" in param_dict:
             set_param(param_dict["runtime_env"], RuntimeEnvConfig, self.env_args)
 
+        if self.runtime_args.log_config_file:
+            self.runtime_args.log_config_file = get_path(self.runtime_args.log_config_file, self.config_dir)
+            self.runtime_args.log_args_dict = parse_args_from_yaml(self.runtime_args.log_config_file, self.config_dir)
+
         def _get_and_check_type(value, default_value, key):
             # To be noticed: all str type values should in lower case.
             if isinstance(value, str):
@@ -512,6 +548,14 @@ class Config(BaseConfig):
         assert self.runtime_args.stream_data_loader_type.lower() in ["fixed", "dynamic"]
         assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
         assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)
+        if isinstance(self.runtime_args.data_path, list):
+            assert self.runtime_args.data_ratio is not None and isinstance(self.runtime_args.data_ratio, list), (
+                f"expect data_ratio to be list when data_path is list, got {self.runtime_args.data_ratio}"
+            )
+            assert len(self.runtime_args.data_path) == len(self.runtime_args.data_ratio), (
+                "expect data_path and data_ratio to have same length, "
+                f"got {len(self.runtime_args.data_path)} and {len(self.runtime_args.data_ratio)}"
+            )
         for model_name, model_args in self.models.items():
             if model_args.num_gpu >= 1:
                 if model_args.gpu_per_process is None:
@@ -525,12 +569,24 @@ class Config(BaseConfig):
                 else:
                     assert model_args.cpu_per_process <= model_args.num_cpu, \
                         f"{model_name}: cpu_per_process: {model_args.cpu_per_process}, num_cpu: {model_args.num_cpu}"
-            if model_args.generation_batch_size is None or model_args.generation_batch_size <= 0:
+            if model_args.generation_batch_size is not None and model_args.generation_batch_size <= 0:
+                model_args.generation_batch_size = DYNAMIC_BATCH_SIZE
+            if model_args.generation_batch_size is None:
                 if self.runtime_args.generation_batch_size:
                     model_args.generation_batch_size = self.runtime_args.generation_batch_size
             for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
+                    assert getattr(model_args, key) >= 1
+                elif getattr(model_args, key) is None:
+                    setattr(model_args, key, 1)
+
+            for key in ["fsdp_size"]:
+                if getattr(model_args, key) is not None:
+                    setattr(model_args, key, getattr(model_args, key))
+                    if getattr(model_args, key) == -1:
+                        print(f"set_fsdp_size {getattr(model_args, key)} to num_gpu: {model_args.num_gpu}")
+                        setattr(model_args, key, model_args.num_gpu)
                     assert getattr(model_args, key) >= 1
                 elif getattr(model_args, key) is None:
                     setattr(model_args, key, 1)
@@ -554,6 +610,7 @@ class Config(BaseConfig):
 
             if model_args.tensor_model_parallel_size > 1 or model_args.pipeline_model_parallel_size > 1 or model_args.expert_model_parallel_size > 1:
                 assert model_args.zero_size == 1 or model_args.zero_size is None
+                assert model_args.fsdp_size == 1 or model_args.fsdp_size is None
                 assert model_args.num_gpu % (
                     model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size) == 0, \
                     f"{model_name}: num_gpu must be divisible by tensor_model_parallel_size * pipeline_model_parallel_size * " \
@@ -568,9 +625,16 @@ class Config(BaseConfig):
                 if model_args.zero_size > 1:
                     assert model_args.num_gpu % model_args.zero_size == 0
                     model_args.num_replica = model_args.num_gpu // model_args.zero_size
+                elif model_args.fsdp_size > 1:
+                    # For FSDP, num_gpu must be divisible by fsdp_size
+                    assert model_args.num_gpu % model_args.fsdp_size == 0
+                    model_args.num_replica = model_args.num_gpu // (
+                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size \
+                            * model_args.expert_model_parallel_size * model_args.fsdp_size)
                 else:
                     model_args.num_replica = model_args.num_gpu // (
                         model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size)
+
             elif model_args.num_cpu >= 1:
                 model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
             assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \

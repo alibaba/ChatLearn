@@ -17,7 +17,7 @@
 import os
 
 from examples.megatron.models import PolicyTrainer
-from examples.megatron.models.train_helper import get_prompts
+from examples.megatron.models.utils import get_prompts
 
 import chatlearn
 from chatlearn.models.base_module import BaseModule

@@ -35,7 +35,6 @@ try:
     from megatron.training import get_num_microbatches
 except ImportError:
     from megatron.core.num_microbatches_calculator import get_num_microbatches
-from megatron.training.global_vars import get_tensorboard_writer
 from megatron.training.training import print_datetime
 from torchtyping import TensorType
 
@@ -100,11 +99,11 @@ def get_advantages_and_returns(
 
 def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
                  loss_scale, skipped_iter,
-                 grad_norm, params_norm, num_zeros_in_grad, stats, name):
+                 grad_norm, params_norm, num_zeros_in_grad, stats, name,
+                 metric_list=None):
     """Log training information such as losses, timing, ...."""
     args = get_args()
     timers = get_timers()
-    writer = get_tensorboard_writer()
 
     # Advanced, skipped, and Nan iterations.
     advanced_iters_key = 'advanced iterations'
@@ -225,8 +224,8 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             iteration, args.train_iters)
         log_string += ' consumed samples: {:12d} |'.format(
             args.consumed_train_samples)
-        log_string += ' elapsed time per iteration (ms): {:.1f} |'.format(
-            elapsed_time_per_iteration * 1000.0)
+        log_string += ' elapsed time per iteration (s): {:.1f} |'.format(
+            elapsed_time_per_iteration * 1.0)
         log_string += ' learning rate: {:.3E} |'.format(learning_rate)
         log_string += ' global batch size: {:5d} |'.format(batch_size)
 
@@ -270,20 +269,25 @@ def training_log(loss_dict, total_loss_dict, learning_rate, iteration,
             if torch.distributed.get_rank() == (
                 torch.distributed.get_world_size() - 1):
                 # actual log
-                tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=stats)
-                tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples,
-                                        scalar_dict=iter_dict)
-                tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples,
-                                        scalar_dict=consumed_train_samples_dict)
-
+                metrics = {}
+                metrics.update(stats)
+                metrics.update(iter_dict)
+                metric_copy = copy.deepcopy(metrics)
+                if metric_list is None:
+                    metric_list = [metric_copy]
+                else:
+                    metric_list.append(metric_copy)
 
         else:
             # actual log
-            tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=iter_dict)
-            tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples,
-                                    scalar_dict=consumed_train_samples_dict)
-            tensorboard_scalar_dict(writer, prefix="", global_step=args.consumed_train_samples, scalar_dict=stats)
-
+            metrics = {}
+            metrics.update(stats)
+            metrics.update(iter_dict)
+            metric_copy = copy.deepcopy(metrics)
+            if metric_list is None:
+                metric_list = [metric_copy]
+            else:
+                metric_list.append(metric_copy)
 
 def get_tensor_stats(xs: torch.Tensor, mask: torch.Tensor, n: int):
     mean = (xs * mask).sum() / n
@@ -321,41 +325,6 @@ def set_seed(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed(seed)
-
-
-def listdict_to_dictlist(ld, list_extend=True):
-    '''
-    [{k1: v11, k2: v2}, {k1: v12, k2: v2},....] => {k1: [v11, v12..], k2: [v21, v22...]}
-    if v11 is list then k1: v11 + v12
-    :param ld:
-    :return:
-    '''
-    res = copy.deepcopy(ld[0])
-    for res_key, v in res.items():
-        if list_extend and isinstance(res[res_key], list):
-            continue
-
-        res[res_key] = [v]
-
-    for d in ld[1:]:
-        for key, v in d.items():
-            if list_extend and isinstance(d[key], list):
-                res[key].extend(v)
-            else:
-                res[key].append(v)
-
-    return res
-
-
-def tensorboard_scalar_dict(tensorboard_writer, prefix, global_step, scalar_dict):
-    if isinstance(scalar_dict, (float, int)):
-        name = prefix
-        value = scalar_dict
-        tensorboard_writer.add_scalar(name, value, global_step)
-    else:
-        for key, value in scalar_dict.items():
-            name = '{}/{}'.format(prefix, key)
-            tensorboard_writer.add_scalar(name, value, global_step)
 
 
 def get_loss_mask(all_tokens_right_padded, pad_token_id, prompt_sizes):
@@ -448,3 +417,34 @@ def get_padding_length(enable_sequence_parallel, tensor_parallel_size, max_lengt
         mod_value = max_length % tensor_parallel_size
         padding_len = (tensor_parallel_size - mod_value) if mod_value else 0
     return max_length + padding_len
+
+
+def get_prompts(fp, num_limit=-1):
+    prompts_jsons = read_jsonl(fp)
+
+    if "text" in prompts_jsons[0]:
+        prompts = [p["text"] for p in prompts_jsons]
+        patten = '\n\nAssistant: '
+        prompts = [prompt[:prompt.find(patten) + len(patten)] for prompt in prompts]
+        if num_limit != -1:
+            prompts = prompts[:num_limit]
+        return prompts
+    elif 'prompt' in prompts_jsons[0]:
+        prompts = []
+        for p in prompts_jsons:
+            if "response" in p:
+                prompts.append((p["prompt"], p["response"], p["rejected"]))
+            elif 'eval_func' in p:
+                # math
+                prompts.append(p)
+            else:
+                prompts.append(p["prompt"])
+        if num_limit != -1:
+            prompts = prompts[:num_limit]
+        return prompts
+    else:
+        prompts = [p["query"] for p in prompts_jsons]
+        if num_limit != -1:
+            prompts = prompts[:num_limit]
+        formatted_prompts = [f"\n\nHuman: {p}\n\nAssistant: " for p in prompts]
+        return formatted_prompts

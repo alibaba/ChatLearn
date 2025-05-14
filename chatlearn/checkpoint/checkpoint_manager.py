@@ -27,7 +27,7 @@ def path_exists(path):
 class CheckpointManager:
     """Checkpoint Manager"""
 
-    def __init__(self, model, path, max_ckpt_nums, load_iteration=None):
+    def __init__(self, model, path, max_ckpt_nums, load_iteration=None, config_to_check=None):
         self._path = path
         self._max_ckpt_nums = max_ckpt_nums
         self._meta_file = os.path.join(self._path, "latest_checkpointed_iteration.txt")
@@ -37,7 +37,7 @@ class CheckpointManager:
         self._meta = None
         self._model = model
         self._resumed = False
-        self._config_to_check = {}
+        self._config_to_check = {} if config_to_check is None else config_to_check
 
 
     def _get_checkpoint_path_name(self, replica_id, step):
@@ -82,7 +82,8 @@ class CheckpointManager:
         meta_data = {"episode": episode,
                      "train_iteration": train_iter,
                      "consumed_samples": consumed_samples,
-                     "sample_per_episode": self._model.runtime_args.sample_per_episode}
+                     "sample_per_episode": self._model.runtime_args.sample_per_episode,
+                     "data_ratio": self._model.runtime_args.data_ratio}
 
         with open(_get_path("meta.pkl"), 'wb') as f:
             pickle.dump(meta_data, f)
@@ -135,6 +136,8 @@ class CheckpointManager:
         if meta is not None:
             self._model.runtime_args.consumed_samples = meta["consumed_samples"]
             log_rank_0(f"set consumed_samples to {meta['consumed_samples']}")
+            self._model.runtime_args.data_ratio = data_ratio = meta.get("data_ratio", None)
+            log_rank_0(f"set data_ratio to {data_ratio}")
         self._resumed = True
         return meta
 

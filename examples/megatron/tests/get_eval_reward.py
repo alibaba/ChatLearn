@@ -26,10 +26,11 @@ else:
     from examples.megatron.models.old_policy_inference import PolicyInference as PolicyModel
 
 from examples.megatron.models.reward_inference import RewardInference
-from examples.megatron.models.train_helper import eval_post_process, get_prompts
+from examples.megatron.models.utils import get_prompts
 
 import chatlearn
 from chatlearn import EvalEngine
+from chatlearn.runtime.evaluator import Evaluator
 
 chatlearn.init()
 
@@ -46,8 +47,9 @@ def eval_flow(batch):
     r1 = reward_inference.eval_forward(r0)
     return r1
 
-engine = EvalEngine(eval_flow)
-engine.set_dataset(val_prompts).set_post_process_func(eval_post_process)
+evaluator = Evaluator(eval_flow)
+engine = EvalEngine(evaluator=evaluator)
+engine.set_dataset(val_prompts)
 
 load_iteration = args.models['policy'].args_dict['load_iteration']
 if not load_iteration:

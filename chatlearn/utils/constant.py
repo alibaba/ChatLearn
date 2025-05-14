@@ -17,6 +17,15 @@
 import importlib
 from enum import Enum
 
+# Regroup
+CHATLEARN_REGROUP_TAG = "chatlearn_regroup_tag"
+INDEX_TAG = "data_index"
+
+LOG_START = "chatlearn_log"
+
+# Magic Num
+DYNAMIC_BATCH_SIZE = -1
+
 # LoRA
 LORA_WEIGHT_PREFIX = "lora"
 LORA_LAYER = "ColumnParallelLinear,Embedding,LinearLayer,RowParallelLinear,VocabParallelEmbedding"
@@ -39,6 +48,7 @@ class VLLMVersion(str, Enum):
     v_0_3_0 = "0.3.0"
     v_0_5_1 = "0.5.1"
     v_0_6_3 = "0.6.3"
+    v_0_6_6 = "0.6.6"
 
 
 class QwenVersion(float, Enum):
@@ -63,3 +73,11 @@ class ROUTED_EXPERT_REGROUPING_COMM_TYPE(str, Enum):
     """communication type of routed expert regrouping."""
     ALLTOALL = "alltoall"
     ALLGATHER = "allgather"
+
+
+class TrainingShffuleMode(str, Enum):
+    """training shffule mode."""
+    # shuffle among batches
+    BATCH = "batch"
+    # shuffle among all training samples
+    SAMPLE = "sample"

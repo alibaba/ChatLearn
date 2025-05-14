@@ -20,7 +20,9 @@ import ray
 from chatlearn.runtime.environment import Environment
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
+from chatlearn.utils.utils import map_reduce_metrics
 from chatlearn.data.ranking import batch_generation_ranking
+
 
 # pylint: disable=not-callable
 class Evaluator(Environment):
@@ -37,29 +39,34 @@ class Evaluator(Environment):
 
     def __init__(self, model_flow):
         super().__init__(model_flow)
-        self._post_process_func = None
         self.is_eval = True
+        self._metric_prefix = "eval"
+        self._metric_list = []
 
     @property
     def sample_per_episode(self):
-        return len(self._dataset)
+        return sum(len(dataset) for dataset in self._all_datasets)
 
     def setup_dataset(self):
-        assert len(self._dataset) > 0, "dataset is not set"
+        assert len(self._all_datasets) > 0, "dataset is not set"
+        for i, dataset in enumerate(self._all_datasets):
+            assert len(dataset) > 0, f"dataset {i} is not set"
         if self.models[0].module_args.batch_generation.ranking:
             logger.info("calling batch_generation_ranking")
-            self._dataset = batch_generation_ranking(self._dataset, 1, len(self._dataset))
+            for i, dataset in enumerate(self._all_datasets):
+                self._all_datasets[i] = batch_generation_ranking(dataset, 1, len(dataset))
+
         refs = []
         for idx, model_replica in enumerate(self.models[0].replicas):
             if self.first_model.use_vllm_backend:
                 remainder = self.sample_per_episode % self.models[0].num_replica
                 batch_size_plus = 1 if idx < remainder else 0
-                batch_size = self.batch_size + batch_size_plus
+                batch_size = self.batch_size() + batch_size_plus
             else:
-                batch_size = self.batch_size
+                batch_size = self.batch_size()
             if batch_size > 0:
                 ref = model_replica.master._build_dataloader.remote(
-                    self._dataset, batch_size, dynamic_batch_size_flag=self.first_model.use_vllm_backend, is_eval=True)
+                    self._all_datasets, self.sample_per_episode, is_eval=True)
                 refs.append(ref)
         future.get(refs)
 
@@ -70,21 +77,6 @@ class Evaluator(Environment):
             res = self.get_merged_data(queues, encode)
             merged_data_list.append(res)
         return merged_data_list
-
-    def set_post_process_func(self, post_process_func):
-        """
-        Set post process function for model evaluation results.
-
-        Args
-        ----
-        post_process_func
-
-            This function accept two arguments.
-            1. results: a list of evaluation results
-            2. eval_info: a dict meta that contains "train_iteration" and "episode_iteration"
-        """
-        self._post_process_func = post_process_func
-        return self
 
     def eval(self, cur_iter=None, train_iteration=None):
         """
@@ -108,7 +100,7 @@ class Evaluator(Environment):
         if isinstance(result_refs[0][0], ray.ObjectRef):
             data_list = future.wait(result_refs, desc="evaluator", return_output=True)
         else:
-            data_list = result_refs[0]
+            data_list = result_refs[0] # List[Dict]
         results = [data_list[i:i + element_size] for i in range(0, len(data_list), element_size)]
         all_results = defaultdict(list)
         for batches in results:
@@ -116,12 +108,32 @@ class Evaluator(Environment):
                 model_name = self.model_flow.return_model_nodes[i].name
                 all_results[model_name].append(batch)
 
-        if self._post_process_func is not None:
-            eval_info = {}
-            if cur_iter is not None:
-                eval_info["episode_iteration"] = cur_iter
-            if train_iteration is not None:
-                eval_info["train_iteration"] = train_iteration
-            self._post_process_func(all_results, eval_info)
-        return all_results
+        eval_info = {}
+        if cur_iter is not None:
+            eval_info["episode_iteration"] = cur_iter
+        if train_iteration is not None:
+            eval_info["train_iteration"] = train_iteration
+        processed_results = self.post_process(all_results, eval_info)
+        return processed_results
+
+    def post_process(self, results, eval_info): # pylint: disable=unused-argument
+        """
+        Default post-process function for model evaluation results.
+
+        Args
+        ----
+            results: list[]
+                a list of evaluation results
+            eval_info: dict[]
+                a meta that contains "train_iteration" and "episode_iteration"
+        """
+        return results
+
+    def get_and_clear_metrics(self):
+        if self._metric_list is None or len(self._metric_list) == 0:
+            return self._metric_prefix, {}
+
+        reduced_metrics = map_reduce_metrics(self._metric_list)
+        self._metric_list = []
+        return self._metric_prefix, reduced_metrics
 # pylint: disable=not-callable

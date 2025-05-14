@@ -18,10 +18,10 @@ import random
 import os
 
 from examples.megatron.models import PolicyReference, PolicyTrainer, RewardInference
-from examples.megatron.models.train_helper import eval_post_process, get_prompts
+from examples.megatron.models.utils import get_prompts
+from examples.megatron.models.eval_post_process import EvaluatorPostProcess
 
 import chatlearn
-from chatlearn import Evaluator
 from chatlearn import OnlineDPOEngine
 
 # pylint: disable=invalid-envvar-default,bad-exception-cause,ungrouped-imports
@@ -64,9 +64,8 @@ if __name__ == "__main__":
             r1 = reward_model.eval_forward(r0)
             return r1
 
-        evaluator = Evaluator(eval_flow) \
-            .set_dataset(val_prompts) \
-            .set_post_process_func(eval_post_process)
+        evaluator = EvaluatorPostProcess(eval_flow) \
+            .set_dataset(val_prompts)
         engine.set_evaluator(evaluator)
     engine.set_dataset(train_prompts)
     engine.learn()
