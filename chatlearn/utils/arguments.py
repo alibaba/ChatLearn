@@ -66,7 +66,7 @@ def parse_value(value):
         elif re.match(r"^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$", value):
             try:
                 value = float(value)
-            except:
+            except Exception:
                 pass
     return value
 
