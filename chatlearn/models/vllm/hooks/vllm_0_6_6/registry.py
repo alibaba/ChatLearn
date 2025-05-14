@@ -1,3 +1,4 @@
+"""patch qwen3 model"""
 from typing import List, Tuple, Union
 from vllm.model_executor.models.registry import _ModelRegistry, _LazyRegisteredModel, _ModelInfo
 
@@ -18,7 +19,7 @@ def inspect_model_cls(
         class_name="Qwen3MoeForCausalLM",
     )
     ###### additional code ######
-    
+
     architectures = self._normalize_archs(architectures)
 
     for arch in architectures:
@@ -29,4 +30,3 @@ def inspect_model_cls(
     return self._raise_for_unsupported(architectures)
 
 _ModelRegistry.inspect_model_cls = inspect_model_cls
-
