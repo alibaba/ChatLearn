@@ -39,7 +39,8 @@ ChatLearn的特点如下:
 请参考 [文档](https://chatlearn.readthedocs.io/zh-cn/latest/) 快速开始.
 
 1. [环境和代码准备](docs/zh/installation.md)
-2. [基于 LLaMA/LLaMA2 模型的端到端训练教程](docs/zh/tutorial/tutorial_llama2.md)
+2. [基于 FSDP 的端到端GRPO训练流程](docs/zh/tutorial/tutorial_grpo_fsdp.md)
+3. [基于 LLaMA/LLaMA2 模型的端到端训练教程](docs/zh/tutorial/tutorial_llama2.md)
 
 
 # 性能评估
