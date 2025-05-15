@@ -3,7 +3,7 @@ set -x
 
 # set path
 export CHATLEARN=$(pwd)
-export model_path="${CHATLEARN}/Qwen3_8B"
+export model_path="${CHATLEARN}/Qwen3-8B"
 export exp_name=$(date +%F)-qwen3-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
@@ -31,7 +31,7 @@ export WANDB_API_KEY="wandb-api-key"
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
-export tensor_model_parallel_size=4
+export tensor_model_parallel_size=2
 export policy_temperature=1.0
 export policy_top_p=1.0
 export policy_top_k=-1
