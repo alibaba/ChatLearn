@@ -27,6 +27,7 @@ from torch.utils.data import default_collate
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
+from chatlearn.utils.utils import regroup_arg
 
 
 def get_iter_keys(data):
@@ -296,8 +297,11 @@ class EpisodeRelayBuffer:
         merged_data = {}
         for item in data:
             local_data = future.get(item)
+            # environment output
+            # dict_keys(['all_tokens', 'str_outputs', 'str_prompts', 'prompt_token_length', 'response_token_length', 'data_source', 'ground_truth', 'old_logprobs', 'ref_logprobs'])
             if CHATLEARN_REGROUP_TAG in local_data:
-                local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
+                # local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
+                local_data = regroup_arg(local_data)
             merged_data.update(local_data)
         samples = split_batch(merged_data)
         if self._rollout_batch_size < 0:

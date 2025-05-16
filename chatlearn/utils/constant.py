@@ -18,6 +18,9 @@ import importlib
 from enum import Enum
 
 # Regroup
+class CHATLEARN_REGROUP_TAG(str, Enum):
+    many2one = "many2one"
+    oney2many = "one2many"
 CHATLEARN_REGROUP_TAG = "chatlearn_regroup_tag"
 INDEX_TAG = "data_index"
 
@@ -49,6 +52,7 @@ class VLLMVersion(str, Enum):
     v_0_5_1 = "0.5.1"
     v_0_6_3 = "0.6.3"
     v_0_6_6 = "0.6.6"
+    v_0_8_5 = "0.8.5"
 
 
 class QwenVersion(float, Enum):

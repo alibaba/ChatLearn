@@ -31,6 +31,8 @@ if importlib.util.find_spec("vllm"):
         from chatlearn.models.vllm.hooks.vllm_0_6_3 import *
     elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_6:
         from .vllm_0_6_6 import *
+    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
+        from .vllm_0_8_5 import *
     else:
         raise RuntimeError(
             f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while {CURRENT_VLLM_VERSION}.")

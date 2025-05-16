@@ -47,7 +47,7 @@ elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
     from vllm.sequence import ExecuteModelRequest
     from vllm.transformers_utils.detokenizer import Detokenizer
 
-elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6, VLLMVersion.v_0_8_5]:
     # imports for vllm-063/-66
     from vllm.core.interfaces import BlockSpaceManager
     from vllm.distributed import parallel_state
@@ -102,7 +102,8 @@ def get_block_manager_cls(version):
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         return BlockSpaceManager
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    # elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    else:
         return BlockSpaceManager.get_block_space_manager_class(version)
 
 
@@ -111,7 +112,8 @@ def get_model_architecture(config):
         from vllm.model_executor.model_loader import _get_model_architecture as get_model_architecture_v1
         return get_model_architecture_v1(config)
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    # elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    else:
         from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
         return get_model_architecture_v2(config)[0]
 
@@ -120,7 +122,8 @@ def get_pipeline_model_parallel_rank():
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         return parallel_state.get_pipeline_model_parallel_rank()
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    # elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    else:
         return parallel_state.get_pp_group().rank_in_group
 
 
@@ -128,5 +131,6 @@ def get_pipeline_model_parallel_world_size():
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
         return parallel_state.get_pipeline_model_parallel_world_size()
 
-    elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    # elif CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    else:
         return parallel_state.get_pp_group().world_size

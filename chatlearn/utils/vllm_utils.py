@@ -608,7 +608,7 @@ def _init_distributed_environment(args):
             world_size=args.world_size, rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes))
 
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6, VLLMVersion.v_0_8_5]:
         _WORLD = None
         if _WORLD is None:
             ranks = list(range(torch.distributed.get_world_size()))
@@ -874,7 +874,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Transformer Layers
     print("Converting transformer layers")
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6, VLLMVersion.v_0_8_5]:
         start_layer_idx, _ = get_pp_indices(
             hf_config.num_hidden_layers,
             pp_rank,
@@ -1239,7 +1239,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # Transformer Layers
     print("Converting transformer layers")
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6, VLLMVersion.v_0_8_5]:
         start_layer_idx, _ = get_pp_indices(
             hf_config.num_hidden_layers,
             pp_rank,
@@ -1749,3 +1749,6 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False,
     if not os.path.exists(model_path):
         model_path = os.path.join(common_path, "model_rng.pt")
     return model_path
+
+def vllm_use_v1():
+    return bool(int(os.getenv("VLLM_USE_V1", "0")))
