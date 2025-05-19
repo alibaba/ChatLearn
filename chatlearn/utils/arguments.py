@@ -39,6 +39,8 @@ def get_path(fn, folder):
 
 def convert_type(data):
     try:
+        if data == 'null':
+            return None
         return ast.literal_eval(data)
     except Exception:
         return data

@@ -145,7 +145,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     def setup(self):
         """Set up tokenizer."""
         super().setup()
-        tokenizer = AutoTokenizer.from_pretrained(self.model_args['tokenizer'])
+        tokenizer = AutoTokenizer.from_pretrained(self.model_args['tokenizer'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 

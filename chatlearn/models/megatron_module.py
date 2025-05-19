@@ -19,7 +19,7 @@ import torch
 import torch.distributed as dist
 
 try:
-    from chatlearn.utils.megatron_import_helper import get_args
+    from chatlearn.utils.megatron_import_helper import parse_args, get_args
     from chatlearn.utils.megatron_import_helper import mpu
     from chatlearn.utils.megatron_import_helper import initialize_megatron
     from chatlearn.utils.megatron_import_helper import save_checkpoint_and_time
@@ -77,13 +77,32 @@ class MegatronModule(TorchModule):
         """
         :meta private:
         """
-        if "args_dict" in inspect.getfullargspec(initialize_megatron).args:
-            initialize_func = initialize_megatron
+        if "parsed_args" in inspect.getfullargspec(initialize_megatron).args:
+            # NOTE: use MCore initialize instead of chatlearn customed version, requires MCore commit 95940ff
+            args = parse_args(self.add_extra_args, ignore_unknown_args=True)
+            if self.model_args is not None:
+                for key, value in self.model_args.items():
+                    default_value = getattr(args, key, None)
+                    if default_value is not None and value is not None:
+                        # NOTE: For complex cases, e.g., moe_layer_freq, default_type may differ from value_type
+                        try:
+                            default_type = type(default_value)
+                            if not isinstance(value, default_type):
+                                value = default_type(value)
+                        except:
+                            pass
+                    setattr(args, key, value)
+            initialize_megatron(parsed_args=args)
         else:
-            initialize_func = chatlearn_initialize_megatron
-        initialize_func(extra_args_provider=self.add_extra_args,
-                        ignore_unknown_args=True,
-                        args_dict=self.model_args)
+            # NOTE: don't have commit 95940ff, use customed version
+            if "args_dict" in inspect.getfullargspec(initialize_megatron).args:
+                initialize_func = initialize_megatron
+            else:
+                initialize_func = chatlearn_initialize_megatron
+            initialize_func(extra_args_provider=self.add_extra_args,
+                            ignore_unknown_args=True,
+                            args_dict=self.model_args)
+
         if self.trainable:
             # slow down if set jit fusion for inference model
             set_jit_fusion_options()
@@ -262,9 +281,17 @@ class MegatronModule(TorchModule):
             return data_parallel_global_ranks, mpu.get_data_parallel_rank()
         else:
             # Get data parallel modulo expert parallel ranks
-            data_modulo_expert_parallel_group = mpu.get_data_modulo_expert_parallel_group()
-            data_modulo_expert_parallel_ranks = dist.get_process_group_ranks(data_modulo_expert_parallel_group)
-            return data_modulo_expert_parallel_ranks, mpu.get_data_modulo_expert_parallel_rank()
+            # NOTE: for compatability, use `get_expert_data_parallel_group` instead of 
+            # `get_data_modulo_expert_parallel_group` if possible
+            if hasattr(mpu, 'get_expert_data_parallel_group'):
+                data_modulo_expert_parallel_group = mpu.get_expert_data_parallel_group()
+                data_modulo_expert_parallel_ranks = dist.get_process_group_ranks(data_modulo_expert_parallel_group)
+                this_rank = mpu.get_expert_data_parallel_rank()
+            else:
+                data_modulo_expert_parallel_group = mpu.get_data_modulo_expert_parallel_group()
+                data_modulo_expert_parallel_ranks = dist.get_process_group_ranks(data_modulo_expert_parallel_group)
+                this_rank = mpu.get_data_modulo_expert_parallel_rank()
+            return data_modulo_expert_parallel_ranks, this_rank
 
     def save_checkpoint(self, iteration):
         """

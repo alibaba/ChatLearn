@@ -14,6 +14,7 @@
 # ==============================================================================
 """megatron utils"""
 
+import inspect
 import functools
 import re
 import os
@@ -170,7 +171,11 @@ def load_checkpoint(*_args, **kwargs):
     args = get_args()
     target_tp = args.tensor_model_parallel_size
     target_pp = args.pipeline_model_parallel_size
-    state_dict, _, _ = _load_base_checkpoint(args.load, rank0=True)
+    # NOTE: may or may not have argument `args`
+    if "args" in inspect.getfullargspec(_load_base_checkpoint).args:
+        state_dict, _, _, _ = _load_base_checkpoint(args.load, args, rank0=True)
+    else:
+        state_dict, _, _ = _load_base_checkpoint(args.load, rank0=True)
     args.iteration = state_dict['iteration']
     checkpoint_args = state_dict['args']
     checkpoint_tp = checkpoint_args.tensor_model_parallel_size

@@ -33,6 +33,7 @@ class MegatronVersion(Enum):
     V2 = auto()  # use `GradBuffer` to manage gradients
     V3 = auto()  # use `ParamAndGradBuffer` to manage parameter weights and gradients
     V4 = auto()  # for compatibility with temporary version for Qwen-MoE
+    V5 = auto()  # use refactored `ParamAndGradBuffer` to manage parameter weights and gradients
 
 
 def get_megatron_version():
@@ -40,6 +41,11 @@ def get_megatron_version():
     if os.environ.get("QWEN_VERSION", '') == 'qwen_moe_v1':
         return MegatronVersion.V4
 
+    try:
+        from megatron.core.distributed.distributed_data_parallel import _ParamAndGradBuffer
+        return MegatronVersion.V5
+    except ImportError:
+        ...
     try:
         # pylint: disable-next=import-outside-toplevel, unused-import
         from megatron.core.distributed import ParamAndGradBuffer
@@ -66,7 +72,7 @@ _version = get_megatron_version()
 
 # pylint: disable=unused-import
 
-if _version == MegatronVersion.V3:
+if _version in [MegatronVersion.V3, MegatronVersion.V5]:
     from megatron.core.distributed.param_and_grad_buffer import BufferType
 
     __all__.append('BufferType')
