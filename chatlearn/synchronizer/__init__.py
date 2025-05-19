@@ -21,11 +21,11 @@ from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.dist_actor import DistModel
 from .base import BaseSync
 from .megatron_megatron import MegatronMegatronSync
-from .megatron_vllm import( 
-    MegatronVllmQWenSync, 
-    MegatronVllmQWen2Sync, 
-    MegatronVllmLlamaSync, 
-    MegatronVllmMoonlightSync, 
+from .megatron_vllm import(
+    MegatronVllmQWenSync,
+    MegatronVllmQWen2Sync,
+    MegatronVllmLlamaSync,
+    MegatronVllmMoonlightSync,
     MegatronVllmQWen2MCoreSync
 )
 

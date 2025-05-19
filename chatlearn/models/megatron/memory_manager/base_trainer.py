@@ -106,10 +106,10 @@ class BaseTrainerMemoryManager(ABC):
                 optimizer, (MixedPrecisionOptimizer,)
             ), f'Only support optimizer type MixedPrecisionOptimizer and its subclasses, current type is {str(type(optimizer))}.'
         else:
-            from megatron.core.optimizer.optimizer import ChainedOptimizer
+            from megatron.core.optimizer.optimizer import ChainedOptimizer # pylint: disable=import-outside-toplevel
             assert isinstance(
                 optimizer, (MixedPrecisionOptimizer, ChainedOptimizer)
-            ), f'Only support optimizer type MixedPrecisionOptimizer, ChainedOptimizer and its subclasses, current type is {str(type(optimizer))}.'            
+            ), f'Only support optimizer type MixedPrecisionOptimizer, ChainedOptimizer and its subclasses, current type is {str(type(optimizer))}.'
             if isinstance(optimizer, ChainedOptimizer):
                 sub_optimizers = optimizer.chained_optimizers
 

@@ -42,6 +42,7 @@ def get_megatron_version():
         return MegatronVersion.V4
 
     try:
+        # pylint: disable-next=import-outside-toplevel, unused-import
         from megatron.core.distributed.distributed_data_parallel import _ParamAndGradBuffer
         return MegatronVersion.V5
     except ImportError:

@@ -80,18 +80,23 @@ class MegatronModule(TorchModule):
         if "parsed_args" in inspect.getfullargspec(initialize_megatron).args:
             # NOTE: use MCore initialize instead of chatlearn customed version, requires MCore commit 95940ff
             args = parse_args(self.add_extra_args, ignore_unknown_args=True)
+
+            def try_decltype(default_value, value):
+                """Convert value to type(default_value) if possible"""
+                # NOTE: For complex cases, e.g., moe_layer_freq, default_type may differ from value_type
+                if default_value is None or value is None:
+                    return value
+                default_type = type(default_value)
+                if not isinstance(value, default_type):
+                    try:
+                        return default_type(value)
+                    except Exception:
+                        pass
+                return value
+
             if self.model_args is not None:
                 for key, value in self.model_args.items():
-                    default_value = getattr(args, key, None)
-                    if default_value is not None and value is not None:
-                        # NOTE: For complex cases, e.g., moe_layer_freq, default_type may differ from value_type
-                        try:
-                            default_type = type(default_value)
-                            if not isinstance(value, default_type):
-                                value = default_type(value)
-                        except:
-                            pass
-                    setattr(args, key, value)
+                    setattr(args, key, try_decltype(getattr(args, key, None), value))
             initialize_megatron(parsed_args=args)
         else:
             # NOTE: don't have commit 95940ff, use customed version
@@ -281,7 +286,7 @@ class MegatronModule(TorchModule):
             return data_parallel_global_ranks, mpu.get_data_parallel_rank()
         else:
             # Get data parallel modulo expert parallel ranks
-            # NOTE: for compatability, use `get_expert_data_parallel_group` instead of 
+            # NOTE: for compatability, use `get_expert_data_parallel_group` instead of
             # `get_data_modulo_expert_parallel_group` if possible
             if hasattr(mpu, 'get_expert_data_parallel_group'):
                 data_modulo_expert_parallel_group = mpu.get_expert_data_parallel_group()
@@ -380,3 +385,25 @@ class MegatronModule(TorchModule):
         assert self.stage2offset is not None and \
             self.stage2offset[self.pipeline_parallel_rank()] is not None
         return self.stage2offset[self.pipeline_parallel_rank()]
+
+    @torch.no_grad()
+    def collect_sparse_params(self):
+        from megatron.core.parallel_state import ( # pylint: disable=import-outside-toplevel
+            get_expert_model_parallel_group,
+            get_expert_model_parallel_world_size
+        )
+        to_be_merged = []
+        for name, params_to_sync in self.named_parameters.items():
+            if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
+                to_be_merged.append([name, params_to_sync])
+        to_be_merged = sorted(to_be_merged, key=lambda x: x[0])
+        self._sparse_params = {}
+        for name, params_to_sync in to_be_merged:
+            w, h = params_to_sync.shape
+            out_tensor = torch.empty(
+                [get_expert_model_parallel_world_size(), w, h],
+                dtype=params_to_sync.dtype,
+                device=params_to_sync.device
+            )
+            dist.all_gather_into_tensor(out_tensor, params_to_sync, group=get_expert_model_parallel_group())
+            self._sparse_params[name] = out_tensor

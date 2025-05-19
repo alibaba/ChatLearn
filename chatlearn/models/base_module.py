@@ -671,7 +671,7 @@ class BaseModule:
                     self._parameters.append(item)
                 for name, item in partition.named_buffers():
                     if 'local_tokens_per' not in name:
-                        self._parameters.append(item)        
+                        self._parameters.append(item)
         return self._parameters
 
     @property
@@ -719,7 +719,7 @@ class BaseModule:
         params_to_sync_list = [(name, self.named_parameters[name]) for name in trainable_param_names]
         if self._synchronizer is not None:
             # NOTE: EP params patch here
-            for idx, (name, param) in enumerate(params_to_sync_list):
+            for idx, (name, _) in enumerate(params_to_sync_list):
                 if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
                     params_to_sync_list[idx] = (name, self._sparse_params[name])
             params_to_sync_list = self._synchronizer.transform_parameters(params_to_sync_list)
@@ -872,29 +872,6 @@ class BaseModule:
             if state:
                 self._expert_sync_buffer.pop(name, "Not Found.")
                 self._expert_sync_buffer[name] = param
-
-    @torch.no_grad()
-    def collect_sparse_params(self):
-        from megatron.core.parallel_state import (
-            get_expert_model_parallel_group,
-            get_expert_model_parallel_world_size
-        )
-        from torch import distributed as dist
-        to_be_merged = []
-        for name, params_to_sync in self.named_parameters.items():
-            if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
-                to_be_merged.append([name, params_to_sync])
-        to_be_merged = sorted(to_be_merged, key=lambda x: x[0])
-        self._sparse_params = {}
-        for name, params_to_sync in to_be_merged:
-            w, h = params_to_sync.shape
-            out_tensor = torch.empty(
-                [get_expert_model_parallel_world_size(), w, h], 
-                dtype=params_to_sync.dtype, 
-                device=params_to_sync.device
-            )
-            dist.all_gather_into_tensor(out_tensor, params_to_sync, group=get_expert_model_parallel_group())
-            self._sparse_params[name] = out_tensor
 
     def broadcast_parameter(self, rank, src_rank, group_name, pipe_stage=0):
         """

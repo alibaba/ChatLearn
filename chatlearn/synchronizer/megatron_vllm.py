@@ -20,14 +20,16 @@ import operator
 from functools import reduce
 import ray.util.collective as col
 import torch
+import torch.distributed as dist
+
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
 from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering
 from chatlearn.utils.vllm_utils import split_attn_state
 from chatlearn.utils.vllm_utils import (
-    Megatron2LlamaSyncMap, 
-    Megatron2QWenSyncMap, 
-    MCore2LlamaSyncMap, 
+    Megatron2LlamaSyncMap,
+    Megatron2QWenSyncMap,
+    MCore2LlamaSyncMap,
     MCore2Qwen2SyncMap,
     MCore2MoonlightSyncMap
 )
@@ -503,7 +505,7 @@ class MegatronVllmMoonlightSync(MegatronVllmSync):
                 params_to_sync = torch.stack(weights, dim=0)
                 params_to_sync_list_new[i] = (name, params_to_sync)
                 stack_dict[name] = None
-        
+
         return params_to_sync_list_new
 
     def collect_linear_kv_down_proj(self, params_to_sync_list):
@@ -514,11 +516,11 @@ class MegatronVllmMoonlightSync(MegatronVllmSync):
             This function do an all gather on an tp-split linear to collect full params across tp group.
         """
 
-        from megatron.core.parallel_state import (
+        from megatron.core.parallel_state import ( # pylint: disable=import-outside-toplevel
             get_tensor_model_parallel_group,
             get_tensor_model_parallel_world_size,
         )
-        from torch import distributed as dist
+
         to_be_merged = []
         for i, (name, params_to_sync) in enumerate(params_to_sync_list):
             if 'linear_kv_down_proj' in name or 'linear_q_down_proj' in name:
@@ -527,12 +529,12 @@ class MegatronVllmMoonlightSync(MegatronVllmSync):
         for idx, name, params_to_sync in to_be_merged:
             w, h = params_to_sync.shape
             out_tensor = torch.empty(
-                [w * get_tensor_model_parallel_world_size(), h], 
-                dtype=params_to_sync.dtype, 
+                [w * get_tensor_model_parallel_world_size(), h],
+                dtype=params_to_sync.dtype,
                 device=params_to_sync.device
             )
             dist.all_gather_into_tensor(out_tensor, params_to_sync, group=get_tensor_model_parallel_group())
-            params_to_sync_list[idx] = (name, out_tensor) 
+            params_to_sync_list[idx] = (name, out_tensor)
         return params_to_sync_list
 
     def transform_parameters(self, params_to_sync_list):

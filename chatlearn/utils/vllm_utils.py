@@ -356,6 +356,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
                 self._dst_names.append(layer_name + out_name)
 
 class MCore2Qwen2SyncMap(MCore2LlamaSyncMap):
+    """sync map:megatron-core qwen2 to huggingface transformer"""
     def map_src_to_dst(self):
         for src_name in self.src_names:
              # convert word embeddings.
@@ -443,7 +444,7 @@ class MCore2MoonlightSyncMap(ParameterSyncMap):
             'self_attention.linear_kv_down_proj': '.self_attn.kv_a_proj_with_mqa.',
             'self_attention.linear_kv_up_proj': '.self_attn.kv_b_proj.',
             "self_attention.linear_proj": ".self_attn.o_proj.",
-            
+
             # NOTE: MoE layer
             'mlp.router': '.mlp.gate.',
             'mlp.router.expert': '.mlp.gate.e_score_correction_',
@@ -518,7 +519,7 @@ class MCore2MoonlightSyncMap(ParameterSyncMap):
                     ln_name = "self_attn.q_norm"
                 elif op_name == 'self_attention.k_layernorm': # qk_layernorm for Dense Layer
                     ln_name = "self_attn.k_norm"
-                elif op_name == 'self_attention.linear_qkv.layer_norm': 
+                elif op_name == 'self_attention.linear_qkv.layer_norm':
                     ln_name = "input_layernorm" # input_layernorm for Dense Layer
                 elif op_name == "input_layernorm":
                     ln_name = "input_layernorm" # input_layernorm for MoE Layer
