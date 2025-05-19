@@ -7,7 +7,7 @@ from transformers.cache_utils import Cache
 from transformers.models.qwen3 import modeling_qwen3
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-from chatlearn.utils.communication_op import all_to_all, all_to_all_single, gather, get_sp_parallel_group
+from chatlearn.utils.communication_op import all_to_all, get_sp_parallel_group
 
 def qwen3_sp_attention_forward(
     self,
@@ -35,7 +35,7 @@ def qwen3_sp_attention_forward(
             repeat_times = sp_size // self.config.num_key_value_heads
             key_states = repeat_kv(key_states, repeat_times)
             value_states = repeat_kv(value_states, repeat_times)
-            # Change self.num_key_value_groups, eager_attention_forward use this value to 
+            # Change self.num_key_value_groups, eager_attention_forward use this value to
             # determine how many times kv will be repeated
             self.num_key_value_groups = self.config.num_attention_heads // sp_size
         query_states = all_to_all(input_tensor=query_states, sp_group=sp_group, split_dim=1, gather_dim=2)
@@ -46,6 +46,7 @@ def qwen3_sp_attention_forward(
     query_states, key_states = modeling_qwen3.apply_rotary_pos_emb(query_states, key_states, cos, sin)
 
     if past_key_value is not None:
+        assert sp_group is None, "Sp is not supported for transformers generation"
         # sin and cos are specific to RoPE models; cache_position needed for the static cache
         cache_kwargs = {"sin": sin, "cos": cos, "cache_position": cache_position}
         key_states, value_states = past_key_value.update(key_states, value_states, self.layer_idx, cache_kwargs)
