@@ -421,6 +421,8 @@ class FSDPModule(TorchModule):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
         if dist.get_rank() == 0 and not os.path.exists(save_dir):
             os.makedirs(save_dir)
+        # Make sure directory exists before writing
+        dist.barrier()
 
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
         optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)

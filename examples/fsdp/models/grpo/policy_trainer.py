@@ -197,7 +197,10 @@ class PolicyTrainer(FSDPModule):
                 )
             
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-            pg_loss_mean = torch.mean(pg_loss) / micro_bs_num
+            # Reference: https://github.com/pytorch/pytorch/blob/c45515c2eda19b1a1ff5762f1571c6fe63773c8a/torch/distributed/fsdp/_runtime_utils.py#L848
+            # Since grad will be divided by fsdp world size in backward hook
+            # We need to multiple pg_loss_mean by sp_size to avoid mean calculate within dp rank
+            pg_loss_mean = torch.mean(pg_loss) / micro_bs_num * self.sp_size
             pg_loss_mean.backward()
             pg_loss_list.append(pg_loss)
 
