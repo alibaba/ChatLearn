@@ -38,6 +38,7 @@ models:
     num_gpu: ${num_device:1}
     gpu_per_process: 1
     fsdp_size: -1
+    sp_size: ${sp_size:1}
     trainable: True
     free_memory: ${free_memory_ppo_policy:True}
     generation_batch_size: ${trainer_generation_batch_size:8}
