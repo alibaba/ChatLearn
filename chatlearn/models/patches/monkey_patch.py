@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""Apply patches for different model architectures"""
 def apply_monkey_patch(model_config, op_list):
     print(f"apply {op_list} patches for {model_config.architectures}")
     if model_config.architectures[0] == "Qwen2ForCausalLM":

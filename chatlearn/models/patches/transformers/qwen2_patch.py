@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""patches for qwen2 model"""
 from typing import Callable, Optional, Tuple
 
 import torch
