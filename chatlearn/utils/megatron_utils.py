@@ -82,6 +82,14 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_la
             _update_layer_num = functools.partial(update_layer_num, start_layer_num)
             tgt_name = re.sub(layer_re, _update_layer_num, src_name)
         name_mapping[tgt_name] = src_name
+
+    for src_name, partition_param in model.named_buffers():
+        if 'local_tokens_per' in src_name:
+            continue
+        start_layer_num = src_layer_offset - tgt_layer_offset
+        _update_layer_num = functools.partial(update_layer_num, start_layer_num)
+        tgt_name = re.sub(layer_re, _update_layer_num, src_name)
+        name_mapping[tgt_name] = src_name
     return name_mapping
 
 def initialize_megatron( # pylint: disable=dangerous-default-value

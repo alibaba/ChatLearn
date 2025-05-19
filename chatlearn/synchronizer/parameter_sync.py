@@ -1416,6 +1416,16 @@ class ParameterSyncGroup:
 
         self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
+        # NOTE: ParameterSyncGroup currently do not support ep mapping, here we add 
+        # an all_gather on MoE parameters on sender. And patch params_to_sync_list before
+        # `synchronizer.transform_parameters` called.
+        # TODO: add options
+        if True:
+            assert self.num_dst_expert_parallel == 1, "Not Supported Yet"
+            # NOTE: collect sparse params and store in (Actor) self._sparse_params (Dict[str, torch.Tensor])
+            results = self.src_model.replicas[0].call_remote_funcs('collect_sparse_params')
+            future.get(results)
+
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:

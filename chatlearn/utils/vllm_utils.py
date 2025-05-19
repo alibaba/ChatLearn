@@ -355,6 +355,208 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
                 out_name = self.get_dst_name(self.layer_sync_map, op_name)
                 self._dst_names.append(layer_name + out_name)
 
+class MCore2Qwen2SyncMap(MCore2LlamaSyncMap):
+    def map_src_to_dst(self):
+        for src_name in self.src_names:
+             # convert word embeddings.
+            if src_name in self.embedding_sync_map:
+                self._dst_names.append(self.get_dst_name(self.embedding_sync_map, src_name))
+                continue
+
+            # final layer
+            if src_name in self.final_layer_sync_map:
+                self._dst_names.append(self.get_dst_name(self.final_layer_sync_map, src_name))
+                continue
+
+            m = self.layer_re.match(src_name)
+            # Stop if that's not a layer
+            if m is None:
+                raise RuntimeError(f"expect src_name ({src_name}) to be a layer")
+
+            # The index of the layer.
+            layer_idx = int(m.group(1)) + self.layer_offset
+
+            # The name of the operation.
+            op_name = m.group(2)
+            # Is it a weight or a bias?
+            weight_or_bias = m.group(3)
+            # The name of the layer.
+            layer_name = f"{self.dst_prefix}.layers.{layer_idx}"
+
+            # For layernorm(s), simply store the layer norm.
+            if op_name.endswith("layer_norm") and weight_or_bias == 'weight':
+                if op_name == "self_attention.linear_qkv.layer_norm":
+                    ln_name = "input_layernorm"
+                elif op_name == "mlp.linear_fc1.layer_norm":
+                    ln_name = "post_attention_layernorm"
+                else:
+                    assert False, f"expect op_name ({op_name}) to be layer norm"
+                self._dst_names.append(layer_name + "." + ln_name + "." + weight_or_bias)
+
+            # Transpose the QKV matrix.
+            elif op_name == "self_attention.linear_qkv":
+                self._dst_names.append(layer_name + f".self_attn.qkv_proj.{weight_or_bias}")
+
+            # Transpose the weights.
+            elif weight_or_bias == "weight":
+                out_name = self.get_dst_name(self.layer_sync_map, op_name)
+                self._dst_names.append(layer_name + out_name + "weight")
+
+            # Ignore biases and extra_states.
+            elif weight_or_bias in ["bias", "_extra_state"]:
+                pass
+
+            # Copy the rest.
+            else:
+                out_name = self.get_dst_name(self.layer_sync_map, op_name)
+                self._dst_names.append(layer_name + out_name)
+
+class MCore2MoonlightSyncMap(ParameterSyncMap):
+    """
+        Mapping parameter keys of a MCore Moonlight (DSK3 w/o MTP) to huggingface.
+
+        The MCore model should be with the following options:
+            --moe-grouped-gemm
+            --moe-router-enable-expert-bias
+            --transformer-impl transformer_engine
+            --multi-latent-attention
+            --moe-layer-freq ([0]*1+[1]*26)
+            # --mtp-num-layers 0
+    """
+    def __init__(self, src_names, layer_offset):
+        src_prefix = "module.module"
+        dst_prefix = "model" if is_vllm_v2() else "model.model"
+        # The regex to extract layer names.
+        #! add ([0-9]*) to extract experts_id for grouped GEMM
+        self.layer_re = re.compile(rf"{src_prefix}.decoder.layers\.(\d+)\.([a-z0-9_.]+)[\._]([a-z]+)([0-9]*)")
+        self.src_prefix = src_prefix
+        self.dst_prefix = dst_prefix
+        # vLLM skips loading rotary_pos_emb and re-initializes it. Thus, we don't synchronize it from MCore to vllm.
+        self._embedding_sync_map = {
+            f"{src_prefix}.embedding.word_embeddings.weight": f"{dst_prefix}.embed_tokens.weight",
+        }
+        self._layer_sync_map = {
+            # NOTE: MLA attn
+            'self_attention.linear_q_proj': '.self_attn.q_proj.', # only for q_lora_rank is None
+            'self_attention.linear_q_down_proj': '.self_attn.q_a_proj.',
+            'self_attention.linear_q_up_proj': '.self_attn.q_b_proj.',
+            'self_attention.linear_kv_down_proj': '.self_attn.kv_a_proj_with_mqa.',
+            'self_attention.linear_kv_up_proj': '.self_attn.kv_b_proj.',
+            "self_attention.linear_proj": ".self_attn.o_proj.",
+            
+            # NOTE: MoE layer
+            'mlp.router': '.mlp.gate.',
+            'mlp.router.expert': '.mlp.gate.e_score_correction_',
+
+            # NOTE: Experts (GroupedGEMM) source: linear_fc.weight{i}
+            'mlp.experts.linear_fc1': ".mlp.experts.w13_weight", # w13 shape: (num_experts, 2 * intermediate_size, hidden_size)
+            'mlp.experts.linear_fc2': ".mlp.experts.w2_weight", # w2 shape: (num_experts, hidden_size,, intermediate_size)
+
+            # NOTE: Shared Experts
+            'mlp.shared_experts.gate': '.mlp.shared_expert_gate.',
+            'mlp.shared_experts.linear_fc1': '.mlp.shared_experts.gate_up_proj.',
+            'mlp.shared_experts.linear_fc2': '.mlp.shared_experts.down_proj.',
+
+            # NOTE: Dense MLP
+            "mlp.linear_fc1": ".mlp.gate_up_proj.",
+            "mlp.linear_fc2": ".mlp.down_proj.",
+        }
+
+        self._final_layer_sync_map = {
+            f"{src_prefix}.decoder.final_layernorm.weight": f"{dst_prefix}.norm.weight",
+            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
+        }
+        self._concat_params_dict = None
+        self._to_fix_shared_expert_ordering = None
+        self._to_allgather_routed_experts_dict = None
+        self._to_alltoall_routed_experts_dict = None
+        self._to_fix_act_ordering_dict = None
+        self._to_fix_qkv_ordering_dict = {
+            "modules": [
+                "self_attention.linear_qkv",
+            ],
+            "layer_re": self.layer_re
+        }
+        super().__init__(src_names, layer_offset)
+
+    def map_src_to_dst(self):
+        # NOTE: we only mapping the first linear_fc.weight{i} to dst
+        is_expert_set = set()
+        for src_name in self.src_names:
+             # convert word embeddings.
+            if src_name in self.embedding_sync_map:
+                self._dst_names.append(self.get_dst_name(self.embedding_sync_map, src_name))
+                continue
+
+            # final layer
+            if src_name in self.final_layer_sync_map:
+                self._dst_names.append(self.get_dst_name(self.final_layer_sync_map, src_name))
+                continue
+
+            m = self.layer_re.match(src_name)
+            # Stop if that's not a layer
+            if m is None:
+                raise RuntimeError(f"expect src_name ({src_name}) to be a layer")
+
+            # The index of the layer.
+            #! NOTE: if vllm applies PP > 1, the layer_idx may not be GLOBAL LAYER ID
+            layer_idx = int(m.group(1)) + self.layer_offset
+            # The name of the operation.
+            op_name = m.group(2)
+            # Is it a weight or a bias?
+            weight_or_bias = m.group(3)
+            # The name of the layer.
+            layer_name = f"{self.dst_prefix}.layers.{layer_idx}"
+
+            # For layernorm(s), simply store the layer norm.
+            if (op_name.endswith("layer_norm") or op_name.endswith("layernorm")) and weight_or_bias == 'weight':
+                if op_name == "self_attention.linear_q_up_proj.layer_norm": # qk_layernorm for MoE Layer
+                    ln_name = "self_attn.q_a_layernorm"
+                elif op_name == "self_attention.linear_kv_up_proj.layer_norm": # qk_layernorm for MoE Layer
+                    ln_name = "self_attn.kv_a_layernorm"
+                elif op_name == 'self_attention.q_layernorm': # qk_layernorm for Dense Layer
+                    ln_name = "self_attn.q_norm"
+                elif op_name == 'self_attention.k_layernorm': # qk_layernorm for Dense Layer
+                    ln_name = "self_attn.k_norm"
+                elif op_name == 'self_attention.linear_qkv.layer_norm': 
+                    ln_name = "input_layernorm" # input_layernorm for Dense Layer
+                elif op_name == "input_layernorm":
+                    ln_name = "input_layernorm" # input_layernorm for MoE Layer
+                elif op_name == 'pre_mlp_layernorm':
+                    ln_name = "post_attention_layernorm" # MoE layer
+                elif op_name == "mlp.linear_fc1.layer_norm":
+                    ln_name = "post_attention_layernorm" # Dense Layer
+                else:
+                    raise ValueError(f"expect op_name ({op_name}) to be layer norm")
+                self._dst_names.append(layer_name + "." + ln_name + "." + weight_or_bias)
+
+            # Transpose the QKV matrix.
+            elif op_name == "self_attention.linear_qkv" and weight_or_bias == 'weight':
+                self._dst_names.append(layer_name + ".self_attn.qkv_proj.weight")
+
+            elif 'mlp.experts' in op_name:
+                out_name = layer_name + self.get_dst_name(self.layer_sync_map, op_name)
+                if out_name not in is_expert_set:
+                    self._dst_names.append(out_name)
+                    is_expert_set.add(out_name)
+
+            # NOTE: Why 'transpose'?
+            # Transpose the weights.
+            elif (
+                (op_name == 'mlp.router.expert' and weight_or_bias == 'bias') or
+                weight_or_bias == "weight"
+            ):
+                out_name = self.get_dst_name(self.layer_sync_map, op_name)
+                self._dst_names.append(layer_name + out_name + weight_or_bias)
+
+            # Ignore biases and extra_states.
+            elif weight_or_bias in ["bias", "_extra_state"]:
+                # moonlight is w/ --disable-bias-linear and w/o --add-qkv-bias
+                pass
+            # Copy the rest.
+            else:
+                out_name = self.get_dst_name(self.layer_sync_map, op_name)
+                self._dst_names.append(layer_name + out_name)
 
 class Megatron2QWenSyncMap(ParameterSyncMap):
     """sync map:megatron to qwen transformer"""

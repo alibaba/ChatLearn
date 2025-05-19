@@ -135,13 +135,13 @@ def coalesced_comm_dense(bucket, comm_call, extra_args, tensor_changed=True):
             tensor.copy_(synced)
 
 
-def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0):
+def coalesced_comm_dense_two_stage(bucket, comm_call, rank, extra_args, tensor_changed=True, stage2=False, index=0, max_buffer_num=1):
     """
     coalesced communication for dense parameters
     """
     all_tensors = []
     all_sizes = []
-    num_ranks = 1
+    num_ranks = max_buffer_num
     orig_tensor_ele = 0
     orig_tensors = []
     for tensor, size in bucket:
