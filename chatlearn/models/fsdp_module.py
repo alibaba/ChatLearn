@@ -36,7 +36,7 @@ from transformers.trainer_pt_utils import get_module_class_from_name
 
 from chatlearn.utils.logger import debug_rank_0, log_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
-from chatlearn.utils.communication_op import set_sp_parallel_group, get_sp_parallel_group
+from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_monkey_patch
 from .torch_module import TorchModule
 
