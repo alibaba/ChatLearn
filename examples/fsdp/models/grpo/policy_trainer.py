@@ -21,7 +21,7 @@ def logprobs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Te
     log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
     return log_probs_labels.squeeze(-1)
     
-def split_batch(input_tensor, split_dim, sp_size, sp_local_rank):
+def sp_split(input_tensor, split_dim, sp_size, sp_local_rank):
     return torch.tensor_split(input_tensor, sp_size, split_dim)[sp_local_rank]
 
 def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: list, response_token_length:list):
@@ -47,37 +47,45 @@ class PolicyTrainer(FSDPModule):
         response_token_length = data_b["response_token_length"]
         _, ori_seq_len = tokens_.size()
 
+        # Pad tokens_ to ensure max valid token length meets sp requirements
+        if self.sp_size > 1:
+            # Since valid token_length will be 1 less than full token length.
+            # We need to make sure valid token can be divided by sp_size.
+            # When full_token_len = 2048, sp_size=2, the max valid token will be 2047 which is not divided by sp_size.
+            # We need pad original token to full_token_len=2049
+            # Then max valid token length will be 2048 which can be divided by sp_size.
+            valid_len = tokens_.shape[1] - 1
+            pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
+            tokens_ = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
+
         # Find max seq_len in batch
         max_len = max([prompt_len + response_len for prompt_len, response_len in zip(prompt_token_length, response_token_length)])
         max_valid_len = max_len - 1
-        pad_size = 0
+
         # Modify max_len to be divisible by sp_size
         if self.sp_size > 1:
             max_valid_len = math.ceil(max_valid_len / self.sp_size) * self.sp_size
-            # Pad tokens_ to match sp requirements
-            if max_valid_len >= ori_seq_len:
-                pad_size = max_valid_len + 1 - ori_seq_len
-                tokens_ = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
+        
+        # Generate loss mask, positon ids
         _, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
 
         # Cut to max_valid_len in batch
         tokens = tokens_[:, : max_valid_len]
         labels = tokens_[:, 1: max_valid_len + 1]
+        position_ids = position_ids[:, : max_valid_len]
 
         # Split all inputs required to calculate logprobs on seq_len dim when sp_size > 1
         if self.sp_size > 1:
             sp_group = get_sp_parallel_group()
             sp_local_rank = dist.get_rank(sp_group)
-            tokens = split_batch(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
-            labels = split_batch(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+            tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+            labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
 
-        position_ids = position_ids[:, : max_valid_len]
         inputs = {
             "all_tokens": tokens,
             "position_ids": position_ids,
             "labels": labels,
             "ori_seq_len": ori_seq_len,
-            "sp_pad_size": pad_size
         }
         for k, v in inputs.items():
             inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -96,19 +104,26 @@ class PolicyTrainer(FSDPModule):
         ref_logprobs = data_b[REF_TAG]
         _, ori_seq_len = tokens_.size()
 
-        # Find max seq_len in batch
+        # Pad tokens_ to ensure max valid token length meets sp requirements
+        if self.sp_size > 1:
+            # Since valid token_length will be 1 less than full token length.
+            # We need to make sure valid token length can be divided by sp_size.
+            # When full_token_len = 2048, sp_size=2, the max valid token will be 2047 which is not divided by sp_size.
+            # We need pad original token to full_token_len=2049
+            # Then max valid token length will be 2048 which can be divided by sp_size.
+            valid_len = tokens_.shape[1] - 1
+            pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
+            tokens_ = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
+            old_logprobs = F.pad(old_logprobs, (0, pad_size), value=0)
+            ref_logprobs = F.pad(ref_logprobs, (0, pad_size), value=0)
+
+        # Find max valid token length in batch
         max_len = max([prompt_len + response_len for prompt_len, response_len in zip(prompt_token_length, response_token_length)])
         max_valid_len = max_len - 1
+
         # Modify max_len to be divisible by sp_size
-        pad_size = 0
         if self.sp_size > 1:
             max_valid_len = math.ceil(max_valid_len / self.sp_size) * self.sp_size
-            # Pad tokens_ to match sp requirements
-            if max_valid_len >= ori_seq_len:
-                pad_size = max_valid_len + 1 - ori_seq_len
-                tokens_ = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
-                old_logprobs = F.pad(old_logprobs, (0, pad_size), value=0)
-                ref_logprobs = F.pad(ref_logprobs, (0, pad_size), value=0)
         
         # Generate loss mask, positon ids
         loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
@@ -125,8 +140,8 @@ class PolicyTrainer(FSDPModule):
         if self.sp_size > 1:
             sp_group = get_sp_parallel_group()
             sp_local_rank = dist.get_rank(sp_group)
-            tokens = split_batch(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
-            labels = split_batch(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+            tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+            labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
 
         inputs = {
             "all_tokens": tokens,

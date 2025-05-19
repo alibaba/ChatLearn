@@ -3,7 +3,7 @@ set -x
 
 # set path
 export CHATLEARN=$(pwd)
-export model_path="${CHATLEARN}/Qwen2.5-7B-Instruct"
+export model_path="/mnt/workspace/chatlearn-exp/hub/hf/Qwen2.5-7B-Instruct"
 export exp_name=$(date +%F)-qwen2.5-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
@@ -28,7 +28,7 @@ export wandb_project="grpo-exp"
 export WANDB_API_KEY="wandb-api-key"
 
 #Setup sequence_parallel
-export sp_size=1
+export sp_size=2
 
 #VLLM setup
 export VLLM_USE_RAY_SPMD_WORKER=1

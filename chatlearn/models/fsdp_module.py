@@ -37,7 +37,7 @@ from transformers.trainer_pt_utils import get_module_class_from_name
 from chatlearn.utils.logger import debug_rank_0, log_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
-from chatlearn.models.patches.monkey_patch import apply_monkey_patch
+from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch
 from .torch_module import TorchModule
 
 
@@ -269,14 +269,12 @@ class FSDPModule(TorchModule):
         self.args = args
         # model = self.create_model(args.pretrain_or_model, torch_dtype=torch.float32)
         model = self.create_model(args.pretrain_or_model, torch_dtype=torch.bfloat16)
-        op_list = []
         # Setup device mesh and apply patch for sequence parallel
         # Sequence_parallel should only be used during training
         if self.sp_size > 1:
             self.check_sp_compatibility(model.config)
             self.create_sp_device_mesh()
-            op_list.append("sequence_parallel")
-        apply_monkey_patch(model.config, op_list)
+            apply_sp_monkey_patch(model.config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             args.pretrain_or_model, trust_remote_code=True, use_fast=True
         )
