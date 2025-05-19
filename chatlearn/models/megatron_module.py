@@ -134,7 +134,7 @@ class MegatronModule(TorchModule):
                 self.offload()
         else:
             assert hasattr(self, "model")
-            self.model.eval()
+            self.megatron_model().eval()
             if self.module_args.offload_weights:
                 self._memory_manager = InferenceMemoryManager(
                     self.megatron_model(),
