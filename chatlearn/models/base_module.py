@@ -669,6 +669,9 @@ class BaseModule:
             for partition in model:
                 for item in partition.parameters():
                     self._parameters.append(item)
+                for name, item in partition.named_buffers():
+                    if 'local_tokens_per' not in name:
+                        self._parameters.append(item)
         return self._parameters
 
     @property
@@ -685,6 +688,9 @@ class BaseModule:
             for partition in model:
                 for item in partition.named_parameters():
                     self._named_parameters[item[0]] = item[1]
+                for item in partition.named_buffers():
+                    if 'local_tokens_per' not in item[0]:
+                        self._named_parameters[item[0]] = item[1]
         return self._named_parameters
 
     @property
@@ -701,6 +707,9 @@ class BaseModule:
             for partition in model:
                 for item in partition.named_parameters():
                     self._param_to_name[item[1]] = item[0]
+                for item in partition.named_buffers():
+                    if 'local_tokens_per' not in item[0]:
+                        self._param_to_name[item[1]] = item[0]
         return self._param_to_name
 
     def _set_sync_parameters(self, trainable_param_names, pipe_stage=0, parameters_to_sync=None):
@@ -709,6 +718,10 @@ class BaseModule:
         assert pipe_stage not in parameters_to_sync or len(parameters_to_sync[pipe_stage])==0
         params_to_sync_list = [(name, self.named_parameters[name]) for name in trainable_param_names]
         if self._synchronizer is not None:
+            # NOTE: EP params patch here
+            for idx, (name, _) in enumerate(params_to_sync_list):
+                if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
+                    params_to_sync_list[idx] = (name, self._sparse_params[name])
             params_to_sync_list = self._synchronizer.transform_parameters(params_to_sync_list)
         parameters_to_sync[pipe_stage] = params_to_sync_list
         return parameters_to_sync
@@ -980,13 +993,15 @@ class BaseModule:
         )
         dense_bucket_num = 0
         sparse_bucket_num = 0
-        for bucket_or_tensor, is_dense in bucket_generator:
+        # NOTE: if rank > 0 (receiver), use buffer_num; otherwise (sender) 1
+        max_buffer_num = max(self._buffer_num.values()) if (not stage2) and rank else 1
+        for _idx, (bucket_or_tensor, is_dense) in enumerate(bucket_generator):
             if is_dense:
                 index = 0 if stage2 else (to_rank % self.tp_num_mapping)
                 all_buffers = coalesced_comm_dense_two_stage(
                     bucket_or_tensor, col.broadcast, rank,
                     extra_args=(src_rank, group_name), tensor_changed=tensor_changed,
-                    stage2=stage2, index=index)
+                    stage2=stage2, index=index, max_buffer_num=max_buffer_num)
                 if tensor_changed and not stage2:
                     for key, value in all_buffers.items():
                         cpu_value = []

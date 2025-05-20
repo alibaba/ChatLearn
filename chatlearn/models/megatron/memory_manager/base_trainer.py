@@ -57,6 +57,11 @@ def create_trainer_memory_manager(
         from chatlearn.models.megatron.memory_manager.trainer_v4 import TrainerMemoryManagerV4
 
         cls = TrainerMemoryManagerV4
+    elif version in [MegatronVersion.V5]:
+        # pylint: disable-next=import-outside-toplevel
+        from chatlearn.models.megatron.memory_manager.trainer_v5 import TrainerMemoryManagerV5
+
+        cls = TrainerMemoryManagerV5
     else:
         raise ValueError(f'Unsupported version of Megatron for trainer memory manager: {version}')
 
@@ -95,16 +100,26 @@ class BaseTrainerMemoryManager(ABC):
         assert isinstance(
             model, (DistributedDataParallel,)
         ), f'Only support model type DistributedDataParallel, current type is {str(type(model))}.'
-        assert isinstance(
-            optimizer, (MixedPrecisionOptimizer,)
-        ), f'Only support optimizer type MixedPrecisionOptimizer and its subclasses, current type is {str(type(optimizer))}.'
-
-        # sanity check
-        if self._use_distributed_optimizer:
-            assert isinstance(optimizer, DistributedOptimizer)
+        sub_optimizers = [optimizer]
+        if get_megatron_version() != MegatronVersion.V5:
+            assert isinstance(
+                optimizer, (MixedPrecisionOptimizer,)
+            ), f'Only support optimizer type MixedPrecisionOptimizer and its subclasses, current type is {str(type(optimizer))}.'
         else:
-            log_rank_0('Current optimizer is Float16OptimizerWithFloat16Params')
-            assert isinstance(optimizer, Float16OptimizerWithFloat16Params)
+            from megatron.core.optimizer.optimizer import ChainedOptimizer # pylint: disable=import-outside-toplevel
+            assert isinstance(
+                optimizer, (MixedPrecisionOptimizer, ChainedOptimizer)
+            ), f'Only support optimizer type MixedPrecisionOptimizer, ChainedOptimizer and its subclasses, current type is {str(type(optimizer))}.'
+            if isinstance(optimizer, ChainedOptimizer):
+                sub_optimizers = optimizer.chained_optimizers
+
+        for optim in sub_optimizers:
+            # sanity check
+            if self._use_distributed_optimizer:
+                assert isinstance(optim, DistributedOptimizer)
+            else:
+                log_rank_0('Current optimizer is Float16OptimizerWithFloat16Params')
+                assert isinstance(optim, Float16OptimizerWithFloat16Params)
 
         self._main_weights_offloaded = False
         self._group_flat_main_weights: Optional[List[BucketizedFlatTensors]] = None

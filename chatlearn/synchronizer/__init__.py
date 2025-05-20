@@ -21,7 +21,13 @@ from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.runtime.dist_actor import DistModel
 from .base import BaseSync
 from .megatron_megatron import MegatronMegatronSync
-from .megatron_vllm import MegatronVllmQWenSync, MegatronVllmQWen2Sync, MegatronVllmLlamaSync
+from .megatron_vllm import(
+    MegatronVllmQWenSync,
+    MegatronVllmQWen2Sync,
+    MegatronVllmLlamaSync,
+    MegatronVllmMoonlightSync,
+    MegatronVllmQWen2MCoreSync
+)
 
 def get_synchronizer(src_model, dst_model):
     assert isinstance(src_model, DistModel)
@@ -32,14 +38,19 @@ def get_synchronizer(src_model, dst_model):
         return MegatronMegatronSync(src_model, dst_model)
     elif isinstance(src_model, MegatronModule) and isinstance(dst_model, (VLLMModule, VLLMModuleV2)):
         config_dir = dst_model.module_args.args_dict["tokenizer"]
-        config =  AutoConfig.from_pretrained(config_dir)
+        config =  AutoConfig.from_pretrained(config_dir, trust_remote_code=True)
         model_class_name = config.architectures[0]
         if model_class_name == "QWenLMHeadModel":
             return MegatronVllmQWenSync(src_model, dst_model)
         elif model_class_name in ["Qwen2ForCausalLM", "Qwen2MoeForCausalLM"]:
-            return MegatronVllmQWen2Sync(src_model, dst_model)
+            # NOTE: check if the model is mcore or not
+            if src_model.module_args.args_dict.get("use_legacy_models", True):
+                return MegatronVllmQWen2Sync(src_model, dst_model)
+            return MegatronVllmQWen2MCoreSync(src_model, dst_model)
         elif model_class_name == "LlamaForCausalLM":
             return MegatronVllmLlamaSync(src_model, dst_model)
+        elif model_class_name == "DeepseekV3ForCausalLM":
+            return MegatronVllmMoonlightSync(src_model, dst_model)
         else:
             raise RuntimeError(
                 f"Unsupported model {model_class_name}, Expect QWenLMHeadModel, Qwen2ForCausalLM, Qwen2MoeForCausalLM or LlamaForCausalLM.")

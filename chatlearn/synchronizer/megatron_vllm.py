@@ -13,17 +13,26 @@
 # limitations under the License.
 # ==============================================================================
 """megatron to vllm synchronizer"""
-
+import re
+from collections import defaultdict
 from abc import abstractmethod
 import operator
 from functools import reduce
 import ray.util.collective as col
 import torch
+import torch.distributed as dist
+
 from chatlearn.utils.constant import QwenVersion
 from chatlearn.utils.utils import get_use_legacy_models
 from chatlearn.utils.vllm_utils import fix_qwen_query_key_value_ordering
 from chatlearn.utils.vllm_utils import split_attn_state
-from chatlearn.utils.vllm_utils import Megatron2LlamaSyncMap, Megatron2QWenSyncMap, MCore2LlamaSyncMap
+from chatlearn.utils.vllm_utils import (
+    Megatron2LlamaSyncMap,
+    Megatron2QWenSyncMap,
+    MCore2LlamaSyncMap,
+    MCore2Qwen2SyncMap,
+    MCore2MoonlightSyncMap
+)
 from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
 from .base import BaseSync
 
@@ -435,6 +444,12 @@ class MegatronVllmQWen2Sync(MegatronVllmSync):
         self._to_fix_qkv_ordering_func = split_attn_state
         return Megatron2QWenSyncMap(src_names, src_pipe_layer_offset, QwenVersion.v_2.value)
 
+class MegatronVllmQWen2MCoreSync(MegatronVllmSync):
+    """qwen2-dense-mcore"""
+
+    def map_src_to_dst(self, src_names, src_pipe_layer_offset):
+        self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
+        return MCore2Qwen2SyncMap(src_names, src_pipe_layer_offset)
 
 class MegatronVllmLlamaSync(MegatronVllmSync):
     """llama"""
@@ -444,3 +459,90 @@ class MegatronVllmLlamaSync(MegatronVllmSync):
         sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
         self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
         return sync_map_cls(src_names, src_pipe_layer_offset)
+
+
+class MegatronVllmMoonlightSync(MegatronVllmSync):
+    """Moonlight"""
+
+    def stack_group_gemm(self, params_to_sync_list):
+        """
+            Currently, VLLM use FusedMOE in the MoE layer, whose gemm has the shape:
+              w13: (num_experts, 2 * intermediate_size, hidden_size)
+              w2: (num_experts, hidden_size,, intermediate_size)
+            
+            However, in TEGroupMLP, the gemm weights is split by expert like follows:
+              linear_fc1.weight{i} for i in range(n_experts): (2 * intermediate_size, hidden_size)
+              linear_fc2.weight{i} for i in range(n_experts): (hidden_size, intermediate_size)
+
+            Futhermore, to bypass EP division, a workaround is applied to these weights.
+            linear_fc1.weight{i} for i in range(n_experts // EP): (EP, 2 * intermediate_size, hidden_size)
+            linear_fc2.weight{i} for i in range(n_experts // EP): (EP, hidden_size, intermediate_size)
+        
+            Therefore, we need to regroup and stack the gemm weights by expert when TEGroupMLP is used.
+        """
+        layer_re = re.compile(r"(.*weight)([0-9]+)")
+        stack_dict = defaultdict(dict)
+        params_to_sync_list_new = []
+        for i, (name, params_to_sync) in enumerate(params_to_sync_list):
+            m = layer_re.match(name)
+            if m is None:
+                params_to_sync_list_new.append((name, params_to_sync))
+                continue
+            key, expert_id = m.group(1), m.group(2)
+            if key not in stack_dict:
+                params_to_sync_list_new.append([key, None]) # placeholder
+            stack_dict[key][int(expert_id)] = params_to_sync
+
+        for i, (name, params_to_sync) in enumerate(params_to_sync_list_new):
+            if params_to_sync is None:
+                datas = stack_dict[name]
+                num_experts = sum(data.shape[0] for data in datas.values())
+                weights = []
+                for expert_id in range(num_experts):
+                    weight_id = expert_id % len(datas)
+                    ep_rank = expert_id // len(datas)
+                    weights.append(datas[weight_id][ep_rank])
+                params_to_sync = torch.stack(weights, dim=0)
+                params_to_sync_list_new[i] = (name, params_to_sync)
+                stack_dict[name] = None
+
+        return params_to_sync_list_new
+
+    def collect_linear_kv_down_proj(self, params_to_sync_list):
+        """
+            Megatron-Core applies ColumnLinear in each proj of MLASelfAttention.
+            However, kv_a_proj_with_mqa is a ReplicatedLinear instead of ColumnLinear in vLLM.
+
+            This function do an all gather on an tp-split linear to collect full params across tp group.
+        """
+
+        from megatron.core.parallel_state import ( # pylint: disable=import-outside-toplevel
+            get_tensor_model_parallel_group,
+            get_tensor_model_parallel_world_size,
+        )
+
+        to_be_merged = []
+        for i, (name, params_to_sync) in enumerate(params_to_sync_list):
+            if 'linear_kv_down_proj' in name or 'linear_q_down_proj' in name:
+                to_be_merged.append([i, name, params_to_sync])
+        to_be_merged = sorted(to_be_merged, key=lambda x: x[1])
+        for idx, name, params_to_sync in to_be_merged:
+            w, h = params_to_sync.shape
+            out_tensor = torch.empty(
+                [w * get_tensor_model_parallel_world_size(), h],
+                dtype=params_to_sync.dtype,
+                device=params_to_sync.device
+            )
+            dist.all_gather_into_tensor(out_tensor, params_to_sync, group=get_tensor_model_parallel_group())
+            params_to_sync_list[idx] = (name, out_tensor)
+        return params_to_sync_list
+
+    def transform_parameters(self, params_to_sync_list):
+        params_to_sync_list = super().transform_parameters(params_to_sync_list)
+        params_to_sync_list = self.stack_group_gemm(params_to_sync_list)
+        params_to_sync_list = self.collect_linear_kv_down_proj(params_to_sync_list)
+        return params_to_sync_list
+
+    def map_src_to_dst(self, src_names, src_pipe_layer_offset):
+        self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
+        return MCore2MoonlightSyncMap(src_names, src_pipe_layer_offset)
