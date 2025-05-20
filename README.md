@@ -20,6 +20,7 @@ A flexible and efficient reinforcement learning framework for large language mod
 ---
 
 *Latest News* 🔥
+- [2025/5] We support Mcore frameworks for training! By using Mcore and vLLM, we give a [tutorial](docs/en/tutorial/tutorial_grpo_mcore.md) about end-2-end GRPO training for Qwen3! 🔥
 - [2025/5] We support FSDP frameworks for training! By using FSDP and vLLM, we give a [tutorial](docs/en/tutorial/tutorial_grpo_fsdp.md) about end-2-end GRPO training for Qwen3! 🔥
 - [2024/8] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md).
 
