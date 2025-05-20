@@ -21,8 +21,8 @@ export log_dir=${output_dir}/logs
 mkdir -p $log_dir
 log_file=$log_dir/log_${RANK}.log
 export tensorboard_dir=${output_dir}/tensorboard
-export wandb_dir=${output_dir}
-export save_dir=${output_dir}
+export wandb_dir=${output_dir}/wandb
+export save_dir=${output_dir}/save
 
 cd $CHATLEARN/examples/mcore
 
@@ -77,6 +77,7 @@ export seed=3407
 export policy_lr=2e-6
 export policy_min_lr=2e-6
 export eval_episode_interval=1
+export save_interval=100000
 export save_episode_interval=10000
 export num_episode=200
 export sample_per_episode=2048
@@ -100,8 +101,7 @@ export policy_eval_temperature=0.6
 export policy_eval_top_p=0.95
 export policy_eval_top_k=20
 
-
-export enable_wandb=False
+export enable_wandb=True
 export WANDB_PROJECT="grpo-exp"
 export WANDB_NAME=${exp_name}
 export WANDB_API_KEY="wandb-api-key"

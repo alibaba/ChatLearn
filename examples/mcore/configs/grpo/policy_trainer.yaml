@@ -3,6 +3,8 @@ includes:
         - model.yaml
 
 load: ${load}
+save: ${save_dir}
+save_interval: ${save_interval:10000}
 train_iters: ${train_iters:12000}
 tensor_model_parallel_size: ${tensor_model_parallel_size:2}
 pipeline_model_parallel_size: ${training_pipeline_model_parallel_size:1}
