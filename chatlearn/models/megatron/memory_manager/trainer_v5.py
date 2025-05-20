@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Trainer Memery manager for Megatron V3"""
+"""Trainer Memery manager for Megatron V5"""
 from typing import List, Optional
 
 import torch
