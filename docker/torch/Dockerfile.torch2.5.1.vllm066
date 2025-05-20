@@ -1,0 +1,18 @@
+# currently support fsdp
+FROM nvcr.io/nvidia/pytorch:24.10-py3
+
+ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
+ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
+
+RUN pip install --no-cache-dir -U \
+    opencv-python-headless==4.5.4.58 \
+    vllm==0.6.6 \
+    wandb==0.19.11 \
+    ray[default]==2.40.0 \
+    transformers==4.51.3 \
+    modelscope==1.26.0 \
+    datasets==3.6.0 \
+    deepspeed==0.14.4 \
+    grpcio==1.70.0
+
+RUN pip install -U --force-reinstall flash_attn==2.4.2 --no-cache-dir --no-build-isolation
