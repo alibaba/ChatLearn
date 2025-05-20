@@ -27,6 +27,9 @@ export enable_wandb=False
 export wandb_project="grpo-exp"
 export WANDB_API_KEY="wandb-api-key"
 
+#Setup sequence_parallel
+export sp_size=1
+
 #VLLM setup
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1

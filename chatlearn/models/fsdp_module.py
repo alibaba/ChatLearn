@@ -17,6 +17,7 @@ import os
 import random
 import functools
 import gc
+import time
 
 import ray
 import numpy as np
@@ -35,7 +36,8 @@ from transformers.trainer_pt_utils import get_module_class_from_name
 
 from chatlearn.utils.logger import debug_rank_0, log_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
-
+from chatlearn.utils.communication_op import set_sp_parallel_group
+from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch
 from .torch_module import TorchModule
 
 
@@ -67,13 +69,16 @@ class FSDPModule(TorchModule):
             self.train_global_batch_size = self.runtime_args.train_global_batch_size
 
         self.fsdp_size = self.module_args.fsdp_size
+        self.sp_size = self.module_args.sp_size
         self.device_mesh = None
+        self.sp_device_mesh = None
 
     def get_visible_gpus(self):
         """
         :meta private:
         """
         return ray.get_gpu_ids()
+
 
     @staticmethod
     def init_fn(x: torch.nn.Module):
@@ -127,8 +132,6 @@ class FSDPModule(TorchModule):
             auto_wrap_policy = functools.partial(_or_policy, policies=policies)
 
         return auto_wrap_policy
-
-
     def create_device_mesh(self, world_size, fsdp_size):
         if not self.device_mesh:
             if world_size == fsdp_size:
@@ -142,6 +145,16 @@ class FSDPModule(TorchModule):
                     mesh_dim_names=["fsdp", "ddp"],
                 )
             print(f"world size {world_size}, fsdp_size {fsdp_size}, {self.device_mesh}")
+
+    def create_sp_device_mesh(self):
+        # TODO: maybe this constrict can be eased out
+        assert self.fsdp_size % self.sp_size == 0, \
+            "fsdp_size must be divisible by sp_size"
+        self.sp_device_mesh = dist.device_mesh.init_device_mesh(
+            "cuda", mesh_shape=(self.world_size // self.sp_size, self.sp_size),
+            mesh_dim_names=("dp", "sp")
+        )
+        set_sp_parallel_group(self.sp_device_mesh.get_group("sp"))
 
     def setup_distributed(self):
         print(self.get_dist_env())
@@ -213,14 +226,22 @@ class FSDPModule(TorchModule):
         """
         :meta private:
         """
-        return dist.get_world_size()
+        if self.sp_device_mesh is not None:
+            dp_group = self.sp_device_mesh.get_group('dp')
+            return dist.get_world_size(group=dp_group)
+        else:
+            return dist.get_world_size()
 
     @property
     def data_parallel_rank(self):
         """
         :meta private:
         """
-        return dist.get_rank()
+        if self.sp_device_mesh is not None:
+            dp_group = self.sp_device_mesh.get_group('dp')
+            return dist.get_rank(group=dp_group)
+        else:
+            return dist.get_rank()
 
     def tensor_parallel_rank(self):
         return self.data_parallel_rank
@@ -231,6 +252,13 @@ class FSDPModule(TorchModule):
     def expert_model_parallel_size(self):
         return 1
 
+    def check_sp_compatibility(self, config):
+        assert config.num_attention_heads % self.sp_size == 0, \
+            "num_attention_heads must be divisible by sp"
+        if self.sp_size > config.num_key_value_heads:
+            assert self.sp_size % config.num_key_value_heads == 0, \
+                "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
+
     def model_setup(self):
         """
         :meta private:
@@ -239,7 +267,14 @@ class FSDPModule(TorchModule):
         self.setup_distributed()
         args = dict_to_simplenamespace(self.model_args)
         self.args = args
+        # model = self.create_model(args.pretrain_or_model, torch_dtype=torch.float32)
         model = self.create_model(args.pretrain_or_model, torch_dtype=torch.bfloat16)
+        # Setup device mesh and apply patch for sequence parallel
+        # Sequence_parallel should only be used during training
+        if self.sp_size > 1:
+            self.check_sp_compatibility(model.config)
+            self.create_sp_device_mesh()
+            apply_sp_monkey_patch(model.config)
         self.tokenizer = AutoTokenizer.from_pretrained(
             args.pretrain_or_model, trust_remote_code=True, use_fast=True
         )
@@ -256,7 +291,7 @@ class FSDPModule(TorchModule):
             cpu_offload=None,
             auto_wrap_policy=auto_wrap_policy,
             device_id=torch.cuda.current_device(),
-            sharding_strategy=sharding_strategy,
+            sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mix_precision_config,
             sync_module_states=True,
             param_init_fn=FSDPModule.init_fn,
@@ -300,6 +335,7 @@ class FSDPModule(TorchModule):
         avoid get total model state_dict
         """
         torch.cuda.empty_cache()
+        start = time.time()
         for prefix_name, module in self.model.named_modules():
             prefix_name = prefix_name.replace('_fsdp_wrapped_module.', '')
             if isinstance(module, FSDP) and prefix_name==block_name:
@@ -307,6 +343,7 @@ class FSDPModule(TorchModule):
                 reduce_tensor_dict = {}
                 for name, param in state_dict.items():
                     reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param.full_tensor())
+                print(f"Generate reduced tensor  for {block_name} in {time.time() - start}s")
                 return reduce_tensor_dict
 
     @torch.no_grad()
@@ -382,8 +419,10 @@ class FSDPModule(TorchModule):
 
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
-        if self.data_parallel_rank == 0 and not os.path.exists(save_dir):
+        if dist.get_rank() == 0 and not os.path.exists(save_dir):
             os.makedirs(save_dir)
+        # Make sure directory exists before writing
+        dist.barrier()
 
         state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
         optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
@@ -395,9 +434,9 @@ class FSDPModule(TorchModule):
                 # "lr_scheduler": lr_scheduler_state_dict,
                 "rng": self.get_rng_state(),
             }
-            model_path = os.path.join(save_dir, f"model_world_size_{self.data_parallel_size}_rank_{self.data_parallel_rank}.pt")
-            optim_path = os.path.join(save_dir, f"optim_world_size_{self.data_parallel_size}_rank_{self.data_parallel_rank}.pt")
-            extra_path = os.path.join(save_dir, f"extra_state_world_size_{self.data_parallel_size}_rank_{self.data_parallel_rank}.pt")
+            model_path = os.path.join(save_dir, f"model_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+            optim_path = os.path.join(save_dir, f"optim_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+            extra_path = os.path.join(save_dir, f"extra_state_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
             torch.save(model_state_dict, model_path)
             torch.save(optimizer_state_dict, optim_path)
             torch.save(extra_state_dict, extra_path)
@@ -408,7 +447,7 @@ class FSDPModule(TorchModule):
             state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
             with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, state_dict_cfg, None):
                 model_state_dict = self.model.state_dict()
-                if self.data_parallel_rank == 0:
+                if dist.get_rank() == 0:
                     hf_path = os.path.join(save_dir, "huggingface")
                     os.makedirs(hf_path, exist_ok=True)
                     model_config = self.model._fsdp_wrapped_module.config
@@ -426,9 +465,9 @@ class FSDPModule(TorchModule):
         if not os.path.exists(load_dir):
             self._logger.info(f"{load_dir} not exists, will skip load")
             return
-        model_path = os.path.join(load_dir, f"model_world_size_{self.data_parallel_size}_rank_{self.data_parallel_rank}.pt")
-        optim_path = os.path.join(load_dir, f"optim_world_size_{self.data_parallel_size}_rank_{self.data_parallel_rank}.pt")
-        extra_state_path = os.path.join(load_dir, f"extra_state_world_size_{self.data_parallel_size}_rank_{self.data_parallel_rank}.pt")
+        model_path = os.path.join(load_dir, f"model_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+        optim_path = os.path.join(load_dir, f"optim_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+        extra_state_path = os.path.join(load_dir, f"extra_state_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
 
         model_state_dict = torch.load(model_path, weights_only=False)
         optimizer_state_dict = torch.load(optim_path, weights_only=False)
