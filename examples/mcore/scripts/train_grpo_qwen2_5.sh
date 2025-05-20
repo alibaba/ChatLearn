@@ -102,7 +102,8 @@ export policy_eval_top_k=20
 
 
 export enable_wandb=False
-export wandb_project="grpo-exp"
+export WANDB_PROJECT="grpo-exp"
+export WANDB_NAME=${exp_name}
 export WANDB_API_KEY="wandb-api-key"
 
 python entry/train_grpo.py -c configs/grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}
