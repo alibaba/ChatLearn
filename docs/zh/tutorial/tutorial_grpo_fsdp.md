@@ -4,16 +4,16 @@
 
 ## 环境配置
 1. Docker镜像准备
-建议使用以下预构建镜像:
+我们建议在PAI DSW/DLC中运行该示例，你需要填写如下镜像地址来启动实例：
 ```bash
-dsw-registry.cn-shanghai.cr.aliyuncs.com/pai/modelscope:1.23.0-pytorch2.5.1-gpu-py310-cu124-ubuntu22.04
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.5.1-vllm0.6.6-ubuntu22.04-cuda12.6-py310
 ```
-如果在 PAI DLC/DSW 环境中训练，可直接使用标签为 `modelscope:1.23.0-pytorch2.5.1-gpu-py310-cu124-ubuntu22.04`的镜像.
 
-2. 代码准备与依赖安装
+可以使用vpc地址来加速镜像拉取速度，需要根据当前region信息来更改镜像地址。比如，启动在上海的DSW实例，可以使用如下镜像`dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.5.1-vllm0.6.6-ubuntu22.04-cuda12.6-py310`。
+
+2. 代码准备
 
 ```bash
-pip install vllm==0.6.6 cupy-cuda12x==13.4.1 wandb==0.19.11 ray==2.40.0 transformers==4.51.3
 git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 
