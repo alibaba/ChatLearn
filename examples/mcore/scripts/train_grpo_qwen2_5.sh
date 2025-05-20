@@ -14,15 +14,15 @@ export VLLM_USE_RAY_COMPILED_DAG=1
 export enable_eval_before_training=False
 export enable_tensorboard=True
 
-export exp_name=$(date +%F)-qwen2.5-grpo
+export exp_name=chatlearn_$(date +%F)-fixlr2e_6_${WORLD_SIZE}nodes
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
 mkdir -p $log_dir
 log_file=$log_dir/log_${RANK}.log
 export tensorboard_dir=${output_dir}/tensorboard
-export wandb_dir=${output_dir}/wandb
-export save_dir=${output_dir}/save
+export wandb_dir=${output_dir}
+export save_dir=${output_dir}
 
 cd $CHATLEARN/examples/mcore
 
@@ -101,9 +101,7 @@ export policy_eval_temperature=0.6
 export policy_eval_top_p=0.95
 export policy_eval_top_k=20
 
-export enable_wandb=True
-export WANDB_PROJECT="grpo-exp"
-export WANDB_NAME=${exp_name}
+export enable_wandb=False
 export WANDB_API_KEY="wandb-api-key"
 
 python entry/train_grpo.py -c configs/grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}

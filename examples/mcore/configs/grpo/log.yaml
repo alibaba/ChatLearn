@@ -5,8 +5,7 @@ enable_tensorboard: ${enable_tensorboard:False}
 
 enable_wandb: ${enable_wandb:False}
 wandb_dir: ${wandb_dir}
-wandb_project: ${WANDB_PROJECT}
-wandb_id: ${WANDB_RUN_ID}
-wandb_name: ${WANDB_NAME}
-wandb_exp_name: ${WANDB_NAME}
+wandb_project: ${wandb_project}
+wandb_id: ${exp_name}
+wandb_name: ${exp_name}
 wandb_resume: ${WANDB_RESUME:allow}
