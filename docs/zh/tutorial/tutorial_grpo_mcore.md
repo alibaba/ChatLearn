@@ -28,7 +28,7 @@ modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/M
 # 数据集预处理
 python examples/fsdp/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # 下载模型权重
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+modelscope download --model Qwen/Qwen2.5-7B-Instruct --local_dir Qwen2.5-7B-Instruct
 ```
 
 ## 模型转换
