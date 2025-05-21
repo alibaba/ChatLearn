@@ -1,6 +1,6 @@
 # End-to-End GRPO Training Tutorial with Mcore
 
-This document provides instructions for end-to-end training using the ChatLearn, Mcore and vLLM framework, and the qwen3 model.
+This document provides instructions for end-to-end training using the ChatLearn, Mcore and vLLM framework, and the qwen2.5 model.
 
 ## Environment Setup
 1. Docker Image Preparation

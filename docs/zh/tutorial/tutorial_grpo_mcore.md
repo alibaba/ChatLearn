@@ -1,6 +1,6 @@
 # 基于 Mcore 的端到端GRPO训练流程
 
-本文档提供使用 ChatLearn、Mcore 和 vLLM 框架来对Qwen3模型进行GRPO训练的快速开始指南。
+本文档提供使用 ChatLearn、Mcore 和 vLLM 框架来对Qwen2.5模型进行GRPO训练的快速开始指南。
 
 ## 环境配置
 1. Docker镜像准备
