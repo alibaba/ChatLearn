@@ -4,7 +4,7 @@ set -x
 # set path
 export CHATLEARN=$(pwd)
 export model_path="${CHATLEARN}/Qwen3-8B"
-export exp_name=$(date +%F)-qwen3-grpo
+export exp_name=qwen3-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
 export eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json
@@ -53,8 +53,9 @@ export train_micro_batch_size=8
 export gpu_memory_utilization=0.85
 
 export enable_eval_before_training=False
+export num_episode=20
 export eval_episode_interval=5
-export save_episode_interval=5
+export save_episode_interval=20
 # for qwen3 where enable_thinking
 export enable_thinking=False
 
