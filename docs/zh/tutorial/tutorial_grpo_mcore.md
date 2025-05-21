@@ -31,6 +31,39 @@ python examples/fsdp/data/data_preprocess/math_lighteval.py --input_dir dataset/
 modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
 
+## 模型转换
+
+模型格式转换可以参考 [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch) 项目提供的转换脚本。
+高性能分布式权重转换可以参考：https://github.com/alibaba/Pai-Megatron-Patch/tree/main/toolkits/distributed_checkpoints_convertor
+
+运行`hf2mcore_qwen2.5_convertor.sh`脚本，需要传入的参数列表如下
+```
+MODEL_SIZE=$1                  # 模型参数：0.5B/1.5B/3B/7B/14B/32B/72B
+SOURCE_CKPT_PATH=$2            # 源路径
+TARGET_CKPT_PATH=$3            # 目标路径
+TP=$4                          # 模型并行度
+PP=$5                          # 流水并行度
+PR=$6                          # 转换精度
+USE_TE=$7                      # 是否使用Transformer Engine建模
+mg2hf=$8                       # 是否执行mcore2hf转换
+HG_CKPT_PATH=$9                # HF的CKPT的路径
+```
+
+例如，使用下述脚本将7B量级的Qwen2.5的Huggingface格式的模型转换到MCore格式
+```bash
+git clone --recurse-submodules https://github.com/alibaba/Pai-Megatron-Patch.git
+cd ~/Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
+bash hf2mcore_qwen2.5_convertor.sh \
+7B \
+/mnt/qwen-ckpts/Qwen2.5-7B-Instruct  \
+/mnt/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1   \
+4  \
+1  \
+bf16 \
+true \
+false 
+```
+
 ## 训练
 运行以下命令开始训练：
 
