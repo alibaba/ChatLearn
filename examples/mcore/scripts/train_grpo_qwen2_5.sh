@@ -41,8 +41,8 @@ export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
 export eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json
 export patch_tokenizer_type=Qwen2Tokenizer
 export extra_vocab_size=421
-export tokenizer_load="/mnt/data/jerry.lp/qwen-ckpts/Qwen2.5-7B-Instruct"
-export load="/mnt/data/jerry.lp/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1"
+export tokenizer_load="/mnt/qwen-ckpts/Qwen2.5-7B-Instruct"
+export load="/mnt/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1"
 
 # model
 export seq_length=2048
