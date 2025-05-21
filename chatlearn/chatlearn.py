@@ -1,0 +1,115 @@
+import argparse
+from importlib import import_module
+import sys
+import hydra
+from hydra.core.global_hydra import GlobalHydra
+from hydra.core.config_store import ConfigStore
+from typing import Dict, Tuple, Type, Any
+# from chatlearn.algorithm.base_algo import BaseAlgorithm
+from algorithm.base_algo import BaseAlgorithm
+from omegaconf import OmegaConf
+
+
+# Registry format:
+#  "engine_name": ("module_path", "algo_class_name", "config_class")
+ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
+    "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
+    "ppo": ("algorithm.ppo", "PpoAlgorithm", "PpoConfig"),
+}
+
+
+class ChatlearnLauncher:
+    def __init__(self) -> None:
+        self.parser = self._create_parser()
+        
+
+    def _create_parser(self) -> argparse.ArgumentParser:
+        parser = argparse.ArgumentParser(
+            description="ChatLearn: An RLHF Training System",
+            formatter_class=argparse.RawDescriptionHelpFormatter,
+            # add_help=False,
+        )
+        
+        subparsers = parser.add_subparsers(
+            title="Available algorithms", 
+            dest="algorithm",
+            metavar="ALGORITHM"
+        )
+        
+        for algo_name in ALGO_REGISTRY:
+            algo_parser = subparsers.add_parser(
+                algo_name,
+                description=f"Run {algo_name.upper()} algorithm",
+                help=f"{algo_name.upper()} algorithm",
+                formatter_class=argparse.RawDescriptionHelpFormatter,
+            )
+            algo_parser.add_argument(
+                "--config-file",
+                type=str,
+                help="Path to the config file",
+            )
+            algo_parser.add_argument(
+                "hydra_args",
+                nargs=argparse.REMAINDER,
+                help="Hydra configs (e.g. ++key=value)"
+            )
+        
+        return parser
+
+
+    def _load_algorithm(self, algo_name: str) -> Tuple[Type[BaseAlgorithm], Type[Any]]:
+        module_path, algo_cls_name, config_cls_name = ALGO_REGISTRY[algo_name]
+        try:
+            module = import_module(module_path)
+            algo_cls = getattr(module, algo_cls_name)
+            config_cls = getattr(module, config_cls_name)
+            return algo_cls, config_cls
+        except Exception as e:
+            raise RuntimeError(f"Failed to load algorithm: {algo_name} ({str(e)})")
+
+
+    def _run_algorithm(self, algo_args) -> None:
+        algo_name = algo_args.algorithm
+        algo_cls, config_cls = self._load_algorithm(algo_name)
+        cs = ConfigStore.instance()
+        cs.store(name=algo_name, node=config_cls)
+
+        # config_path = Path(config_file)
+        # if not config_path.exists():
+        #     raise FileNotFoundError(f"Config file not exists: {config_path}")
+        
+        GlobalHydra.instance().clear()
+        with hydra.initialize(config_path=None, version_base=None):
+            cfg = OmegaConf.structured(config_cls)
+            cfg = OmegaConf.merge(
+                cfg,
+                OmegaConf.from_cli(algo_args.hydra_args)
+            )
+            instance = algo_cls(cfg)
+            instance.run()
+
+
+    def run(self) -> None:
+        args, _ = self.parser.parse_known_args()
+        
+        if not args.algorithm:
+            self.parser.print_help()
+            return
+        
+        if args.algorithm not in ALGO_REGISTRY:
+            print(f"ERROR: Unknown algorithm {args.algorithm}")
+            self.parser.print_help()
+            sys.exit(1)
+        
+        algo_args = self.parser.parse_args()
+        
+        try:
+            self._run_algorithm(algo_args)
+        except Exception as e:
+            print(f"ERROR: {str(e)}")
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    launcher = ChatlearnLauncher()
+    launcher.run()
