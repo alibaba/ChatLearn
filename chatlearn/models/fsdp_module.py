@@ -17,7 +17,6 @@ import os
 import random
 import functools
 import gc
-import time
 
 import ray
 import numpy as np
@@ -335,7 +334,6 @@ class FSDPModule(TorchModule):
         avoid get total model state_dict
         """
         torch.cuda.empty_cache()
-        start = time.time()
         for prefix_name, module in self.model.named_modules():
             prefix_name = prefix_name.replace('_fsdp_wrapped_module.', '')
             if isinstance(module, FSDP) and prefix_name==block_name:
@@ -343,7 +341,6 @@ class FSDPModule(TorchModule):
                 reduce_tensor_dict = {}
                 for name, param in state_dict.items():
                     reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param.full_tensor())
-                print(f"Generate reduced tensor  for {block_name} in {time.time() - start}s")
                 return reduce_tensor_dict
 
     @torch.no_grad()
