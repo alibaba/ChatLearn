@@ -45,8 +45,6 @@ export tokenizer_load="/mnt/qwen-ckpts/Qwen2.5-7B-Instruct"
 export load="/mnt/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1"
 
 # model
-export seq_length=2048
-export max_new_tokens=2048
 export max_position_embedding=131072
 export policy_num_layers=28
 export policy_hidden_size=3584
@@ -62,8 +60,6 @@ export tensor_model_parallel_size=4 # PPO policy TP
 export training_pipeline_model_parallel_size=1 # PPO policy PP
 export ref_tensor_model_parallel_size=4 # reference TP
 export ref_pp=1 # reference PP
-export policy_tp=4 # VLLM TP
-export policy_pp=1 # VLLM PP, should be 1
 
 # training
 export final_clip_ratio=3
@@ -89,6 +85,9 @@ export free_memory_ppo_policy=True
 export free_memory_ppo_value=True
 
 # vllm
+export seq_length=2048
+export max_new_tokens=2048
+export max_seq_len_to_capture=2348
 export policy_temperature=1.0
 export policy_top_p=1.0
 export policy_top_k=-1
