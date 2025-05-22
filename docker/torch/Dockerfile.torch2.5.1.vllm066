@@ -16,6 +16,6 @@ RUN pip install --no-cache-dir -U \
     grpcio==1.70.0 \
     setuptools==69.5.1
 
-RUN pip install -U --force-reinstall flash_attn==2.4.2 --no-cache-dir --no-build-isolation
-RUN pip install --force-reinstall https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/apex/torch2.5.2-cuda12x/apex-0.1-cp310-cp310-linux_x86_64.whl --no-cache-dir
-RUN pip install --force-reinstall https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/transformer_engine/torch2.5.1-cuda12x/transformer_engine-1.13.0%2Be5edd6c-cp310-cp310-linux_x86_64.whl --no-cache-dir
+RUN pip uninstall -y flash_attn && pip install -U flash_attn==2.4.2 --no-cache-dir --no-build-isolation
+RUN pip uninstall -y apex && pip install https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/apex/torch2.5.2-cuda12x/apex-0.1-cp310-cp310-linux_x86_64.whl --no-cache-dir
+RUN pip install https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/transformer_engine/torch2.5.1-cuda12x/transformer_engine-1.13.0%2Be5edd6c-cp310-cp310-linux_x86_64.whl --no-cache-dir
