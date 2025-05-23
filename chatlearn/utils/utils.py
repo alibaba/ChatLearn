@@ -30,7 +30,9 @@ import pynvml
 import numpy as np
 import torch
 import torch.nn.functional as F
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.logger import logger
+
 
 
 def get_attributes(cls):
@@ -317,6 +319,7 @@ def regroup_by_concat_along_batch(tensors):
     batched = {}
     if tensors[0] is None:
         return batched
+    import pdb
     for key in tensors[0].keys():
         to_batch = [results[key] for results in tensors]
         if isinstance(to_batch[0], torch.Tensor):
@@ -421,3 +424,26 @@ def map_reduce_metrics(metric_list):
     mapped_metrics = map_metrics(metric_list)
     reduced_metrics = reduce_metrics(mapped_metrics)
     return reduced_metrics
+
+def regroup_arg(arg_obj):
+    if isinstance(arg_obj, list):
+        to_regroup = arg_obj
+    elif isinstance(arg_obj, dict):
+        if CHATLEARN_REGROUP_TAG in arg_obj:
+            if isinstance(arg_obj[CHATLEARN_REGROUP_TAG][0], list):
+                to_regroup = []
+                for arg in arg_obj[CHATLEARN_REGROUP_TAG]:
+                    to_regroup.extend(arg)
+            else:
+                to_regroup = arg_obj[CHATLEARN_REGROUP_TAG]
+        else:
+            return arg_obj
+    else:
+        raise RuntimeError(f"expect list or dict type. while {type(arg_obj)}")
+    if isinstance(to_regroup[0], list):
+        to_regroup_new = []
+        for group in to_regroup:
+            to_regroup_new.extend(group)
+    else:
+        to_regroup_new = to_regroup
+    return regroup_by_concat_along_batch(to_regroup_new)

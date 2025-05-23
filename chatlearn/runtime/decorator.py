@@ -29,6 +29,7 @@ from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 from chatlearn.utils.utils import regroup_by_concat_along_batch, slice_by_index_along_batch
+from chatlearn.utils.utils import regroup_arg
 
 
 def monitor_error(func, func_name):
@@ -135,7 +136,8 @@ def preprocess_compute(func, trainable):
             for idx, arg_obj in enumerate(args):
                 batched_data_list[idx] = arg_obj
                 if CHATLEARN_REGROUP_TAG in arg_obj:
-                    batched_data_list[idx] = regroup_by_concat_along_batch(arg_obj[CHATLEARN_REGROUP_TAG])
+                    # batched_data_list[idx] = regroup_by_concat_along_batch(arg_obj[CHATLEARN_REGROUP_TAG])
+                    batched_data_list[idx] = regroup_arg(arg_obj)
                 if INDEX_TAG in arg_obj:
                     batched_data_list[idx] = slice_by_index_along_batch(batched_data_list[idx], arg_obj[INDEX_TAG])
                 assert isinstance(batched_data_list[idx], dict), \
@@ -158,7 +160,8 @@ def preprocess_compute(func, trainable):
 
         if to_onload:
             if isinstance(self, VLLMModuleV2):
-                self.onload_for_workers()
+                # self.onload_for_workers()
+                self.onload_weights()
             else:
                 self.onload()
         generation_batch_size = self.module_args.generation_batch_size
@@ -213,13 +216,15 @@ def preprocess_compute(func, trainable):
                 final_results = ret
         if to_empty_cache:
             if isinstance(self, VLLMModuleV2):
-                self.empty_cuda_graph_for_workers()
-                self.empty_cache_for_workers()
+                # self.empty_cuda_graph_for_workers()
+                # self.empty_cache_for_workers()
+                pass
             else:
                 self.empty_cache()
         if to_offload:
             if isinstance(self, VLLMModuleV2):
-                self.offload_for_workers()
+                # self.offload_for_workers()
+                self.offload_weights()
             else:
                 self.offload()
         if is_last_batch and not is_eval:

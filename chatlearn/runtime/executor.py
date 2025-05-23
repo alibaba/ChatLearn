@@ -311,7 +311,8 @@ class Executor:
                 kwargs["to_offload"] = to_offload
             mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
             assert isinstance(query, list)
-            ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
+            # ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
+            ret = [[replica.call_actor_remote_func(engine, func_name, *query, **kwargs) for engine in replica.vllm_engines]]
             output.append((ret, mb))
         else:
             last_step_start = max(self.num_iteration(model) - replica_num, 0)

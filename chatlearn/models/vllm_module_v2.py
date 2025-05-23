@@ -55,6 +55,10 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
             if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
                 RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
+        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
+            if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
+                vllm_config = self.init_engine_args()
+                RayWorkerWrapper.__init__(self, vllm_config=vllm_config, rpc_rank=kwargs['rpc_rank']) # pylint: disable=non-parent-init-called
         else:
             if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
                 vllm_config = self.init_engine_args()
@@ -128,7 +132,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             enforce_eager=self.model_args.get("enforce_eager", True),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
-            preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
+            enable_sleep_mode=True,
+            # preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
             swap_space=self.model_args.get("swap_space", 16))
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
 
@@ -195,15 +200,24 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
-            preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
+            enable_sleep_mode=True,
+            # preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
             swap_space=self.model_args.get("swap_space", 16))
-        self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
-        self.offload_for_workers()
-        self.empty_cuda_graph_for_workers()
-        self.empty_cache_for_workers()
+
+        from chatlearn.utils.utils import get_full_proc_memory_info # pylint: disable=import-outside-toplevel
+        self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
+        self.llm.sleep()
+        self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
+        # self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
+        # self.offload_for_workers()
+        # self.empty_cuda_graph_for_workers()
+        # self.empty_cache_for_workers()
+
     def dump_parameters(self, dump_path_root):
-        self.onload_for_workers()
+        self.onload_weights() # is_param_sync=True
+        # self.onload_for_workers()
         self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
+        self.offload_weights() # is_param_sync=True
 
     def worker_dump_parameters(self, dump_path_root):
         tp_rank = self.tensor_parallel_rank()
@@ -220,13 +234,14 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             torch.save(param.data.clone(), pt_file)
 
     def init_memory_manager(self):
-        if self.module_args.offload_weights:
-            if InferenceMemoryManager is None:
-                raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
-            self._memory_manager = InferenceMemoryManager(
-                self.model,
-                self.runtime_args.bucket_size_mb_in_memory_manager,
-            )
+        return
+        # if self.module_args.offload_weights:
+        #     if InferenceMemoryManager is None:
+        #         raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
+        #     self._memory_manager = InferenceMemoryManager(
+        #         self.model,
+        #         self.runtime_args.bucket_size_mb_in_memory_manager,
+        #     )
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -386,7 +401,8 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if outputs is not None:
             return outputs
         if is_first_run: # using for multi-round generate
-            self.reinit_cache_engine()
+            # self.reinit_cache_engine()
+            self.llm.wake_up()
         parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
 
         outputs = []
@@ -497,25 +513,51 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         """
         self.llm.llm_engine.model_executor._run_workers("empty_cuda_graph")
 
-    def offload_weights(self):
+    # def offload_weights(self):
+    #     """
+    #     offload weights
+    #     """
+    #     if self.module_args.offload_weights:
+    #         self._memory_manager.offload_weights()
+
+    def offload_weights(self): # is_param_sync=True
         """
         offload weights
         """
         if self.module_args.offload_weights:
-            self._memory_manager.offload_weights()
+            # if is_param_sync:
+            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
+            self.llm.sleep()
+            # if is_param_sync:
+            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = "0"
 
-    def onload_weights(self):
+    # def onload_weights(self):
+    #     """
+    #     onload weights
+    #     """
+    #     if self.module_args.offload_weights:
+    #         self._memory_manager.onload_weights()
+
+    def onload_weights(self): # , is_param_sync=False
         """
         onload weights
         """
         if self.module_args.offload_weights:
-            self._memory_manager.onload_weights()
+            # if is_param_sync:
+            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
+            self.llm.wake_up()
+            # if is_param_sync:
+            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = "0"
 
     def empty_cache(self):
         if self.worker.gpu_cache is not None:
             for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
                 ele = None
             self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
+
+        self._logger.info(f"self.worker: "
+                          f"{self.worker} {hasattr(self.worker, 'cache_engine')} "
+                          f"{self.worker.cache_engine if hasattr(self.worker, 'cache_engine') else []}")
 
         if hasattr(self.worker, "cache_engine") and self.worker.cache_engine is not None:
             for c_e in self.worker.cache_engine:

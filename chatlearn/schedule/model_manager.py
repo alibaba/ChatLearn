@@ -205,13 +205,33 @@ class ModelManager:
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
                 future.wait(src_model.onload(
                     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
-                future.wait(dst_model.onload(
-                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
-
+                # future.wait(dst_model.onload(
+                #     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
+                if hasattr(dst_model.replicas[0], 'vllm_engine'):
+                    refs = []
+                    for replica in dst_model.replicas:
+                        actors = [replica.vllm_engine]
+                        # refs.extend([actor.onload_weights.remote(is_param_sync=True) for actor in actors])
+                        refs.extend([actor.onload_weights.remote() for actor in actors])
+                    res = future.wait(refs, return_output=True)
+                    logger.info(f"vllm_engine onload_weights res: {res}")
+                else:
+                    future.wait(dst_model.onload(
+                        to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
                 sync_group.sync(requires_grad, validate, dryrun=dryrun)
 
                 future.wait(src_model.offload())
-                future.wait(dst_model.offload())
+                # future.wait(dst_model.offload())
+                if hasattr(dst_model.replicas[0], 'vllm_engine'):
+                    refs = []
+                    for replica in dst_model.replicas:
+                        actors = [replica.vllm_engine]
+                        # refs.extend([actor.offload_weights.remote(is_param_sync=True) for actor in actors])
+                        refs.extend([actor.offload_weights.remote() for actor in actors])
+                    res = future.wait(refs, return_output=True)
+                    logger.info(f"vllm_engine offload_weights res: {res}")
+                else:
+                    future.wait(dst_model.offload())
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):
@@ -374,7 +394,8 @@ class ModelManager:
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
                 num_gpus = 1.0 / len(replicas)
-                if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
+                # if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
+                if isinstance(replica.model, VLLMModuleV2) and replica.should_create_engine_actor():
                     num_gpus = num_gpus / 2
                     replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors
