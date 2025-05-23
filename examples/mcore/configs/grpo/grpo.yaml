@@ -27,18 +27,15 @@ models:
     model_config_file: reference.yaml
     num_gpu: ${num_device:1}
     gpu_per_process: 1
-    fsdp_size: -1
     trainable: False
     free_memory: ${free_memory_reference:True}
+    sync_frequency: ${sync_frequency:-1}
     generation_batch_size: ${ref_generation_batch_size:8}
-
 
   policy_trainer:
     model_config_file: policy_trainer.yaml
     num_gpu: ${num_device:1}
     gpu_per_process: 1
-    fsdp_size: -1
-    sp_size: ${sp_size:1}
     trainable: True
     free_memory: ${free_memory_ppo_policy:True}
     generation_batch_size: ${trainer_generation_batch_size:8}
@@ -59,4 +56,3 @@ runtime:
   eval_episode_interval: ${eval_episode_interval:5}
   log_config_file: log.yaml
   data_checkpoint_path: ${data_checkpoint_path}
-  enable_eval_before_training: ${enable_eval_before_training:False}

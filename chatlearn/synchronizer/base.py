@@ -86,6 +86,8 @@ class BaseSync:
             or "mlp.dense_4h_to_h" in name
             or "mlp.linear_fc2" in name
             or "mlp.shared_experts.dense_4h_to_h" in name
+            or "mlp.shared_experts.linear_fc2" in name
+            or "self_attention.linear_proj" in name
         ):
             param_data_list = []
             col_offset = param_data_shape[1] // tp_division
@@ -97,9 +99,10 @@ class BaseSync:
             del param_data_list
         if (
             "mlp.dense_h_to_4h" in name
-            or "mlp.linear_fc1" in name
+            or ("mlp.linear_fc1" in name and 'norm' not in name)
             or ("mlp.w1" in name and self.concat_params_dict is not None)
             or "mlp.shared_experts.dense_h_to_4h" in name
+            or "mlp.shared_experts.linear_fc1" in name
         ):
             param_data_list = []
             row_offset = param_data_shape[0] // tp_division // 2
@@ -117,8 +120,11 @@ class BaseSync:
         #       'mlp.experts.dense_4h_to_h' in QWen-MoE model when training with QWen+vLLM
         #   src -> dst: src_tp_size * [e, w, h] -> dst_tp_size * [e, w // tp_division, h]
         #       'mlp.experts.dense_h_to_4h in QWen-MoE model when training with QWen+vLLM
-        if regroup_routed_experts:
-            if "mlp.experts.dense_4h_to_h" in name:
+        if regroup_routed_experts or  "mlp.experts.linear_fc2" in name or "mlp.experts.linear_fc1" in name:
+            if (
+                "mlp.experts.dense_4h_to_h" in name or
+                "mlp.experts.linear_fc2" in name
+            ):
                 param_data_list = []
                 height_offset = param_data_shape[2] // tp_division
                 for height_idx in range(tp_division):
@@ -127,7 +133,10 @@ class BaseSync:
                     param_data_list.append(param_data[:, :, height_start:height_end])
                 param_data = torch.concat(param_data_list, dim=0).contiguous().view(param_data_shape)
                 del param_data_list
-            elif "mlp.experts.dense_h_to_4h" in name:
+            elif (
+                "mlp.experts.dense_h_to_4h" in name or
+                "mlp.experts.linear_fc1" in name
+            ):
                 param_data_list = []
                 param_data = param_data.reshape(param_data_shape[0] * 2, -1, param_data_shape[2])
                 col_offset = param_data.shape[1] // tp_division

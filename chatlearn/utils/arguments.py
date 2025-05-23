@@ -39,6 +39,8 @@ def get_path(fn, folder):
 
 def convert_type(data):
     try:
+        if data == 'null':
+            return None
         return ast.literal_eval(data)
     except Exception:
         return data
@@ -224,6 +226,8 @@ class ModelConfig(BaseConfig):
     zero_size: int = None
     #: [optional] FSDP parallel size
     fsdp_size: int = None
+    #: [optional] Sequence parallel size
+    sp_size: int = None
     #: [optional] config file for model
     model_config_file: str = ""
     config_dir: str = ""
@@ -574,7 +578,7 @@ class Config(BaseConfig):
             if model_args.generation_batch_size is None:
                 if self.runtime_args.generation_batch_size:
                     model_args.generation_batch_size = self.runtime_args.generation_batch_size
-            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size"]:
+            for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size", "sp_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
                     assert getattr(model_args, key) >= 1

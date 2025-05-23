@@ -4,16 +4,17 @@ This document provides instructions for end-to-end training using the ChatLearn,
 
 ## Environment Setup
 1. Docker Image Preparation
-We suggest using the pre-build image provided below:
+
+We recommend running the following example in PAI [DSW](https://help.aliyun.com/zh/pai/user-guide/create-and-manage-dsw-instances/)/[DLC](https://help.aliyun.com/zh/pai/user-guide/create-a-training-task?spm=a2c4g.11186623.help-menu-30347.d_3_3_5_5.2dfb1925l3QjwG). You need to use the following image to launch the instance.
 ```bash
-dsw-registry.cn-shanghai.cr.aliyuncs.com/pai/modelscope:1.23.0-pytorch2.5.1-gpu-py310-cu124-ubuntu22.04
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.5.1-vllm0.6.6-ubuntu22.04-cuda12.6-py310
 ```
-If you're training on the PAI DLC/DSW environment, you can use the image with tag `modelscope:1.23.0-pytorch2.5.1-gpu-py310-cu124-ubuntu22.04`.
 
-2. Code Preparation & Installing Additional Dependencies
+You can use a VPC address to accelerate image pulling. The image address should be adjusted based on the current region. For example, if you need to launch a DSW instance in Shanghai, you can use the following image `dsw-registry-vpc.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.5.1-vllm0.6.6-ubuntu22.04-cuda12.6-py310`.
+
+2. Code Preparation
 
 ```bash
-pip install vllm==0.6.6 cupy-cuda12x==13.4.1 wandb==0.19.11 ray==2.40.0 transformers==4.51.3
 git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 

@@ -31,5 +31,5 @@ fi
 
 rm core*
 
-export PYTHONPATH=${CHATLEARN}:${CHATLEARN}/examples/fsdp${PYTHONPATH}
+export PYTHONPATH=${CHATLEARN}:${CHATLEARN}/examples/fsdp:${PYTHONPATH}
 export num_device=$(($WORLD_SIZE * $GPUS_PER_NODE))

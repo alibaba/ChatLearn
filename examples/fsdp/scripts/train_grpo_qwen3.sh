@@ -6,7 +6,7 @@ export VLLM_USE_V1=1
 
 # set path
 export CHATLEARN=$(pwd)
-export model_path="${CHATLEARN}/Qwen3-0.6B"
+export model_path="${CHATLEARN}/Qwen3-8B"
 export exp_name=$(date +%F)-qwen3-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
@@ -30,6 +30,9 @@ export enable_wandb=False
 export wandb_project="grpo-exp"
 export WANDB_API_KEY="wandb-api-key"
 
+#Setup sequence_parallel
+export sp_size=2
+
 #VLLM setup
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
@@ -42,30 +45,31 @@ export policy_eval_temperature=0.6
 export policy_eval_top_p=0.95
 export policy_eval_top_k=20
 
+export seq_length=4096
+export max_new_tokens=4096
+export max_seq_len_to_capture=4396
+export num_inference_per_prompt=32
+export train_global_batch_size=2048 
+export sample_per_episode=2048
+export vllm_generation_batch_size=128
+export train_micro_batch_size=8
+export gpu_memory_utilization=0.80
+
 # export seq_length=2048
 # export max_new_tokens=2048
 # export max_seq_len_to_capture=2348
 # export num_inference_per_prompt=32
-# export train_global_batch_size=2048 
-# export sample_per_episode=2048
-# export vllm_generation_batch_size=128
+# export train_global_batch_size=128 
+# export sample_per_episode=128
+# export vllm_generation_batch_size=64
 # export train_micro_batch_size=8
 # export gpu_memory_utilization=0.80
 
-export seq_length=2048
-export max_new_tokens=2048
-export max_seq_len_to_capture=2348
-export num_inference_per_prompt=32
-export train_global_batch_size=128 
-export sample_per_episode=128
-export vllm_generation_batch_size=64
-export train_micro_batch_size=8
-export gpu_memory_utilization=0.80
-
 export enable_eval_before_training=False
+export num_episode=20
 export eval_episode_interval=5
-export save_episode_interval=5
+export save_episode_interval=20
 # for qwen3 where enable_thinking
-export enable_thinking=False
+export enable_thinking=True
 
 python entry/train_grpo.py -c configs/grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}

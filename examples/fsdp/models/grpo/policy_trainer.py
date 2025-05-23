@@ -1,11 +1,14 @@
 from typing import Tuple, Optional
+import math
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import torch.distributed as dist
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
+from chatlearn.utils.communication_op import get_sp_parallel_group, gather
 
 from .loss_gallery import calculate_grpo_loss
 
@@ -17,6 +20,9 @@ def logprobs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Te
     log_probs = F.log_softmax(logits, dim=-1)
     log_probs_labels = log_probs.gather(dim=-1, index=labels.unsqueeze(-1))
     return log_probs_labels.squeeze(-1)
+    
+def sp_split(input_tensor, split_dim, sp_size, sp_local_rank):
+    return torch.tensor_split(input_tensor, sp_size, split_dim)[sp_local_rank]
 
 def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: list, response_token_length:list):
     # Setup attention mask by prompt token length and response token length
@@ -35,56 +41,124 @@ class PolicyTrainer(FSDPModule):
         super().setup()
         self._metric_prefix = "policy_trainer"
 
-    def preprocess_data(self, data_b, trainable: bool = True):
-        '''
-        Data preprocess for training
-        data_b: dict of tensors
-        trainable: whether this batch is for training
-        '''
-
+    def preprocess_data_forward_only(self, data_b):
         tokens_ = data_b["all_tokens"].long()
         prompt_token_length = data_b["prompt_token_length"]
         response_token_length = data_b["response_token_length"]
         _, ori_seq_len = tokens_.size()
 
+        # Pad tokens_ to ensure max valid token length meets sp requirements
+        if self.sp_size > 1:
+            # Since valid token_length will be 1 less than full token length.
+            # We need to make sure valid token can be divided by sp_size.
+            # When full_token_len = 2048, sp_size=2, the max valid token will be 2047 which is not divided by sp_size.
+            # We need pad original token to full_token_len=2049
+            # Then max valid token length will be 2048 which can be divided by sp_size.
+            valid_len = tokens_.shape[1] - 1
+            pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
+            tokens_ = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
+
+        # Find max seq_len in batch
+        max_len = max([prompt_len + response_len for prompt_len, response_len in zip(prompt_token_length, response_token_length)])
+        max_valid_len = max_len - 1
+
+        # Modify max_len to be divisible by sp_size
+        if self.sp_size > 1:
+            max_valid_len = math.ceil(max_valid_len / self.sp_size) * self.sp_size
+        
+        # Generate loss mask, positon ids
+        _, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+
+        # Cut to max_valid_len in batch
+        tokens = tokens_[:, : max_valid_len]
+        labels = tokens_[:, 1: max_valid_len + 1]
+        position_ids = position_ids[:, : max_valid_len]
+
+        # Split all inputs required to calculate logprobs on seq_len dim when sp_size > 1
+        if self.sp_size > 1:
+            sp_group = get_sp_parallel_group()
+            sp_local_rank = dist.get_rank(sp_group)
+            tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+            labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+
+        inputs = {
+            "all_tokens": tokens,
+            "position_ids": position_ids,
+            "labels": labels,
+            "ori_seq_len": ori_seq_len,
+        }
+        for k, v in inputs.items():
+            inputs[k] = to_device(torch.cuda.current_device(), v)
+        return inputs
+
+    def preprocess_data_train(self, data_b):
+        '''
+        Data preprocess for training
+        data_b: dict of tensors
+        '''
+
+        tokens_ = data_b["all_tokens"].long()
+        prompt_token_length = data_b["prompt_token_length"]
+        response_token_length = data_b["response_token_length"]
+        old_logprobs = data_b[OLD_TAG]
+        ref_logprobs = data_b[REF_TAG]
+        _, ori_seq_len = tokens_.size()
+
+        # Pad tokens_ to ensure max valid token length meets sp requirements
+        if self.sp_size > 1:
+            # Since valid token_length will be 1 less than full token length.
+            # We need to make sure valid token length can be divided by sp_size.
+            # When full_token_len = 2048, sp_size=2, the max valid token will be 2047 which is not divided by sp_size.
+            # We need pad original token to full_token_len=2049
+            # Then max valid token length will be 2048 which can be divided by sp_size.
+            valid_len = tokens_.shape[1] - 1
+            pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
+            tokens_ = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
+            old_logprobs = F.pad(old_logprobs, (0, pad_size), value=0)
+            ref_logprobs = F.pad(ref_logprobs, (0, pad_size), value=0)
+
+        # Find max valid token length in batch
+        max_len = max([prompt_len + response_len for prompt_len, response_len in zip(prompt_token_length, response_token_length)])
+        max_valid_len = max_len - 1
+
+        # Modify max_len to be divisible by sp_size
+        if self.sp_size > 1:
+            max_valid_len = math.ceil(max_valid_len / self.sp_size) * self.sp_size
+        
         # Generate loss mask, positon ids
         loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
 
-        # find max seq_len in batch
-        max_len = max([prompt_len + response_len for prompt_len, response_len in zip(prompt_token_length, response_token_length)])
+        # Cut to max_valid_len in batch
+        tokens = tokens_[:, :max_valid_len].contiguous()
+        labels = tokens_[:, 1: max_valid_len + 1].contiguous()
+        loss_mask = loss_mask[: , 1: max_valid_len + 1]
+        position_ids = position_ids[:, : max_valid_len]
+        old_logprobs = old_logprobs[:, : max_valid_len]
+        ref_logprobs = ref_logprobs[:, : max_valid_len]
 
-        # shift and cut to max_seq_len in batch
-        tokens = tokens_[:, :max_len - 1].contiguous()
-        labels = tokens_[:, 1 :max_len].contiguous()
-        loss_mask = loss_mask[: , 1 :max_len]
-        position_ids = position_ids[:, :max_len - 1]
+        # Split all inputs required to calculate logprobs on seq_len dim when sp_size > 1
+        if self.sp_size > 1:
+            sp_group = get_sp_parallel_group()
+            sp_local_rank = dist.get_rank(sp_group)
+            tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+            labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
 
-        if trainable:
-            # length of logprobs is 1 token less than seq_len
-            old_logprobs = data_b[OLD_TAG][:, :max_len - 1]
-            ref_logprobs = data_b[REF_TAG][:, :max_len - 1]
-            inputs = {
-                "all_tokens": tokens,
-                "position_ids": position_ids,
-                "loss_mask": loss_mask,
-                "advantages":data_b["advantages"],
-                "prompt_token_length": prompt_token_length,
-                "labels": labels,
-                "old_logprobs": old_logprobs,
-                "ref_logprobs": ref_logprobs,
-            }
-        else:
-            inputs = {
-                "all_tokens": tokens,
-                "position_ids": position_ids,
-                "labels": labels,
-                "repad_size": ori_seq_len - tokens.shape[1]
-            }
+        inputs = {
+            "all_tokens": tokens,
+            "position_ids": position_ids,
+            "loss_mask": loss_mask,
+            "advantages":data_b["advantages"],
+            "prompt_token_length": prompt_token_length,
+            "labels": labels,
+            "old_logprobs": old_logprobs,
+            "ref_logprobs": ref_logprobs,
+        }
 
         for k, v in inputs.items():
             inputs[k] = to_device(torch.cuda.current_device(), v)
 
         return inputs
+
 
     def train_step(self, data_list):
         '''
@@ -96,16 +170,18 @@ class PolicyTrainer(FSDPModule):
         entropy_loss_list = []
         kl_loss_list = []
         micro_bs_num = len(data_list)
+        sp_group = get_sp_parallel_group()
         for data_b in data_list:
-            inputs = self.preprocess_data(data_b)
+            inputs = self.preprocess_data_train(data_b)
             output = self.model(
                 input_ids=inputs["all_tokens"],
                 attention_mask=None,
                 position_ids=inputs["position_ids"],
                 use_cache=False
             )
-            logits = output.logits #.squeeze(0)
-            logprobs = logprobs_from_logits(logits, inputs["labels"])
+            logprobs = logprobs_from_logits(output.logits, inputs["labels"])
+            if sp_group is not None:
+                logprobs = gather(input_tensor=logprobs, sp_group=sp_group, gather_dim=1)
             loss = calculate_grpo_loss(
                 log_probs=logprobs,
                 old_log_probs=inputs["old_logprobs"],
@@ -117,7 +193,10 @@ class PolicyTrainer(FSDPModule):
                 )
             
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-            pg_loss_mean = torch.mean(pg_loss) / micro_bs_num
+            # Reference: https://github.com/pytorch/pytorch/blob/c45515c2eda19b1a1ff5762f1571c6fe63773c8a/torch/distributed/fsdp/_runtime_utils.py#L848
+            # Since grad will be divided by fsdp world size in backward hook
+            # We need to multiple pg_loss_mean by sp_size to avoid mean calculate of grad within dp rank
+            pg_loss_mean = torch.mean(pg_loss) / micro_bs_num * self.sp_size
             pg_loss_mean.backward()
             pg_loss_list.append(pg_loss)
 
@@ -152,7 +231,7 @@ class PolicyTrainer(FSDPModule):
         self._metric_list.append(train_stats)
 
     def forward_step(self, data):
-        inputs =  self.preprocess_data(data, trainable=False)
+        inputs =  self.preprocess_data_forward_only(data)
         with torch.no_grad():
             output = self.model(
                 input_ids=inputs['all_tokens'],
@@ -160,9 +239,13 @@ class PolicyTrainer(FSDPModule):
                 position_ids=inputs['position_ids'],
                 use_cache=False
             )
-            logprobs = logprobs_from_logits(output.logits, inputs['labels'])
+            sp_group = get_sp_parallel_group()
+            logprobs = logprobs_from_logits(output.logits, inputs["labels"])
+            if sp_group is not None:
+                logprobs = gather(input_tensor=logprobs, sp_group=sp_group, gather_dim=1)
             # Repad logprobs to max_seq_len to allow concatenation
-            logprobs = F.pad(logprobs, (0, inputs['repad_size']), mode='constant', value=0)
+            logprobs_len = logprobs.shape[1]
+            logprobs = F.pad(logprobs, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
         tag = OLD_TAG
         if OLD_TAG in data.keys():
             tag = REF_TAG

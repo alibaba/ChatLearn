@@ -14,6 +14,7 @@
 # ==============================================================================
 """megatron utils"""
 
+import inspect
 import functools
 import re
 import os
@@ -80,6 +81,14 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_la
             start_layer_num = src_layer_offset - tgt_layer_offset
             _update_layer_num = functools.partial(update_layer_num, start_layer_num)
             tgt_name = re.sub(layer_re, _update_layer_num, src_name)
+        name_mapping[tgt_name] = src_name
+
+    for src_name, partition_param in model.named_buffers():
+        if 'local_tokens_per' in src_name:
+            continue
+        start_layer_num = src_layer_offset - tgt_layer_offset
+        _update_layer_num = functools.partial(update_layer_num, start_layer_num)
+        tgt_name = re.sub(layer_re, _update_layer_num, src_name)
         name_mapping[tgt_name] = src_name
     return name_mapping
 
@@ -170,7 +179,11 @@ def load_checkpoint(*_args, **kwargs):
     args = get_args()
     target_tp = args.tensor_model_parallel_size
     target_pp = args.pipeline_model_parallel_size
-    state_dict, _, _ = _load_base_checkpoint(args.load, rank0=True)
+    # NOTE: may or may not have argument `args`
+    if "args" in inspect.getfullargspec(_load_base_checkpoint).args:
+        state_dict, _, _, _ = _load_base_checkpoint(args.load, args, rank0=True)
+    else:
+        state_dict, _, _ = _load_base_checkpoint(args.load, rank0=True)
     args.iteration = state_dict['iteration']
     checkpoint_args = state_dict['args']
     checkpoint_tp = checkpoint_args.tensor_model_parallel_size

@@ -4,7 +4,7 @@ set -x
 # set path
 export CHATLEARN=$(pwd)
 export model_path="${CHATLEARN}/Qwen2.5-7B-Instruct"
-export exp_name=$(date +%F)-qwen2.5-grpo
+export exp_name=qwen2.5-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
 export eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json
@@ -26,6 +26,9 @@ export NCCL_NVLS_ENABLE=0
 export enable_wandb=False
 export wandb_project="grpo-exp"
 export WANDB_API_KEY="wandb-api-key"
+
+#Setup sequence_parallel
+export sp_size=1
 
 #VLLM setup
 export VLLM_USE_RAY_SPMD_WORKER=1
@@ -50,7 +53,8 @@ export train_micro_batch_size=16
 export gpu_memory_utilization=0.85
 
 export enable_eval_before_training=True
+export num_episode=20
 export eval_episode_interval=5
-export save_episode_interval=5
+export save_episode_interval=20
 
 python entry/train_grpo.py -c configs/grpo/grpo.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}
