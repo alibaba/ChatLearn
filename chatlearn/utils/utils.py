@@ -25,6 +25,7 @@ import copy
 import concurrent.futures
 from contextlib import closing
 from types import SimpleNamespace
+from typing import Dict, List, Union, Any
 
 import pynvml
 import numpy as np
@@ -315,11 +316,34 @@ def multi_thread_data_processing(num_threads: int, all_data: list, process_one_d
     return result
 
 
-def regroup_by_concat_along_batch(tensors):
+def regroup_by_concat_along_batch(tensors: List[Dict[str, Union[torch.Tensor, List[Any]]]]) -> Dict[str, Union[torch.Tensor, List[Any]]]:
+    """
+    Concatenates or batches a list of dictionaries along the batch dimension, handling both tensors and lists.
+
+    This function takes a list of dictionaries where each dictionary maps string keys to either PyTorch tensors
+    or lists. It combines values across all entries for each key into a single tensor or list. Tensors are padded
+    and stacked if 2D, or concatenated if 1D. Lists are simply extended into a single list.
+
+    Parameters:
+        tensors (List[Dict[str, Union[torch.Tensor, List[Any]]]]):
+            A list of dictionaries mapping string keys to either:
+                - 1D or 2D PyTorch tensors (will be concatenated or padded and stacked)
+                - Lists of any elements (will be merged into one list)
+
+    Returns:
+        Dict[str, Union[torch.Tensor, List[Any]]]:
+            A dictionary mapping each key found in the input dictionaries to a single combined tensor or list,
+            batched across the input entries.
+
+    Raises:
+        RuntimeError:
+            If a tensor has unsupported dimensions (not 1D or 2D).
+        Exception:
+            If an unknown type is encountered for a key in the input dictionaries.
+    """
     batched = {}
     if tensors[0] is None:
         return batched
-    import pdb
     for key in tensors[0].keys():
         to_batch = [results[key] for results in tensors]
         if isinstance(to_batch[0], torch.Tensor):
@@ -358,6 +382,7 @@ def slice_by_index_along_batch(batched_input, index):
         elif isinstance(batched_input[key], list):
             batched[key] = batched_input[key][start::offset]
     return batched
+
 def listdict_to_dictlist(ld, list_extend=True):
     '''
     [{k1: v11, k2: v2}, {k1: v12, k2: v2},....] => {k1: [v11, v12..], k2: [v21, v22...]}
@@ -424,26 +449,3 @@ def map_reduce_metrics(metric_list):
     mapped_metrics = map_metrics(metric_list)
     reduced_metrics = reduce_metrics(mapped_metrics)
     return reduced_metrics
-
-def regroup_arg(arg_obj):
-    if isinstance(arg_obj, list):
-        to_regroup = arg_obj
-    elif isinstance(arg_obj, dict):
-        if CHATLEARN_REGROUP_TAG in arg_obj:
-            if isinstance(arg_obj[CHATLEARN_REGROUP_TAG][0], list):
-                to_regroup = []
-                for arg in arg_obj[CHATLEARN_REGROUP_TAG]:
-                    to_regroup.extend(arg)
-            else:
-                to_regroup = arg_obj[CHATLEARN_REGROUP_TAG]
-        else:
-            return arg_obj
-    else:
-        raise RuntimeError(f"expect list or dict type. while {type(arg_obj)}")
-    if isinstance(to_regroup[0], list):
-        to_regroup_new = []
-        for group in to_regroup:
-            to_regroup_new.extend(group)
-    else:
-        to_regroup_new = to_regroup
-    return regroup_by_concat_along_batch(to_regroup_new)

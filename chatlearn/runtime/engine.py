@@ -520,17 +520,17 @@ class Engine(BaseEngine):
                     if self.trainer.iteration > 0:
                         logger.info(f"{LOG_START} continue train with meta {meta}")
 
-    # def dump_parameters(self, dump_path):
-    #     for _, model in enumerate(self.models):
-    #         replic_0 = model.replicas[0]
-    #         if isinstance(replic_0, DistVLLMActor):
-    #             future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
-
     def dump_parameters(self, dump_path):
         for _, model in enumerate(self.models):
-            if isinstance(model.replicas[0], (DistVLLMActor, AttnDpVLLMActor)):
-                future.wait(
-                    [engine.dump_parameters.remote(dump_path) for engine in model.replicas[0].vllm_engines])
+            replic_0 = model.replicas[0]
+            if isinstance(replic_0, DistVLLMActor):
+                future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
+
+    # def dump_parameters(self, dump_path):
+    #     for _, model in enumerate(self.models):
+    #         if isinstance(model.replicas[0], (DistVLLMActor, AttnDpVLLMActor)):
+    #             future.wait(
+    #                 [engine.dump_parameters.remote(dump_path) for engine in model.replicas[0].vllm_engines])
 
     def save_checkpoint(self, episode_id):
         """
@@ -549,8 +549,8 @@ class Engine(BaseEngine):
             refs = []
             for i, model in enumerate(self.models[0].replicas):
                 if isinstance(model, DistVLLMActor):
-                    # refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
-                    refs.append(model.vllm_engines[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                    # refs.append(model.vllm_engines[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 else:
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)

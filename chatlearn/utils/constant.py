@@ -18,9 +18,7 @@ import importlib
 from enum import Enum
 
 # Regroup
-class CHATLEARN_REGROUP_TAG(str, Enum):
-    many2one = "many2one"
-    oney2many = "one2many"
+
 CHATLEARN_REGROUP_TAG = "chatlearn_regroup_tag"
 INDEX_TAG = "data_index"
 

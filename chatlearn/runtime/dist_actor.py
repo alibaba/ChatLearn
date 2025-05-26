@@ -300,7 +300,8 @@ class DistVLLMActor(DistTorchActor):
         return self.vllm_engine is None
 
     def setup_vllm_engine(self):
-        return [self.vllm_engine.setup_vllm.remote(self.all_actors)]
+        # return [self.vllm_engine.setup_vllm.remote(self.all_actors)]
+        return self.vllm_engine.setup_vllm.remote(self.all_actors)
 
     @property
     def master(self):
@@ -311,7 +312,8 @@ class DistVLLMActor(DistTorchActor):
 
     @property
     def vllm_engines(self):
-        return [self.vllm_engine]
+        # return [self.vllm_engine]
+        return self.vllm_engine
 
 
 class DistModel:
