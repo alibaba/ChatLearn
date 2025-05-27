@@ -17,7 +17,6 @@
 import math
 from itertools import cycle
 
-from chatlearn.data.ranking import batch_generation_ranking
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
@@ -94,13 +93,6 @@ class Environment(Executor):
             "replica number of data producer model must be divisible by sample_per_episode"
         logger.info("start set dataset for data_producer")
         refs = []
-        if self.models[0].module_args.batch_generation.ranking:
-            for i, dataset in enumerate(self._all_datasets):
-                episode_per_epoch = math.ceil(len(dataset) / self.sample_per_episode)
-                self._all_datasets[i] = batch_generation_ranking(
-                    dataset, episode_per_epoch, self.sample_per_episode
-                )
-
         for policy_replica in self.data_producer.replicas:
             ref = policy_replica.master._build_dataloader.remote(self._all_datasets,
                                                                  self.sample_per_episode)

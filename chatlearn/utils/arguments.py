@@ -188,15 +188,6 @@ class LoraConfig(SubConfig):
     column_only_qkv: bool = False
 
 
-class BatchGenerationConfig(SubConfig):
-    """Config for batch generation ranking and memory-efficiency."""
-
-    #: [optional] sort prompts by length each episode.
-    ranking: bool = False
-    #: [optional] min prompt length in the first stage of batch generation.
-    min_prompt_length: int = 0
-
-
 class ModelConfig(BaseConfig):
     """Config for model."""
 
@@ -239,8 +230,6 @@ class ModelConfig(BaseConfig):
     generation_batch_size: int = None
     #: lora config
     lora: LoraConfig = None
-    #: batch generation config
-    batch_generation: BatchGenerationConfig = None
     #: offload optimizer states
     offload_optimizer_states = False
     #: parameter sync frequency
@@ -258,7 +247,6 @@ class ModelConfig(BaseConfig):
         super().__init__()
         self.args_dict = {}
         self.lora = LoraConfig()
-        self.batch_generation = BatchGenerationConfig()
 
     def __str__(self):
         members = [attr for attr in dir(self) \
@@ -268,7 +256,7 @@ class ModelConfig(BaseConfig):
             if key.startswith('_'):
                 continue
             attr = getattr(self, key)
-            if key in ["lora", "batch_generation"]:
+            if key in ["lora"]:
                 if not attr.is_changed():
                     continue
             attr = '"{}"'.format(attr) if isinstance(attr, str) else attr
@@ -503,9 +491,6 @@ class Config(BaseConfig):
                     if 'lora' == user_attribute:
                         set_param(user_value, LoraConfig, model_config.lora)
                         user_value = model_config.lora
-                    elif "batch_generation" == user_attribute:
-                        set_param(user_value, BatchGenerationConfig, model_config.batch_generation)
-                        user_value = model_config.batch_generation
                     if original_value is not None:
                         assert isinstance(user_value, type(original_value)), \
                             f"ModelConfig.{user_attribute} should be type of {type(original_value)} but got {type(user_value)} ({user_value})"
@@ -644,9 +629,6 @@ class Config(BaseConfig):
             assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \
                 f"{model_name}: num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
                 f"should be less than or equal to sample_per_episode {self.runtime_args.sample_per_episode}"
-            if model_args.batch_generation.min_prompt_length:
-                logger.info(f"Enable batch generation: \
-                    min_prompt_length = {model_args.batch_generation.min_prompt_length}")
             if model_args.free_memory:
                 model_args.offload_weights = True
                 if model_args.trainable:
