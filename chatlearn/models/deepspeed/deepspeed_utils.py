@@ -152,9 +152,6 @@ def save_hf_format(model, tokenizer, output_dir, sub_folder=""):
     output_model_file = os.path.join(output_dir, WEIGHTS_NAME)
     output_config_file = os.path.join(output_dir, CONFIG_NAME)
     save_dict = model_to_save.state_dict()
-    for key in list(save_dict.keys()):
-        if "lora" in key:
-            del save_dict[key]
     torch.save(save_dict, output_model_file)
     model_to_save.config.to_json_file(output_config_file)
     tokenizer.save_vocabulary(output_dir)
@@ -188,7 +185,7 @@ def save_zero_three_model(model_ema, global_rank, save_dir, zero_stage=0):
                     v_p = v.data.cpu()
             else:
                 v_p = v.cpu()
-            if global_rank == 0 and "lora" not in k:
+            if global_rank == 0:
                 output_state_dict[k] = v_p
         if global_rank == 0:
             torch.save(output_state_dict, output_model_file)
