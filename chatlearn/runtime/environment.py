@@ -14,7 +14,6 @@
 # ==============================================================================
 """Environment"""
 
-import math
 from itertools import cycle
 
 from chatlearn.models.vllm_module_v2 import VLLMModuleV2

@@ -19,7 +19,6 @@ import ray
 
 from chatlearn.runtime.environment import Environment
 from chatlearn.utils import future
-from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import map_reduce_metrics
 
 # pylint: disable=not-callable
@@ -49,7 +48,7 @@ class Evaluator(Environment):
         assert len(self._all_datasets) > 0, "dataset is not set"
         for i, dataset in enumerate(self._all_datasets):
             assert len(dataset) > 0, f"dataset {i} is not set"
-            
+
         refs = []
         for idx, model_replica in enumerate(self.models[0].replicas):
             if self.first_model.use_vllm_backend:
