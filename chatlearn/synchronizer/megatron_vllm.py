@@ -338,9 +338,9 @@ class MegatronVllmSync(BaseSync):
         # Regroup qkv tensors into different tp slices only for inference model which enables vLLM backend.
         to_fix_qkv_ordering_dict = self.sync_map.to_fix_qkv_ordering_dict
         # pylint: disable=too-many-nested-blocks
-        if "attention.query_key_value" in name or \
+        if ("attention.query_key_value" in name or \
                 "self_attention.query_key_value" in name or \
-                "self_attention.linear_qkv" in name:
+                "self_attention.linear_qkv" in name) and 'norm' not in name:
             src_tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
             dst_tp_size = self.dst_module_args.args_dict["tensor_model_parallel_size"]
             heads = self.src_module_args.args_dict["num_attention_heads"] // src_tp_size
@@ -448,7 +448,7 @@ class MegatronVllmQWen2MCoreSync(MegatronVllmSync):
     """qwen2-dense-mcore"""
 
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):
-        self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
+        self._to_fix_qkv_ordering_func = split_attn_state
         return MCore2Qwen2SyncMap(src_names, src_pipe_layer_offset)
 
 class MegatronVllmLlamaSync(MegatronVllmSync):
@@ -544,5 +544,5 @@ class MegatronVllmMoonlightSync(MegatronVllmSync):
         return params_to_sync_list
 
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):
-        self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
+        self._to_fix_qkv_ordering_func = split_attn_state
         return MCore2MoonlightSyncMap(src_names, src_pipe_layer_offset)
