@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.6 input preprocess to pass prompt text."""
+"""Hooks of vllm-0.8.5 input preprocess to pass prompt text."""
 
 # pylint: disable=unused-import,unused-argument
 from vllm.inputs import preprocess
@@ -61,7 +61,7 @@ def _prompt_to_llm_inputs(
                 lora_request=lora_request,
                 return_mm_hashes=return_mm_hashes,
             )
-
+        print(tokens_content)
         return token_inputs(
             prompt=tokens_content["prompt"],
             prompt_token_ids=prompt_token_ids,

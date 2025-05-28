@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.7.4 cumem sleep and wake_up for param_sync or generation."""
+"""Hooks of vllm-0.8.5 cumem sleep and wake_up for param_sync or generation."""
 
 
 # pylint: disable=wildcard-import,ungrouped-imports

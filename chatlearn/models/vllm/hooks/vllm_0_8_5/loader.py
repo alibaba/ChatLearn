@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.6 loader to load ckpt of megatron format."""
+"""Hooks of vllm-0.8.5 loader to load ckpt of megatron format."""
 
 
 import torch

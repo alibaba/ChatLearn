@@ -29,6 +29,7 @@ from vllm.logger import init_logger
 from vllm.utils import (get_distributed_init_method,
                         get_ip, get_open_port)
 from vllm.model_executor.layers.sampler import SamplerOutput
+from vllm.sequence import ExecuteModelRequest
 
 from chatlearn.utils.global_vars import get_vllm_actors
 
@@ -268,9 +269,7 @@ def _init_workers_ray(self, placement_group: "PlacementGroup",
             or (rank % self.parallel_config.tensor_parallel_size == 0),
         }
         all_kwargs.append(kwargs)
-    print('before init_worker')
     self._run_workers("init_worker", all_kwargs)
-    print('after init_worker')
 
     self._run_workers("init_device")
     self._run_workers("load_model",
@@ -357,4 +356,27 @@ def _init_executor(self) -> None:
     if not self.use_ray_compiled_dag:
         self.driver_exec_method = make_async(
             self.driver_worker.execute_method)
+
+def execute_model(
+        self,
+        execute_model_req: ExecuteModelRequest) -> List[SamplerOutput]:
+    if not self.use_ray_spmd_worker:
+        return super().execute_model(execute_model_req)
+
+    if self.forward_dag is None:
+        self.forward_dag = self._compiled_ray_dag(enable_asyncio=False)
+
+    if self.use_v1:
+        serialized_data = execute_model_req
+    else:
+        serialized_data = self.input_encoder.encode(execute_model_req)
+    outputs = ray.get(self.forward_dag.execute(serialized_data))
+    if self.use_v1:
+        output = outputs[0]
+    else:
+        # original vllm return result in position 0, but chatlearn return in position -1
+        output = self.output_decoder.decode(outputs[-1])
+        # output = self.output_decoder.decode(outputs[0])
+    return output
 RayDistributedExecutor._init_executor = _init_executor
+RayDistributedExecutor.execute_model = execute_model

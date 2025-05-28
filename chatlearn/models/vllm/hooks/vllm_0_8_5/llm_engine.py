@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.6 llm_engine remove __reduce__ function."""
+"""Hooks of vllm-0.8.5 llm_engine remove __reduce__ function."""
 
 import inspect
 from typing import Dict, Optional
@@ -25,14 +25,14 @@ if vllm_use_v1():
     from vllm.v1.engine import llm_engine
 else:
     from vllm.engine import llm_engine
-    source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
-    if 'RuntimeError' in source:
-        def __reduce__(self):
-            # This is to ensure that the LLMEngine can be referenced in
-            # the closure used to initialize Ray worker actors
-            pass
+    # source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
+    # if 'RuntimeError' in source:
+    #     def __reduce__(self):
+    #         # This is to ensure that the LLMEngine can be referenced in
+    #         # the closure used to initialize Ray worker actors
+    #         pass
 
-        del llm_engine.LLMEngine.__reduce__
+    #     del llm_engine.LLMEngine.__reduce__
 
 
 @classmethod

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.7.4 executor_base sleep and wake_up for param_sync or generation."""
+"""Hooks of vllm-0.8.5 executor_base sleep and wake_up for param_sync or generation."""
 
 
 import os

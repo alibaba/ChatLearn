@@ -6,7 +6,7 @@ export VLLM_USE_V1=1
 
 # set path
 export CHATLEARN=$(pwd)
-export model_path="${CHATLEARN}/Qwen3-8B"
+export model_path="${CHATLEARN}/Qwen3-0.6B"
 export exp_name=$(date +%F)-qwen3-grpo
 export output_dir=${CHATLEARN}/output/${exp_name}
 export train_data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json
@@ -37,7 +37,7 @@ export sp_size=1
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
-export tensor_model_parallel_size=1
+export tensor_model_parallel_size=4
 export policy_temperature=1.0
 export policy_top_p=1.0
 export policy_top_k=-1
@@ -55,14 +55,14 @@ export policy_eval_top_k=20
 # export train_micro_batch_size=8
 # export gpu_memory_utilization=0.80
 
-export seq_length=2048
-export max_new_tokens=2048
+export seq_length=300
+export max_new_tokens=310
 export max_seq_len_to_capture=2348
-export num_inference_per_prompt=32
-export train_global_batch_size=128 
-export sample_per_episode=128
-export vllm_generation_batch_size=16
-export train_micro_batch_size=8
+export num_inference_per_prompt=2
+export train_global_batch_size=4
+export sample_per_episode=8
+export vllm_generation_batch_size=2
+export train_micro_batch_size=1
 export gpu_memory_utilization=0.80
 
 export enable_eval_before_training=False

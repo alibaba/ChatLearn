@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Additional hooks of vllm-0.7.4."""
+"""Additional hooks of vllm-0.8.5."""
 
 from ... import is_vllm_v2
 
