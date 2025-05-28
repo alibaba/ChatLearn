@@ -61,7 +61,7 @@ def _prompt_to_llm_inputs(
                 lora_request=lora_request,
                 return_mm_hashes=return_mm_hashes,
             )
-        print(tokens_content)
+
         return token_inputs(
             prompt=tokens_content["prompt"],
             prompt_token_ids=prompt_token_ids,

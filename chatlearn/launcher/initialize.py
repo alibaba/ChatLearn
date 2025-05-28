@@ -30,8 +30,44 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.version import VERSION
 
 
+
 def patch_ray():
     TORCH_NCCL_DTYPE_MAP[torch.bfloat16] = nccl.NCCL_BFLOAT16
+    if ray.__version__ == "2.46.0":
+        # vllm 0.8.5.post1 will install ray 2.46.0 and need patch function
+        from ray.dag.compiled_dag_node import ExecutableTask
+        from ray.dag.dag_node_operation import _DAGNodeOperationType
+        def exec_operation(
+            self,
+            class_handle,
+            op_type: _DAGNodeOperationType,
+            overlap_gpu_communication: bool = False,
+        ) -> bool:
+            """
+            An ExecutableTask corresponds to a DAGNode. It consists of three
+            operations: READ, COMPUTE, and WRITE, which should be executed in
+            order to ensure that each operation can read the correct intermediate
+            result.
+            Args:
+                class_handle: The handle of the class to which the actor belongs.
+                op_type: The type of the operation. Possible types are READ,
+                    COMPUTE, and WRITE.
+                overlap_gpu_communication: Whether to overlap GPU communication with
+                    computation during DAG execution to improve performance.
+            Returns:
+                True if the next operation should not be executed; otherwise, False.
+            """
+            if op_type == _DAGNodeOperationType.READ:
+                # with _device_context_manager():
+                with self._recv_stream:
+                    return self._read(overlap_gpu_communication)
+            elif op_type == _DAGNodeOperationType.COMPUTE:
+                return self._compute(overlap_gpu_communication, class_handle)
+            elif op_type == _DAGNodeOperationType.WRITE:
+                # with _device_context_manager():
+                with self._send_stream:
+                    return self._write()
+        ExecutableTask.exec_operation = exec_operation
 
 
 patch_ray()

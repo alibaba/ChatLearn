@@ -25,14 +25,14 @@ if vllm_use_v1():
     from vllm.v1.engine import llm_engine
 else:
     from vllm.engine import llm_engine
-    # source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
-    # if 'RuntimeError' in source:
-    #     def __reduce__(self):
-    #         # This is to ensure that the LLMEngine can be referenced in
-    #         # the closure used to initialize Ray worker actors
-    #         pass
+    source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
+    if 'RuntimeError' in source:
+        def __reduce__(self):
+            # This is to ensure that the LLMEngine can be referenced in
+            # the closure used to initialize Ray worker actors
+            pass
 
-    #     del llm_engine.LLMEngine.__reduce__
+        del llm_engine.LLMEngine.__reduce__
 
 
 @classmethod

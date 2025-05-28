@@ -17,6 +17,7 @@
 import gc
 import inspect
 import os
+from typing import Optional
 
 import torch
 from transformers import AutoTokenizer, AutoConfig
@@ -32,6 +33,7 @@ from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
+from chatlearn.utils.utils import get_full_proc_memory_info
 from .torch_module import TorchModule
 try:
     from .vllm.inference import InferenceMemoryManager
@@ -175,7 +177,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             seed = self.model_args.get("seed", 0) + self.replica_id
         else:
             seed = self.model_args.get("seed", 0)
-
         self.llm = LLM(
             model=self.model_args['tokenizer'],
             tokenizer=self.model_args['tokenizer'],
@@ -197,14 +198,14 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             disable_log_requests=self.model_args.get("disable_log_requests", True),
             disable_log_stats=self.model_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            enforce_eager=self.model_args.get("enforce_eager", False),
+            # enforce_eager=self.model_args.get("enforce_eager", False),
+            enforce_eager=True,
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
             # preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
             swap_space=self.model_args.get("swap_space", 16))
 
-        from chatlearn.utils.utils import get_full_proc_memory_info # pylint: disable=import-outside-toplevel
         self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
         self.llm.sleep()
         self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
@@ -403,6 +404,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if is_first_run: # using for multi-round generate
             # self.reinit_cache_engine()
             self.llm.wake_up()
+            pass
         parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
 
         outputs = []
@@ -527,7 +529,9 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if self.module_args.offload_weights:
             # if is_param_sync:
             #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
+            self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
+            self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
             # if is_param_sync:
             #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = "0"
 
@@ -538,14 +542,27 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
     #     if self.module_args.offload_weights:
     #         self._memory_manager.onload_weights()
 
-    def onload_weights(self): # , is_param_sync=False
+    def onload_weights(self, tags: Optional[list[str]] = None): # , is_param_sync=False
         """
         onload weights
+        Wake up the engine from sleep mode. See the :meth:`sleep` method
+        for more details.
+        
+        Args:
+            tags: An optional list of tags to reallocate the engine memory 
+                for specific memory allocations. Values must be in 
+                ("weights", "kv_cache",). If None, all memory is reallocated.
+                wake_up should be called with all tags (or None) before the 
+                engine is used again.
         """
         if self.module_args.offload_weights:
             # if is_param_sync:
             #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
-            self.llm.wake_up()
+
+            self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+            print("debughh", tags, flush=True)
+            self.llm.wake_up(tags)
+            self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
             # if is_param_sync:
             #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = "0"
 

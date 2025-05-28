@@ -160,6 +160,7 @@ def preprocess_compute(func, trainable):
             if isinstance(self, VLLMModuleV2):
                 # self.onload_for_workers()
                 self.onload_weights()
+                # pass
             else:
                 self.onload()
         generation_batch_size = self.module_args.generation_batch_size
