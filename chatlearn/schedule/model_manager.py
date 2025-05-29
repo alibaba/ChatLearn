@@ -210,10 +210,8 @@ class ModelManager:
                 if hasattr(dst_model.replicas[0], 'vllm_engine'):
                     refs = []
                     for replica in dst_model.replicas:
-                        actors = [replica.vllm_engine]
-                        # refs.extend([actor.onload_weights.remote(is_param_sync=True) for actor in actors])
-                        refs.extend([actor.onload_weights.remote(tags=['weights']) for actor in actors])
-                        # refs.extend([actor.onload_weights.remote() for actor in actors])
+                        refs.append(replica.vllm_engine.onload_weights.remote(tags=['weights']))
+                        # refs.append(replica.vllm_engine.onload_weights.remote())
                     res = future.wait(refs, return_output=True)
                     logger.info(f"vllm_engine onload_weights res: {res}")
                 else:
@@ -227,9 +225,7 @@ class ModelManager:
                 # if hasattr(dst_model.replicas[0], 'vllm_engine'):
                 #     refs = []
                 #     for replica in dst_model.replicas:
-                #         actors = [replica.vllm_engine]
-                #         # refs.extend([actor.offload_weights.remote(is_param_sync=True) for actor in actors])
-                #         refs.extend([actor.offload_weights.remote() for actor in actors])
+                #         refs.append(replica.vllm_engine.offload_weights.remote())
                 #     res = future.wait(refs, return_output=True)
                 #     logger.info(f"vllm_engine offload_weights res: {res}")
                 # else:
@@ -238,13 +234,10 @@ class ModelManager:
 
                 refs = []
                 for replica in dst_model.replicas:
-                    actors = [replica.vllm_engine]
-                    # refs.extend([actor.onload_weights.remote(is_param_sync=True) for actor in actors])
-                    refs.extend([actor.onload_weights.remote(tags=['kv_cache']) for actor in actors])
-                    # refs.extend([actor.onload_weights.remote() for actor in actors])
+                    refs.append(replica.vllm_engine.onload_weights.remote(tags=['kv_cache']))
                 res = future.wait(refs, return_output=True)
                 logger.info(f"vllm_engine onload_weights res: {res}")
-                print("debughh success")
+                # print("debughh success")
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):

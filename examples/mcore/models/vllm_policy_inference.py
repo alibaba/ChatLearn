@@ -70,6 +70,7 @@ class VLLMPolicyInference(VLLMModule):
         all_tokens = []
         str_outputs = []
         str_prompts = []
+        prompt_token_ids: list = []
         prompt_token_length = []
         response_token_length = []
         data_sources = []
@@ -80,6 +81,7 @@ class VLLMPolicyInference(VLLMModule):
             data_source = data_source_list[idx] if data_source_list else ''
             ground_truth = ground_truth_list[idx] if ground_truth_list else ''
             for res_idx in range(num_responses_per_prompt):
+                prompt_token_ids.append(output.prompt_token_ids)
                 str_prompts.append(output.prompt)
                 output_tokens = list(output.outputs[res_idx].token_ids)
                 response_token_length.append(len(output_tokens))
@@ -99,4 +101,4 @@ class VLLMPolicyInference(VLLMModule):
         ]
         all_tokens = torch.vstack(all_tokens)
         print("str_outputs", str_outputs[0])
-        return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts, "prompt_token_length": prompt_token_length, "response_token_length": response_token_length, "data_source": data_sources, "ground_truth": ground_truths}
+        return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts, "prompt_token_ids": prompt_token_ids, "prompt_token_length": prompt_token_length, "response_token_length": response_token_length, "data_source": data_sources, "ground_truth": ground_truths}

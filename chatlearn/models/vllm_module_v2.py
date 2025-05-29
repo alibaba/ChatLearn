@@ -198,8 +198,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             disable_log_requests=self.model_args.get("disable_log_requests", True),
             disable_log_stats=self.model_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            # enforce_eager=self.model_args.get("enforce_eager", False),
-            enforce_eager=True,
+            enforce_eager=self.model_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
@@ -560,7 +559,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
 
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
-            print("debughh", tags, flush=True)
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
             # if is_param_sync:
