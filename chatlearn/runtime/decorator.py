@@ -157,12 +157,11 @@ def preprocess_compute(func, trainable):
         is_eval = get_kwarg('is_eval')
 
         if to_onload:
-            if isinstance(self, VLLMModuleV2):
-                # self.onload_for_workers()
-                self.onload_weights()
-                # pass
-            else:
-                self.onload()
+            # if isinstance(self, VLLMModuleV2):
+            #     # self.onload_for_workers()
+            #     self.onload_weights()
+            # else:
+            self.onload()
         generation_batch_size = self.module_args.generation_batch_size
         final_results = None
         if not trainable and generation_batch_size:
@@ -221,11 +220,11 @@ def preprocess_compute(func, trainable):
             else:
                 self.empty_cache()
         if to_offload:
-            if isinstance(self, VLLMModuleV2):
-                # self.offload_for_workers()
-                self.offload_weights()
-            else:
-                self.offload()
+            # if isinstance(self, VLLMModuleV2):
+            #     # self.offload_for_workers()
+            #     self.offload_weights()
+            # else:
+            self.offload()
         if is_last_batch and not is_eval:
             self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
         return final_results

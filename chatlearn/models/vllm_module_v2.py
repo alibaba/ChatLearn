@@ -18,6 +18,7 @@ import gc
 import inspect
 import os
 from typing import Optional
+import copy
 
 import torch
 from transformers import AutoTokenizer, AutoConfig
@@ -54,17 +55,11 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         assert common_methods == {'__init__'}, \
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            if 'worker_module_name' in kwargs and 'worker_class_name' in kwargs:
-                RayWorkerWrapper.__init__(self, **kwargs) # pylint: disable=non-parent-init-called
-        elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
-            if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
-                vllm_config = self.init_engine_args()
-                RayWorkerWrapper.__init__(self, vllm_config=vllm_config, rpc_rank=kwargs['rpc_rank']) # pylint: disable=non-parent-init-called
-        else:
-            if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
-                vllm_config = self.init_engine_args()
-                RayWorkerWrapper.__init__(self, vllm_config=vllm_config) # pylint: disable=non-parent-init-called
+
+        assert CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5, "only vllm0.8.5 support, if you want to use vllm066, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b"
+        if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
+            vllm_config = self.init_engine_args()
+            RayWorkerWrapper.__init__(self, vllm_config=vllm_config, rpc_rank=kwargs['rpc_rank']) # pylint: disable=non-parent-init-called
 
         os.environ['VLLM_HOST_IP'] = self.get_address()
 
@@ -208,10 +203,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
         self.llm.sleep()
         self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
-        # self.llm.llm_engine.model_executor._run_workers("init_memory_manager")
-        # self.offload_for_workers()
-        # self.empty_cuda_graph_for_workers()
-        # self.empty_cache_for_workers()
 
     def dump_parameters(self, dump_path_root):
         self.onload_weights() # is_param_sync=True
@@ -233,15 +224,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             pt_file = os.path.join(dir_path, name)
             torch.save(param.data.clone(), pt_file)
 
-    def init_memory_manager(self):
-        return
-        # if self.module_args.offload_weights:
-        #     if InferenceMemoryManager is None:
-        #         raise Exception("Import InferenceMemoryManager failed, you may need to set right Megatron path first.")
-        #     self._memory_manager = InferenceMemoryManager(
-        #         self.model,
-        #         self.runtime_args.bucket_size_mb_in_memory_manager,
-        #     )
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -373,6 +355,7 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             else:
                 sampling_param = self._get_sampling_params(is_eval)
                 if not self.model_args.get("new_token_limit", False):
+                    print("debughh check sampling param")
                     max_tokens = seq_len - len(prompt_token_ids)
                 else:
                     max_tokens = self.model_args.get("max_new_tokens")
@@ -401,14 +384,28 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         if outputs is not None:
             return outputs
         if is_first_run: # using for multi-round generate
-            # self.reinit_cache_engine()
             self.llm.wake_up()
-            pass
-        parsed_prompts, sampling_params = self.preprocess_inputs(query, is_eval)
+        
+        # preprocess query
+        prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
+        input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
+        seq_len = self.model_args.get("seq_length")
 
-        outputs = []
-        if os.getenv("SKIP_GENERATION", None) is None:
-            outputs = self.run_vllm(parsed_prompts, sampling_params)
+        prompts = query[prompt_key]
+        prompts_token_ids = query[input_ids_key]
+        sampling_param = self._get_sampling_params(is_eval)
+        sampling_params = []
+        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
+            max_tokens = seq_len - len(prompt_token_ids_item)
+            assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+            sampling_param_item = copy.deepcopy(sampling_param)
+            sampling_param_item.max_tokens = max_tokens
+            sampling_params.append(sampling_param_item)
+
+        outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
+                                    sampling_params = sampling_params,
+                                    use_tqdm = True)
+
         # save stage outputs for resume.
         self.save_stage_outputs(is_eval, outputs, iteration)
         return outputs
@@ -478,68 +475,14 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
         return parallel_state.get_tensor_model_parallel_world_size()
 
-    def model_setup_for_workers(self):
-        self.llm.llm_engine.model_executor._run_workers("model_setup")
-
-    # pylint: disable=unused-argument
-    def offload_for_workers(self,
-                            to_onload_weights=None,
-                            to_build_grad_buffers=None,
-                            to_onload_main_weights=None,
-                            to_onload_optimizer_states=None):
-        """
-        call offload for all workers
-        """
-        self.llm.llm_engine.model_executor._run_workers("offload")
-
-    def onload_for_workers(self,
-                           to_onload_weights=None,
-                           to_build_grad_buffers=None,
-                           to_onload_main_weights=None,
-                           to_onload_optimizer_states=None):
-        """
-        call onload for all workers
-        """
-        self.llm.llm_engine.model_executor._run_workers("onload")
-
-    def empty_cache_for_workers(self):
-        """
-        call empty cache for all workers
-        """
-        self.llm.llm_engine.model_executor._run_workers("empty_cache")
-
-    def empty_cuda_graph_for_workers(self):
-        """
-        call empty cuda_graph for all workers
-        """
-        self.llm.llm_engine.model_executor._run_workers("empty_cuda_graph")
-
-    # def offload_weights(self):
-    #     """
-    #     offload weights
-    #     """
-    #     if self.module_args.offload_weights:
-    #         self._memory_manager.offload_weights()
-
     def offload_weights(self): # is_param_sync=True
         """
         offload weights
         """
         if self.module_args.offload_weights:
-            # if is_param_sync:
-            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
             self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
-            # if is_param_sync:
-            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = "0"
-
-    # def onload_weights(self):
-    #     """
-    #     onload weights
-    #     """
-    #     if self.module_args.offload_weights:
-    #         self._memory_manager.onload_weights()
 
     def onload_weights(self, tags: Optional[list[str]] = None): # , is_param_sync=False
         """
@@ -555,84 +498,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
                 engine is used again.
         """
         if self.module_args.offload_weights:
-            # if is_param_sync:
-            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = str(int(is_param_sync))
-
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
-            # if is_param_sync:
-            #     os.environ["CHATLEARN_PARAM_SYNC_STAGE"] = "0"
-
-    def empty_cache(self):
-        if self.worker.gpu_cache is not None:
-            for ele in self.worker.gpu_cache: # pylint: disable=unused-variable
-                ele = None
-            self.worker.gpu_cache = None # pylint: disable=access-member-before-definition
-
-        self._logger.info(f"self.worker: "
-                          f"{self.worker} {hasattr(self.worker, 'cache_engine')} "
-                          f"{self.worker.cache_engine if hasattr(self.worker, 'cache_engine') else []}")
-
-        if hasattr(self.worker, "cache_engine") and self.worker.cache_engine is not None:
-            for c_e in self.worker.cache_engine:
-                c_e.cpu_cache = None
-                c_e.gpu_cache = None
-            self.worker.cache_engine = None
-
-        self.clear_cache()
-
-    def clear_cache(self):
-        if not self.timers("gc").started_:
-            self.timers("gc").start()
-        gc.collect()
-        self.timers("gc").stop()
-
-        super().empty_cache()
-
-    def empty_cuda_graph(self):
-        if self.worker.model_runner.graph_runners is not None:
-            len_graph_runners = len(self.worker.model_runner.graph_runners)
-            for graph_runner in self.worker.model_runner.graph_runners:
-                for _, runner in graph_runner.items():
-                    runner.input_buffers = {}
-                    runner.output_buffers = {}
-                    runner._graph = None
-            for i in range(len_graph_runners):
-                self.worker.model_runner.graph_runners[i] = {}
-                self.worker.model_runner.graph_memory_pool = None
-
-    def reset_block_manager(self):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            version = "selfattn"
-            if (self.llm.llm_engine.scheduler_config.embedding_mode
-                    or self.llm.llm_engine.cache_config.is_attention_free):
-                version = "placeholder"
-        else:
-            version = "selfattn"
-            if (self.llm.llm_engine.scheduler_config.runner_type == "pooling"
-                    or self.llm.llm_engine.cache_config.is_attention_free):
-                version = "placeholder"
-        num_gpu_blocks = self.llm.llm_engine.cache_config.num_gpu_blocks
-        if num_gpu_blocks:
-            num_gpu_blocks //= self.module_args.pipeline_model_parallel_size
-        num_cpu_blocks = self.llm.llm_engine.cache_config.num_cpu_blocks
-        if num_cpu_blocks:
-            num_cpu_blocks //= self.module_args.pipeline_model_parallel_size
-
-        BlockSpaceManagerImpl = get_block_manager_cls(version)
-        for scheduler in self.llm.llm_engine.scheduler: # pylint: disable=not-an-iterable
-            scheduler.block_manager = BlockSpaceManagerImpl( # pylint: disable=abstract-class-instantiated
-                block_size=self.llm.llm_engine.cache_config.block_size,
-                num_gpu_blocks=self.llm.llm_engine.cache_config.num_gpu_blocks,
-                num_cpu_blocks=self.llm.llm_engine.cache_config.num_cpu_blocks,
-                sliding_window=self.llm.llm_engine.cache_config.sliding_window,
-                enable_caching=self.llm.llm_engine.cache_config.enable_prefix_caching)
-
-    def reinit_cache_engine(self):
-        # reinit cache engine
-        self.llm.llm_engine.model_executor._run_workers("clear_cache")
-        self.llm.llm_engine._initialize_kv_caches()
-        # reset block menager
-        self.reset_block_manager()
-        self.llm.llm_engine.model_executor._run_workers("clear_cache")
