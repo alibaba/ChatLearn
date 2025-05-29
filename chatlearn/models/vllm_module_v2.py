@@ -30,16 +30,10 @@ from vllm.executor.ray_utils import RayWorkerWrapper
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_import_helper import parallel_state
-from chatlearn.utils.vllm_import_helper import get_block_manager_cls
 from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
-from chatlearn.utils.vllm_import_helper import TextTokensPrompt
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from .torch_module import TorchModule
-try:
-    from .vllm.inference import InferenceMemoryManager
-except ImportError:
-    InferenceMemoryManager = None
 
 # pylint: disable=unexpected-keyword-arg
 class VLLMModuleV2(TorchModule, RayWorkerWrapper):
@@ -200,15 +194,12 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             # preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
             swap_space=self.model_args.get("swap_space", 16))
 
-        self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
-        self.llm.sleep()
-        self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
+        self.offload_weights()
 
     def dump_parameters(self, dump_path_root):
-        self.onload_weights() # is_param_sync=True
-        # self.onload_for_workers()
+        self.onload_weights()
         self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
-        self.offload_weights() # is_param_sync=True
+        self.offload_weights()
 
     def worker_dump_parameters(self, dump_path_root):
         tp_rank = self.tensor_parallel_rank()
@@ -223,7 +214,6 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
         for name, param in self.named_parameters.items():
             pt_file = os.path.join(dir_path, name)
             torch.save(param.data.clone(), pt_file)
-
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -319,71 +309,13 @@ class VLLMModuleV2(TorchModule, RayWorkerWrapper):
             reconstructed_tensor = rebuild_func(*rebuild_args)
             self.model.load_weights([(name, reconstructed_tensor)])
 
-    def _convert_v1_inputs(self, prompts, prompt_token_ids):
-        num_requests = len(prompts)
-        assert num_requests == len(prompt_token_ids), \
-            ("The lengths of prompts and prompt_token_ids must be the same.")
-
-        inputs = []
-        for i in range(num_requests):
-            if prompts[i] is None:
-                assert isinstance(prompt_token_ids[i], List[int]), \
-                    f"Expect prompt_token_ids[{i}] is List[int] when prompt is None, while {prompt_token_ids[i]}."
-            if prompt_token_ids[i] is None:
-                assert isinstance(prompts[i], str), \
-                    f"Expect prompts[{i}] is a string when prompt_token_ids is None, while {prompts[i]}."
-            item = TextTokensPrompt(
-                prompt=prompts[i],
-                prompt_token_ids=prompt_token_ids[i])
-            inputs.append(item)
-
-        return inputs
-
-    def preprocess_inputs(self, query, is_eval):
-        prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
-        input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
-
-        prompts = query[prompt_key]
-        prompts_token_ids = query[input_ids_key]
-        seq_len = self.model_args.get("seq_length")
-        parsed_prompts = []
-        sampling_params = []
-        for i, prompt in enumerate(prompts):
-            prompt_token_ids = prompts_token_ids[i]
-            if 'sampling_param' in query:
-                sampling_param = query['sampling_param'][i]
-            else:
-                sampling_param = self._get_sampling_params(is_eval)
-                if not self.model_args.get("new_token_limit", False):
-                    print("debughh check sampling param")
-                    max_tokens = seq_len - len(prompt_token_ids)
-                else:
-                    max_tokens = self.model_args.get("max_new_tokens")
-                    assert max_tokens < seq_len, "max_new_tokens must less than seq length."
-                sampling_param.max_tokens = max_tokens
-            item = self._convert_v1_inputs(
-                prompts=[prompt],
-                prompt_token_ids=[prompt_token_ids],
-            )[0]
-            parsed_prompts.append(item)
-            sampling_params.append(sampling_param)
-
-        return parsed_prompts, sampling_params
-
-    def run_vllm(self, parsed_prompts, sampling_params):
-        outputs = self.llm.generate(
-            parsed_prompts,
-            sampling_params,
-            use_tqdm=True
-        )
-        return outputs
-
     def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
         # resume from stage checkpoint.
         outputs = self.load_stage_outputs(is_eval, iteration)
         if outputs is not None:
             return outputs
-        if is_first_run: # using for multi-round generate
+        # using for multi-round generate
+        if is_first_run:
             self.llm.wake_up()
         
         # preprocess query
