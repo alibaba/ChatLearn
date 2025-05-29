@@ -51,7 +51,6 @@ from vllm.utils import Counter
 from vllm.worker.worker import Worker
 
 
-
 def get_model_architecture(config):
     from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
     return get_model_architecture_v2(config)[0]
