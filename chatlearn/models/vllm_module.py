@@ -29,8 +29,8 @@ from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
-from chatlearn.utils.vllm_import_helper import parallel_state
-from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
+from vllm.distributed import parallel_state
+from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from .torch_module import TorchModule

@@ -26,11 +26,11 @@ from vllm.model_executor.models import llama
 from vllm.model_executor.models import qwen2, qwen2_moe
 from vllm.config import VllmConfig
 
-from chatlearn.utils.vllm_import_helper import LlamaForCausalLM
-from chatlearn.utils.vllm_import_helper import QWenLMHeadModel
-from chatlearn.utils.vllm_import_helper import Qwen2ForCausalLM
-from chatlearn.utils.vllm_import_helper import Qwen2MoeForCausalLM
-from chatlearn.utils.vllm_import_helper import get_model_architecture
+from vllm.model_executor.models.qwen2_moe import Qwen2MoeForCausalLM
+from vllm.model_executor.models.llama import LlamaForCausalLM
+from vllm.model_executor.models.qwen import QWenLMHeadModel
+from vllm.model_executor.models.qwen2 import Qwen2ForCausalLM
+from chatlearn.utils.vllm_utils import get_model_architecture
 from chatlearn.utils.utils import get_use_legacy_models
 
 from chatlearn.utils.vllm_utils import (

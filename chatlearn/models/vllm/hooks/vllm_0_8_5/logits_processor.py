@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.7.4 logits_processor to allgather logits of all ranks."""
+"""Hooks of vllm-0.8.5 logits_processor to allgather logits of all ranks."""
 
 import inspect
 
