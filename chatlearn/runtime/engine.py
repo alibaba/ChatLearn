@@ -526,12 +526,6 @@ class Engine(BaseEngine):
             if isinstance(replic_0, DistVLLMActor):
                 future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
 
-    # def dump_parameters(self, dump_path):
-    #     for _, model in enumerate(self.models):
-    #         if isinstance(model.replicas[0], (DistVLLMActor, AttnDpVLLMActor)):
-    #             future.wait(
-    #                 [engine.dump_parameters.remote(dump_path) for engine in model.replicas[0].vllm_engines])
-
     def save_checkpoint(self, episode_id):
         """
         :meta private:
@@ -550,7 +544,6 @@ class Engine(BaseEngine):
             for i, model in enumerate(self.models[0].replicas):
                 if isinstance(model, DistVLLMActor):
                     refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
-                    # refs.append(model.vllm_engines[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 else:
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)
@@ -757,12 +750,6 @@ class EvalEngine(Engine):
         self.setup()
         self.evaluator.setup()
         self.timers("episode").start()
-        dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")
-        if dump_root_path:
-            if os.path.exists(os.path.join(dump_root_path, "eval")):
-                shutil.rmtree(os.path.join(dump_root_path, "eval"))
-            logger.info(f"{LOG_START} dump parameters for evaluation...")
-            self.dump_parameters(os.path.join(dump_root_path, "eval"))
         results = self.evaluator.eval(
             cur_iter=cur_iter, train_iteration=train_iteration)
         self.timers("episode").stop()

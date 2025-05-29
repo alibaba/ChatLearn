@@ -158,7 +158,6 @@ def preprocess_compute(func, trainable):
 
         if to_onload:
             if isinstance(self, VLLMModule):
-                # self.onload_for_workers()
                 self.onload_weights()
             else:
                 self.onload()
@@ -217,7 +216,6 @@ def preprocess_compute(func, trainable):
                 self.empty_cache()
         if to_offload:
             if isinstance(self, VLLMModule):
-                # self.offload_for_workers()
                 self.offload_weights()
             else:
                 self.offload()

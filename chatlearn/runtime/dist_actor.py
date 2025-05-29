@@ -244,7 +244,6 @@ class DistVLLMActor(DistTorchActor):
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
-        # self.model.engine = self.vllm_engine
 
     def call_vllm_engine_remote_funcs(self, func_name, *args, **kwargs):
         """
@@ -288,11 +287,7 @@ class DistVLLMActor(DistTorchActor):
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
-    def should_create_engine_actor(self):
-        return self.vllm_engine is None
-
     def setup_vllm_engine(self):
-        # return [self.vllm_engine.setup_vllm.remote(self.all_actors)]
         return self.vllm_engine.setup_vllm.remote(self.all_actors)
 
     @property
