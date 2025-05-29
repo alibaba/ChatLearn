@@ -29,7 +29,6 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
 RAY_REMOTE = "remote"
@@ -436,7 +435,7 @@ class DistModel:
 
     @property
     def use_vllm_backend(self):
-        return vllm_exist and isinstance(self.replicas[0].model, (VLLMModule, VLLMModuleV2))
+        return vllm_exist and isinstance(self.replicas[0].model, VLLMModule)
 
     def group_dist_actors_by_tp_rank(self):
         for replica in self.replicas:

@@ -22,7 +22,7 @@ from chatlearn.models.vllm import is_vllm_v2
 from examples.fsdp.data.prompt_dataset import VLLMPromptPipeline
 
 # pylint: disable=ungrouped-imports
-from chatlearn import VLLMModuleV2 as VLLMModule
+from chatlearn import VLLMModule
 
 class VLLMPolicyInference(VLLMModule):
     """Policy vLLM Inference"""

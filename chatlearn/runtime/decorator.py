@@ -21,7 +21,7 @@ import torch
 from torch.cuda import nvtx
 import ray
 
-from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG
@@ -157,7 +157,7 @@ def preprocess_compute(func, trainable):
         is_eval = get_kwarg('is_eval')
 
         if to_onload:
-            # if isinstance(self, VLLMModuleV2):
+            # if isinstance(self, VLLMModule):
             #     # self.onload_for_workers()
             #     self.onload_weights()
             # else:
@@ -190,7 +190,7 @@ def preprocess_compute(func, trainable):
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
-                        or isinstance(self, VLLMModuleV2):
+                        or isinstance(self, VLLMModule):
                     final_results = concat_along_batch(results)
             else:
                 if 'iteration' in inspect.signature(func).parameters:
@@ -202,7 +202,7 @@ def preprocess_compute(func, trainable):
                 # for model with DP/EP, we need to return results from all ranks
                 # for model with TP/PP, only return the results from last rank
                 if self.is_last_rank() or self.data_parallel_size is None or self.data_parallel_size > 1 \
-                        or isinstance(self, VLLMModuleV2):
+                        or isinstance(self, VLLMModule):
                     final_results = ret
         else:
             if 'iteration' in inspect.signature(func).parameters:
@@ -213,14 +213,10 @@ def preprocess_compute(func, trainable):
             if self.is_last_rank():
                 final_results = ret
         if to_empty_cache:
-            if isinstance(self, VLLMModuleV2):
-                # self.empty_cuda_graph_for_workers()
-                # self.empty_cache_for_workers()
-                pass
-            else:
+            if not isinstance(self, VLLMModule):
                 self.empty_cache()
         if to_offload:
-            # if isinstance(self, VLLMModuleV2):
+            # if isinstance(self, VLLMModule):
             #     # self.offload_for_workers()
             #     self.offload_weights()
             # else:

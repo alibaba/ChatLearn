@@ -25,11 +25,8 @@ from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 from .utils import get_loss_mask
 
 # pylint: disable=ungrouped-imports
-if is_vllm_v2():
-    from chatlearn import VLLMModuleV2 as VLLMModule
-else:
-    from chatlearn import VLLMModule
-# pylint: enable=ungrouped-imports
+
+from chatlearn import VLLMModule
 
 
 class VLLMPolicyInference(VLLMModule):

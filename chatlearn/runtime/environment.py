@@ -18,7 +18,7 @@ import math
 from itertools import cycle
 
 from chatlearn.data.ranking import batch_generation_ranking
-from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import execute_in_parallel
@@ -117,7 +117,7 @@ class Environment(Executor):
             config = future.get(model.master.padding_config.remote())
             self._padding_config.update(config)
 
-            if isinstance(model.model, VLLMModuleV2):
+            if isinstance(model.model, VLLMModule):
                 logger.info(
                     f"setup vllm engine for model {model.model}")
                 refs = []

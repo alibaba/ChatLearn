@@ -44,15 +44,7 @@ if vllm_exist:
     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion  # pylint: disable=ungrouped-imports
     if CURRENT_VLLM_VERSION in [version.value for version in VLLMVersion]:
         from chatlearn.models.vllm_module import VLLMModule
-        from chatlearn.models.vllm_module_v2 import VLLMModuleV2
 
-        # for compatibility, remove later
-        class RLHFVLLMModule(VLLMModule):
-            """RLHFVLLMModule is deprecated, please use VLLMModule"""
-
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                logger.warning("RLHFVLLMModule is deprecated, please use VLLMModule")
 
 
 # for compatibility, remove later

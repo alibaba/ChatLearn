@@ -18,7 +18,7 @@ import torch
 import torch.nn.functional as F
 from typing import List, Dict
 
-from chatlearn import VLLMModuleV2 as VLLMModule
+from chatlearn import VLLMModule
 
 from data.prompt_dataset import VLLMPromptPipeline
 
