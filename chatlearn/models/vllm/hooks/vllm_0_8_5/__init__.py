@@ -14,8 +14,6 @@
 # ==============================================================================
 """Additional hooks of vllm-0.8.5."""
 
-from ... import is_vllm_v2
-
 from . import async_llm_engine
 # from . import input_preprocess
 from . import llm

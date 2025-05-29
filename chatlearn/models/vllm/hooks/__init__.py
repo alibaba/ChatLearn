@@ -16,22 +16,13 @@
 
 import importlib
 import os
-from .. import is_vllm_v2
 
 
 if importlib.util.find_spec("vllm"):
 
     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-        from chatlearn.models.vllm.hooks.vllm_0_3_0 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
-        from chatlearn.models.vllm.hooks.vllm_0_5_1 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-        from chatlearn.models.vllm.hooks.vllm_0_6_3 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_6:
-        from .vllm_0_6_6 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
         from .vllm_0_8_5 import *
     else:
         raise RuntimeError(

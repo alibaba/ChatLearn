@@ -234,19 +234,12 @@ class DistVLLMActor(DistTorchActor):
         self.vllm_engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            kwargs = {
-                "worker_module_name": "vllm.worker.worker",
-                "worker_class_name": "Worker",
-                "worker_class_fn": None,
-                "trust_remote_code": True,
-            }
-        else:
-            kwargs = {
-                "vllm_actor_type" : "worker"
-            }
-            if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
-                kwargs["rpc_rank"] = len(self.all_actors)
+
+        kwargs = {
+            "vllm_actor_type" : "worker",
+            "rpc_rank" : len(self.all_actors)
+        }
+
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
