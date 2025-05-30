@@ -14,5 +14,4 @@
 # ==============================================================================
 """hooks"""
 
-from chatlearn.models.megatron import hooks # pylint: disable=unused-import
 from chatlearn.models.vllm import hooks as vllm_hooks # pylint: disable=unused-import

@@ -101,7 +101,6 @@ class FSDPModule(TorchModule):
 
         policies = []
 
-        # Add lambda policy for LoRA modules if is_lora is True
         # min_num_params must be 0 to use transformer_auto_wrap_policy
         if min_num_params > 0:
             size_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=min_num_params)

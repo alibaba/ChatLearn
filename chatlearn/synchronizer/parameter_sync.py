@@ -20,7 +20,7 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
-from typing import List, Dict
+from typing import List
 from queue import PriorityQueue
 
 import torch
@@ -29,7 +29,6 @@ from tqdm import tqdm
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils import utils
-from chatlearn.utils.constant import LORA_WEIGHT_PREFIX
 from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
 from chatlearn.utils.constant import ROUTED_EXPERT_REGROUPING_COMM_TYPE
 from chatlearn.utils.global_vars import get_args
@@ -75,7 +74,6 @@ class ParameterSyncGroup:
                 self._comm_type = PARAM_SYNC_COMM_TYPE.P2P
 
         self.concurrent_comm = get_args().runtime_args.concurrent_comm
-        self._enable_lora = self.src_model.module_args.lora.enable_lora
         # sync every n episodes, n = 0 for no param sync
         self._frequency = frequency
 
@@ -891,9 +889,6 @@ class ParameterSyncGroup:
     def _set_sync_param_names(self, send_actor, recv_actor, requires_grad=None, filter_fn=None, param_group="default", should_map_name=True):
         if requires_grad is None:
             requires_grad = True
-        if self._enable_lora:
-            # TODO(jiangle.jl): support freeze layer.
-            requires_grad = False
         assert param_group in ("default", "routed", "except_routed"), (
             f"param_group must be one of 'default', 'routed', or 'except_routed', got {param_group}."
         )
@@ -908,10 +903,6 @@ class ParameterSyncGroup:
             src_names = list(dst_src_mappings.values())
         else:
             src_names = dst_names = future.get(send_actor.get_parameter_names.remote(requires_grad=requires_grad))
-
-        if self._enable_lora:
-            src_names = [ele for ele in src_names if LORA_WEIGHT_PREFIX not in ele]
-            dst_names = [ele for ele in dst_names if LORA_WEIGHT_PREFIX not in ele]
 
         if filter_fn is not None:
             src_names = filter_fn(src_names)
@@ -1184,52 +1175,6 @@ class ParameterSyncGroup:
             self.collective_groups = []
             self.groups2actors = {}
 
-    def check_and_fuse_lora(self, enable_lora, actor_mapping):
-        send_actors_set = set()
-
-        def check_and_fuse_lora_internal(actor_mapping_item):
-            for send_actor in actor_mapping_item:
-                if enable_lora and send_actor not in send_actors_set:
-                    ref = send_actor.fuse_lora_layer.remote()
-                    state = future.get([ref])
-                    assert state, "Check fuse lora layer fail."
-                    send_actors_set.add(send_actor)
-
-        if isinstance(actor_mapping, List):
-            for actor_mapping_item in actor_mapping:
-                if actor_mapping_item is None:
-                    continue
-                check_and_fuse_lora_internal(actor_mapping_item)
-        elif isinstance(actor_mapping, Dict):
-            if actor_mapping is None:
-                return
-            check_and_fuse_lora_internal(actor_mapping)
-        else:
-            raise ValueError("unrecognized type for actor_mapping, expect: List or Dict")
-
-    def check_and_unfuse_lora(self, enable_lora, actor_mapping):
-        send_actors_set = set()
-
-        def check_and_unfuse_lora_internal(actor_mapping_item):
-            for send_actor in actor_mapping_item:
-                if self._enable_lora and send_actor not in send_actors_set:
-                    ref = send_actor.unfuse_lora_layer.remote()
-                    state = future.get([ref])
-                    assert state, "Check unfuse lora layer fail."
-                    send_actors_set.add(send_actor)
-
-        if isinstance(actor_mapping, List):
-            for actor_mapping_item in actor_mapping:
-                if actor_mapping_item is None:
-                    continue
-                check_and_unfuse_lora_internal(actor_mapping_item)
-        elif isinstance(actor_mapping, Dict):
-            if actor_mapping is None:
-                return
-            check_and_unfuse_lora_internal(actor_mapping)
-        else:
-            raise ValueError("unrecognized type for actor_mapping, expect: List or Dict")
-
     def validate_sync_results_parallel(self, actor_mappings_list:List, requires_grad=None, validate=False, filter_fn=None, param_group="default"):
         if self._debug or validate:
             assert len(actor_mappings_list) in (1, 2), f"The length of actor mapping list should be 1 or 2, but got {len(actor_mappings_list)}."
@@ -1414,8 +1359,6 @@ class ParameterSyncGroup:
 
         self.check_and_setup_collective_group()
 
-        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
-
         # NOTE: ParameterSyncGroup currently do not support ep mapping, here we add
         # an all_gather on MoE parameters on sender. And patch params_to_sync_list before
         # `synchronizer.transform_parameters` called.
@@ -1453,8 +1396,6 @@ class ParameterSyncGroup:
             )
 
         assert len(actor_mappings_list) >= 1
-
-        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
         self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
 
@@ -1736,8 +1677,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
             self.send_actors_to_regroup_routed_experts,
         ]
 
-        self.check_and_fuse_lora(self._enable_lora, actor_mappings_list)
-
         if self.concurrent_comm:
             assert self.dst_model.use_vllm_backend
 
@@ -1820,8 +1759,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 "ChatLearn supports only concurrent_comm for training models with HEP enabled and inference with vLLM"
             )
 
-        self.check_and_unfuse_lora(self._enable_lora, actor_mappings_list)
-
         self.validate_sync_results_parallel(actor_mappings_list, requires_grad, validate)
 
         self.check_and_destroy_collective_group()
@@ -1833,7 +1770,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
     def _synchronize_routed_experts(self, requires_grad=None, validate=False, dryrun=False):
         self.check_and_setup_collective_group()
 
-        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
         send_actors_list : List = []
         actor_mappings_list : List = []
         if self.concurrent_comm:
@@ -1859,8 +1795,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
         assert len(actor_mappings_list) >= 1
 
-        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings_for_routed_experts)
-
         self.validate_sync_results_parallel(
             actor_mappings_list,
             requires_grad,
@@ -1875,8 +1809,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
 
     def _synchronize_params_except_routed_experts(self, requires_grad=None, validate=False, dryrun=False):
         self.check_and_setup_collective_group()
-
-        self.check_and_fuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
         send_actors_list : List = []
         actor_mappings_list : List = []
@@ -1910,8 +1842,6 @@ class ParameterSyncGroupwithHEP(ParameterSyncGroup):
                 filter_fn=self.params_except_routed_expert_filter,
                 param_group="except_routed"
             )
-
-        self.check_and_unfuse_lora(self._enable_lora, self.send_recv_actor_mappings)
 
         self.validate_sync_results_parallel(
             actor_mappings_list,

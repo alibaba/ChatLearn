@@ -127,7 +127,6 @@ class BaseModule:
         self._iteration = 0
         self._train_iteration = 0
         self._episode_id = 0
-        self.enable_lora = self._module_args.lora.enable_lora
         self._finalized = False
         self._resume_training = False
         self._address = dlc_utils.get_addr() if dlc_utils.in_dlc_env() else get_host_addr()
@@ -621,20 +620,6 @@ class BaseModule:
         """
         :meta private:
         """
-
-    def fuse_lora_layer(self):
-        """
-        :meta private:
-        """
-        from chatlearn.models.megatron.lora import fuse_lora_layer # pylint: disable=import-outside-toplevel
-        fuse_lora_layer(self.model)
-
-    def unfuse_lora_layer(self):
-        """
-        :meta private:
-        """
-        from chatlearn.models.megatron.lora import unfuse_lora_layer # pylint: disable=import-outside-toplevel
-        unfuse_lora_layer(self.model)
 
     @property
     def rank(self):
