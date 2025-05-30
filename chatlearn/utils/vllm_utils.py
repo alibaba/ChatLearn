@@ -108,11 +108,11 @@ def get_model_architecture(config):
 
 
 def get_pipeline_model_parallel_rank():
-    return parallel_state.get_pp_group().rank_in_group
+    return mpu.get_pp_group().rank_in_group
 
 
 def get_pipeline_model_parallel_world_size():
-    return parallel_state.get_pp_group().world_size
+    return mpu.get_pp_group().world_size
 
 class ParameterSyncMap:
     """Base ParameterSyncMap."""
@@ -1950,4 +1950,6 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False,
     return model_path
 
 def vllm_use_v1():
+    if "VLLM_USE_V1" not in os.environ:
+        os.environ["VLLM_USE_V1"] = "1"
     return bool(int(os.getenv("VLLM_USE_V1", "1")))
