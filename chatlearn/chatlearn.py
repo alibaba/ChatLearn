@@ -10,6 +10,8 @@ from algorithm.base_algo import BaseAlgorithm
 from omegaconf import OmegaConf
 
 
+# e.g. python3 chatlearn/chatlearn.py grpo --config-file /tmp/conf/test.yaml runtime.data_path=/tmp/data runtime.eval_data_path=/tmp/eval_data
+
 # Registry format:
 #  "engine_name": ("module_path", "algo_class_name", "config_class")
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
