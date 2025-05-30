@@ -296,10 +296,6 @@ class DistVLLMActor(DistTorchActor):
     def peak_memory(self):
         return self.model.peak_memory()
 
-    @property
-    def vllm_engines(self):
-        return self.vllm_engine
-
 
 class DistModel:
     """DistModel"""
