@@ -298,7 +298,6 @@ class DistVLLMActor(DistTorchActor):
 
     @property
     def vllm_engines(self):
-        # return [self.vllm_engine]
         return self.vllm_engine
 
 
