@@ -20,12 +20,10 @@ import random
 import torch
 import torch.nn.functional as F
 
+from chatlearn import VLLMModule
 from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 from .utils import get_loss_mask
 
-# pylint: disable=ungrouped-imports
-
-from chatlearn import VLLMModule
 
 
 class VLLMPolicyInference(VLLMModule):

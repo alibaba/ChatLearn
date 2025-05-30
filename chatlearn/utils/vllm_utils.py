@@ -29,6 +29,13 @@ import numpy as np
 
 import torch
 import torch.distributed
+from vllm.distributed.parallel_state import init_world_group
+from vllm.model_executor.model_loader.utils import set_default_torch_dtype as _set_default_torch_dtype
+from vllm.distributed import parallel_state as mpu
+from vllm.distributed.parallel_state import initialize_model_parallel
+from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
+from vllm.distributed.utils import get_pp_indices
+from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.utils import get_use_legacy_models
@@ -44,15 +51,6 @@ try:
     from chatlearn.utils.megatron_import_helper import unwrap_model
 except ImportError:
     print("Cannot import megatron, please set megatron python path first.")
-
-
-from vllm.distributed.parallel_state import init_world_group
-from vllm.model_executor.model_loader.utils import set_default_torch_dtype as _set_default_torch_dtype
-from vllm.distributed import parallel_state as mpu
-from vllm.distributed.parallel_state import initialize_model_parallel
-from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
-from vllm.distributed.utils import get_pp_indices
-
 
 from .constant import QwenVersion
 
@@ -106,7 +104,6 @@ mcore_to_transformers = {
 }
 
 def get_model_architecture(config):
-    from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
     return get_model_architecture_v2(config)[0]
 
 

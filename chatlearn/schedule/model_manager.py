@@ -210,7 +210,7 @@ class ModelManager:
                 refs = []
                 for replica in dst_model.replicas:
                     refs.append(replica.vllm_engine.onload_weights.remote(tags=['weights']))
-                res = future.wait(refs, return_output=True)
+                future.wait(refs, return_output=True)
 
                 # parameter sync
                 sync_group.sync(requires_grad, validate, dryrun=dryrun)
@@ -222,7 +222,7 @@ class ModelManager:
                 refs = []
                 for replica in dst_model.replicas:
                     refs.append(replica.vllm_engine.onload_weights.remote(tags=['kv_cache']))
-                res = future.wait(refs, return_output=True)
+                future.wait(refs, return_output=True)
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):

@@ -31,7 +31,6 @@ import pynvml
 import numpy as np
 import torch
 import torch.nn.functional as F
-from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.logger import logger
 
 

@@ -14,7 +14,6 @@
 # ==============================================================================
 """VLLM module v2"""
 
-import gc
 import inspect
 import os
 from typing import Optional
@@ -25,11 +24,11 @@ from transformers import AutoTokenizer, AutoConfig
 from vllm import SamplingParams
 from vllm.config import LoadFormat
 from vllm.entrypoints.llm import LLM
+from vllm.distributed import parallel_state
 from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
-from vllm.distributed import parallel_state
 from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
@@ -50,7 +49,8 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
 
-        assert CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5, "only vllm0.8.5 support, if you want to use previous vllm version, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b"
+        assert CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5, "only vllm0.8.5 support, if you want to use previous vllm version, \
+                 please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b"
         if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
             vllm_config = self.init_engine_args()
             RayWorkerWrapper.__init__(self, vllm_config=vllm_config, rpc_rank=kwargs['rpc_rank']) # pylint: disable=non-parent-init-called
@@ -317,7 +317,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         # using for multi-round generate
         if is_first_run:
             self.llm.wake_up()
-        
+
         # preprocess query
         prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
         input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")

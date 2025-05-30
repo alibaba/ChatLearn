@@ -21,6 +21,8 @@ import ray
 import torch
 from cupy.cuda import nccl
 from ray.util.collective.collective_group.nccl_util import TORCH_NCCL_DTYPE_MAP
+from ray.dag.compiled_dag_node import ExecutableTask
+from ray.dag.dag_node_operation import _DAGNodeOperationType
 
 from chatlearn.launcher import dlc_utils
 from chatlearn.utils.arguments import parse_args
@@ -35,8 +37,6 @@ def patch_ray():
     TORCH_NCCL_DTYPE_MAP[torch.bfloat16] = nccl.NCCL_BFLOAT16
     if ray.__version__ == "2.46.0":
         # vllm 0.8.5.post1 will install ray 2.46.0 and need patch function
-        from ray.dag.compiled_dag_node import ExecutableTask
-        from ray.dag.dag_node_operation import _DAGNodeOperationType
         def exec_operation(
             self,
             class_handle,

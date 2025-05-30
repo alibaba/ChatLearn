@@ -82,7 +82,7 @@ def init(
     else:
         compilation_config_instance = None
     ## monkey patch EngineArgs -> AsyncEngineArgs
-    engine_args = AsyncEngineArgs( 
+    engine_args = AsyncEngineArgs(
         model=model,
         task=task,
         tokenizer=tokenizer,
