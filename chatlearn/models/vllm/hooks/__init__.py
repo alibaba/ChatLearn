@@ -26,11 +26,6 @@ if importlib.util.find_spec("vllm"):
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
         from .vllm_0_8_5 import *
     else:
-        # raise RuntimeError(
-        #     f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while {CURRENT_VLLM_VERSION}. \
-        #     if you want to use previous vllm version, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b")
-        warnings.warn(
-            f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while got {CURRENT_VLLM_VERSION}. "
-            f"If you want to use a previous vLLM version, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b",
-            RuntimeWarning
-        )
+        raise RuntimeError(
+            f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while {CURRENT_VLLM_VERSION}. \
+            if you want to use previous vllm version, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b")
