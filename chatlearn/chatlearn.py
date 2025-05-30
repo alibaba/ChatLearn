@@ -69,22 +69,22 @@ class ChatlearnLauncher:
 
 
     def _run_algorithm(self, algo_args) -> None:
-        algo_name = algo_args.algorithm
-        algo_cls, config_cls = self._load_algorithm(algo_name)
+        algo_cls, config_cls = self._load_algorithm(algo_args.algorithm)
         cs = ConfigStore.instance()
-        cs.store(name=algo_name, node=config_cls)
-
-        # config_path = Path(config_file)
-        # if not config_path.exists():
-        #     raise FileNotFoundError(f"Config file not exists: {config_path}")
+        cs.store(name=algo_args.algorithm, node=config_cls)
         
         GlobalHydra.instance().clear()
         with hydra.initialize(config_path=None, version_base=None):
-            cfg = OmegaConf.structured(config_cls)
-            cfg = OmegaConf.merge(
-                cfg,
-                OmegaConf.from_cli(algo_args.hydra_args)
-            )
+            cfg = hydra.compose(config_name=algo_args.algorithm, overrides=algo_args.hydra_args)
+            if algo_args.config_file is not None:
+                external_cfg = OmegaConf.load(algo_args.config_file)
+                for arg in algo_args.hydra_args:
+                    if '=' in arg:
+                        key, value = arg.split('=', 1)
+                        if OmegaConf.select(external_cfg, key):
+                            OmegaConf.update(external_cfg, key, value)
+                cfg = OmegaConf.merge(cfg, external_cfg)
+            cfg = OmegaConf.to_object(cfg)
             instance = algo_cls(cfg)
             instance.run()
 
