@@ -50,7 +50,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             f"Expected only '__init__' as common method for TorchModule and RayWorkerWrapper, but got {common_methods}"
         self.local_rank = 0
 
-        assert CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5, "only vllm0.8.5 support, if you want to use vllm066, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b"
+        assert CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5, "only vllm0.8.5 support, if you want to use previous vllm version, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b"
         if 'vllm_actor_type' in kwargs and 'worker' == kwargs['vllm_actor_type']:
             vllm_config = self.init_engine_args()
             RayWorkerWrapper.__init__(self, vllm_config=vllm_config, rpc_rank=kwargs['rpc_rank']) # pylint: disable=non-parent-init-called
