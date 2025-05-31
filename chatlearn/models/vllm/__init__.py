@@ -13,11 +13,3 @@
 # limitations under the License.
 # ==============================================================================
 """vLLM related."""
-
-import os
-
-def is_vllm_v2():
-    key = 'ENABLE_VLLM_V2'
-    if not key in os.environ:
-        return False
-    return os.environ[key].lower() in ['true', '1']

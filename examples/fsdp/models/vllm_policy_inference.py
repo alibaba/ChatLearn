@@ -18,11 +18,10 @@ from typing import List, Dict
 import torch
 import torch.nn.functional as F
 
-from chatlearn.models.vllm import is_vllm_v2
 from examples.fsdp.data.prompt_dataset import VLLMPromptPipeline
 
 # pylint: disable=ungrouped-imports
-from chatlearn import VLLMModuleV2 as VLLMModule
+from chatlearn import VLLMModule
 
 class VLLMPolicyInference(VLLMModule):
     """Policy vLLM Inference"""
@@ -72,7 +71,8 @@ class VLLMPolicyInference(VLLMModule):
         max_tokens_length = self.model_args.get("seq_length")
         all_tokens = []
         str_outputs = []
-        str_prompts = []
+        # str_prompts = []
+        prompt_token_ids: list = []
         logprobs = []
         prompt_token_length = []
         response_token_length = []
@@ -84,7 +84,8 @@ class VLLMPolicyInference(VLLMModule):
             data_source = data_source_list[idx] if data_source_list else ''
             ground_truth = ground_truth_list[idx] if ground_truth_list else ''
             for res_idx in range(num_responses_per_prompt):
-                str_prompts.append(output.prompt)
+                # str_prompts.append(output.prompt)
+                prompt_token_ids.append(output.prompt_token_ids)
                 output_tokens = list(output.outputs[res_idx].token_ids)
                 response_token_length.append(len(output_tokens))
                 prompt_token_length.append(len(output.prompt_token_ids))
@@ -106,4 +107,4 @@ class VLLMPolicyInference(VLLMModule):
         print("data_sources", data_sources[0])
         print("ground_truth", ground_truths[0])
 
-        return {"all_tokens": all_tokens, "str_outputs": str_outputs, "str_prompts": str_prompts, "prompt_token_length": prompt_token_length, "response_token_length": response_token_length, "data_source": data_sources, "ground_truth": ground_truths}
+        return {"all_tokens": all_tokens, "str_outputs": str_outputs, "prompt_token_ids": prompt_token_ids, "prompt_token_length": prompt_token_length, "response_token_length": response_token_length, "data_source": data_sources, "ground_truth": ground_truths}

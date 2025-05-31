@@ -12,21 +12,19 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.3 convert device_name to string."""
-
+"""Hooks of vllm-0.8.5 logits_processor to allgather logits of all ranks."""
 
 import inspect
-# pylint: disable=unused-import,unused-argument
-from vllm.platforms import cuda
+
+# pylint: disable=wildcard-import,ungrouped-imports
+from vllm.model_executor.layers import logits_processor
 
 
-source = inspect.getsource(cuda.CudaPlatform.get_device_name)
-if 'physical_device_id = device_id_to_physical_device_id(device_id)' in source:
-    from vllm.platforms.cuda import device_id_to_physical_device_id, get_physical_device_name
+source = inspect.getsource(logits_processor.LogitsProcessor._gather_logits)
+if 'tensor_model_parallel_gather' in source:
+    import torch
+    def _gather_logits(self, logits: torch.Tensor) -> torch.Tensor: # pylint: disable=unused-argument
+        from vllm.distributed import tensor_model_parallel_all_gather # pylint: disable=import-outside-toplevel
+        return tensor_model_parallel_all_gather(logits)
 
-    @classmethod
-    def _get_device_name(cls, device_id: int = 0) -> str:
-        physical_device_id = device_id_to_physical_device_id(device_id)
-        return str(get_physical_device_name(physical_device_id))
-
-    cuda.CudaPlatform.get_device_name = _get_device_name
+    logits_processor.LogitsProcessor._gather_logits = _gather_logits

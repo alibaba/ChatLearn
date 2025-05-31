@@ -26,7 +26,7 @@ from chatlearn.data.storage import Storage
 from chatlearn.launcher import dlc_utils
 from chatlearn import FSDPModule
 from chatlearn.models.torch_module import TorchModule
-from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
@@ -203,15 +203,26 @@ class ModelManager:
 
                 # src_model, dst_model type: DistModel
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
+                # onload policy trainer
                 future.wait(src_model.onload(
                     to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
-                future.wait(dst_model.onload(
-                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
+                # onload policy weights
+                refs = []
+                for replica in dst_model.replicas:
+                    refs.append(replica.vllm_engine.onload_weights.remote(tags=['weights']))
+                future.wait(refs, return_output=True)
 
+                # parameter sync
                 sync_group.sync(requires_grad, validate, dryrun=dryrun)
 
+                # offload policy trainer
                 future.wait(src_model.offload())
-                future.wait(dst_model.offload())
+
+                # onload policy kv cache
+                refs = []
+                for replica in dst_model.replicas:
+                    refs.append(replica.vllm_engine.onload_weights.remote(tags=['kv_cache']))
+                future.wait(refs, return_output=True)
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):
@@ -244,7 +255,7 @@ class ModelManager:
         model.finalize()
 
         def actor_type():
-            if isinstance(model, VLLMModuleV2):
+            if isinstance(model, VLLMModule):
                 return DistVLLMActor
             if isinstance(model, TorchModule):
                 return DistTorchActor
@@ -374,7 +385,7 @@ class ModelManager:
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
                 num_gpus = 1.0 / len(replicas)
-                if isinstance(replica.model, VLLMModuleV2) and replica.vllm_engine is None:
+                if isinstance(replica.model, VLLMModule) and replica.vllm_engine is None:
                     num_gpus = num_gpus / 2
                     replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors

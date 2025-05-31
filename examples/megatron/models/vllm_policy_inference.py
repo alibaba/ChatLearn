@@ -20,16 +20,10 @@ import random
 import torch
 import torch.nn.functional as F
 
-from chatlearn.models.vllm import is_vllm_v2
+from chatlearn import VLLMModule
 from examples.megatron.data.prompt_dataset import VLLMPromptPipeline
 from .utils import get_loss_mask
 
-# pylint: disable=ungrouped-imports
-if is_vllm_v2():
-    from chatlearn import VLLMModuleV2 as VLLMModule
-else:
-    from chatlearn import VLLMModule
-# pylint: enable=ungrouped-imports
 
 
 class VLLMPolicyInference(VLLMModule):

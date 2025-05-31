@@ -16,21 +16,16 @@
 
 import importlib
 import os
-from .. import is_vllm_v2
+import warnings
 
 
 if importlib.util.find_spec("vllm"):
 
     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
-    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_3_0:
-        from chatlearn.models.vllm.hooks.vllm_0_3_0 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_5_1:
-        from chatlearn.models.vllm.hooks.vllm_0_5_1 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-        from chatlearn.models.vllm.hooks.vllm_0_6_3 import *
-    elif CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_6:
-        from .vllm_0_6_6 import *
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
+        from .vllm_0_8_5 import *
     else:
         raise RuntimeError(
-            f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while {CURRENT_VLLM_VERSION}.")
+            f"vLLM version expected in {list(member.value for member in VLLMVersion)}, while {CURRENT_VLLM_VERSION}. \
+            if you want to use previous vllm version, please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b")
