@@ -13,3 +13,4 @@ dist/
 *.egg-info/
 docs/zh/api/doc/*.rst
 *._*py
+.vscode/
