@@ -19,7 +19,6 @@ import importlib
 from chatlearn import hooks
 from chatlearn.launcher.initialize import init
 from chatlearn.models.base_module import BaseModule
-from chatlearn.models.deepspeed_module import DeepSpeedModule
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.fsdp_module import FSDPModule
@@ -44,15 +43,10 @@ if vllm_exist:
     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion  # pylint: disable=ungrouped-imports
     if CURRENT_VLLM_VERSION in [version.value for version in VLLMVersion]:
         from chatlearn.models.vllm_module import VLLMModule
-        from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+    else:
+        raise Exception("only vllm0.8.5 support, if you want to use previous vllm version, \
+                         please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b")
 
-        # for compatibility, remove later
-        class RLHFVLLMModule(VLLMModule):
-            """RLHFVLLMModule is deprecated, please use VLLMModule"""
-
-            def __init__(self, *args, **kwargs):
-                super().__init__(*args, **kwargs)
-                logger.warning("RLHFVLLMModule is deprecated, please use VLLMModule")
 
 
 # for compatibility, remove later

@@ -29,8 +29,14 @@ import numpy as np
 
 import torch
 import torch.distributed
+from vllm.distributed.parallel_state import init_world_group
+from vllm.model_executor.model_loader.utils import set_default_torch_dtype as _set_default_torch_dtype
+from vllm.distributed import parallel_state as mpu
+from vllm.distributed.parallel_state import initialize_model_parallel
+from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
+from vllm.distributed.utils import get_pp_indices
+from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
 
-from chatlearn.models.vllm import is_vllm_v2
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.utils import get_use_legacy_models
 
@@ -45,26 +51,6 @@ try:
     from chatlearn.utils.megatron_import_helper import unwrap_model
 except ImportError:
     print("Cannot import megatron, please set megatron python path first.")
-
-try:
-    from chatlearn.utils.vllm_import_helper import init_world_group
-except ImportError:
-    print("Cannot import init_world_group for vLLM 0.5.1, please install vLLM 0.5.1 first.")
-
-try:
-    from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_rank
-    from chatlearn.utils.vllm_import_helper import get_pipeline_model_parallel_world_size
-    from chatlearn.utils.vllm_import_helper import _set_default_torch_dtype
-    from chatlearn.utils.vllm_import_helper import parallel_state as mpu
-    from chatlearn.utils.vllm_import_helper import initialize_model_parallel
-    from chatlearn.utils.vllm_import_helper import initialize_dummy_weights
-except ImportError:
-    print("Cannot import vllm, please install vllm 0.3.0 or 0.5.1 first.")
-
-try:
-    from chatlearn.utils.vllm_import_helper import get_pp_indices
-except ImportError:
-    print("Cannot import vllm, please install vllm 0.6.3 first.")
 
 from .constant import QwenVersion
 
@@ -117,6 +103,16 @@ mcore_to_transformers = {
     "mlp.linear_fc2": ".mlp.down_proj.",
 }
 
+def get_model_architecture(config):
+    return get_model_architecture_v2(config)[0]
+
+
+def get_pipeline_model_parallel_rank():
+    return mpu.get_pp_group().rank_in_group
+
+
+def get_pipeline_model_parallel_world_size():
+    return mpu.get_pp_group().world_size
 
 class ParameterSyncMap:
     """Base ParameterSyncMap."""
@@ -180,7 +176,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
     """sync map:megatron to llama transformer"""
     def __init__(self, src_names, layer_offset):
         src_prefix = "module.module.language_model"
-        dst_prefix = "model" if is_vllm_v2() else "model.model"
+        dst_prefix = "model"
         # The regex to extract layer names.
         self.layer_re = re.compile(rf"{src_prefix}.encoder.layers\.(\d+)\.([a-z0-9_.]+)\.([a-z]+)")
         self.src_prefix = src_prefix
@@ -196,7 +192,7 @@ class Megatron2LlamaSyncMap(ParameterSyncMap):
         }
         self._final_layer_sync_map = {
             f"{src_prefix}.encoder.final_norm.weight": f"{dst_prefix}.norm.weight",
-            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight"
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
@@ -269,7 +265,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
     """sync map:megatron-core to llama transformer"""
     def __init__(self, src_names, layer_offset):
         src_prefix = "module.module"
-        dst_prefix = "model" if is_vllm_v2() else "model.model"
+        dst_prefix = "model"
         # The regex to extract layer names.
         self.layer_re = re.compile(rf"{src_prefix}.decoder.layers\.(\d+)\.([a-z0-9_.]+)[\._]([a-z]+)")
         self.src_prefix = src_prefix
@@ -285,7 +281,7 @@ class MCore2LlamaSyncMap(ParameterSyncMap):
         }
         self._final_layer_sync_map = {
             f"{src_prefix}.decoder.final_layernorm.weight": f"{dst_prefix}.norm.weight",
-            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight"
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
@@ -426,7 +422,7 @@ class MCore2MoonlightSyncMap(ParameterSyncMap):
     """
     def __init__(self, src_names, layer_offset):
         src_prefix = "module.module"
-        dst_prefix = "model" if is_vllm_v2() else "model.model"
+        dst_prefix = "model"
         # The regex to extract layer names.
         #! add ([0-9]*) to extract experts_id for grouped GEMM
         self.layer_re = re.compile(rf"{src_prefix}.decoder.layers\.(\d+)\.([a-z0-9_.]+)[\._]([a-z]+)([0-9]*)")
@@ -465,7 +461,7 @@ class MCore2MoonlightSyncMap(ParameterSyncMap):
 
         self._final_layer_sync_map = {
             f"{src_prefix}.decoder.final_layernorm.weight": f"{dst_prefix}.norm.weight",
-            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight"
         }
         self._concat_params_dict = None
         self._to_fix_shared_expert_ordering = None
@@ -574,7 +570,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
             mlp_dense_name = ".mlp.c_proj."
             final_norm = "ln_f"
         elif qwen_version == QwenVersion.v_2:
-            dst_prefix = "model" if is_vllm_v2() else "model.model"
+            dst_prefix = "model"
             embed_name = "embed_tokens"
             att_dense_name = ".self_attn.o_proj."
             self.layer_prefix = "layers"
@@ -610,7 +606,7 @@ class Megatron2QWenSyncMap(ParameterSyncMap):
         self._final_layer_sync_map = {
             f"{src_prefix}.encoder.final_layernorm.bias": f"{dst_prefix}.{final_norm}.bias",
             f"{src_prefix}.encoder.final_layernorm.weight": f"{dst_prefix}.{final_norm}.weight",
-            f"{src_prefix}.output_layer.weight": "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
+            f"{src_prefix}.output_layer.weight": "lm_head.weight"
         }
         self._concat_params_dict = {
             "modules": ["mlp.w1", "mlp.w2"],
@@ -811,7 +807,7 @@ def _init_distributed_environment(args):
             world_size=args.world_size, rank=args.rank,
             timeout=timedelta(minutes=args.distributed_timeout_minutes))
 
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_5_1, VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
         _WORLD = None
         if _WORLD is None:
             ranks = list(range(torch.distributed.get_world_size()))
@@ -1044,7 +1040,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Convert.
     print("Start to convert...")
-    prefix_name = "model" if is_vllm_v2() else "model.model"
+    prefix_name = "model"
 
     # Embeddings
     print("Converting embeddings")
@@ -1077,7 +1073,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
 
     # Transformer Layers
     print("Converting transformer layers")
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
         start_layer_idx, _ = get_pp_indices(
             hf_config.num_hidden_layers,
             pp_rank,
@@ -1176,7 +1172,7 @@ def convert_llama_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version
         assert not params, "weight name of lm_head expect 'model.language_model.output_layer.weight'."
     elif params is not None:
         print("Converting LM head")
-        output_state_dict["lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+        output_state_dict["lm_head.weight"] = params.to(hf_config.torch_dtype)
 
     # It should be done!
     print("Conversion from Megatron-LM to Transformers is done!")
@@ -1226,7 +1222,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
 
     # Convert.
     print("Start to convert...")
-    prefix_name = "model" if is_vllm_v2() else "model.model"
+    prefix_name = "model"
 
     # Embeddings
     print("Converting embeddings")
@@ -1351,7 +1347,7 @@ def convert_llama_state_dict_from_mcore_to_vllm(args, hf_config, qwen_version=No
     # For LM head, transformers' wants the matrix to weight embeddings.
     print("Converting LM head")
     params = tp_state_dicts[tp_rank]['model'].get('output_layer.weight', None)
-    output_state_dict["lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"] = params.to(hf_config.torch_dtype)
+    output_state_dict["lm_head.weight"] = params.to(hf_config.torch_dtype)
 
     # It should be done!
     print("Conversion from Megatron-Core to Transformers is done!")
@@ -1371,7 +1367,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
         final_norm = "ln_f"
         func_map = megatron_qwen_to_transformers
     elif qwen_version == QwenVersion.v_2:
-        prefix_name = "model." if is_vllm_v2() else "model.model."
+        prefix_name = "model."
         embed_name = "embed_tokens"
         layer_prefix = "layers"
         final_norm = "norm"
@@ -1442,7 +1438,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # Transformer Layers
     print("Converting transformer layers")
-    if CURRENT_VLLM_VERSION in [VLLMVersion.v_0_6_3, VLLMVersion.v_0_6_6]:
+    if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
         start_layer_idx, _ = get_pp_indices(
             hf_config.num_hidden_layers,
             pp_rank,
@@ -1628,7 +1624,7 @@ def convert_qwen_state_dict_from_megatron_to_vllm(args, hf_config, qwen_version=
 
     # For LM head, transformers' wants the matrix to weight embeddings.
     print("Converting LM head")
-    lm_head_name = "lm_head.weight" if is_vllm_v2() else "model.lm_head.weight"
+    lm_head_name = "lm_head.weight"
     if megatron_args.untie_embeddings_and_output_weights:
         if hasattr(megatron_args, "moe_num_experts") and megatron_args.moe_num_experts:
             params = get_element_from_dict_by_path(final_state_dicts[tp_rank], 'model.language_model.output_layer.weight')
@@ -1952,3 +1948,8 @@ def get_checkpoint_name(checkpoints_path, iteration, release=False,
     if not os.path.exists(model_path):
         model_path = os.path.join(common_path, "model_rng.pt")
     return model_path
+
+def vllm_use_v1():
+    if "VLLM_USE_V1" not in os.environ:
+        os.environ["VLLM_USE_V1"] = "1"
+    return bool(int(os.getenv("VLLM_USE_V1", "1")))

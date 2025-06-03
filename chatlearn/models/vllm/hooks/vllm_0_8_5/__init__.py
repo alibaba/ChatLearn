@@ -12,15 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Additional hooks of vllm-0.6.6."""
-
-from ... import is_vllm_v2
+"""Additional hooks of vllm-0.8.5."""
 
 from . import async_llm_engine
-from . import input_preprocess
 from . import llm
 from . import llm_engine
 from . import loader
-from . import ray_gpu_executor
+from . import ray_distributed_executor
 from . import worker_base
-from . import registry
+from . import logits_processor

@@ -12,30 +12,36 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.3 worker_base to update execute_method."""
+"""Hooks of vllm-0.6.6 worker_base to update execute_method."""
 
 # pylint: disable=unused-import,wildcard-import
+from typing import Union
 from vllm.worker import worker_base
 from vllm.worker.worker_base import logger
+from vllm.utils import run_method
 
 
-def execute_method(self, method, *args, **kwargs):
+del worker_base.WorkerWrapperBase.__getattr__
+def execute_method(self, method: Union[str, bytes], *args, **kwargs):
     try:
         if self.worker is None:
             target = self
         else:
-            if hasattr(self.worker, method):
-                target = self.worker
-            else:
+            if hasattr(self, method):
                 target = self
-        executor = getattr(target, method)
-        return executor(*args, **kwargs)
+            else:
+                target = self.worker
+        # method resolution order:
+        # if a method is defined in this class, it will be called directly.
+        # otherwise, since we define `__getattr__` and redirect attribute
+        # query to `self.worker`, the method will be called on the worker.
+        return run_method(target, method, args, kwargs)
     except Exception as e:
         # if the driver worker also execute methods,
         # exceptions in the rest worker may cause deadlock in rpc like ray
         # see https://github.com/vllm-project/vllm/issues/3455
         # print the error and inform the user to solve the error
-        msg = (f"Error executing method {method}. "
+        msg = (f"Error executing method {method!r}. "
                 "This might cause deadlock in distributed execution.")
         logger.exception(msg)
         raise e

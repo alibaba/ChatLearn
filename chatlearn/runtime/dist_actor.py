@@ -29,8 +29,6 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-    from chatlearn.models.vllm_module_v2 import VLLMModuleV2
-    from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
 RAY_REMOTE = "remote"
 
@@ -235,22 +233,16 @@ class DistVLLMActor(DistTorchActor):
         self.vllm_engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
-        if CURRENT_VLLM_VERSION == VLLMVersion.v_0_6_3:
-            kwargs = {
-                "worker_module_name": "vllm.worker.worker",
-                "worker_class_name": "Worker",
-                "worker_class_fn": None,
-                "trust_remote_code": True,
-            }
-        else:
-            kwargs = {
-                "vllm_actor_type" : "worker"
-            }
+
+        kwargs = {
+            "vllm_actor_type" : "worker",
+            "rpc_rank" : len(self.all_actors)
+        }
+
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
         self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
-        self.model.engine = self.vllm_engine
 
     def call_vllm_engine_remote_funcs(self, func_name, *args, **kwargs):
         """
@@ -282,9 +274,9 @@ class DistVLLMActor(DistTorchActor):
                 dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
             elif func_name in ["onload", "offload"]:
                 if func_name == "onload":
-                    new_func_name = "onload_for_workers"
+                    new_func_name = "onload_weights"
                 else:
-                    new_func_name = "offload_for_workers"
+                    new_func_name = "offload_weights"
                 dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
                 dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
@@ -293,6 +285,9 @@ class DistVLLMActor(DistTorchActor):
             else: # needed to check for other call_funs.
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
+
+    def setup_vllm_engine(self):
+        return self.vllm_engine.setup_vllm.remote(self.all_actors)
 
     @property
     def master(self):
@@ -422,7 +417,7 @@ class DistModel:
 
     @property
     def use_vllm_backend(self):
-        return vllm_exist and isinstance(self.replicas[0].model, (VLLMModule, VLLMModuleV2))
+        return vllm_exist and isinstance(self.replicas[0].model, VLLMModule)
 
     def group_dist_actors_by_tp_rank(self):
         for replica in self.replicas:

@@ -38,4 +38,4 @@ jobs:
         docker pull $UT_IMAGE
         docker run -v $PWD:$PWD -w $PWD --name chatlearn_ut_$(date '+%d_%m_%Y_%H_%M_%S') --net host --ipc host --shm-size 80G -t --rm --gpus all $UT_IMAGE bash -c 'make test'
       env: 
-        UT_IMAGE: registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:2.4.0-gpu-py3.10-cu12.5-ngc24.06-ubuntu22.04
+        UT_IMAGE: dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.6.0-vllm0.8.5-ubuntu24.04-cuda12.6-py312

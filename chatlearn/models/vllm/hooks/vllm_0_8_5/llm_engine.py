@@ -12,26 +12,27 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.6 llm_engine remove __reduce__ function."""
+"""Hooks of vllm-0.8.5 llm_engine remove __reduce__ function."""
 
 import inspect
 from typing import Dict, Optional
 
-# pylint: disable=unused-import,wildcard-import,unused-argument
-from vllm.engine import llm_engine
+# pylint: disable=unused-import,wildcard-import,unused-argument,wrong-import-order
+from chatlearn.utils.vllm_utils import vllm_use_v1
 from vllm.engine.metrics_types import StatLoggerBase
-from vllm.executor.ray_gpu_executor import RayGPUExecutor
 from vllm.usage.usage_lib import UsageContext
+if vllm_use_v1():
+    from vllm.v1.engine import llm_engine
+else:
+    from vllm.engine import llm_engine
+    source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
+    if 'RuntimeError' in source:
+        def __reduce__(self):
+            # This is to ensure that the LLMEngine can be referenced in
+            # the closure used to initialize Ray worker actors
+            pass
 
-
-source = inspect.getsource(llm_engine.LLMEngine.__reduce__)
-if 'RuntimeError' in source:
-    def __reduce__(self):
-        # This is to ensure that the LLMEngine can be referenced in
-        # the closure used to initialize Ray worker actors
-        pass
-
-    del llm_engine.LLMEngine.__reduce__
+        del llm_engine.LLMEngine.__reduce__
 
 
 @classmethod
@@ -44,7 +45,12 @@ def from_engine_args(
     """Creates an LLM engine from the engine arguments."""
     # Create the engine configs.
     engine_config = engine_args.create_engine_config(usage_context)
-    executor_class = RayGPUExecutor
+    if vllm_use_v1():
+        from vllm.v1.executor.ray_distributed_executor import RayDistributedExecutor # pylint: disable=import-outside-toplevel
+        executor_class = RayDistributedExecutor
+    else:
+        from vllm.executor.ray_distributed_executor import RayDistributedExecutor # pylint: disable=import-outside-toplevel
+        executor_class = RayDistributedExecutor
     # Create the LLM engine.
     engine = cls( # pylint: disable=not-callable
         vllm_config=engine_config,

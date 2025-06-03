@@ -12,44 +12,50 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Hooks of vllm-0.6.6 llm init with AsyncLLMEngine and AsyncEngineArgs."""
+"""Hooks of vllm-0.8.5 llm init with AsyncLLMEngine and AsyncEngineArgs."""
 
-from typing import Any, Dict, Optional, Union
+from typing import Any, Optional, Union
+import cloudpickle
 
 # pylint: disable=unused-import,wildcard-import,unused-argument,unexpected-keyword-arg
+from vllm.config import CompilationConfig
 from vllm.engine.arg_utils import AsyncEngineArgs, HfOverrides, TaskOption, PoolerConfig
-from vllm.engine.async_llm_engine import AsyncLLMEngine
 from vllm.entrypoints import llm
+from vllm import envs
 from vllm.usage.usage_lib import UsageContext
 from vllm.utils import Counter
+from vllm.engine.llm_engine import LLMEngine
 
-def init(self,
-        model: str,
-        tokenizer: Optional[str] = None,
-        tokenizer_mode: str = "auto",
-        skip_tokenizer_init: bool = False,
-        trust_remote_code: bool = False,
-        allowed_local_media_path: str = "",
-        tensor_parallel_size: int = 1,
-        dtype: str = "auto",
-        quantization: Optional[str] = None,
-        revision: Optional[str] = None,
-        tokenizer_revision: Optional[str] = None,
-        seed: int = 0,
-        gpu_memory_utilization: float = 0.9,
-        swap_space: float = 4,
-        cpu_offload_gb: float = 0,
-        enforce_eager: Optional[bool] = None,
-        max_seq_len_to_capture: int = 8192,
-        disable_custom_all_reduce: bool = False,
-        disable_async_output_proc: bool = False,
-        hf_overrides: Optional[HfOverrides] = None,
-        mm_processor_kwargs: Optional[Dict[str, Any]] = None,
-        # After positional args are removed, move this right below `model`
-        task: TaskOption = "auto",
-        override_pooler_config: Optional[PoolerConfig] = None,
-        compilation_config: Optional[Union[int, Dict[str, Any]]] = None,
-        **kwargs,) -> None:
+def init(
+    self,
+    model: str,
+    tokenizer: Optional[str] = None,
+    tokenizer_mode: str = "auto",
+    skip_tokenizer_init: bool = False,
+    trust_remote_code: bool = False,
+    allowed_local_media_path: str = "",
+    tensor_parallel_size: int = 1,
+    dtype: str = "auto",
+    quantization: Optional[str] = None,
+    revision: Optional[str] = None,
+    tokenizer_revision: Optional[str] = None,
+    seed: Optional[int] = None,
+    gpu_memory_utilization: float = 0.9,
+    swap_space: float = 4,
+    cpu_offload_gb: float = 0,
+    enforce_eager: Optional[bool] = None,
+    max_seq_len_to_capture: int = 8192,
+    disable_custom_all_reduce: bool = False,
+    disable_async_output_proc: bool = False,
+    hf_token: Optional[Union[bool, str]] = None,
+    hf_overrides: Optional[HfOverrides] = None,
+    mm_processor_kwargs: Optional[dict[str, Any]] = None,
+    # After positional args are removed, move this right below `model`
+    task: TaskOption = "auto",
+    override_pooler_config: Optional[PoolerConfig] = None,
+    compilation_config: Optional[Union[int, dict[str, Any]]] = None,
+    **kwargs,
+) -> None:
     '''
     LLM constructor.
 
@@ -60,6 +66,13 @@ def init(self,
     if "disable_log_stats" not in kwargs:
         kwargs["disable_log_stats"] = True
 
+    if "worker_cls" in kwargs:
+        worker_cls = kwargs["worker_cls"]
+        # if the worker_cls is not qualified string name,
+        # we serialize it using cloudpickle to avoid pickling issues
+        if isinstance(worker_cls, type):
+            kwargs["worker_cls"] = cloudpickle.dumps(worker_cls)
+
     if compilation_config is not None:
         if isinstance(compilation_config, (int, dict)):
             compilation_config_instance = CompilationConfig.from_cli(
@@ -68,7 +81,7 @@ def init(self,
             compilation_config_instance = compilation_config
     else:
         compilation_config_instance = None
-
+    ## monkey patch EngineArgs -> AsyncEngineArgs
     engine_args = AsyncEngineArgs(
         model=model,
         task=task,
@@ -90,20 +103,20 @@ def init(self,
         max_seq_len_to_capture=max_seq_len_to_capture,
         disable_custom_all_reduce=disable_custom_all_reduce,
         disable_async_output_proc=disable_async_output_proc,
+        hf_token=hf_token,
         hf_overrides=hf_overrides,
         mm_processor_kwargs=mm_processor_kwargs,
         override_pooler_config=override_pooler_config,
         compilation_config=compilation_config_instance,
         **kwargs,
     )
-    # Logic to switch between engines is done at runtime instead of import
-    # to avoid import order issues
-    self.engine_class = self.get_engine_class()
 
-    # TODO(rob): enable mp by default (issue with fork vs spawn)
-    self.llm_engine = self.engine_class.from_engine_args(
-        engine_args, usage_context=UsageContext.LLM_CLASS)
+    # Create the Engine (autoselects V0 vs V1)
+    self.llm_engine = LLMEngine.from_engine_args(
+        engine_args=engine_args, usage_context=UsageContext.LLM_CLASS)
+    self.engine_class = type(self.llm_engine)
 
     self.request_counter = Counter()
+    self.default_sampling_params: Union[dict[str, Any], None] = None
 
 llm.LLM.__init__ = init

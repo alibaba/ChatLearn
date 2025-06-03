@@ -20,7 +20,7 @@ from itertools import cycle
 from ray.util.queue import Queue
 import torch
 
-from chatlearn.models.vllm_module_v2 import VLLMModuleV2
+from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.model_flow import ModelFlow
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG
@@ -297,7 +297,7 @@ class Executor:
 
         replica_num = len(model.replicas)
         output = []
-        if isinstance(replica.model, VLLMModuleV2):
+        if isinstance(replica.model, VLLMModule):
             last_step_start = max(self.num_iteration(model) - replica_num, 0)
             is_last_batch = step_num >= last_step_start
             kwargs["is_last_batch"] = is_last_batch
