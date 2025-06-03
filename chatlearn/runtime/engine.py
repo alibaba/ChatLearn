@@ -24,7 +24,6 @@ from chatlearn.data.data import StreamDataset
 from chatlearn.models.base_module import BaseModule
 from chatlearn.runtime.dist_actor import DistVLLMActor
 from chatlearn.runtime.environment import Environment
-from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.schedule.model_manager import ModelManager
 from chatlearn.schedule.resource_manager import ResourceManager

@@ -19,7 +19,6 @@ from itertools import cycle
 from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
-from chatlearn.utils.utils import execute_in_parallel
 from .executor import Executor
 from .utils import encode_data
 
