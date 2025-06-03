@@ -1,2 +1,0 @@
-prompt_key: ${prompt_key}
-num_tokenize_threads: ${num_tokenize_threads:4}

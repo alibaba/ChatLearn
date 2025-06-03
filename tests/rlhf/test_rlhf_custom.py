@@ -4,7 +4,6 @@ from torch.utils.data import Dataset
 import chatlearn
 from chatlearn import Engine
 from chatlearn import TorchModule
-from chatlearn import EvalEngine
 from chatlearn import RLHFEngine
 
 from chatlearn.runtime.environment import Environment
@@ -106,8 +105,6 @@ def test_rlhf_data_input():
         policy_out = policy.forward_step(batch)
         ref_out = reference.forward_step(policy_out, batch)
         return ref_out
-
-    engine = EvalEngine(env_compute_flow)
 
     assert policy.num_replica == 1
     assert reference.num_replica == 1

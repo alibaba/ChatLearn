@@ -1,5 +1,0 @@
-includes:
-        - base_inference.yaml
-        - reward_shared.yaml
-
-math_reward_strategy: merge
