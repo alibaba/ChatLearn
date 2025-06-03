@@ -17,10 +17,10 @@
 import argparse
 from importlib import import_module
 import sys
+from typing import Dict, Tuple, Type, Any
 import hydra
 from hydra.core.global_hydra import GlobalHydra
 from hydra.core.config_store import ConfigStore
-from typing import Dict, Tuple, Type, Any
 # from chatlearn.algorithm.base_algo import BaseAlgorithm
 from algorithm.base_algo import BaseAlgorithm
 from omegaconf import OmegaConf
@@ -38,10 +38,10 @@ ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
 
 class ChatlearnLauncher:
     """ChatlearnLauncher"""
-    
+
     def __init__(self) -> None:
         self.parser = self._create_parser()
-        
+
 
     def _create_parser(self) -> argparse.ArgumentParser:
         parser = argparse.ArgumentParser(
@@ -49,13 +49,13 @@ class ChatlearnLauncher:
             formatter_class=argparse.RawDescriptionHelpFormatter,
             # add_help=False,
         )
-        
+
         subparsers = parser.add_subparsers(
-            title="Available algorithms", 
+            title="Available algorithms",
             dest="algorithm",
             metavar="ALGORITHM"
         )
-        
+
         for algo_name in ALGO_REGISTRY:
             algo_parser = subparsers.add_parser(
                 algo_name,
@@ -73,7 +73,7 @@ class ChatlearnLauncher:
                 nargs=argparse.REMAINDER,
                 help="Hydra configs (e.g. ++key=value)"
             )
-        
+
         return parser
 
 
@@ -92,7 +92,7 @@ class ChatlearnLauncher:
         algo_cls, config_cls = self._load_algorithm(algo_args.algorithm)
         cs = ConfigStore.instance()
         cs.store(name=algo_args.algorithm, node=config_cls)
-        
+
         GlobalHydra.instance().clear()
         with hydra.initialize(config_path=None, version_base=None):
             cfg = hydra.compose(config_name=algo_args.algorithm, overrides=algo_args.hydra_args)
@@ -111,18 +111,18 @@ class ChatlearnLauncher:
 
     def run(self) -> None:
         args, _ = self.parser.parse_known_args()
-        
+
         if not args.algorithm:
             self.parser.print_help()
             return
-        
+
         if args.algorithm not in ALGO_REGISTRY:
             print(f"ERROR: Unknown algorithm {args.algorithm}")
             self.parser.print_help()
             sys.exit(1)
-        
+
         algo_args = self.parser.parse_args()
-        
+
         try:
             self._run_algorithm(algo_args)
         except Exception as e:
