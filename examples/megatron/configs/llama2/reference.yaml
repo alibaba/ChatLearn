@@ -1,7 +1,0 @@
-includes:
-  - base_inference.yaml
-  - policy_shared.yaml
-
-parallel_output: True
-tensor_model_parallel_size: ${policy_tp}
-pipeline_model_parallel_size: ${ref_pp:1}

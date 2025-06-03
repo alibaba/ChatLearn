@@ -4,7 +4,6 @@ from torch.utils.data import Dataset
 import chatlearn
 from chatlearn import Engine
 from chatlearn import TorchModule
-from chatlearn import EvalEngine
 from chatlearn import RLHFEngine
 
 from chatlearn.runtime.environment import Environment
@@ -35,6 +34,28 @@ class ReferenceModel(TorchModule):
         data["ref_out"] = query * 2
         return data
 
+class EvalEngine(Engine):
+    def __init__(self, eval_flow=None, evaluator=None):
+        if evaluator is None:
+            evaluator = Evaluator(eval_flow)
+        super().__init__(evaluator=evaluator)
+    
+    def setup(self):
+        super().setup()
+        self.evaluator.set_multiple_datasets(self._all_datasets)
+        self.evaluator.set_timers(self.timers)
+
+    def eval(self, cur_iter=None, train_iteration=None):
+        """
+        Start evaluating.
+        """
+        self.setup()
+        self.evaluator.setup()
+        self.timers("episode").start()
+        results = self.evaluator.eval(
+            cur_iter=cur_iter, train_iteration=train_iteration)
+        self.timers("episode").stop()
+        return results
 
 def test_rlhf_custom():
     policy = PolicyModel("policy")
@@ -98,7 +119,7 @@ def test_rlhf_cpu():
     engine.stop()
 
 
-def test_rlhf_data_input():
+def test_eval_data_input():
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
 
@@ -107,10 +128,9 @@ def test_rlhf_data_input():
         ref_out = reference.forward_step(policy_out, batch)
         return ref_out
 
-    engine = EvalEngine(env_compute_flow)
-
     assert policy.num_replica == 1
     assert reference.num_replica == 1
+    engine = EvalEngine(env_compute_flow)
     data = torch.ones([1024])
     engine.set_dataset([data] * 35)
 
@@ -118,6 +138,6 @@ def test_rlhf_data_input():
     assert len(engine._all_datasets[0]) == 35, len(engine._all_datasets[0])
     engine.stop()
 
-TEST_CASE = [test_rlhf_custom, test_rlhf_cpu, test_rlhf_data_input]
+TEST_CASE = [test_rlhf_custom, test_rlhf_cpu, test_eval_data_input]
 #TODO breaked from some reason, need to be fixed
 TEST_CASE = [ ]

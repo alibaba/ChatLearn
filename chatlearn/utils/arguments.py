@@ -23,7 +23,7 @@ import re
 import yaml
 
 from chatlearn.utils.constant import (
-    DYNAMIC_BATCH_SIZE, LORA_LAYER, RAY_PG_STRATEGY,
+    DYNAMIC_BATCH_SIZE, RAY_PG_STRATEGY,
     PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE,
     TrainingShffuleMode)
 from chatlearn.utils.logger import logger
@@ -163,50 +163,13 @@ class SubConfig(BaseConfig):
     def is_changed(self):
         return self._is_changed
 
-
-class LoraConfig(SubConfig):
-    """Config for lora"""
-    #: enable lora, default False.
-    enable_lora: bool = False
-    #: The "name_scope" parameter is used to specify a particular module to be converted to its LoRA.
-    #: By default, it is set to None, which means there is no restriction on the module and any module
-    #: can be converted using the "lora_layer" parameter. However, if "name_scope" is set to a specific
-    #: value (e.g., "encoder"), only the modules whose name_scope contains the value "encoder" will be converted to LoRA.
-    part_module_name: str = None
-    #: The rank value of the LoRA, which is the r dimension of the A/B matrix.
-    lora_dim: int = 8
-    #: The LoRA dropout ratio refers to whether dropout computation is inserted in the forward pass
-    #: of the LoRA layer. By default, the dropout ratio is set to 0.0.
-    lora_dropout: float = 0.0
-    #: When adding the values of the LoRA A and B matrices to the original weight matrix,
-    #: the scaling value is set as "W = W + A * B * lora_scaling". By default, the scaling value
-    #: is set to 1.0.
-    lora_scaling: float = 1.0
-    #: The layer class names involved in LoRA training in the model, separated by commas.
-    lora_layer: str = LORA_LAYER
-    #: LoRA training is enabled only in the ColumnParallelLinear layer of the MHA QKV module.
-    column_only_qkv: bool = False
-
-
-class BatchGenerationConfig(SubConfig):
-    """Config for batch generation ranking and memory-efficiency."""
-
-    #: [optional] sort prompts by length each episode.
-    ranking: bool = False
-    #: [optional] min prompt length in the first stage of batch generation.
-    min_prompt_length: int = 0
-
-
 class ModelConfig(BaseConfig):
     """Config for model."""
-
-    #: [legacy] number of GPU used for one model, default 0.
-    num_device: int = 0
-    #: [required] number of GPU used for one model, default 0, same as num_device
+    #: [required] number of GPU used for one model, default 0
     num_gpu: int = 0
     #: [required] number of GPU used for one model, default 0
     num_cpu: int = 0
-    #: [optional] gpu per process, e.g., for PyTorch DDP, Megatron, DeepSpeed, `gpu_per_process` is set to 1
+    #: [optional] gpu per process, e.g., for PyTorch DDP, Megatron, `gpu_per_process` is set to 1
     gpu_per_process: int = None
     #: [optional] cpu per process
     cpu_per_process: int = None
@@ -237,10 +200,6 @@ class ModelConfig(BaseConfig):
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
     generation_batch_size: int = None
-    #: lora config
-    lora: LoraConfig = None
-    #: batch generation config
-    batch_generation: BatchGenerationConfig = None
     #: offload optimizer states
     offload_optimizer_states = False
     #: parameter sync frequency
@@ -257,8 +216,6 @@ class ModelConfig(BaseConfig):
     def __init__(self):
         super().__init__()
         self.args_dict = {}
-        self.lora = LoraConfig()
-        self.batch_generation = BatchGenerationConfig()
 
     def __str__(self):
         members = [attr for attr in dir(self) \
@@ -268,9 +225,6 @@ class ModelConfig(BaseConfig):
             if key.startswith('_'):
                 continue
             attr = getattr(self, key)
-            if key in ["lora", "batch_generation"]:
-                if not attr.is_changed():
-                    continue
             attr = '"{}"'.format(attr) if isinstance(attr, str) else attr
             ser_str += "    %s = %s,\n" % (key, attr)
         ser_str += "}"
@@ -493,19 +447,6 @@ class Config(BaseConfig):
             for user_attribute, user_value in model_args.items():
                 if hasattr(ModelConfig, user_attribute):
                     original_value = getattr(ModelConfig, user_attribute)
-                    if 'num_device' == user_attribute:
-                        logger.warning("num_device is deprecated, please use num_gpu instead")
-                        if 'num_gpu' not in model_args.keys():
-                            setattr(model_config, "num_gpu", user_value)
-                        else:
-                            logger.warning("both num_device and num_gpu are set, use num_gpu")
-                            continue
-                    if 'lora' == user_attribute:
-                        set_param(user_value, LoraConfig, model_config.lora)
-                        user_value = model_config.lora
-                    elif "batch_generation" == user_attribute:
-                        set_param(user_value, BatchGenerationConfig, model_config.batch_generation)
-                        user_value = model_config.batch_generation
                     if original_value is not None:
                         assert isinstance(user_value, type(original_value)), \
                             f"ModelConfig.{user_attribute} should be type of {type(original_value)} but got {type(user_value)} ({user_value})"
@@ -644,9 +585,6 @@ class Config(BaseConfig):
             assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \
                 f"{model_name}: num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
                 f"should be less than or equal to sample_per_episode {self.runtime_args.sample_per_episode}"
-            if model_args.batch_generation.min_prompt_length:
-                logger.info(f"Enable batch generation: \
-                    min_prompt_length = {model_args.batch_generation.min_prompt_length}")
             if model_args.free_memory:
                 model_args.offload_weights = True
                 if model_args.trainable:

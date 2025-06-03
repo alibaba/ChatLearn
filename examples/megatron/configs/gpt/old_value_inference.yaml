@@ -1,5 +1,0 @@
-includes:
-        - base_inference.yaml
-        - reward_shared.yaml
-
-pipeline_model_parallel_size: ${value_pp:1}

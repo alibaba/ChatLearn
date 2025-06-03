@@ -22,45 +22,11 @@ from chatlearn.models.base_module import BaseModule
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.fsdp_module import FSDPModule
-from chatlearn.runtime.engine import DPOEngine
-from chatlearn.runtime.engine import Engine
+from chatlearn.runtime.engine import Engine, RLHFEngine
 from chatlearn.runtime.engine import Environment
-from chatlearn.runtime.engine import EvalEngine
-from chatlearn.runtime.engine import OnlineDPOEngine
-from chatlearn.runtime.engine import GRPOEngine
-from chatlearn.runtime.engine import GRPOMathEngine
-from chatlearn.runtime.engine import RLHFEngine
 from chatlearn.runtime.engine import Trainer
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.model_flow import ControlDependencies
 from chatlearn.utils.future import get
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-
-
-
-# for compatibility, remove later
-class RLHFModule(BaseModule):
-    """RLHFModule is deprecated, please use BaseModule"""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        logger.warning("RLHFModule is deprecated, please use BaseModule")
-
-
-# for compatibility, remove later
-class RLHFTorchModule(TorchModule):
-    """RLHFTorchModule is deprecated, please use TorchModule"""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        logger.warning("RLHFTorchModule is deprecated, please use TorchModule")
-
-
-# for compatibility, remove later
-class RLHFMegatronModule(MegatronModule):
-    """RLHFMegatronModule is deprecated, please use MegatronModule"""
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        logger.warning("RLHFMegatronModule is deprecated, please use MegatronModule")
