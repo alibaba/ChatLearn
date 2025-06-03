@@ -87,10 +87,10 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             dtype = "float16"
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
-        if load_format == LoadFormat.DUMMY:
-            model_loader_extra_config = self.model_args
-        else:
-            model_loader_extra_config = None
+        # if load_format == LoadFormat.DUMMY:
+        #     model_loader_extra_config = self.model_args
+        # else:
+        #     model_loader_extra_config = None
 
         if self.model_args.get("apply_replica_id_to_seed", True):
             seed = self.model_args.get("seed", 0) + self.replica_id
@@ -106,7 +106,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
-            model_loader_extra_config=model_loader_extra_config,
+            # model_loader_extra_config=model_loader_extra_config,
             # parallelism strategy
             tensor_parallel_size=self.module_args.tensor_model_parallel_size,
             pipeline_parallel_size=self.module_args.pipeline_model_parallel_size,
@@ -157,10 +157,10 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             dtype = "float16"
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
-        if load_format == LoadFormat.DUMMY:
-            model_loader_extra_config = self.model_args
-        else:
-            model_loader_extra_config = None
+        # if load_format == LoadFormat.DUMMY:
+        #     model_loader_extra_config = self.model_args
+        # else:
+        #     model_loader_extra_config = None
 
         if self.model_args.get("apply_replica_id_to_seed", True):
             seed = self.model_args.get("seed", 0) + self.replica_id
@@ -173,7 +173,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
-            model_loader_extra_config=model_loader_extra_config,
+            # model_loader_extra_config=model_loader_extra_config,
             # parallelism strategy
             tensor_parallel_size=self.module_args.tensor_model_parallel_size,
             pipeline_parallel_size=self.module_args.pipeline_model_parallel_size,
