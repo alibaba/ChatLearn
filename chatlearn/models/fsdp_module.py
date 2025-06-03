@@ -192,24 +192,6 @@ class FSDPModule(TorchModule):
         )
         self.timers("empty_cache").stop()
 
-    def check_param_exists(self, names):
-        """
-        check if the given names exists in current model
-
-        :meta private:
-        """
-        not_exists = []
-        for name in names:
-            if not self.exist_parameter(name):
-                not_exists.append(name)
-        if not_exists:
-            log_rank_0(
-                f"parameters not exists: {not_exists} in model {self.name}",
-                self._logger,
-            )
-            return False
-        return True
-
     def create_model(self, model_path, torch_dtype):
         model = AutoModelForCausalLM.from_pretrained(
             pretrained_model_name_or_path=model_path,

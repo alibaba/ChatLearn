@@ -147,9 +147,6 @@ class BaseModule:
         self._stage_resume_done = False
         logger.info(f"{LOG_START} basemodule {name} init done")
 
-    def get_sync_buffer(self):
-        return self._sync_buffer
-
     def set_tp_num_mapping(self, _tp_num_mapping):
         self._tp_num_mapping = _tp_num_mapping
 
@@ -160,14 +157,8 @@ class BaseModule:
     def set_buffer_num(self, buffer_num):
         self._buffer_num.update(buffer_num)
 
-    def get_buffer_num(self, param_names):
-        return [self._buffer_num[name] for name in param_names]
-
     def set_tp_division(self, tp_division):
         self._tp_division.update(tp_division)
-
-    def get_tp_division(self, param_names):
-        return [self._tp_division[name] for name in param_names]
 
     @property
     def is_colocate(self):
@@ -183,12 +174,6 @@ class BaseModule:
         :meta private:
         """
         self._finalized = True
-
-    def _assert_not_finalized(self):
-        """
-        :meta private:
-        """
-        assert not self._finalized, f"{self} is finalized, any change to the class should happen before finalize."
 
     def get_runtime_args(self):
         return self.runtime_args
@@ -774,14 +759,6 @@ class BaseModule:
                 parameters_shape.append((name, param.shape))
         return parameters_shape
 
-    def get_parameter(self, name):
-        """
-        :meta private:
-        """
-        if name not in self.named_parameters:
-            raise Exception(f"parameter {name} not exits")
-        return self.named_parameters[name]
-
     def get_parameter_to_sync(self, name, pipe_stage, to_cpu=False, regroup=False):
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
@@ -807,18 +784,6 @@ class BaseModule:
 
     def get_parameter_to_sync_names(self, pipe_stage):
         return [items[0] for items in self._parameters_to_sync[pipe_stage]]
-
-    def exist_parameter(self, name):
-        """
-        :meta private:
-        """
-        return name in self.named_parameters
-
-    def parameter_shape(self, name):
-        """
-        :meta private:
-        """
-        return self.get_parameter(name).shape
 
     def send_recv_parameter(self, rank, group_name, func, pipe_stage=0):
         """

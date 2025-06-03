@@ -115,7 +115,7 @@ class TorchModule(BaseModule):
         """
         not_exists = []
         for name in names:
-            if not self.exist_parameter(name):
+            if name not in self.named_parameters:
                 not_exists.append(name)
         if not_exists:
             log_rank_0(f"parameters not exists: {not_exists} in model {self.name}", self._logger)
