@@ -12,3 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""base algorithm"""
+
+from abc import ABC, abstractmethod
+
+class BaseAlgorithm(ABC):
+    """BaseAlgorithm"""
+
+    @abstractmethod
+    def run(self):
+        """
+        Run the algorithm.
+        """
