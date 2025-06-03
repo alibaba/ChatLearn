@@ -37,16 +37,6 @@ from chatlearn.utils.future import get
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 
-# vllm_exist = importlib.util.find_spec("vllm")
-# if vllm_exist:
-#     import vllm
-#     from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion  # pylint: disable=ungrouped-imports
-#     if CURRENT_VLLM_VERSION in [version.value for version in VLLMVersion]:
-#         from chatlearn.models.vllm_module import VLLMModule
-#     else:
-#         raise Exception("only vllm0.8.5 support, if you want to use previous vllm version, \
-#                          please git checkout 4ad5912306df5d4a814dc2dd5567fcb26f5d473b")
-
 
 
 # for compatibility, remove later
