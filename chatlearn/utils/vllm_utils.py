@@ -440,6 +440,8 @@ class MCore2MoonlightSyncMap(ParameterSyncMap):
             'self_attention.linear_kv_down_proj': '.self_attn.kv_a_proj_with_mqa.',
             'self_attention.linear_kv_up_proj': '.self_attn.kv_b_proj.',
             "self_attention.linear_proj": ".self_attn.o_proj.",
+            # NOTE: attn
+            "self_attention.linear_qkv": ".self_attn.qkv_proj.",
 
             # NOTE: MoE layer
             'mlp.router': '.mlp.gate.',
@@ -528,8 +530,8 @@ class MCore2MoonlightSyncMap(ParameterSyncMap):
                 self._dst_names.append(layer_name + "." + ln_name + "." + weight_or_bias)
 
             # Transpose the QKV matrix.
-            elif op_name == "self_attention.linear_qkv" and weight_or_bias == 'weight':
-                self._dst_names.append(layer_name + ".self_attn.qkv_proj.weight")
+            elif op_name == "self_attention.linear_qkv":
+                self._dst_names.append(layer_name + f".self_attn.qkv_proj.{weight_or_bias}")
 
             elif 'mlp.experts' in op_name:
                 out_name = layer_name + self.get_dst_name(self.layer_sync_map, op_name)
