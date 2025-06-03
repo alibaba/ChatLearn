@@ -169,7 +169,7 @@ class ModelConfig(BaseConfig):
     num_gpu: int = 0
     #: [required] number of GPU used for one model, default 0
     num_cpu: int = 0
-    #: [optional] gpu per process, e.g., for PyTorch DDP, Megatron, DeepSpeed, `gpu_per_process` is set to 1
+    #: [optional] gpu per process, e.g., for PyTorch DDP, Megatron, `gpu_per_process` is set to 1
     gpu_per_process: int = None
     #: [optional] cpu per process
     cpu_per_process: int = None

@@ -1,3 +1,0 @@
-bf16: True
-flash_attn: True
-seed: 8888
