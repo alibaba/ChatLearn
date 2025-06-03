@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from examples.fsdp.data.prompt_dataset import VLLMPromptPipeline
 
 # pylint: disable=ungrouped-imports
-from chatlearn import VLLMModule
+from chatlearn.models.vllm_module import VLLMModule
 
 class VLLMPolicyInference(VLLMModule):
     """Policy vLLM Inference"""
