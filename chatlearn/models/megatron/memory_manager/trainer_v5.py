@@ -319,7 +319,9 @@ class TrainerMemoryManagerV5(BaseTrainerMemoryManager):
     def _optimizer_load_state_bucket_into_device(self, device):
         """put the state bucket onto a device"""
         for sub_optimizer in self._get_optimizers():
-            state_dict = sub_optimizer.optimizer.state_dict()
+            # NOTE: compatible with transformer_engine v1.13, in-place offload the origin state dict
+            # If we use sub_optimizer.optimizer.state_dict(), we'll get a deepcopy of state dict instead
+            state_dict = torch.optim.Optimizer.state_dict(sub_optimizer.optimizer)
             for tensors in state_dict['state'].values():
                 keys = list(tensors.keys())
                 for key in keys:
