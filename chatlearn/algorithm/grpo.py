@@ -1,3 +1,19 @@
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""grpo algorithm"""
+
 from dataclasses import dataclass, field
 # from chatlearn.configs.common import (
 from configs.common import (
@@ -14,6 +30,8 @@ from algorithm.base_algo import BaseAlgorithm
 
 @dataclass
 class GrpoConfig:
+    """GrpoConfig"""
+
     num_episodes: int = field(
         default=200,
         metadata={"help": "Number of episodes to train."}
@@ -49,6 +67,7 @@ class GrpoConfig:
 
 
 class GrpoAlgorithm(BaseAlgorithm):
+    """GrpoAlgorithm"""
 
     def __init__(self, cfg: GrpoConfig) -> None:
         self.cfg = cfg
