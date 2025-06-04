@@ -16,6 +16,8 @@
 
 import gc
 import os
+from typing import Optional
+
 import ray
 import torch
 import torch.distributed as dist
@@ -134,14 +136,19 @@ class TorchModule(BaseModule):
     def world_size(self):
         return dist.get_world_size()
 
-    def _get_if_not_none(self, to_set, default):
+    def _get_if_not_none(self, to_set: Optional[bool], default: bool) -> bool:
         if not default:
             return False
         if to_set is not None:
             return to_set
         return default
 
-    def onload(self, to_onload_weights=None, to_build_grad_buffers=None, to_onload_main_weights=None, to_onload_optimizer_states=None):
+    def onload(self, 
+               to_onload_weights: Optional[bool] = None,
+               to_build_grad_buffers: Optional[bool] = None,
+               to_onload_main_weights: Optional[bool] = None,
+               to_onload_optimizer_states: Optional[bool] = None):
+                     
         if not (self.is_colocate or self.module_args.force_free_memory):
             return
         to_onload_weights = self._get_if_not_none(to_onload_weights, self.module_args.offload_weights)
@@ -171,7 +178,11 @@ class TorchModule(BaseModule):
             timer.stop()
             log_rank_0(get_full_proc_memory_info('After onload'), self._logger)
 
-    def offload(self, to_offload_weights=None, to_free_grad_buffers=None, to_offload_main_weights=None, to_offload_optimizer_states=None):
+    def offload(self, 
+               to_offload_weights: Optional[bool] = None,
+               to_free_grad_buffers: Optional[bool] = None,
+               to_offload_main_weights: Optional[bool] = None,
+               to_offload_optimizer_states: Optional[bool] = None):
         # The first time of calling `offload_weights` and `offload_main_weights` has a higher peak memory.
         # So `free_grad_buffers` is called first to free memory, and `offload_weights` is called afterward
         # to make more space for `offload_main_weights`.
