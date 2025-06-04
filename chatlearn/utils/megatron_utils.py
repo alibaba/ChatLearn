@@ -56,13 +56,10 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_la
         tgt_layer_offset: layer offset of target model
         tgt_last_stage: is target model in last stage
         model: megatron model
-        requires_grad: whether the layer requires grad
+        requires_grad: (deprecated) unused
     """
     name_mapping = {}
     for src_name, partition_param in model.named_parameters():
-        if requires_grad:
-            if not partition_param.requires_grad:
-                continue
         if src_name.endswith("word_embeddings.weight") \
                 and "language_model" not in src_name \
                 and hasattr(unwrap_model(model), "language_model"):

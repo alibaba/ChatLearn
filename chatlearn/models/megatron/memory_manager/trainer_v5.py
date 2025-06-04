@@ -18,6 +18,7 @@ from typing import List, Optional
 import torch
 
 from megatron.core.optimizer.optimizer import ChainedOptimizer
+from megatron.core.transformer.moe.moe_layer import MoELayer
 
 from chatlearn.models.megatron.memory_manager.base_trainer import BaseTrainerMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors, FlatTensors
@@ -275,11 +276,17 @@ class TrainerMemoryManagerV5(BaseTrainerMemoryManager):
         # NOTE: detach grad in params of ChainedOptimizer / Float16Optimizer
         self._optimizer.zero_grad(True)
 
+        # NOTE: for MoE model, detach probs in the token dispatcher to avoid memory leak
+        # TODO: MCore will provide a fix for this issue in the future, remove this when fixed
+        for n, m in self._model.named_modules():
+            if isinstance(m, MoELayer):
+                m.token_dispatcher.probs, m.token_dispatcher.routing_map = None, None
+
         # NOTE: delete main_grad in params of ChainedOptimizer / Float16Optimizer
         for p, buffer in self.param_to_buffer().items():
             del p.main_grad
 
-        # Remove references from buckets and free grad_data of buffer
+        # NOTE: Remove references from buckets and free grad_data of buffer
         for buffer in self._buffers:
             for bucket in buffer.buckets:
                 del bucket.grad_data
