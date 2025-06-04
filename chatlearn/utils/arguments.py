@@ -194,8 +194,6 @@ class ModelConfig(BaseConfig):
     #: [optional] config file for model
     model_config_file: str = ""
     config_dir: str = ""
-    #: [optional] model type, e.g., Torch/Tensorflow, etc
-    model_type: str = ""
     #: [optional] placeholder for other args
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
@@ -239,8 +237,6 @@ class RuntimeConfig(BaseConfig):
     sample_per_episode: int = 1000
     #: [optional] number of training epoch per episode. default set to 1.
     num_training_epoch: int = 1
-    #: [optional] max iteration per sample, for mcts-style search algorithm
-    max_iteration_per_sample = 1
     #: [required] generation(inference) batch size.
     generation_batch_size: int = 2
     #: [required] training micro batch size.
