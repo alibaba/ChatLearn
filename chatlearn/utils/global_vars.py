@@ -34,16 +34,6 @@ def get_args():
     return _GLOBAL_ARGS
 
 
-def is_initialized():
-    if _GLOBAL_ARGS is None:
-        return False
-    return _GLOBAL_ARGS.initialized
-
-
-def set_initialized():
-    _GLOBAL_ARGS.initialized = True
-
-
 def set_global_variables(args):
     """Set global vars"""
     assert args is not None

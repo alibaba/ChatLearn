@@ -248,7 +248,6 @@ class BaseModule:
         """
         :meta private:
         """
-        self.global_args.active_module_args = self._module_args
         if self.runtime_args.data_checkpoint_path is not None:
             self._data_ckpt_manager = CheckpointManager(self, self.runtime_args.data_checkpoint_path,
                                                        self.runtime_args.max_data_ckpt_nums,

@@ -27,7 +27,6 @@ from ray.dag.dag_node_operation import _DAGNodeOperationType
 from chatlearn.launcher import dlc_utils
 from chatlearn.utils.arguments import parse_args
 from chatlearn.utils.global_vars import set_global_variables
-from chatlearn.utils.global_vars import set_initialized
 from chatlearn.utils.logger import logger
 from chatlearn.utils.version import VERSION
 
@@ -102,7 +101,6 @@ def init(args=None):
     if dlc_utils.in_dlc_env():
         dlc_utils.start_ray_cluster()
     init_ray(args.env_args)
-    set_initialized()
     if dlc_utils.in_dlc_env():
         listener = dlc_utils.StartExitListener()
         listener.start_exit_listener()

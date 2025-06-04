@@ -358,7 +358,8 @@ class RuntimeEnvConfig(BaseConfig):
     #: python modules
     py_modules: List[str] = []
     #: working directory
-    working_dir: str = os.getcwd()
+    # working_dir: str = os.getcwd()
+    working_dir: str = None
     #: platform, e.g., DLC
     platform: str = ""
     #: excludes files from packaging
@@ -405,7 +406,7 @@ class Config(BaseConfig):
             self._parse_params(param_dict)
             self._validate_params()
         # remove later, just for compatibility
-        self.rlhf_args = self.runtime_args
+        # self.rlhf_args = self.runtime_args
         self._finalize = True
 
     def _parse_params(self, param_dict):
