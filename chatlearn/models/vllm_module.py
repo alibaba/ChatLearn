@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""VLLM module v2"""
+"""VLLM module for """
 
 import inspect
 import os
@@ -87,10 +87,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             dtype = "float16"
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
-        # if load_format == LoadFormat.DUMMY:
-        #     model_loader_extra_config = self.model_args
-        # else:
-        #     model_loader_extra_config = None
 
         if self.model_args.get("apply_replica_id_to_seed", True):
             seed = self.model_args.get("seed", 0) + self.replica_id
@@ -106,7 +102,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
-            # model_loader_extra_config=model_loader_extra_config,
             # parallelism strategy
             tensor_parallel_size=self.module_args.tensor_model_parallel_size,
             pipeline_parallel_size=self.module_args.pipeline_model_parallel_size,
@@ -124,7 +119,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
-            # preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
             swap_space=self.model_args.get("swap_space", 16))
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
 
@@ -157,10 +151,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             dtype = "float16"
 
         load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
-        # if load_format == LoadFormat.DUMMY:
-        #     model_loader_extra_config = self.model_args
-        # else:
-        #     model_loader_extra_config = None
 
         if self.model_args.get("apply_replica_id_to_seed", True):
             seed = self.model_args.get("seed", 0) + self.replica_id
@@ -173,7 +163,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
-            # model_loader_extra_config=model_loader_extra_config,
             # parallelism strategy
             tensor_parallel_size=self.module_args.tensor_model_parallel_size,
             pipeline_parallel_size=self.module_args.pipeline_model_parallel_size,
@@ -191,7 +180,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
-            # preemption_mode=self.model_args.get("preemption_mode", 'recompute') , # swap, recompute
             swap_space=self.model_args.get("swap_space", 16))
 
         self.offload_weights()
