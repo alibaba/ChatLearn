@@ -111,7 +111,6 @@ class BaseModule:
         self._eval_dataloader = None
         self._kl_coef = None
         self._padding_config = {}
-        self._storage = None
         self._timers = None
         self._data_iter = None
         self._eval_data_iter = None
@@ -334,31 +333,6 @@ class BaseModule:
         if self.data_ckpt_manager is not None:
             consumed_samples = self.runtime_args.consumed_samples
             self.data_ckpt_manager.save_checkpoint(replica_id, iteration, episode_id, consumed_samples)
-
-    def put(self, key, data):
-        """
-        Put the data to shared storage.
-
-        Args
-        ----
-            key: Str
-                Use key to put.
-            data
-                data to save
-        """
-        self._storage.put.remote(key, data)
-
-    def get(self, key):
-        """
-        Get data from shared storage using key
-
-        Args
-        ----
-            key: Str
-                use key to get
-        """
-        ref = self._storage.get.remote(key)
-        return future.get(ref)
 
     def validate(self):
         """
@@ -1039,12 +1013,6 @@ class BaseModule:
         """
         :meta private:
         """
-
-    def set_storage(self, storage):
-        """
-        :meta private:
-        """
-        self._storage = storage
 
     def timers(self, name):
         """

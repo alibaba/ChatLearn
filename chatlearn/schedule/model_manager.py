@@ -22,7 +22,6 @@ import time
 import ray
 import ray.experimental.state.api
 
-from chatlearn.data.storage import Storage
 from chatlearn.launcher import dlc_utils
 from chatlearn import FSDPModule
 from chatlearn.models.torch_module import TorchModule
@@ -55,7 +54,6 @@ class ModelManager:
         self.free_ports = dlc_utils.get_free_ports()[2:]
         self._port_manager = PortManager.remote(self.free_ports)
         self.error_signal = ErrorSignalActor.remote()
-        self._storage = Storage.remote()
         self.parameter_sync_groups = {}
         self._parameter_sync_model_pair = []
         self.model_packs = []
@@ -264,7 +262,7 @@ class ModelManager:
         dist_model = DistModel()
         for replica_id in range(model.num_replica):
             dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, self._port_manager,
-                                      replica_id, self._storage)
+                                      replica_id)
             dist_model.add_replica(dist_actor)
         return dist_model
 
@@ -475,6 +473,5 @@ class ModelManager:
                     except Exception:
                         logger.info("Encountering exceptions in cleaning actors, but ok")
                         continue
-        ray.kill(self._storage)
         ray.kill(self.error_signal)
         self.resouce_manager.remove_placement_groups()
