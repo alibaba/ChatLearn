@@ -409,7 +409,7 @@ class ModelManager:
             return
         num_cpus = []
         for model in cpu_models:
-            for _ in range(model.module_args.num_replica):
+            for _ in range(model.num_replica):
                 num_cpus.append(model.module_args.cpu_per_process)
         if not self.placement_groups:
             placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus, \

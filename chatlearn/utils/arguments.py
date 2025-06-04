@@ -176,7 +176,7 @@ class ModelConfig(BaseConfig):
     #: [optional] number of module replica,
     #: for gpu model, num_replica = num_gpu // (TP * PP * DP * EP),
     #: for cpu model, num_replica = num_cpu // cpu_per_process
-    num_replica: int = 1
+    # num_replica: int = 1
     #: [required] whether model is trainable
     trainable: bool = False
     #: [optional] tensor model parallel size
@@ -399,15 +399,10 @@ class Config(BaseConfig):
         self.env_args = RuntimeEnvConfig()
         self.runtime_args = RuntimeConfig()
         self.config_dir = config_dir
-        self._active_module_args = None
 
-        self.initialized = False
         if param_dict:
             self._parse_params(param_dict)
             self._validate_params()
-        # remove later, just for compatibility
-        # self.rlhf_args = self.runtime_args
-        self._finalize = True
 
     def _parse_params(self, param_dict):
         """Parse params from param_dict."""
@@ -565,25 +560,6 @@ class Config(BaseConfig):
             assert model_args.num_gpu > 0 or model_args.num_cpu > 0, \
                 f"{model_name} num_gpu: {model_args.num_gpu}, num_cpu: {model_args.num_cpu}, at least one of them should be set"
 
-            if model_args.num_gpu >= 1:
-                if model_args.zero_size > 1:
-                    assert model_args.num_gpu % model_args.zero_size == 0
-                    model_args.num_replica = model_args.num_gpu // model_args.zero_size
-                elif model_args.fsdp_size > 1:
-                    # For FSDP, num_gpu must be divisible by fsdp_size
-                    assert model_args.num_gpu % model_args.fsdp_size == 0
-                    model_args.num_replica = model_args.num_gpu // (
-                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size \
-                            * model_args.expert_model_parallel_size * model_args.fsdp_size)
-                else:
-                    model_args.num_replica = model_args.num_gpu // (
-                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size)
-
-            elif model_args.num_cpu >= 1:
-                model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
-            assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \
-                f"{model_name}: num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
-                f"should be less than or equal to sample_per_episode {self.runtime_args.sample_per_episode}"
             if model_args.free_memory:
                 model_args.offload_weights = True
                 if model_args.trainable:
@@ -601,11 +577,3 @@ class Config(BaseConfig):
         logger.info(f"Runtime Config: \n{self.runtime_args}")
         for name, model_args in self.models.items():
             logger.info(f"Model({name}) Config: \n{model_args}")
-
-    @property
-    def active_module_args(self):
-        return self._active_module_args
-
-    @active_module_args.setter
-    def active_module_args(self, config):
-        self._active_module_args = config

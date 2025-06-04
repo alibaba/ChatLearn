@@ -95,7 +95,8 @@ class BaseModule:
                 self._num_gpu_per_replica = self.total_gpu
         else:
             self._num_gpu_per_replica = 0
-            self._num_replica = args.num_replica
+            # self._num_replica = args.num_replica
+            self._num_replica = args.num_cpu // args.cpu_per_process
 
         assert self._num_replica >= 1
         self._param_ranks = None
