@@ -27,12 +27,10 @@ def _ensure_var_is_initialized(var, name):
     """Make sure the input variable is not None."""
     assert var is not None, '{} is not initialized.'.format(name)
 
-
 def get_args():
     """Return arguments."""
     _ensure_var_is_initialized(_GLOBAL_ARGS, 'args')
     return _GLOBAL_ARGS
-
 
 def set_global_variables(args):
     """Set global vars"""
@@ -42,15 +40,12 @@ def set_global_variables(args):
     global _DECORATED_MODELS
     _DECORATED_MODELS = set()
 
-
 def set_decorated(model_name):
     _DECORATED_MODELS.add(model_name)
-
 
 def is_decorated(model_name):
     _ensure_var_is_initialized(_DECORATED_MODELS, 'decorated_models')
     return bool(model_name in _DECORATED_MODELS)
-
 
 def unwrap_func(func, level=None):
     """
@@ -66,11 +61,9 @@ def unwrap_func(func, level=None):
             return func
     return unwrap_func(_DECORATED_OUTER_TO_INNER[func], level)
 
-
 def set_wrap_func(func, new_func):
     assert new_func not in _DECORATED_OUTER_TO_INNER
     _DECORATED_OUTER_TO_INNER[new_func] = func
-
 
 def set_dependencies(dependencies):
     global _DEPENDENCIES
