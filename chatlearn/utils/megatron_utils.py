@@ -49,6 +49,7 @@ def update_layer_num(start_layer_num, m):
 
 
 def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_last_stage, model, requires_grad):
+    # pylint: disable=unused-argument
     """
     remap pipeline layer_name. For each pipeline stage, the layer number starts with 0.
     Args:
@@ -56,13 +57,10 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_la
         tgt_layer_offset: layer offset of target model
         tgt_last_stage: is target model in last stage
         model: megatron model
-        requires_grad: whether the layer requires grad
+        requires_grad: (deprecated) unused
     """
     name_mapping = {}
-    for src_name, partition_param in model.named_parameters():
-        if requires_grad:
-            if not partition_param.requires_grad:
-                continue
+    for src_name, _ in model.named_parameters():
         if src_name.endswith("word_embeddings.weight") \
                 and "language_model" not in src_name \
                 and hasattr(unwrap_model(model), "language_model"):
@@ -83,7 +81,7 @@ def build_pipeline_layer_name_mapping(src_layer_offset, tgt_layer_offset, tgt_la
             tgt_name = re.sub(layer_re, _update_layer_num, src_name)
         name_mapping[tgt_name] = src_name
 
-    for src_name, partition_param in model.named_buffers():
+    for src_name, _ in model.named_buffers():
         if 'local_tokens_per' in src_name:
             continue
         start_layer_num = src_layer_offset - tgt_layer_offset

@@ -215,6 +215,13 @@ class ModelManager:
                 # parameter sync
                 sync_group.sync(requires_grad, validate, dryrun=dryrun)
 
+                refs = []
+                for replica in dst_model.replicas:
+                    refs.append(replica.call_remote_funcs('release_params_sync_buffers'))
+                for replica in src_model.replicas:
+                    refs.append(replica.call_remote_funcs('release_params_sync_buffers'))
+                future.wait(refs, return_output=True)
+
                 # offload policy trainer
                 future.wait(src_model.offload())
 

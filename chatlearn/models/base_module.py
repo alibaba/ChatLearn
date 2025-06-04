@@ -750,14 +750,15 @@ class BaseModule:
         self.clear_send_recv_parameters()
 
     def get_parameter_names(self, requires_grad=True):
+        # pylint: disable=unused-argument
         """
-        :meta private:
+        Get parameter names of the local model. Currently `parameter_names` also include
+        buffers requiring sync. Only used when pp_size=1
+
+        Arguments:
+            requires_grad: (Deprecated) unused variable.
         """
-        param_to_name = self.param_to_name
-        if requires_grad:
-            return [param_to_name[param] for param in self.parameters if param.requires_grad]
-        else:
-            return [param_to_name[param] for param in self.parameters]
+        return [self.param_to_name[param] for param in self.parameters]
 
     def get_parameter_shape(self, pipe_stage=0, parameters_to_sync=None):
         """
@@ -1316,3 +1317,10 @@ class BaseModule:
             with open(save_path_meta, "w", encoding='utf-8') as f:
                 f.write(f"{self.replica_id}")
             logger.info(f"Finished to save stage outputs:{save_path}")
+
+    def release_params_sync_buffers(self):
+        self._sparse_params = {}
+        self._parameters_to_sync = defaultdict(list)
+        self._parameters_to_send = defaultdict(list)
+        self._parameters_to_recv = defaultdict(list)
+        self._sync_buffer = defaultdict(list)
