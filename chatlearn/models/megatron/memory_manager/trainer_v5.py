@@ -278,7 +278,7 @@ class TrainerMemoryManagerV5(BaseTrainerMemoryManager):
 
         # NOTE: for MoE model, detach probs in the token dispatcher to avoid memory leak
         # TODO: MCore will provide a fix for this issue in the future, remove this when fixed
-        for n, m in self._model.named_modules():
+        for _, m in self._model.named_modules():
             if isinstance(m, MoELayer):
                 m.token_dispatcher.probs, m.token_dispatcher.routing_map = None, None
 

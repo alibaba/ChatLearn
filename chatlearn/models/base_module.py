@@ -750,6 +750,7 @@ class BaseModule:
         self.clear_send_recv_parameters()
 
     def get_parameter_names(self, requires_grad=True):
+        # pylint: disable=unused-argument
         """
         Get parameter names of the local model. Currently `parameter_names` also include
         buffers requiring sync. Only used when pp_size=1
