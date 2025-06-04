@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""VLLM module for """
+"""VLLM module"""
 
 import inspect
 import os
