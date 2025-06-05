@@ -195,7 +195,7 @@ class ModelConfig(BaseConfig):
     #: [optional] placeholder for other args
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
-    generation_batch_size: int = None
+    generation_batch_size: int = 1
     #: offload optimizer states
     offload_optimizer_states = False
     #: parameter sync frequency
