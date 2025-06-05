@@ -17,7 +17,9 @@
 import os
 import shutil
 import time
+
 import torch
+from ray.actor import ActorHandle
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
@@ -417,19 +419,13 @@ class Engine(BaseEngine):
             f"{LOG_START} {self._name} setup summary {self.timers.log(names=['setup'])}")
         self.logging_memory()
         self._resume_from_data_checkpoint()
-        # Enable chunkflow optimization
-        enable_chunkflow_optimization = os.environ.get("ENABLE_CHUNKFLOW_OPTIMIZATION", "False") in ["True", "true", "1", 1]
-        logger.info(f"{LOG_START} Check ENABLE_CHUNKFLOW_OPTIMIZATION={enable_chunkflow_optimization} for chunkflow optimization")
-        data_loader = StreamDataset.remote(
+
+        data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
             self.runtime_args.train_micro_batch_size,
             self.env._padding_config,
             self.runtime_args.max_relay_episode,
-            self.runtime_args.relay_episode_offset,
-            self.runtime_args.train_global_batch_size \
-                if enable_chunkflow_optimization \
-                else self.runtime_args.train_micro_batch_size
-        )
+            self.runtime_args.relay_episode_offset)
 
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")

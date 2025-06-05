@@ -22,10 +22,8 @@ import re
 
 import yaml
 
-from chatlearn.utils.constant import (
-    DYNAMIC_BATCH_SIZE, RAY_PG_STRATEGY,
-    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE,
-    TrainingShffuleMode)
+from chatlearn.utils.constant import (RAY_PG_STRATEGY,
+    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE)
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -176,7 +174,7 @@ class ModelConfig(BaseConfig):
     #: [optional] number of module replica,
     #: for gpu model, num_replica = num_gpu // (TP * PP * DP * EP),
     #: for cpu model, num_replica = num_cpu // cpu_per_process
-    num_replica: int = 1
+    # num_replica: int = 1
     #: [required] whether model is trainable
     trainable: bool = False
     #: [optional] tensor model parallel size
@@ -194,12 +192,10 @@ class ModelConfig(BaseConfig):
     #: [optional] config file for model
     model_config_file: str = ""
     config_dir: str = ""
-    #: [optional] model type, e.g., Torch/Tensorflow, etc
-    model_type: str = ""
     #: [optional] placeholder for other args
     args_dict: dict = None
     #: [optional] generation batch size, will overwrite generation batch size in RuntimeConfig
-    generation_batch_size: int = None
+    generation_batch_size: int = 1
     #: offload optimizer states
     offload_optimizer_states = False
     #: parameter sync frequency
@@ -210,8 +206,6 @@ class ModelConfig(BaseConfig):
     free_grad_buffers = False
     #: overall switch for offload optimizer states/weights and free grad buffers
     free_memory = False
-    #: force to free memory
-    force_free_memory = False
 
     def __init__(self):
         super().__init__()
@@ -241,10 +235,6 @@ class RuntimeConfig(BaseConfig):
     sample_per_episode: int = 1000
     #: [optional] number of training epoch per episode. default set to 1.
     num_training_epoch: int = 1
-    #: [optional] max iteration per sample, for mcts-style search algorithm
-    max_iteration_per_sample = 1
-    #: [required] generation(inference) batch size.
-    generation_batch_size: int = 2
     #: [required] training micro batch size.
     train_micro_batch_size: int = 2
     #: [required] training global batch size.
@@ -296,8 +286,6 @@ class RuntimeConfig(BaseConfig):
     max_relay_episode: int = 0
     #: relay after n episodes
     relay_episode_offset: int = 0
-    #: training shuffle mode
-    training_shuffle_mode: str = TrainingShffuleMode.BATCH
     #: consumed samples
     consumed_samples: int = 0
     #: concurrent model setup
@@ -360,7 +348,8 @@ class RuntimeEnvConfig(BaseConfig):
     #: python modules
     py_modules: List[str] = []
     #: working directory
-    working_dir: str = os.getcwd()
+    # working_dir: str = os.getcwd()
+    working_dir: str = None
     #: platform, e.g., DLC
     platform: str = ""
     #: excludes files from packaging
@@ -400,15 +389,10 @@ class Config(BaseConfig):
         self.env_args = RuntimeEnvConfig()
         self.runtime_args = RuntimeConfig()
         self.config_dir = config_dir
-        self._active_module_args = None
 
-        self.initialized = False
         if param_dict:
             self._parse_params(param_dict)
             self._validate_params()
-        # remove later, just for compatibility
-        self.rlhf_args = self.runtime_args
-        self._finalize = True
 
     def _parse_params(self, param_dict):
         """Parse params from param_dict."""
@@ -514,11 +498,7 @@ class Config(BaseConfig):
                 else:
                     assert model_args.cpu_per_process <= model_args.num_cpu, \
                         f"{model_name}: cpu_per_process: {model_args.cpu_per_process}, num_cpu: {model_args.num_cpu}"
-            if model_args.generation_batch_size is not None and model_args.generation_batch_size <= 0:
-                model_args.generation_batch_size = DYNAMIC_BATCH_SIZE
-            if model_args.generation_batch_size is None:
-                if self.runtime_args.generation_batch_size:
-                    model_args.generation_batch_size = self.runtime_args.generation_batch_size
+
             for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size", "sp_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
@@ -566,25 +546,6 @@ class Config(BaseConfig):
             assert model_args.num_gpu > 0 or model_args.num_cpu > 0, \
                 f"{model_name} num_gpu: {model_args.num_gpu}, num_cpu: {model_args.num_cpu}, at least one of them should be set"
 
-            if model_args.num_gpu >= 1:
-                if model_args.zero_size > 1:
-                    assert model_args.num_gpu % model_args.zero_size == 0
-                    model_args.num_replica = model_args.num_gpu // model_args.zero_size
-                elif model_args.fsdp_size > 1:
-                    # For FSDP, num_gpu must be divisible by fsdp_size
-                    assert model_args.num_gpu % model_args.fsdp_size == 0
-                    model_args.num_replica = model_args.num_gpu // (
-                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size \
-                            * model_args.expert_model_parallel_size * model_args.fsdp_size)
-                else:
-                    model_args.num_replica = model_args.num_gpu // (
-                        model_args.tensor_model_parallel_size * model_args.pipeline_model_parallel_size * model_args.expert_model_parallel_size)
-
-            elif model_args.num_cpu >= 1:
-                model_args.num_replica = model_args.num_cpu // model_args.cpu_per_process
-            assert model_args.num_replica * model_args.generation_batch_size <= self.runtime_args.sample_per_episode, \
-                f"{model_name}: num_replica * batch_size {model_args.num_replica}*{model_args.generation_batch_size} " + \
-                f"should be less than or equal to sample_per_episode {self.runtime_args.sample_per_episode}"
             if model_args.free_memory:
                 model_args.offload_weights = True
                 if model_args.trainable:
@@ -602,11 +563,3 @@ class Config(BaseConfig):
         logger.info(f"Runtime Config: \n{self.runtime_args}")
         for name, model_args in self.models.items():
             logger.info(f"Model({name}) Config: \n{model_args}")
-
-    @property
-    def active_module_args(self):
-        return self._active_module_args
-
-    @active_module_args.setter
-    def active_module_args(self, config):
-        self._active_module_args = config

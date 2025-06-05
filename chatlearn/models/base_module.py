@@ -95,7 +95,8 @@ class BaseModule:
                 self._num_gpu_per_replica = self.total_gpu
         else:
             self._num_gpu_per_replica = 0
-            self._num_replica = args.num_replica
+            # self._num_replica = args.num_replica
+            self._num_replica = args.num_cpu // args.cpu_per_process
 
         assert self._num_replica >= 1
         self._param_ranks = None
@@ -111,7 +112,6 @@ class BaseModule:
         self._eval_dataloader = None
         self._kl_coef = None
         self._padding_config = {}
-        self._storage = None
         self._timers = None
         self._data_iter = None
         self._eval_data_iter = None
@@ -147,9 +147,6 @@ class BaseModule:
         self._stage_resume_done = False
         logger.info(f"{LOG_START} basemodule {name} init done")
 
-    def get_sync_buffer(self):
-        return self._sync_buffer
-
     def set_tp_num_mapping(self, _tp_num_mapping):
         self._tp_num_mapping = _tp_num_mapping
 
@@ -160,14 +157,8 @@ class BaseModule:
     def set_buffer_num(self, buffer_num):
         self._buffer_num.update(buffer_num)
 
-    def get_buffer_num(self, param_names):
-        return [self._buffer_num[name] for name in param_names]
-
     def set_tp_division(self, tp_division):
         self._tp_division.update(tp_division)
-
-    def get_tp_division(self, param_names):
-        return [self._tp_division[name] for name in param_names]
 
     @property
     def is_colocate(self):
@@ -183,12 +174,6 @@ class BaseModule:
         :meta private:
         """
         self._finalized = True
-
-    def _assert_not_finalized(self):
-        """
-        :meta private:
-        """
-        assert not self._finalized, f"{self} is finalized, any change to the class should happen before finalize."
 
     def get_runtime_args(self):
         return self.runtime_args
@@ -264,7 +249,6 @@ class BaseModule:
         """
         :meta private:
         """
-        self.global_args.active_module_args = self._module_args
         if self.runtime_args.data_checkpoint_path is not None:
             self._data_ckpt_manager = CheckpointManager(self, self.runtime_args.data_checkpoint_path,
                                                        self.runtime_args.max_data_ckpt_nums,
@@ -349,31 +333,6 @@ class BaseModule:
         if self.data_ckpt_manager is not None:
             consumed_samples = self.runtime_args.consumed_samples
             self.data_ckpt_manager.save_checkpoint(replica_id, iteration, episode_id, consumed_samples)
-
-    def put(self, key, data):
-        """
-        Put the data to shared storage.
-
-        Args
-        ----
-            key: Str
-                Use key to put.
-            data
-                data to save
-        """
-        self._storage.put.remote(key, data)
-
-    def get(self, key):
-        """
-        Get data from shared storage using key
-
-        Args
-        ----
-            key: Str
-                use key to get
-        """
-        ref = self._storage.get.remote(key)
-        return future.get(ref)
 
     def validate(self):
         """
@@ -775,14 +734,6 @@ class BaseModule:
                 parameters_shape.append((name, param.shape))
         return parameters_shape
 
-    def get_parameter(self, name):
-        """
-        :meta private:
-        """
-        if name not in self.named_parameters:
-            raise Exception(f"parameter {name} not exits")
-        return self.named_parameters[name]
-
     def get_parameter_to_sync(self, name, pipe_stage, to_cpu=False, regroup=False):
         assert pipe_stage in self._parameters_to_sync and len(self._parameters_to_sync[pipe_stage]) > 0
         for name0, param in self._parameters_to_sync[pipe_stage]:
@@ -808,18 +759,6 @@ class BaseModule:
 
     def get_parameter_to_sync_names(self, pipe_stage):
         return [items[0] for items in self._parameters_to_sync[pipe_stage]]
-
-    def exist_parameter(self, name):
-        """
-        :meta private:
-        """
-        return name in self.named_parameters
-
-    def parameter_shape(self, name):
-        """
-        :meta private:
-        """
-        return self.get_parameter(name).shape
 
     def send_recv_parameter(self, rank, group_name, func, pipe_stage=0):
         """
@@ -1075,12 +1014,6 @@ class BaseModule:
         """
         :meta private:
         """
-
-    def set_storage(self, storage):
-        """
-        :meta private:
-        """
-        self._storage = storage
 
     def timers(self, name):
         """

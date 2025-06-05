@@ -419,9 +419,9 @@ class Executor:
         logger.info(f"{LOG_START} start to generate_step_one_model for {model_node}")
         self.timers(f"{model.name}").start()
         for step in range(num_batch):
-            to_empty_cache = step >= last_step_start and (model.is_colocate or model.module_args.force_free_memory)
-            to_onload = step < replica_num and ((model.is_colocate and model.enable_offload) or model.module_args.force_free_memory)
-            to_offload = step >= last_step_start and ((model.is_colocate and model.enable_offload) or model.module_args.force_free_memory)
+            to_empty_cache = step >= last_step_start and model.is_colocate
+            to_onload = step < replica_num and (model.is_colocate and model.enable_offload)
+            to_offload = step >= last_step_start and (model.is_colocate and model.enable_offload)
             replica = self._next_model(model)
             _, data = self.generate_step_one_model(model_node, replica, in_queue, model_node.out_queues, step, func_name, to_empty_cache,
                                                    is_eval=is_eval, to_onload=to_onload, to_offload=to_offload)

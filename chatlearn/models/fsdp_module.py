@@ -33,7 +33,7 @@ from torch.multiprocessing.reductions import reduce_tensor
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.trainer_pt_utils import get_module_class_from_name
 
-from chatlearn.utils.logger import debug_rank_0, log_rank_0
+from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch
@@ -191,24 +191,6 @@ class FSDPModule(TorchModule):
             self._logger,
         )
         self.timers("empty_cache").stop()
-
-    def check_param_exists(self, names):
-        """
-        check if the given names exists in current model
-
-        :meta private:
-        """
-        not_exists = []
-        for name in names:
-            if not self.exist_parameter(name):
-                not_exists.append(name)
-        if not_exists:
-            log_rank_0(
-                f"parameters not exists: {not_exists} in model {self.name}",
-                self._logger,
-            )
-            return False
-        return True
 
     def create_model(self, model_path, torch_dtype):
         model = AutoModelForCausalLM.from_pretrained(

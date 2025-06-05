@@ -22,7 +22,6 @@ import time
 import ray
 import ray.experimental.state.api
 
-from chatlearn.data.storage import Storage
 from chatlearn.launcher import dlc_utils
 from chatlearn import FSDPModule
 from chatlearn.models.torch_module import TorchModule
@@ -55,7 +54,6 @@ class ModelManager:
         self.free_ports = dlc_utils.get_free_ports()[2:]
         self._port_manager = PortManager.remote(self.free_ports)
         self.error_signal = ErrorSignalActor.remote()
-        self._storage = Storage.remote()
         self.parameter_sync_groups = {}
         self._parameter_sync_model_pair = []
         self.model_packs = []
@@ -239,7 +237,7 @@ class ModelManager:
         model_cls = model.__class__
         for func_name in call_funcs:
             trainable = func_name in model.trainable_funcs
-            decorate_class_func(model_cls, func_name,preprocess_compute, trainable)
+            decorate_class_func(model_cls, func_name, preprocess_compute, trainable)
 
         for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
             decorate_class_func(model_cls, func_name, timeit, func_name)
@@ -271,7 +269,7 @@ class ModelManager:
         dist_model = DistModel()
         for replica_id in range(model.num_replica):
             dist_actor = actor_type()(model, self.resouce_manager.gpu_per_node, self.error_signal, self._port_manager,
-                                      replica_id, self._storage)
+                                      replica_id)
             dist_model.add_replica(dist_actor)
         return dist_model
 
@@ -418,7 +416,7 @@ class ModelManager:
             return
         num_cpus = []
         for model in cpu_models:
-            for _ in range(model.module_args.num_replica):
+            for _ in range(model.num_replica):
                 num_cpus.append(model.module_args.cpu_per_process)
         if not self.placement_groups:
             placement_group = self.resouce_manager.create_placement_group(num_gpus=0, num_cpus=num_cpus, \
@@ -482,6 +480,5 @@ class ModelManager:
                     except Exception:
                         logger.info("Encountering exceptions in cleaning actors, but ok")
                         continue
-        ray.kill(self._storage)
         ray.kill(self.error_signal)
         self.resouce_manager.remove_placement_groups()

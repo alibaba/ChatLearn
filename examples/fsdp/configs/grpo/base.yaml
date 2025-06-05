@@ -1,4 +1,1 @@
-includes:
-        - log.yaml
-
 seed: 1234
