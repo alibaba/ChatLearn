@@ -24,9 +24,6 @@ INDEX_TAG = "data_index"
 
 LOG_START = "chatlearn_log"
 
-# Magic Num
-DYNAMIC_BATCH_SIZE = -1
-
 QKV_LAYER_NAME = ["query_key_value"]
 
 

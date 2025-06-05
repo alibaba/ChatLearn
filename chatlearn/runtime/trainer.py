@@ -20,7 +20,6 @@ from ray.actor import ActorHandle
 
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
-from chatlearn.data.data import StreamDataset
 from .executor import Executor
 from .utils import encode_data
 
@@ -94,9 +93,10 @@ class Trainer(Executor):
         _num_training_iteration = self.num_iteration()
         self._batch_per_episode = _num_training_iteration
         for epoch in range(self.args.num_training_epoch):
-            
+
             # shuffle data
-            future.wait(self._data_loader.shuffle.remote())
+            if epoch > 0:
+                future.wait(self._data_loader.shuffle.remote())
 
             data_queues, out_queue = self.setup_queues()
             for mb in range(_num_training_iteration * self.data_parallel_size):

@@ -22,8 +22,7 @@ import re
 
 import yaml
 
-from chatlearn.utils.constant import (
-    DYNAMIC_BATCH_SIZE, RAY_PG_STRATEGY,
+from chatlearn.utils.constant import (RAY_PG_STRATEGY,
     PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE)
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
@@ -236,8 +235,6 @@ class RuntimeConfig(BaseConfig):
     sample_per_episode: int = 1000
     #: [optional] number of training epoch per episode. default set to 1.
     num_training_epoch: int = 1
-    #: [required] generation(inference) batch size.
-    generation_batch_size: int = 2
     #: [required] training micro batch size.
     train_micro_batch_size: int = 2
     #: [required] training global batch size.
@@ -501,11 +498,7 @@ class Config(BaseConfig):
                 else:
                     assert model_args.cpu_per_process <= model_args.num_cpu, \
                         f"{model_name}: cpu_per_process: {model_args.cpu_per_process}, num_cpu: {model_args.num_cpu}"
-            if model_args.generation_batch_size is not None and model_args.generation_batch_size <= 0:
-                model_args.generation_batch_size = DYNAMIC_BATCH_SIZE
-            if model_args.generation_batch_size is None:
-                if self.runtime_args.generation_batch_size:
-                    model_args.generation_batch_size = self.runtime_args.generation_batch_size
+
             for key in ["pipeline_model_parallel_size", "tensor_model_parallel_size", "zero_size", "sp_size"]:
                 if model_args.args_dict.get(key) is not None:
                     setattr(model_args, key, model_args.args_dict.get(key))
