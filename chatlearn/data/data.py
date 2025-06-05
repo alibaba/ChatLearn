@@ -98,16 +98,6 @@ def split_batch(batch):
     return samples
 
 
-def batch_shuffle(data, batch_size):
-    num_batches = len(data) // batch_size
-    batches = [data[batch_size*i:batch_size*(i+1)] for i in range(num_batches)]
-    random.shuffle(batches)
-
-    shuffled_data = [item for batch in batches for item in batch]
-
-    return shuffled_data
-
-
 @ray.remote
 class StreamDataset:
     """dataset built from queues"""
@@ -137,20 +127,23 @@ class StreamDataset:
         # ChunkFlow: Params for ChunkFlow
         self.prefetch_batch_cnt= micro_batch_size if global_batch_size < 0 else global_batch_size
 
-    def shuffle(self, batch_size=None):
+    def shuffle(self):
         """
         shuffle relay buffer
         """
-        self.relay_buffer.shuffle(batch_size)
+        self.relay_buffer.shuffle()
         self.iter = self.__iter__() # pylint: disable=unnecessary-dunder-call
         self._has_next = True
 
     def __iter__(self):
+        """
+        entrypoint
+        """
         if self._dynamic_dataset and not self._read_data_complete:
             return self.iter_dynamic()
         return self.iter_fixed()
 
-    def _get_batch(self, start_index):
+    def _get_batch(self, start_index: int):
         end_index = min(start_index + self.batch_size, len(self.relay_buffer))
         data_to_batch = self.relay_buffer.get_samples(start_index, end_index)
         if len(data_to_batch) < self.batch_size:
@@ -161,6 +154,7 @@ class StreamDataset:
     def iter_fixed(self):
         """
         iteration with fixed batch size
+        return a group of data with 
         """
         produce_index = 0
         batch_count = 0
@@ -308,11 +302,8 @@ class EpisodeRelayBuffer:
     def queue_not_empty(self):
         return self.queue.qsize() > 0
 
-    def shuffle(self, batch_size):
-        if batch_size is None:
-            random.shuffle(self._buffer)
-            return
-        self._buffer = batch_shuffle(self._buffer, batch_size)
+    def shuffle(self):
+        random.shuffle(self._buffer)
 
     def get_samples(self, start_index, end_index):
         return self._buffer[start_index: end_index]

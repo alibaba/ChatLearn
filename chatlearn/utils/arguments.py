@@ -24,8 +24,7 @@ import yaml
 
 from chatlearn.utils.constant import (
     DYNAMIC_BATCH_SIZE, RAY_PG_STRATEGY,
-    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE,
-    TrainingShffuleMode)
+    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE)
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -290,8 +289,6 @@ class RuntimeConfig(BaseConfig):
     max_relay_episode: int = 0
     #: relay after n episodes
     relay_episode_offset: int = 0
-    #: training shuffle mode
-    training_shuffle_mode: str = TrainingShffuleMode.BATCH
     #: consumed samples
     consumed_samples: int = 0
     #: concurrent model setup

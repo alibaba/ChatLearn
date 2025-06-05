@@ -17,7 +17,9 @@
 import os
 import shutil
 import time
+
 import torch
+from ray.actor import ActorHandle
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
@@ -420,7 +422,7 @@ class Engine(BaseEngine):
         # Enable chunkflow optimization
         enable_chunkflow_optimization = os.environ.get("ENABLE_CHUNKFLOW_OPTIMIZATION", "False") in ["True", "true", "1", 1]
         logger.info(f"{LOG_START} Check ENABLE_CHUNKFLOW_OPTIMIZATION={enable_chunkflow_optimization} for chunkflow optimization")
-        data_loader = StreamDataset.remote(
+        data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
             self.runtime_args.train_micro_batch_size,
             self.env._padding_config,

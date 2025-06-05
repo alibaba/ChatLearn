@@ -16,10 +16,11 @@
 
 import math
 import ray
+from ray.actor import ActorHandle
 
 from chatlearn.utils import future
-from chatlearn.utils.constant import TrainingShffuleMode
 from chatlearn.utils.logger import logger
+from chatlearn.data.data import StreamDataset
 from .executor import Executor
 from .utils import encode_data
 
@@ -47,10 +48,11 @@ class Trainer(Executor):
         for model_node in self.model_flow.model_nodes:
             model_node.trainable = True
 
-    def set_data_loader(self, data_loader):
+    def set_data_loader(self, data_loader: ActorHandle):
         self._data_loader = data_loader
 
     def next_batch(self):
+
         batches = []
         for _ in range(self.num_micro_batch_per_dp):
             data = self._data_loader.next.remote()
@@ -64,14 +66,17 @@ class Trainer(Executor):
             return batches
 
     # pylint: disable=unused-argument
-    def num_iteration(self, model=None):
+    def num_iteration(self, model=None) -> int:
+        """
+        return the number of times the model is updated per episode.
+        """
         # Given that we have incorporated support for relay buffer and dynamic reward outputs,
         # the number of training data batches per episode may differ, hence we dynamically determine the total number of batches per episode.
         _sample_per_episode = ray.get(self._data_loader.total_samples.remote())
         return math.ceil(_sample_per_episode / self.args.train_global_batch_size)
 
     @property
-    def data_parallel_size(self):
+    def data_parallel_size(self) -> int:
         if self._data_parallel_size is None:
             self._data_parallel_size = self.first_model.replicas[0].data_parallel_size
             for model in self.models[1:]:
@@ -79,20 +84,20 @@ class Trainer(Executor):
                 "Currently, all training models are assumed to have the same data_parallel_size"
         return self._data_parallel_size
 
-    def train(self, episode):
+    def train(self, episode: int):
+        """
+        num_micro_batch_per_dp(int): The number of iterations required for each micro-batch in data parallelism (DP)
+        _num_training_iteration(int): The number of times the model is updated per episode
+        
+        """
         self.num_micro_batch_per_dp = self.args.train_global_batch_size // self.args.train_micro_batch_size // self.data_parallel_size
         _num_training_iteration = self.num_iteration()
         self._batch_per_episode = _num_training_iteration
-        assert self.args.training_shuffle_mode in list(TrainingShffuleMode), \
-            f"Unsupported training shuffle mode {self.args.training_shuffle_mode}, only {list(TrainingShffuleMode)} allowed."
-        logger.info(f"Set training shuffle mode {self.args.training_shuffle_mode}.")
         for epoch in range(self.args.num_training_epoch):
-            if epoch > 0:
-                if self.args.training_shuffle_mode == TrainingShffuleMode.BATCH:
-                    ret = self._data_loader.shuffle.remote(self.args.train_micro_batch_size)
-                elif self.args.training_shuffle_mode == TrainingShffuleMode.SAMPLE:
-                    ret = self._data_loader.shuffle.remote()
-                future.wait(ret)
+            
+            # shuffle data
+            future.wait(self._data_loader.shuffle.remote())
+
             data_queues, out_queue = self.setup_queues()
             for mb in range(_num_training_iteration * self.data_parallel_size):
                 batch = encode_data(mb, self.next_batch())
