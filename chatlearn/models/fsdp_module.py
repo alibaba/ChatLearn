@@ -71,6 +71,9 @@ class FSDPModule(TorchModule):
         self.sp_size = self.module_args.sp_size
         self.device_mesh = None
         self.sp_device_mesh = None
+        
+        # from dataclasses import asdict, dataclass
+        # self.module_args.args_dict = asdict(self.module_args.args_dict)
 
     def get_visible_gpus(self):
         """
@@ -286,7 +289,8 @@ class FSDPModule(TorchModule):
         else:
             self.optimizer = optim.AdamW(
                 self.model.parameters(),
-                lr=self.module_args.args_dict.get("learning_rate", 2e-6),
+                # lr=self.module_args.args_dict.get("learning_rate", 2e-6),
+                lr=self.model_args.get("learning_rate", 2e-6),
                 betas=(0.9, 0.999),
                 weight_decay=1e-2
             )

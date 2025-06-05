@@ -1,0 +1,81 @@
+runtime_args:
+  # setup config
+  exp_name: grpo_test
+  colocation: [policy,policy_trainer,ref_policy]
+  # path config
+  output_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
+  data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/train.json
+  eval_data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/test.json
+  data_checkpoint_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test/data_checkpoint_path/
+  # config for training
+  num_episode: 200
+  sample_per_episode: 2048
+  train_micro_batch_size: 8
+  train_global_batch_size: 2048
+  save_episode_interval: 200
+  # config for data
+  data_shuffle: True
+  data_rerank: True
+  max_replay_episode: 2
+  # config for eval
+  eval_episode_interval: 5
+  enable_eval_before_training: False
+  log_args_dict:
+    log_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
+
+models:
+  policy:
+    free_memory: True
+    generation_batch_size: 256
+    gpu_per_process: 1
+    num_gpu: 8
+    offload_weights: True
+    trainable: False
+    args_dict:
+      tokenizer: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+      num_inference_per_prompt: 32
+      seq_length: 2048
+      max_seq_len_to_capture: 2348
+      temperature: 1.0
+      top_p: 1.0
+      eval_temperature: 0.6
+      eval_top_p: 0.95
+      eval_top_k: 20
+      vllm_prompt_key: prompt
+      vllm_input_ids_key: input_ids
+      enable_thinking: False
+      enable_stage_resume: False
+      gpu_memory_utilization: 0.8
+  reward:
+    num_cpu: 2
+    cpu_per_process: 1
+    generation_batch_size: 256
+  ref_policy:
+    free_memory: True
+    generation_batch_size: 8
+    gpu_per_process: 1
+    num_gpu: 8
+    fsdp_size: 8
+    offload_weights: True
+    trainable: False
+    args_dict:
+      seed: 1234
+      pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+  policy_trainer:
+    trainable: True
+    free_grad_buffers: True
+    free_memory: True
+    fsdp_size: 8
+    generation_batch_size: 8
+    gpu_per_process: 1
+    num_gpu: 8
+    offload_optimizer_states: True
+    offload_weights: True
+    args_dict:
+      seed: 1234
+      pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+      grad_clip: 1
+      gradient_checkpointing: True
+      pos_clip_ratio: 0.2
+      negative_clip_ratio: 0.2
+      save_hf: True

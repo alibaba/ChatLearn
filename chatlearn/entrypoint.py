@@ -17,6 +17,7 @@
 import argparse
 from importlib import import_module
 import sys
+import traceback
 from typing import Dict, Tuple, Type, Any
 import hydra
 from hydra.core.global_hydra import GlobalHydra
@@ -125,7 +126,7 @@ class ChatlearnLauncher:
         try:
             self._run_algorithm(algo_args)
         except Exception as e:
-            print(f"ERROR: {str(e)}")
+            traceback.print_exc()
             sys.exit(1)
 
 

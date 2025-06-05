@@ -59,6 +59,8 @@ class ModelManager:
         self.model_packs = []
         self.placement_groups = []
 
+        self.runtime_args.colocation = [self.runtime_args.colocation]
+
     def _get_total_gpu_required(self):
         total_gpu = 0
         remote_states = set()
@@ -68,6 +70,7 @@ class ModelManager:
             total_gpu += max_gpu
             for name in group:
                 remote_states.add(name)
+
         for model in self.dist_models:
             # place non-colocate models
             if model.name not in remote_states:

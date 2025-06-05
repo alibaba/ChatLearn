@@ -855,6 +855,7 @@ def initialize_vllm( # pylint: disable=dangerous-default-value,useless-return
             setattr(args, key, value)
     def finish_mpu_init():
         # Pytorch distributed.
+        print("debughh", args)
         _init_distributed_environment(args)
 
         # Random seeds for reproducibility.

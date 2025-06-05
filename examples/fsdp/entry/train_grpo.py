@@ -29,8 +29,8 @@ from chatlearn.utils.utils import listdict_to_dictlist
 import chatlearn
 from chatlearn import Engine
 from chatlearn.models.base_module import BaseModule
-from models.vllm_policy_inference import VLLMPolicyInference
-from models.rule_reward import RuleReward
+from examples.fsdp.models.vllm_policy_inference import VLLMPolicyInference
+from examples.fsdp.models.rule_reward import RuleReward
 
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
 

@@ -47,62 +47,356 @@ class RuntimeEnvConfig:
     )
 
 @dataclass
+class LogConfig:
+    log_dir: str = field(
+        default=MISSING,
+        metadata={"help": "log dir"}
+    )
+    # config for tensorboard
+    enable_tensorboard: bool = field(
+        default=False,
+        metadata={"help": "whether enable tensorboard or not"}
+    )
+    tensorboard_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "tensorboard file save dir"}
+    )
+    # config for wandb
+    enable_wandb: bool = field(
+        default=False,
+        metadata={"help": "whether enable wandb or not"}
+    )
+    wandb_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "wandb file save dir"}
+    )
+    wandb_project: Optional[str] = field(
+        default=None,
+        metadata={"help": "wandb project"}
+    )
+    wandb_id: Optional[str] = field(
+        default=None,
+        metadata={"help": "wandb id"}
+    )
+    wandb_name: Optional[str] = field(
+        default=None,
+        metadata={"help": "wandb name"}
+    )
+    wandb_resume: str = field(
+        default="allow",
+        metadata={"help": "wandb resume"}
+    )
+
+@dataclass
 class BaseModelConfig:
     """BaseModelConfig"""
 
-    seed: int = field(
-        default=1234,
-        metadata={"help": "Random seed. Default is 1234."}
+    num_gpu: int = field(
+        default=0,
+        metadata={"help": "number of GPU used for one model, default 0"}
+    )
+    num_cpu: int = field(
+        default=0,
+        metadata={"help": "number of CPU used for one model, default 0"}
+    )
+    gpu_per_process: Optional[int] = field(
+        default=None,
+        metadata={"help": "gpu per process, e.g., for PyTorch DDP, Megatron, `gpu_per_process` is set to 1"}
+    )
+    cpu_per_process: Optional[int] = field(
+        default=None,
+        metadata={"help": "cpu per process"}
+    )
+    trainable: bool = field(
+        default=False,
+        metadata={"help": "whether model is trainable"}
+    )
+    tensor_model_parallel_size: int = field(
+        default=1,
+        metadata={"help": "tensor model parallel size"}
+    )
+    pipeline_model_parallel_size: int = field(
+        default=1,
+        metadata={"help": "pipeline model parallel size"}
+    )
+    expert_model_parallel_size: int = field(
+        default=1,
+        metadata={"help": "expert model parallel size for Megatron-Core"}
+    )
+    zero_size: int = field(
+        default=1,
+        metadata={"help": "zero size"}
+    )
+    fsdp_size: int = field(
+        default=1,
+        metadata={"help": "FSDP parallel size"}
+    )
+    sp_size: int = field(
+        default=1,
+        metadata={"help": "Sequence parallel size"}
+    )
+    generation_batch_size: int = field(
+        default=1,
+        metadata={"help": "rollout generation batch size"}
+    )
+    offload_optimizer_states: bool = field(
+        default=False,
+        metadata={"help": "whether offload optimizer states"}
+    )
+    sync_frequency: int = field(
+        default=1,
+        metadata={"help": "parameter sync frequency"}
+    )
+    offload_weights: bool = field(
+        default=False,
+        metadata={"help": "whether offload weights"}
+    )
+    free_grad_buffers: bool = field(
+        default=False,
+        metadata={"help": "whether free grad buffers"}
+    )
+    free_memory: bool = field(
+        default=False,
+        metadata={"default": "overall switch for offload optimizer states/weights and free grad buffers"}
+    )
+    
+@dataclass
+class PolicyArgsDictConfig:
+    "temp support"
+    num_inference_per_prompt: int = field(
+        default=32,
+        metadata={"help": "number of response for per prompt"}
+    )
+    seq_length: int = field(
+        default=2048,
+        metadata={"help": "length of prompt + response"}
+    )
+    max_new_tokens: int = field(
+        default=2048,
+        metadata={"help": "length of response"}
+    )
+    temperature: float = field(
+        default=1.0,
+        metadata={"help": "temperature for sample train data"}
+    )
+    top_p: float = field(
+        default=1.0,
+        metadata={"help": "top_p for sample train data"}
+    )
+    top_k: int = field(
+        default=-1,
+        metadata={"help": "top_k for sample train data"}
+    )
+    presence_penalty: float = field(
+        default=0.0,
+        metadata={"help": "presence_penalty for sample train data"}
+    )
+    frequency_penalty: float = field(
+        default=0.0,
+        metadata={"help": "frequency_penalty for sample train data"}
+    )
+    repetition_penalty: float = field(
+        default=1.0,
+        metadata={"help": "repetition_penalty for sample train data"}
     )
 
+    eval_temperature: float = field(
+        default=0.6,
+        metadata={"help": "temperature for sample eval data"}
+    )
+    eval_top_p: float = field(
+        default=0.95,
+        metadata={"help": "top_p for sample eval data"}
+    )
+    eval_top_k: int = field(
+        default=20,
+        metadata={"help": "top_k for sample eval data"}
+    )
+    eval_presence_penalty: float = field(
+        default=0.0,
+        metadata={"help": "presence_penalty for sample eval data"}
+    )
+    eval_frequency_penalty: float = field(
+        default=0.0,
+        metadata={"help": "frequency_penalty for sample eval data"}
+    )
+    eval_repetition_penalty: float = field(
+        default=1.0,
+        metadata={"help": "repetition_penalty for sample eval data"}
+    )
+    vllm_prompt_key: str = field(
+        default="prompt",
+        metadata={"help": "vllm_prompt_key"}
+    )
+    vllm_input_ids_key: str = field(
+        default="input_ids",
+        metadata={"help": "vllm_input_ids_key"}
+    )
+    enable_thinking: bool = field(
+        default=False,
+        metadata={"help": "whether enable think or not"}
+    )
+    max_num_batched_tokens: int = field(
+        default=32768,
+        metadata={"help": "max_num_batched_tokens"}
+    )
+    max_seq_len_to_capture: int = field(
+        default=2348,
+        metadata={"help": "max_seq_len_to_capture"}
+    )
+    enable_stage_resume: bool = field(
+        default=False,
+        metadata={"help": "enable_stage_resume"}
+    )
+    gpu_memory_utilization: float = field(
+        default=0.8,
+        metadata={"help": "gpu_memory_utilization"}
+    )
+    enforce_eager: bool = field(
+        default=False,
+        metadata={"help": "enforce_eager"}
+    )
+    tokenizer: str = field(
+        default=MISSING,
+        metadata={"help": "tokenizer config path"}
+    )
+    seed: int = field(
+        default=1234,
+        metadata={"help": "seed"}
+    )
+    
+    # for debug
+    tensor_model_parallel_size: int = field(
+        default=1,
+        metadata={"help": "tensor model parallel size"}
+    )
+    pipeline_model_parallel_size: int = field(
+        default=1,
+        metadata={"help": "pipeline model parallel size"}
+    )
 
 @dataclass
 class PolicyConfig(BaseModelConfig):
     """PolicyConfig"""
 
-    num_gpus: int = field(
-        default=1,
-        metadata={"help": "Number of GPUs to use. Default is 1."}
+    args_dict: PolicyArgsDictConfig = field(
+        default_factory=PolicyArgsDictConfig,
+        metadata={"help": "support for orignal args_dict"}
     )
-    trainable: bool = field(
-        default=False,
-        metadata={"help": "Whether the policy is trainable. Default is False."}
-    )
-
 
 @dataclass
-class RewardConfig(BaseModelConfig):
-    """RewardConfig"""
-
-    num_cpus: int = field(
-        default=2,
-        metadata={"help": "Number of CPUs to use. Default is 1."}
+class RefPolicyArgsDictConfig:
+    seed: int = field(
+        default=1234,
+        metadata={"help": "seed"}
     )
-
+    pretrain_or_model: str = field(
+        default=MISSING,
+        metadata={"help": "path to reference model"}
+    )
 
 @dataclass
 class RefPolicyConfig(BaseModelConfig):
     """RefPolicyConfig"""
 
-    fsdp_size: int = field(
-        default=-1,
-        metadata={"help": "FSDP size. Default is -1."}
+    args_dict: RefPolicyArgsDictConfig = field(
+        default_factory=RefPolicyArgsDictConfig,
+        metadata={"help": "support for orignal args_dict"}
     )
 
+@dataclass
+class PolicyTrainerArgsDictConfig:
+    seed: int = field(
+        default=1234,
+        metadata={"help": "seed"}
+    )
+    pretrain_or_model: str = field(
+        default=MISSING,
+        metadata={"help": "path to reference model"}
+    )
+    learning_rate: float = field(
+        default=2e-06,
+        metadata={"help": "learning rate for policy model"}
+    )
+    grad_clip: float = field(
+        default=1.0,
+        metadata={"help": "grad clips for policy model"}
+    )
+    gradient_checkpointing: bool = field(
+        default=True,
+        metadata={"help": "whether gradient checkpointing"}
+    )
+    pos_clip_ratio: float = field(
+        default=0.2
+    )
+    negative_clip_ratio: float = field(
+        default=0.2
+    )
+    save_hf: bool = field(
+        default=True
+    )
+    seed: int = field(
+        default=1234
+    )
 
 @dataclass
 class PolicyTrainerConfig(BaseModelConfig):
     """PolicyTrainerConfig"""
 
-    free_memory: bool = field(
-        default=True,
-        metadata={"help": "Whether to free memory. Default is True."}
+    args_dict: PolicyTrainerArgsDictConfig = field(
+        default_factory=PolicyTrainerArgsDictConfig,
+        metadata={"help": "support for orignal args_dict"}
     )
 
 
 @dataclass
 class RuntimeConfig:
     """RuntimeConfig"""
+    # setup config
+    exp_name: str = field(
+        default="CHATLEARN",
+        metadata={"help": "exp name for each run"}
+    )
+    colocation: List[str] = field(
+        default_factory=list,
+        metadata={"help": "colocate models into the same device"}
+    )
+    concurrent_setup: bool = field(
+        default=False,
+        metadata={"help": "whether concurrent model setup or not"}
+    )
+    debug: bool = field(
+        default=False,
+        metadata={"help": "whether log debug infromation or not"}
+    )
+    nsys: bool = field(
+        default=False,
+        metadata={"help": "whether enable nsys nvtx"}
+    )
+
+    # path config
+    output_dir: str = field(
+        default=MISSING,
+        metadata={"help": "output dir"}
+    )
+    profiler_dir: Optional[str] = field(
+        default=None,
+        metadata={"help": "profiler dir"}
+    )
+    data_path: str = field(
+        default=MISSING,
+        metadata={"help": "[required]: data_path for dataset or a List of data_path for different kind of datasets split by ,"}
+    )
+    eval_data_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "Path to the evaluation data file."}
+    )
+    data_checkpoint_path: Optional[str] = field(
+        default=None,
+        metadata={"help": "[optional]: checkpoint for dataloader"}
+    )
+
+    # config for training
     num_episode: int = field(
         default=MISSING,
         metadata={"help": "[required] number of episodes. One episode includes a inference and training loop."}
@@ -127,16 +421,18 @@ class RuntimeConfig:
         default=MISSING,
         metadata={"help": "save checkpoint per `save_episode_interval` episodes."}
     )
-    log_interval: int = field(
-        default=1,
-        metadata={"help": "[optional] log time and memory per `log_interval` iterations."}
+    enable_resume_training: bool = field(
+        default=True,
+        metadata={"help": "[optional]: enable resume training when data checkpoint is set"}
     )
-    data_path: str = field(
-        default=MISSING,
-        metadata={"help": "[required]: data_path for dataset or a List of data_path for different kind of datasets split by ,"}
-    )
-    data_ratio: List[int] = field(
-        default_factory=list, # origin None
+
+    # config for data
+    # data_ratio: List[int] = field(
+    #     default_factory=list, # origin None
+    #     metadata={"help": "the ratio for each kind of data_path in a training episode"}
+    # )
+    data_ratio: Optional[int] = field(
+        default=None, # origin None
         metadata={"help": "the ratio for each kind of data_path in a training episode"}
     )
     data_shuffle: bool = field(
@@ -147,21 +443,18 @@ class RuntimeConfig:
         default=True,
         metadata={"help": "rerank batch of data by row"}
     )
-    colocation: List[str] = field(
-        default_factory=list,
-        metadata={"help": "colocate models into the same device"}
-    )
-    eval_episode_interval: int = field(
+    max_replay_episode: int = field(
         default=0,
-        metadata={"help": "[optional]: eval every N episode, if 0, will not eval"}
+        metadata={"help": "max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes \
+                        if `max_replay_episode` is set to 0, then replay is disabled"}
     )
-    enable_resume_training: bool = field(
-        default=True,
-        metadata={"help": "[optional]: enable resume training when data checkpoint is set"}
+    replay_episode_offset: int = field(
+        default=0,
+        metadata={"help": "replay after n episodes"}
     )
-    data_checkpoint_path: Optional[str] = field(
-        default=None,
-        metadata={"help": "[optional]: checkpoint for dataloader"}
+    consumed_samples: int = field(
+        default=0,
+        metadata={"help": "consumed samples"}
     )
     max_data_ckpt_nums: Optional[int] = field(
         default=None,
@@ -175,18 +468,18 @@ class RuntimeConfig:
         default="fixed",
         metadata={"help": "stream_data_loader type, fixed or dynamic"}
     )
-    debug: bool = field(
+
+    # eval config
+    eval_episode_interval: int = field(
+        default=0,
+        metadata={"help": "[optional]: eval every N episode, if 0, will not eval"}
+    )
+    enable_eval_before_training: bool = field(
         default=False,
-        metadata={"help": "whether log debug infromation or not"}
+        metadata={"help": "whether to eval before training"}
     )
-    nsys: bool = field(
-        default=False,
-        metadata={"help": "whether enable nsys nvtx"}
-    )
-    profiler_dir: Optional[str] = field(
-        default=None,
-        metadata={"help": "profiler dir"}
-    )
+
+    # param sync config
     coalesced_buffer_mb: int = field(
         default=100,
         metadata={"help": "coalesce_buffer size in mb"}
@@ -207,16 +500,37 @@ class RuntimeConfig:
         default=ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL,
         metadata={"help": "communication type to regroup routed experts, allgather/alltoall"}
     )
-    max_replay_episode: int = field(
-        defautl=0,
-        metadata={"help": "max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes \
-                        if `max_replay_episode` is set to 0, then replay is disabled"}
+    bucket_size_mb_in_memory_manager: int = field(
+        default=1024,
+        metadata={"help": "bucket size in the memory manager to reduce peak memory"}
     )
-    replay_episode_offset: int = field(
-        default=0,
-        metadata={"help": "replay after n episodes"}
+    free_sync_collective_group: bool = field(
+        default=False,
+        metadata={"help": "free collective group after parameter synchronization and rebuild before next synchronization"}
     )
-    eval_data_path: str = field(
-        default=MISSING,
-        metadata={"help": "Path to the evaluation data file. Required."}
+    cpu_schedule_strategy: str = field(
+        default=RAY_PG_STRATEGY.SPREAD.value,
+        metadata={"help": "[optional] cpu only model schedule policy, PACK or SPREAD \
+                    PACK: All provided bundles are packed onto a single node on a best-effort basis. \
+                    SPREAD: Each bundle is spread onto separate nodes on a best-effort basis."}
+    )
+    validate_param_sync: bool = field(
+        default=False,
+        metadata={"help": "validate param sync"}
+    )
+
+    # graph config
+    policy_to_regroup_queue: str = field(
+        default="global_barrier",
+        metadata={"help": "policy to regroup queue"}
+    )
+
+    # log config
+    log_args_dict: LogConfig = field(
+        default_factory=LogConfig,
+        metadata={"help": "config for logging"}
+    )
+    log_interval: int = field(
+        default=1,
+        metadata={"help": "[optional] log time and memory per `log_interval` iterations."}
     )
