@@ -310,7 +310,7 @@ class EpisodereplayBuffer:
         return self._episode_id
 
 
-class replaySampleManager:
+class ReplaySampleManager:
     """
     replay sample Manager, users should inherit it to self-defined replay samples for trainer
     """

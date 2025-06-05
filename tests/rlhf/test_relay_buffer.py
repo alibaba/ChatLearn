@@ -98,7 +98,7 @@ def test_replay_buffer():
 
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    replay_sample_manager = replaySampleManagerTester(chatlearn.get_args())
+    replay_sample_manager = ReplaySampleManagerTester(chatlearn.get_args())
     engine.set_replay_sample_manager(replay_sample_manager)
     assert policy.num_replica == 1
     assert reference.num_replica == 1

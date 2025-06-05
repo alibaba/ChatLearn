@@ -10,7 +10,7 @@ from chatlearn.models.base_module import BaseModule
 from chatlearn import Engine
 from chatlearn import TorchModule
 from chatlearn.utils import future
-from chatlearn.data.data import replaySampleManager
+from chatlearn.data.data import ReplaySampleManager
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.trainer import Trainer
 from utils import assert_consumed_samples
@@ -179,7 +179,7 @@ def test_grpo():
 
     engine = FakeGRPOEngine(policy, reference, reward, ppo_policy)
 
-    class replaySampleManagerTester(replaySampleManager):
+    class ReplaySampleManagerTester(ReplaySampleManager):
         def __call__(self, episode_replay_buffers):
             buffer = episode_replay_buffers[-1].buffer
             episode_id = episode_replay_buffers[-1]._episode_id
@@ -188,7 +188,7 @@ def test_grpo():
                 assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
             return buffer
 
-    replay_sample_manager = replaySampleManagerTester(chatlearn.get_args())
+    replay_sample_manager = ReplaySampleManagerTester(chatlearn.get_args())
     engine.set_replay_sample_manager(replay_sample_manager)
     assert policy.num_replica == 1
     assert reference.num_replica == 4
