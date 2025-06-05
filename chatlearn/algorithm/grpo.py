@@ -92,6 +92,6 @@ class GrpoAlgorithm(BaseAlgorithm):
         # # put data in engine._all_datasets
         # engine.set_dataset(train_data)
         # engine.evaluator.set_dataset(eval_data)
-        # engine.set_relay_sample_manager(compute_grpo_adv)
+        # engine.set_replay_sample_manager(compute_grpo_adv)
         # engine.learn()
         

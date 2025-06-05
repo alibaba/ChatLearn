@@ -10,7 +10,7 @@ from chatlearn.models.base_module import BaseModule
 from chatlearn import Engine
 from chatlearn import TorchModule
 from chatlearn.utils import future
-from chatlearn.data.data import RelaySampleManager
+from chatlearn.data.data import replaySampleManager
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.trainer import Trainer
 from utils import assert_consumed_samples
@@ -170,7 +170,7 @@ def test_grpo():
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 32
     chatlearn.get_args().runtime_args.generation_batch_size = 8
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 1024
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -179,17 +179,17 @@ def test_grpo():
 
     engine = FakeGRPOEngine(policy, reference, reward, ppo_policy)
 
-    class RelaySampleManagerTester(RelaySampleManager):
-        def __call__(self, episode_relay_buffers):
-            buffer = episode_relay_buffers[-1].buffer
-            episode_id = episode_relay_buffers[-1]._episode_id
+    class replaySampleManagerTester(replaySampleManager):
+        def __call__(self, episode_replay_buffers):
+            buffer = episode_replay_buffers[-1].buffer
+            episode_id = episode_replay_buffers[-1]._episode_id
             assert len(buffer) == 1024
             for i in range(len(buffer)):
                 assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
             return buffer
 
-    relay_sample_manager = RelaySampleManagerTester(chatlearn.get_args())
-    engine.set_relay_sample_manager(relay_sample_manager)
+    replay_sample_manager = replaySampleManagerTester(chatlearn.get_args())
+    engine.set_replay_sample_manager(replay_sample_manager)
     assert policy.num_replica == 1
     assert reference.num_replica == 4
     assert reward.num_replica == 4

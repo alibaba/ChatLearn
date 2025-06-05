@@ -55,7 +55,7 @@ runtime:
   train_micro_batch_size: ${train_micro_batch_size:1}
   train_global_batch_size: ${train_global_batch_size:256}
   save_episode_interval: ${save_episode_interval:20}
-  max_relay_episode: 2 # for enable grpo adv compute
+  max_replay_episode: 2 # for enable grpo adv compute
   eval_episode_interval: ${eval_episode_interval:5}
   log_config_file: log.yaml
   data_checkpoint_path: ${data_checkpoint_path}

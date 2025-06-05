@@ -15,8 +15,11 @@
 """common configs"""
 
 from dataclasses import dataclass, field
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Any
 from omegaconf import MISSING
+
+from chatlearn.utils.constant import (RAY_PG_STRATEGY,
+    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE)
 
 
 @dataclass
@@ -183,6 +186,35 @@ class RuntimeConfig:
     profiler_dir: Optional[str] = field(
         default=None,
         metadata={"help": "profiler dir"}
+    )
+    coalesced_buffer_mb: int = field(
+        default=100,
+        metadata={"help": "coalesce_buffer size in mb"}
+    )
+    concurrent_comm: bool = field(
+        default=True,
+        metadata={"help": "whether concurrent parameter sync or not, for megatron to vllm"}
+    )
+    param_sync_comm_type: str = field(
+        default=PARAM_SYNC_COMM_TYPE.BROADCAST.value,
+        metadata={"help": "parameter sync communication type, broadcast/p2p"}
+    )
+    param_sync_max_workers: Optional[int] = field(
+        default=None,
+        metadata={"help": "parameter sync max workers"}
+    )
+    routed_expert_regrouping_comm_type: str = field(
+        default=ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL,
+        metadata={"help": "communication type to regroup routed experts, allgather/alltoall"}
+    )
+    max_replay_episode: int = field(
+        defautl=0,
+        metadata={"help": "max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes \
+                        if `max_replay_episode` is set to 0, then replay is disabled"}
+    )
+    replay_episode_offset: int = field(
+        default=0,
+        metadata={"help": "replay after n episodes"}
     )
     eval_data_path: str = field(
         default=MISSING,

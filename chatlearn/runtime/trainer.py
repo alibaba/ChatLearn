@@ -69,7 +69,7 @@ class Trainer(Executor):
         """
         return the number of times the model is updated per episode.
         """
-        # Given that we have incorporated support for relay buffer and dynamic reward outputs,
+        # Given that we have incorporated support for replay buffer and dynamic reward outputs,
         # the number of training data batches per episode may differ, hence we dynamically determine the total number of batches per episode.
         _sample_per_episode = ray.get(self._data_loader.total_samples.remote())
         return math.ceil(_sample_per_episode / self.args.train_global_batch_size)
