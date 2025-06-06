@@ -30,7 +30,7 @@ def _vocab_size_with_padding(orig_vocab_size, make_vocab_size_divisible_by, tens
     return after
 
 def build_tokenizer(args):
-    patch_tokenizer_type = args.models['policy'].args_dict['patch_tokenizer_type']
+    patch_tokenizer_type = args.models['policy_trainer']['patch_tokenizer_type']
 
     if patch_tokenizer_type == 'DeepSeekV2Tokenizer':
         from megatron.core.datasets.megatron_tokenizer import MegatronTokenizer
@@ -103,8 +103,8 @@ def build_tokenizer(args):
                 return self.tokenizer.pad_token_id
 
 
-        tokenizer_path = args.models['policy'].args_dict['tokenizer']
-        tokenizer = _DeepSeekV2Tokenizer(tokenizer_path, extra_vocab_size=args.models['policy'].args_dict['extra_vocab_size'])
+        tokenizer_path = args.models['policy']['tokenizer']
+        tokenizer = _DeepSeekV2Tokenizer(tokenizer_path, extra_vocab_size=args.models['policy']['extra_vocab_size'])
 
     elif patch_tokenizer_type == 'Qwen2Tokenizer':
         from megatron.core.datasets.megatron_tokenizer import MegatronTokenizer
@@ -179,19 +179,16 @@ def build_tokenizer(args):
             def eod_id(self):
                 return self.tokenizer.pad_token_id
 
-        tokenizer_path = args.models['policy'].args_dict['tokenizer']
-        tokenizer = _Qwen2Tokenizer(tokenizer_path, extra_vocab_size=args.models['policy'].args_dict['extra_vocab_size'])
+        tokenizer_path = args.models['policy']['tokenizer']
+        tokenizer = _Qwen2Tokenizer(tokenizer_path, extra_vocab_size=args.models['policy_trainer']['extra_vocab_size'])
 
     else:
         raise NotImplementedError('{} tokenizer is not '
                                   'implemented.'.format(patch_tokenizer_type))
 
     if getattr(args, "padded_vocab_size", None) is None:
-        # make_vocab_size_divisible_by = args.models['policy'].args_dict['make_vocab_size_divisible_by']
-        # tensor_model_parallel_size = args.models['policy'].args_dict['tensor_model_parallel_size']
-        # padded_vocab_size = _vocab_size_with_padding(tokenizer.vocab_size, make_vocab_size_divisible_by, tensor_model_parallel_size)
         padded_vocab_size = tokenizer.vocab_size
-        args.models['policy'].args_dict['padded_vocab_size'] = padded_vocab_size
+        # args.models['policy'].args_dict['padded_vocab_size'] = padded_vocab_size
         get_args().padded_vocab_size = padded_vocab_size
 
     global _GLOBAL_TOKENIZER

@@ -65,60 +65,60 @@ YAML 配置
     runtime:
         # one of ["fixed", "dynamic"]
         stream_data_loader_type: fixed
-        #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
-        #: if `max_relay_episode` is set to 0, then relay is disabled
-        max_relay_episode: int = 0
-        #: relay after n episodes
-        relay_episode_offset: int = 0
+        #: max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes
+        #: if `max_replay_episode` is set to 0, then replay is disabled
+        max_replay_episode: int = 0
+        #: replay after n episodes
+        replay_episode_offset: int = 0
 
 
 .. csv-table::
    :header: "参数名", "类型", "注释"
 
    "stream_data_loader_type",               "str",      "指定类型，默认是 fixed，必须是以下类型之一，['fixed', 'dynamic']"
-   "max_relay_episode",               "int",      "指定 relay 的最近的 max_relay_episode 个 episode，超过 max_relay_episode，会淘汰最老的 episode 数据。如果 max_relay_episode 设为 -1，则不会淘汰，记录每个 episode 的历史数据。如果 max_relay_episode 设为 0，则不会开启 relay。"
-   "relay_episode_offset",               "int",      "指定从第relay_episode_offset+1个episode开始relay，记录episode 的历史数据。默认为0。"
+   "max_replay_episode",               "int",      "指定 replay 的最近的 max_replay_episode 个 episode，超过 max_replay_episode，会淘汰最老的 episode 数据。如果 max_replay_episode 设为 -1，则不会淘汰，记录每个 episode 的历史数据。如果 max_replay_episode 设为 0，则不会开启 replay。"
+   "replay_episode_offset",               "int",      "指定从第replay_episode_offset+1个episode开始replay，记录episode 的历史数据。默认为0。"
 
 
 
-relay_sample_fn
+replay_sample_fn
 >>>>>>>>>>>>>>>
 
-`relay_sample_fn` 是用户自定义的 relay buffer sample 函数。
+`replay_sample_fn` 是用户自定义的 replay buffer sample 函数。
 
 .. code-block:: python
 
-    def relay_sample_fn(episode_relay_buffers) -> List[dict]:
+    def replay_sample_fn(episode_replay_buffers) -> List[dict]:
         """
         Args:
-            episode_relay_buffers : List[EpisodeRelayBuffer]
+            episode_replay_buffers : List[EpisodereplayBuffer]
         Return: list of dict
         """
 
 
-`relay_sample_fn` 接收 `episode_relay_buffers`，`episode_relay_buffers` 是一个 list 的 `EpisodeRelayBuffer`。每个 `EpisodeRelayBuffer` 记录了一个 episode 的 samples。`EpisodeRelayBuffer` 有两个关键属性：
+`replay_sample_fn` 接收 `episode_replay_buffers`，`episode_replay_buffers` 是一个 list 的 `EpisodereplayBuffer`。每个 `EpisodereplayBuffer` 记录了一个 episode 的 samples。`EpisodereplayBuffer` 有两个关键属性：
 
 1. `episode_id` 记录了当前是第几个 episode
 2. `buffer` 记录了所有的 samples，类型是 `List[dict]`，每个 dict 是一个 sample。
 
-通过 `engine.set_relay_sample_fn(relay_sample_fn)` 用户可以设定自定义的 `relay_sample_fn` 。
+通过 `engine.set_replay_sample_fn(replay_sample_fn)` 用户可以设定自定义的 `replay_sample_fn` 。
 
 示例
 >>>>
 
-下面这个示例将所有的 `episode_relay_buffers` 中的 sample 合并起来，返回一个多个 episode 完整的 sample 数据。
+下面这个示例将所有的 `episode_replay_buffers` 中的 sample 合并起来，返回一个多个 episode 完整的 sample 数据。
 
 .. code-block:: python
 
-    def relay_sample_fn(episode_relay_buffers):
+    def replay_sample_fn(episode_replay_buffers):
         buffers = []
-        for relay_buffer in episode_relay_buffers:
-            buffers += relay_buffer.buffer
-        # episode_id = episode_relay_buffers[-1].episode_id
+        for replay_buffer in episode_replay_buffers:
+            buffers += replay_buffer.buffer
+        # episode_id = episode_replay_buffers[-1].episode_id
         return buffers
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
 
 LoRA
 ----

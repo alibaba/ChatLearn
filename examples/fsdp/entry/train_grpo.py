@@ -29,8 +29,8 @@ from chatlearn.utils.utils import listdict_to_dictlist
 import chatlearn
 from chatlearn import Engine
 from chatlearn.models.base_module import BaseModule
-from models.vllm_policy_inference import VLLMPolicyInference
-from models.rule_reward import RuleReward
+from examples.fsdp.models.vllm_policy_inference import VLLMPolicyInference
+from examples.fsdp.models.rule_reward import RuleReward
 
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
 
@@ -44,8 +44,8 @@ def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
                 data.extend([json.loads(line) for line in f])
     return data
 
-def compute_grpo_adv(episode_relay_buffers):
-    buffers = episode_relay_buffers[-1].buffer
+def compute_grpo_adv(episode_replay_buffers):
+    buffers = episode_replay_buffers[-1].buffer
     queryids2samples = defaultdict(list)
     for s in buffers:
         queryids2samples[hash(','.join(map(str, s["prompt_token_ids"])))].append(s)
@@ -129,5 +129,5 @@ if __name__ == "__main__":
     # put data in engine._all_datasets
     engine.set_dataset(train_data)
     engine.evaluator.set_dataset(eval_data)
-    engine.set_relay_sample_manager(compute_grpo_adv)
+    engine.set_replay_sample_manager(compute_grpo_adv)
     engine.learn()

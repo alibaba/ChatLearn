@@ -168,7 +168,7 @@ def exist_checkpoint_util():
     return spec is not None
 
 def repair_loader_llama_mistral(source):
-    source = source.replace('args.seq_length = 4096', 'args.seq_length = model_args["max_position_embeddings"]')
+    source = source.replace('args.seq_length = 4096', 'args.seq_length = module_args["max_position_embeddings"]')
     return source
 
 class CheckpointUtilsImporter:

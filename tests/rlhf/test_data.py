@@ -173,7 +173,7 @@ def test_data_dp():
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 16
     chatlearn.get_args().runtime_args.generation_batch_size = 8
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 256
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -186,15 +186,15 @@ def test_data_dp():
     ppo_value._data_parallel_size = 2
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    def relay_sample_fn(episode_relay_buffers):
-        buffer = episode_relay_buffers[-1].buffer
-        episode_id = episode_relay_buffers[-1]._episode_id
+    def replay_sample_fn(episode_replay_buffers):
+        buffer = episode_replay_buffers[-1].buffer
+        episode_id = episode_replay_buffers[-1]._episode_id
         assert len(buffer) == 256, f"{len(buffer)}"
         for i in range(len(buffer)):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 256
         return buffer
 
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     assert policy.num_replica == 4
     assert reference.num_replica == 2
     assert reward.num_replica == 2
@@ -268,7 +268,7 @@ def test_data_dp_ep():
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 32
     chatlearn.get_args().runtime_args.generation_batch_size = 8
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 1024
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -286,15 +286,15 @@ def test_data_dp_ep():
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-    def relay_sample_fn(episode_relay_buffers):
-        buffer = episode_relay_buffers[-1].buffer
-        episode_id = episode_relay_buffers[-1]._episode_id
+    def replay_sample_fn(episode_replay_buffers):
+        buffer = episode_replay_buffers[-1].buffer
+        episode_id = episode_replay_buffers[-1]._episode_id
         assert len(buffer) == 1024, f"Unexpected length of buffer: {len(buffer)}, expected: 1024."
         for i in range(len(buffer)):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
         return buffer
 
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     # for inference models, they have 2 dp replicas
     assert policy.num_replica == 2
     assert reference.num_replica == 2
@@ -376,7 +376,7 @@ def test_data_dp_zero():
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 32
     chatlearn.get_args().runtime_args.generation_batch_size = 8
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 256
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -394,15 +394,15 @@ def test_data_dp_zero():
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-    def relay_sample_fn(episode_relay_buffers):
-        buffer = episode_relay_buffers[-1].buffer
-        episode_id = episode_relay_buffers[-1]._episode_id
+    def replay_sample_fn(episode_replay_buffers):
+        buffer = episode_replay_buffers[-1].buffer
+        episode_id = episode_replay_buffers[-1]._episode_id
         assert len(buffer) == 256
         for i in range(len(buffer)):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 256
         return buffer
 
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     assert policy.num_replica == 1
     assert reference.num_replica == 1
     assert reward.num_replica == 1
@@ -481,7 +481,7 @@ def test_data_tp_2_ep():
     chatlearn.get_args().runtime_args.colocation = [["policy", "reference", "reward", "value", "ppo_policy", "ppo_value"]]
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 32
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 1024
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -492,15 +492,15 @@ def test_data_tp_2_ep():
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-    def relay_sample_fn(episode_relay_buffers):
-        buffer = episode_relay_buffers[-1].buffer
-        episode_id = episode_relay_buffers[-1]._episode_id
+    def replay_sample_fn(episode_replay_buffers):
+        buffer = episode_replay_buffers[-1].buffer
+        episode_id = episode_replay_buffers[-1]._episode_id
         assert len(buffer) == 1024
         for i in range(len(buffer)):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
         return buffer
 
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     # for inference models, they have 2 dp replicas
     assert policy.num_replica == 2
     assert reference.num_replica == 1
@@ -589,7 +589,7 @@ def test_data_tp_ep_pp():
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 32
     chatlearn.get_args().runtime_args.generation_batch_size = 8
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 1024
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -600,15 +600,15 @@ def test_data_tp_ep_pp():
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-    def relay_sample_fn(episode_relay_buffers):
-        buffer = episode_relay_buffers[-1].buffer
-        episode_id = episode_relay_buffers[-1]._episode_id
+    def replay_sample_fn(episode_replay_buffers):
+        buffer = episode_replay_buffers[-1].buffer
+        episode_id = episode_replay_buffers[-1]._episode_id
         assert len(buffer) == 1024
         for i in range(len(buffer)):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
         return buffer
 
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     # for inference models, they have 2 dp replicas
     assert policy.num_replica == 2
     assert reference.num_replica == 2
@@ -692,7 +692,7 @@ def test_data_tp_ep():
     chatlearn.get_args().runtime_args.train_micro_batch_size = 4
     chatlearn.get_args().runtime_args.train_global_batch_size = 32
     chatlearn.get_args().runtime_args.generation_batch_size = 8
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
     chatlearn.get_args().runtime_args.sample_per_episode = 1024
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
@@ -703,15 +703,15 @@ def test_data_tp_ep():
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
 
-    def relay_sample_fn(episode_relay_buffers):
-        buffer = episode_relay_buffers[-1].buffer
-        episode_id = episode_relay_buffers[-1]._episode_id
+    def replay_sample_fn(episode_replay_buffers):
+        buffer = episode_replay_buffers[-1].buffer
+        episode_id = episode_replay_buffers[-1]._episode_id
         assert len(buffer) == 1024
         for i in range(len(buffer)):
             assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
         return buffer
 
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     # for inference models, they have 2 dp replicas
     assert policy.num_replica == 2
     assert reference.num_replica == 2
@@ -784,27 +784,27 @@ def test_fixed_data():
     ppo_value = PPOValue("ppo_value")
 
     sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
-    chatlearn.get_args().runtime_args.max_relay_episode = 1
+    chatlearn.get_args().runtime_args.max_replay_episode = 1
 
-    def relay_sample_fn(episode_relay_buffers):
+    def replay_sample_fn(episode_replay_buffers):
         buffers = []
-        for relay_buffer in episode_relay_buffers:
-            buffers += relay_buffer.buffer
-        episode_id = episode_relay_buffers[-1].episode_id
+        for replay_buffer in episode_replay_buffers:
+            buffers += replay_buffer.buffer
+        episode_id = episode_replay_buffers[-1].episode_id
         assert len(buffers) == sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
         return buffers
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     assert policy.num_replica == 1
     assert reference.num_replica == 1
     data = torch.ones([1024])
     engine.set_dataset([data] * 35)
     engine.learn()
     assert len(engine.env._all_datasets[0]) == 35, len(engine.env._all_datasets[0])
-    ref = engine._data_loader.episode_relay_buffers.remote()
-    episode_relay_buffers = ray.get(ref)
-    print(episode_relay_buffers)
+    ref = engine._data_loader.episode_replay_buffers.remote()
+    episode_replay_buffers = ray.get(ref)
+    print(episode_replay_buffers)
     micro_batch_per_episode = ray.get(engine._data_loader.batch_per_episode.remote())
     assert micro_batch_per_episode == 4
     assert engine.trainer.num_iteration() == 2
@@ -823,16 +823,16 @@ def test_dynamic_data():
     chatlearn.get_args().runtime_args.stream_data_loader_type = "dynamic"
     sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
 
-    def relay_sample_fn(episode_relay_buffers):
+    def replay_sample_fn(episode_replay_buffers):
         buffers = []
-        for relay_buffer in episode_relay_buffers:
-            buffers += relay_buffer.buffer
-        episode_id = episode_relay_buffers[-1].episode_id
+        for replay_buffer in episode_replay_buffers:
+            buffers += replay_buffer.buffer
+        episode_id = episode_replay_buffers[-1].episode_id
         assert len(buffers) == (episode_id+1) * sample_per_episode, f"{len(buffers)}, {episode_id+1}, {sample_per_episode}"
         return buffers
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
     assert policy.num_replica == 1
     assert reference.num_replica == 1
     data = torch.ones([1024])
@@ -840,9 +840,9 @@ def test_dynamic_data():
 
     engine.learn()
     assert len(engine.env._all_datasets[0]) == 35, len(engine.env._all_datasets[0])
-    ref = engine._data_loader.episode_relay_buffers.remote()
-    episode_relay_buffers = ray.get(ref)
-    print(episode_relay_buffers)
+    ref = engine._data_loader.episode_replay_buffers.remote()
+    episode_replay_buffers = ray.get(ref)
+    print(episode_replay_buffers)
     micro_batch_per_episode = ray.get(engine._data_loader.batch_per_episode.remote())
     assert micro_batch_per_episode == 4
     assert engine.trainer.num_iteration() == 2

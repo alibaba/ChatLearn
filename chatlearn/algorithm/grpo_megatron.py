@@ -21,13 +21,17 @@ from configs.common import (
     RuntimeEnvConfig,
     PolicyConfig,
     RuntimeConfig,
-    RefPolicyConfig,
-    PolicyTrainerConfig,
+    # RefPolicyConfig,
+    # PolicyTrainerConfig,
     BaseModelConfig
 )
+
+from configs.megatron_config import MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
 # from chatlearn.algorithm.base_algo import BaseAlgorithm
 from algorithm.base_algo import BaseAlgorithm
-from examples.fsdp.entry.train_grpo import *
+from examples.mcore.entry.train_grpo import *
+
+
 
 @dataclass
 class GrpoModelConfig(BaseConfig):
@@ -39,16 +43,17 @@ class GrpoModelConfig(BaseConfig):
         default_factory=BaseModelConfig,
         metadata={"help": "Reward config."}
     )
-    ref_policy: RefPolicyConfig = field(
-        default_factory=RefPolicyConfig,
+    ref_policy: MegatronRefPolicyConfig = field(
+        default_factory=MegatronRefPolicyConfig,
         metadata={"help": "Reference policy config."}
     )
-    policy_trainer: PolicyTrainerConfig = field(
-        default_factory=PolicyTrainerConfig,
+    policy_trainer: MegatronPolicyTrainerConfig = field(
+        default_factory=MegatronPolicyTrainerConfig,
         metadata={"help": "Policy trainer config."}
     )
+
 @dataclass
-class GrpoConfig(BaseConfig):
+class GrpoConfigMegatron(BaseConfig):
     """GrpoConfig"""
 
     env_args: RuntimeEnvConfig = field(
@@ -66,14 +71,16 @@ class GrpoConfig(BaseConfig):
 
 
 
-class GrpoAlgorithm(BaseAlgorithm):
+class GrpoAlgorithmMegatron(BaseAlgorithm):
     """GrpoAlgorithm"""
 
-    def __init__(self, cfg: GrpoConfig) -> None:
+    def __init__(self, cfg: GrpoConfigMegatron) -> None:
         self.cfg = cfg
 
 
     def run(self) -> None:
+        # print(self.cfg)
+        # exit()
         chatlearn.init(self.cfg)
         args = chatlearn.get_args()
         policy_trainer = PolicyTrainer("policy_trainer")

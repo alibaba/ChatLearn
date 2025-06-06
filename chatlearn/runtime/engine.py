@@ -206,7 +206,7 @@ class Engine(BaseEngine):
         self._post_process = None
         self._drop_last = False
         self._wrap_data = True
-        self._relay_sample_manager = None
+        self._replay_sample_manager = None
         self._data_loader = None
         self._param_sync_pairs = []
         self._name = name
@@ -393,15 +393,15 @@ class Engine(BaseEngine):
             self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
 
 
-    def set_relay_sample_manager(self, relay_sample_manager):
+    def set_replay_sample_manager(self, replay_sample_manager):
         """
-        Set custom relay_sample_manager.
+        Set custom replay_sample_manager.
 
         Args
         ----
-            relay_sample_manager: inputs List[EpisodeRelayBuffer], return a list of dict.
+            replay_sample_manager: inputs List[EpisodereplayBuffer], return a list of dict.
         """
-        self._relay_sample_manager = relay_sample_manager
+        self._replay_sample_manager = replay_sample_manager
 
     def learn(self):
         self.timers("chatlearn").start()
@@ -424,8 +424,8 @@ class Engine(BaseEngine):
             self.runtime_args.stream_data_loader_type,
             self.runtime_args.train_micro_batch_size,
             self.env._padding_config,
-            self.runtime_args.max_relay_episode,
-            self.runtime_args.relay_episode_offset)
+            self.runtime_args.max_replay_episode,
+            self.runtime_args.replay_episode_offset)
 
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")
@@ -473,7 +473,7 @@ class Engine(BaseEngine):
                 self.timers("set_train_dataset").start()
             else:
                 logger.info(f"{LOG_START} Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
-            refs = data_loader.set_dataset.remote(queue, episode_id, self._relay_sample_manager,
+            refs = data_loader.set_dataset.remote(queue, episode_id, self._replay_sample_manager,
                                                   self.runtime_args.sample_per_episode)
             future.wait(refs, return_output=True)
             if self.trainer is not None:

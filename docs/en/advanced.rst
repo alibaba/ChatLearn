@@ -17,59 +17,59 @@ YAML Configuration
     runtime:
         # one of ["fixed", "dynamic"]
         stream_data_loader_type: fixed
-        #: max number of relay episodes, if `max_relay_episode` is set to -1, then relay all episodes
-        #: if `max_relay_episode` is set to 0, then relay is disabled
-        max_relay_episode: int = 0
-        #: relay after n episodes
-        relay_episode_offset: int = 0
+        #: max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes
+        #: if `max_replay_episode` is set to 0, then replay is disabled
+        max_replay_episode: int = 0
+        #: replay after n episodes
+        replay_episode_offset: int = 0
 
 
 .. csv-table::
    :header: "Parameter Name", "Type", "Description"
 
    "stream_data_loader_type", "str", "Specifies the type of StreamDataset. Default is 'fixed'. Must be one of the following types: ['fixed', 'dynamic']"
-   "max_relay_episode", "int", "Specifies the most recent max_relay_episode episodes to retrieve prompt data from. If max_relay_episode is set to -1, no episodes will be discarded, and the historical data for each episode will be recorded. if `max_relay_episode` is set to 0, then relay is disabled"
-   "relay_episode_offset", "int", "Specifies the episode offset from which to retrieve prompt data. Default is 0."
+   "max_replay_episode", "int", "Specifies the most recent max_replay_episode episodes to retrieve prompt data from. If max_replay_episode is set to -1, no episodes will be discarded, and the historical data for each episode will be recorded. if `max_replay_episode` is set to 0, then replay is disabled"
+   "replay_episode_offset", "int", "Specifies the episode offset from which to retrieve prompt data. Default is 0."
 
 
-relay_sample_fn
+replay_sample_fn
 >>>>>>>>>>>>>>>
 
-`relay_sample_fn` is a user-defined function for sampling data from the relay buffer.
+`replay_sample_fn` is a user-defined function for sampling data from the replay buffer.
 
 .. code-block:: python
 
-    def relay_sample_fn(episode_relay_buffers) -> List[dict]:
+    def replay_sample_fn(episode_replay_buffers) -> List[dict]:
         """
         Args:
-            episode_relay_buffers : List[EpisodeRelayBuffer]
+            episode_replay_buffers : List[EpisodereplayBuffer]
         Return: list of dict
         """
 
 
-`relay_sample_fn` receives `episode_relay_buffers`, which is a list of `EpisodeRelayBuffer`. Each `EpisodeRelayBuffer` records the samples for one episode. The `EpisodeRelayBuffer` has two key attributes:
+`replay_sample_fn` receives `episode_replay_buffers`, which is a list of `EpisodereplayBuffer`. Each `EpisodereplayBuffer` records the samples for one episode. The `EpisodereplayBuffer` has two key attributes:
 
 1. `episode_id` records the episode number.
 2. `buffer` records all the samples, which is a list of dictionaries, with each dictionary representing a sample.
 
-Users can set a custom `relay_sample_fn` using the `engine.set_relay_sample_fn(relay_sample_fn)` method.
+Users can set a custom `replay_sample_fn` using the `engine.set_replay_sample_fn(replay_sample_fn)` method.
 
 Example
 >>>>>>>>
 
-The following example demonstrates how to merge all the samples from the `episode_relay_buffers` and return the complete sample data for multiple episodes.
+The following example demonstrates how to merge all the samples from the `episode_replay_buffers` and return the complete sample data for multiple episodes.
 
 .. code-block:: python
 
-    def relay_sample_fn(episode_relay_buffers):
+    def replay_sample_fn(episode_replay_buffers):
         buffers = []
-        for relay_buffer in episode_relay_buffers:
-            buffers += relay_buffer.buffer
-        # episode_id = episode_relay_buffers[-1].episode_id
+        for replay_buffer in episode_replay_buffers:
+            buffers += replay_buffer.buffer
+        # episode_id = episode_replay_buffers[-1].episode_id
         return buffers
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    engine.set_relay_sample_fn(relay_sample_fn)
+    engine.set_replay_sample_fn(replay_sample_fn)
 
 LoRA
 ----

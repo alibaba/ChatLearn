@@ -263,8 +263,10 @@ class MultiDatasetSampler:
         assert self.consumed_samples % self.num_inference_per_prompt == 0, "consumed samples must be integer multiple of num_inference_per_prompt"
         assert self.sample_per_episode % self.num_inference_per_prompt == 0, "sample_per_episode must be integer multiple of num_inference_per_prompt"
 
+        # need list[int] in length self.dataset_num
         if not self.is_eval:
-            if data_ratio is None:
+            # [] or None
+            if not data_ratio:
                 self.data_ratio = [1] * self.dataset_num
             elif isinstance(data_ratio, int):
                 self.data_ratio = [data_ratio] * self.dataset_num
