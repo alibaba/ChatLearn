@@ -14,16 +14,46 @@
 # ==============================================================================
 """common configs"""
 
-from dataclasses import dataclass, field
-from typing import List, Optional, Union, Any
+from dataclasses import dataclass, field, asdict
+from typing import List, Optional, Union, Any, Iterator
 from omegaconf import MISSING
 
 from chatlearn.utils.constant import (RAY_PG_STRATEGY,
     PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE)
 
 
+class BaseConfig:
+    # TODO: Unifying Parameter Access Using dataclass approach
+
+    def __getitem__(self, key: str):
+        """support args[key]"""
+        if hasattr(self, key):
+            return getattr(self, key)
+        raise KeyError(key)
+
+    def __contains__(self, key: str) -> bool:
+        """support key in args"""
+        return hasattr(self, key)
+    
+    def get(self, key: str, default=None):
+        """support args.get(key)"""
+        return getattr(self, key, default)
+
+    def items(self) -> Iterator[tuple[str, Any]]:
+        """support args.items()"""
+        return asdict(self).items()
+
+    def keys(self) -> Iterator[str]:
+        """support args.keys()"""
+        return asdict(self).keys()
+    
+    def values(self) -> Iterator[Any]:
+        """support args.values()"""
+        return asdict(self).values()
+
+
 @dataclass
-class RuntimeEnvConfig:
+class RuntimeEnvConfig(BaseConfig):
     """Runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""
     excludes: List[str] = field(
         default_factory=lambda: ["*pt", "logs", "tensorboards", ".nfs*"],
@@ -47,7 +77,7 @@ class RuntimeEnvConfig:
     )
 
 @dataclass
-class LogConfig:
+class LogConfig(BaseConfig):
     log_dir: str = field(
         default=MISSING,
         metadata={"help": "log dir"}
@@ -88,7 +118,7 @@ class LogConfig:
     )
 
 @dataclass
-class BaseModelConfig:
+class BaseModelConfig(BaseConfig):
     """BaseModelConfig"""
 
     num_gpu: int = field(
@@ -161,7 +191,7 @@ class BaseModelConfig:
     )
     
 @dataclass
-class PolicyArgsDictConfig:
+class PolicyArgsDictConfig(BaseConfig):
     "temp support"
     num_inference_per_prompt: int = field(
         default=32,
@@ -285,7 +315,7 @@ class PolicyConfig(BaseModelConfig):
     )
 
 @dataclass
-class RefPolicyArgsDictConfig:
+class RefPolicyArgsDictConfig(BaseConfig):
     seed: int = field(
         default=1234,
         metadata={"help": "seed"}
@@ -305,7 +335,7 @@ class RefPolicyConfig(BaseModelConfig):
     )
 
 @dataclass
-class PolicyTrainerArgsDictConfig:
+class PolicyTrainerArgsDictConfig(BaseConfig):
     seed: int = field(
         default=1234,
         metadata={"help": "seed"}
@@ -350,7 +380,7 @@ class PolicyTrainerConfig(BaseModelConfig):
 
 
 @dataclass
-class RuntimeConfig:
+class RuntimeConfig(BaseConfig):
     """RuntimeConfig"""
     # setup config
     exp_name: str = field(

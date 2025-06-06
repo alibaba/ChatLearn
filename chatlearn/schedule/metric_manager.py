@@ -25,9 +25,7 @@ class MetricManager:
     """Metric manager"""
     def __init__(self, global_args):
         self.global_args = global_args
-        from dataclasses import asdict, dataclass
         self.runtime_args = global_args.runtime_args
-        self.runtime_args.log_args_dict = asdict(self.runtime_args.log_args_dict)
         self._setup_tensorboard()
         self._setup_wandb()
 

@@ -17,6 +17,7 @@
 from dataclasses import dataclass, field
 # from chatlearn.configs.common import (
 from configs.common import (
+    BaseConfig,
     RuntimeEnvConfig,
     PolicyConfig,
     RuntimeConfig,
@@ -29,7 +30,7 @@ from algorithm.base_algo import BaseAlgorithm
 from examples.fsdp.entry.train_grpo import *
 
 @dataclass
-class GrpoModelConfig:
+class GrpoModelConfig(BaseConfig):
     policy: PolicyConfig = field(
         default_factory=PolicyConfig,
         metadata={"help": "Policy config."}
@@ -47,7 +48,7 @@ class GrpoModelConfig:
         metadata={"help": "Policy trainer config."}
     )
 @dataclass
-class GrpoConfig:
+class GrpoConfig(BaseConfig):
     """GrpoConfig"""
 
     env_args: RuntimeEnvConfig = field(

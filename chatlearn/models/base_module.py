@@ -193,9 +193,7 @@ class BaseModule:
         Return model arguments, such as those related to Megatron,
         should be specified in a separate configuration yaml file for the model being used.
         """
-        from dataclasses import asdict, dataclass
-        return asdict(self._module_args.args_dict)
-        # return self._module_args.args_dict
+        return self._module_args.args_dict
 
     @property
     def module_args(self):

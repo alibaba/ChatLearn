@@ -71,9 +71,6 @@ class FSDPModule(TorchModule):
         self.sp_size = self.module_args.sp_size
         self.device_mesh = None
         self.sp_device_mesh = None
-        
-        # from dataclasses import asdict, dataclass
-        # self.module_args.args_dict = asdict(self.module_args.args_dict)
 
     def get_visible_gpus(self):
         """
