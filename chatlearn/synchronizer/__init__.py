@@ -45,7 +45,7 @@ def get_synchronizer(src_model, dst_model):
         elif model_class_name in ["Qwen2ForCausalLM", "Qwen2MoeForCausalLM"]:
             # NOTE: check if the model is mcore or not
             # if src_model.module_args.args_dict.get("use_legacy_models", True):
-            if src_model.module_args.get("use_legacy_models", True):
+            if src_model.module_args.get("use_legacy_models", False):
                 return MegatronVllmQWen2Sync(src_model, dst_model)
             return MegatronVllmQWen2MCoreSync(src_model, dst_model)
         elif model_class_name == "LlamaForCausalLM":

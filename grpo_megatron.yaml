@@ -1,0 +1,115 @@
+runtime_args:
+  # setup config
+  exp_name: grpo_test
+  colocation: [policy,policy_trainer,ref_policy]
+  # path config
+  output_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
+  data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/train.json
+  eval_data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/test.json
+  data_checkpoint_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test/data_checkpoint_path/
+  # config for training
+  num_episode: 200
+  sample_per_episode: 2048
+  train_micro_batch_size: 8
+  train_global_batch_size: 2048
+  save_episode_interval: 200
+  # config for data
+  data_shuffle: True
+  data_rerank: True
+  max_replay_episode: 2
+  # config for eval
+  eval_episode_interval: 5
+  enable_eval_before_training: False
+  log_args_dict:
+    log_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
+
+models:
+  policy:
+    tensor_model_parallel_size: 4
+    free_memory: True
+    generation_batch_size: 256
+    gpu_per_process: 1
+    num_gpu: 8
+    offload_weights: True
+    trainable: False
+    # args_dict:
+    tokenizer: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct
+    num_inference_per_prompt: 32
+    seq_length: 2048
+    max_seq_len_to_capture: 2348
+    temperature: 1.0
+    top_p: 1.0
+    eval_temperature: 0.6
+    eval_top_p: 0.95
+    eval_top_k: 20
+    vllm_prompt_key: prompt
+    vllm_input_ids_key: input_ids
+    enable_thinking: False
+    enable_stage_resume: False
+    gpu_memory_utilization: 0.8
+  reward:
+    num_cpu: 2
+    cpu_per_process: 1
+    generation_batch_size: 256
+  ref_policy:
+    free_memory: True
+    generation_batch_size: 8
+    gpu_per_process: 1
+    num_gpu: 8
+    offload_weights: True
+    tensor_model_parallel_size: 4
+    trainable: False
+    load: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1
+    # model arch
+    num_layers: 28
+    hidden_size: 3584
+    num_attention_heads: 28
+    ffn_hidden_size: 18944
+    num_query_groups: 4
+    seq_length: 2048
+    max_position_embeddings: 131072
+    add_qkv_bias: True
+    add_bias_linear: False
+    rotary_base: 1000000
+    group_query_attention: True
+    untie_embeddings_and_output_weights: True
+    patch_tokenizer_type: Qwen2Tokenizer
+    extra_vocab_size: 421
+  policy_trainer:
+    trainable: True
+    free_grad_buffers: True
+    free_memory: True
+    generation_batch_size: 8
+    gpu_per_process: 1
+    num_gpu: 8
+    offload_optimizer_states: True
+    offload_weights: True
+    tensor_model_parallel_size: 4
+    # train config
+    load: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1
+    save: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
+    save_interval: 10000
+    sequence_parallel: True
+    lr: 2e-6
+    min_lr: 2e-6
+    train_iters: 10000
+    # model arch
+    num_layers: 28
+    hidden_size: 3584
+    num_attention_heads: 28
+    ffn_hidden_size: 18944
+    num_query_groups: 4
+    seq_length: 2048
+    max_position_embeddings: 131072
+    add_qkv_bias: True
+    add_bias_linear: False
+    rotary_base: 1000000
+    group_query_attention: True
+    untie_embeddings_and_output_weights: True
+    patch_tokenizer_type: Qwen2Tokenizer
+    extra_vocab_size: 421
+    # other 
+    pos_clip_ratio: 0.2
+    neg_clip_ratio: 0.2
+    diff_clip_ratio: 10
+    final_clip_ratio: 3

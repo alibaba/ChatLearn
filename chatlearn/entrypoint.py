@@ -32,6 +32,7 @@ from omegaconf import OmegaConf
 #  "engine_name": ("module_path", "algo_class_name", "config_class")
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
     "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
+    "grpo_megatron": ("algorithm.grpo_megatron", "GrpoAlgorithmMegatron", "GrpoConfigMegatron"),
     "ppo": ("algorithm.ppo", "PpoAlgorithm", "PpoConfig"),
 }
 

@@ -51,6 +51,7 @@ class MegatronModule(TorchModule):
             if self.module_args.get("micro_batch_size") != self.module_args.generation_batch_size:
                 self._logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
             self.module_args["micro_batch_size"] = self.module_args.generation_batch_size
+            self.module_args["global_batch_size"] = self.module_args.generation_batch_size
         else:
             self.module_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
             self.module_args["global_batch_size"] = self.runtime_args.train_global_batch_size
@@ -58,8 +59,8 @@ class MegatronModule(TorchModule):
                 self._logger.info(f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}")
             if self.module_args.get("global_batch_size") != self.runtime_args.train_global_batch_size:
                 self._logger.info(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
-        if not self.module_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
-            self.module_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
+        # if not self.module_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
+        #     self.module_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
 
 
     def add_extra_args(self, parser):

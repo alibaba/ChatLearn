@@ -115,14 +115,14 @@ class MegatronVllmSync(BaseSync):
             op_name = m.group(2)
             if op_name in to_fix_modules_list:
                 checkpoint_version = 3.0
-                tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-                heads = self.src_module_args.args_dict["num_attention_heads"] // tp_size
-                hidden_size_per_head =  self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
+                tp_size = self.src_module_args["tensor_model_parallel_size"]
+                heads = self.src_module_args["num_attention_heads"] // tp_size
+                hidden_size_per_head =  self.src_module_args["hidden_size"] // self.src_module_args["num_attention_heads"]
                 if self._to_fix_qkv_ordering_func is split_attn_state:
-                    _num_query_groups = self.src_module_args.args_dict["num_query_groups"]//tp_size  \
-                        if self.src_module_args.args_dict["group_query_attention"] else heads
+                    _num_query_groups = self.src_module_args["num_query_groups"]//tp_size  \
+                        if self.src_module_args["group_query_attention"] else heads
                     params_to_sync = self._to_fix_qkv_ordering_func(
-                        params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.src_module_args.args_dict["hidden_size"])
+                        params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.src_module_args["hidden_size"])
                     params_to_sync_list[i] = (name, params_to_sync)
                 else:
                     input_shape = params_to_sync.size()
@@ -187,12 +187,12 @@ class MegatronVllmSync(BaseSync):
 
         op_name = m.group(2)
         if op_name in to_regroup_modules_list:
-            tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-            ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
+            tp_size = self.src_module_args["tensor_model_parallel_size"]
+            ep_size = self.src_module_args["moe_expert_model_parallel_size"]
             hep_size = tp_size * ep_size
-            moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+            moe_num_experts = self.src_module_args["moe_num_experts"]
             local_num_experts = moe_num_experts // hep_size
-            hidden_size = self.src_module_args.args_dict["hidden_size"]
+            hidden_size = self.src_module_args["hidden_size"]
             output_tensor_list = [
                 torch.empty(size=params_to_sync.shape, dtype=params_to_sync.dtype, device=params_to_sync.device)
                 for _ in range(hep_size)
@@ -260,13 +260,13 @@ class MegatronVllmSync(BaseSync):
 
         op_name = m.group(2)
         if op_name in to_regroup_modules_list:
-            tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-            ep_size = self.src_module_args.args_dict["moe_expert_model_parallel_size"]
+            tp_size = self.src_module_args["tensor_model_parallel_size"]
+            ep_size = self.src_module_args["moe_expert_model_parallel_size"]
             hep_size = tp_size * ep_size
-            moe_num_experts = self.src_module_args.args_dict["moe_num_experts"]
+            moe_num_experts = self.src_module_args["moe_num_experts"]
 
             local_num_experts = moe_num_experts // hep_size
-            hidden_size = self.src_module_args.args_dict["hidden_size"]
+            hidden_size = self.src_module_args["hidden_size"]
             if "dense_h_to_4h" in op_name:
                 # w13_weight
                 # regroup among difference tp slices
@@ -341,10 +341,10 @@ class MegatronVllmSync(BaseSync):
         if ("attention.query_key_value" in name or \
                 "self_attention.query_key_value" in name or \
                 "self_attention.linear_qkv" in name) and 'norm' not in name:
-            src_tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
-            dst_tp_size = self.dst_module_args.args_dict["tensor_model_parallel_size"]
-            heads = self.src_module_args.args_dict["num_attention_heads"] // src_tp_size
-            hidden_size_per_head = self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
+            src_tp_size = self.src_module_args["tensor_model_parallel_size"]
+            dst_tp_size = self.dst_module_args["tensor_model_parallel_size"]
+            heads = self.src_module_args["num_attention_heads"] // src_tp_size
+            hidden_size_per_head = self.src_module_args["hidden_size"] // self.src_module_args["num_attention_heads"]
 
             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
             division = reduce(operator.mul, param_shape, 1)
@@ -361,11 +361,11 @@ class MegatronVllmSync(BaseSync):
                     param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                     del param_data_list
             else:
-                if self.src_module_args.args_dict["group_query_attention"]:
-                    num_query_groups = self.src_module_args.args_dict["num_query_groups"]
-                    assert num_query_groups == self.dst_module_args.args_dict["num_query_groups"], (
+                if self.src_module_args["group_query_attention"]:
+                    num_query_groups = self.src_module_args["num_query_groups"]
+                    assert num_query_groups == self.dst_module_args["num_query_groups"], (
                         f"num_query_groups of src model ({num_query_groups}) must be equal to num_query_groups of "
-                        f"dst model ({self.dst_moduel_args.args_dict['num_query_groups']}). Please double-check your config."
+                        f"dst model ({self.dst_moduel_args['num_query_groups']}). Please double-check your config."
                     )
                     src_num_query_groups_per_replica = num_query_groups // src_tp_size
                     if dst_tp_size >= num_query_groups:
@@ -381,7 +381,7 @@ class MegatronVllmSync(BaseSync):
                         param_data = param_data.view((heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head))
                     else:
                         param_data = param_data.view(
-                            (heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head, self.src_module_args.args_dict["hidden_size"]))
+                            (heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head, self.src_module_args["hidden_size"]))
                     param_data_list = []
                     head_offset = heads // tp_division
                     for idx in range(tp_division):
@@ -415,7 +415,7 @@ class MegatronVllmSync(BaseSync):
                         if len(param_data_shape) == 1:
                             qkv_proj = qkv_proj.reshape(-1).contiguous()
                         else:
-                            qkv_proj = qkv_proj.reshape(-1, self.src_module_args.args_dict["hidden_size"]).contiguous()
+                            qkv_proj = qkv_proj.reshape(-1, self.src_module_args["hidden_size"]).contiguous()
 
                         param_data_list.append(qkv_proj)
                     param_data = torch.concat(param_data_list, dim=0)
@@ -455,7 +455,7 @@ class MegatronVllmLlamaSync(MegatronVllmSync):
     """llama"""
 
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):
-        use_legacy_models = get_use_legacy_models(self.src_model.module_args.args_dict)
+        use_legacy_models = get_use_legacy_models(self.src_model.module_args)
         sync_map_cls = Megatron2LlamaSyncMap if use_legacy_models else MCore2LlamaSyncMap
         self._to_fix_qkv_ordering_func = fix_qwen_query_key_value_ordering
         return sync_map_cls(src_names, src_pipe_layer_offset)
