@@ -31,21 +31,21 @@ models:
     num_gpu: 8
     offload_weights: True
     trainable: False
-    args_dict:
-      tokenizer: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
-      num_inference_per_prompt: 32
-      seq_length: 2048
-      max_seq_len_to_capture: 2348
-      temperature: 1.0
-      top_p: 1.0
-      eval_temperature: 0.6
-      eval_top_p: 0.95
-      eval_top_k: 20
-      vllm_prompt_key: prompt
-      vllm_input_ids_key: input_ids
-      enable_thinking: False
-      enable_stage_resume: False
-      gpu_memory_utilization: 0.8
+    # args_dict:
+    tokenizer: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    num_inference_per_prompt: 32
+    seq_length: 2048
+    max_seq_len_to_capture: 2348
+    temperature: 1.0
+    top_p: 1.0
+    eval_temperature: 0.6
+    eval_top_p: 0.95
+    eval_top_k: 20
+    vllm_prompt_key: prompt
+    vllm_input_ids_key: input_ids
+    enable_thinking: False
+    enable_stage_resume: False
+    gpu_memory_utilization: 0.8
   reward:
     num_cpu: 2
     cpu_per_process: 1
@@ -58,9 +58,8 @@ models:
     fsdp_size: 8
     offload_weights: True
     trainable: False
-    args_dict:
-      seed: 1234
-      pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    # args_dict:
+    pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
   policy_trainer:
     trainable: True
     free_grad_buffers: True
@@ -71,11 +70,10 @@ models:
     num_gpu: 8
     offload_optimizer_states: True
     offload_weights: True
-    args_dict:
-      seed: 1234
-      pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
-      grad_clip: 1
-      gradient_checkpointing: True
-      pos_clip_ratio: 0.2
-      negative_clip_ratio: 0.2
-      save_hf: True
+    # args_dict:
+    pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    grad_clip: 1
+    gradient_checkpointing: True
+    pos_clip_ratio: 0.2
+    negative_clip_ratio: 0.2
+    save_hf: True

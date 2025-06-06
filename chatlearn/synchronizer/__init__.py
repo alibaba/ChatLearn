@@ -36,14 +36,16 @@ def get_synchronizer(src_model, dst_model):
     if isinstance(src_model, MegatronModule) and isinstance(dst_model, MegatronModule):
         return MegatronMegatronSync(src_model, dst_model)
     elif isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule):
-        config_dir = dst_model.module_args.args_dict["tokenizer"]
+        # config_dir = dst_model.module_args.args_dict["tokenizer"]
+        config_dir = dst_model.module_args["tokenizer"]
         config =  AutoConfig.from_pretrained(config_dir, trust_remote_code=True)
         model_class_name = config.architectures[0]
         if model_class_name == "QWenLMHeadModel":
             return MegatronVllmQWenSync(src_model, dst_model)
         elif model_class_name in ["Qwen2ForCausalLM", "Qwen2MoeForCausalLM"]:
             # NOTE: check if the model is mcore or not
-            if src_model.module_args.args_dict.get("use_legacy_models", True):
+            # if src_model.module_args.args_dict.get("use_legacy_models", True):
+            if src_model.module_args.get("use_legacy_models", True):
                 return MegatronVllmQWen2Sync(src_model, dst_model)
             return MegatronVllmQWen2MCoreSync(src_model, dst_model)
         elif model_class_name == "LlamaForCausalLM":

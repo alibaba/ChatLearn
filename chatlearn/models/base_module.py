@@ -187,13 +187,14 @@ class BaseModule:
         """
         return self._runtime_args
 
-    @property
-    def model_args(self):
-        """
-        Return model arguments, such as those related to Megatron,
-        should be specified in a separate configuration yaml file for the model being used.
-        """
-        return self._module_args.args_dict
+    # @property
+    # def model_args(self):
+    #     """
+    #     Return model arguments, such as those related to Megatron,
+    #     should be specified in a separate configuration yaml file for the model being used.
+    #     """
+    #     # return self._module_args.args_dict
+    #     return self._module_args
 
     @property
     def module_args(self):
@@ -404,7 +405,7 @@ class BaseModule:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
         collate_fn = all_datasets[0].collate_fn if hasattr(all_datasets[0], 'collate_fn') else None
-        drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
+        drop_last = self.module_args['drop_last'] if 'drop_last' in self.module_args else False
         dataloader = self.build_dataloader(all_datasets,
                                            sample_per_episode=sample_per_episode,
                                            collate_fn=collate_fn,
@@ -451,12 +452,12 @@ class BaseModule:
             f"data_ratio: {data_ratio}",
             self._logger
         )
-        if "num_inference_per_prompt" in self.model_args:
-            num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
+        if "num_inference_per_prompt" in self.module_args:
+            num_inference_per_prompt = self.module_args["num_inference_per_prompt"]
         else:
             num_inference_per_prompt = 1
-        vllm_prompt_key = self.model_args["vllm_prompt_key"] \
-            if "vllm_prompt_key" in self.model_args else "prompt"
+        vllm_prompt_key = self.module_args["vllm_prompt_key"] \
+            if "vllm_prompt_key" in self.module_args else "prompt"
         self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
@@ -1203,7 +1204,7 @@ class BaseModule:
         """
         if is_eval:
             return False
-        if self.model_args.get("enable_stage_resume", False):
+        if self.module_args.get("enable_stage_resume", False):
             assert self.runtime_args.data_checkpoint_path, \
                 "data_checkpoint_path must be set for stage resume."
             return True

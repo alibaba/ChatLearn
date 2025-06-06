@@ -56,7 +56,7 @@ class FSDPModule(TorchModule):
         if not self.trainable:
             # inference only
             if (
-                self.model_args.get("train_micro_batch_size")
+                self.module_args.get("train_micro_batch_size")
                 != self.module_args.generation_batch_size
             ):
                 self._logger.info(
@@ -245,7 +245,7 @@ class FSDPModule(TorchModule):
         """
         super().model_setup()
         self.setup_distributed()
-        args = dict_to_simplenamespace(self.model_args)
+        args = dict_to_simplenamespace(self.module_args)
         self.args = args
         # model = self.create_model(args.pretrain_or_model, torch_dtype=torch.float32)
         model = self.create_model(args.pretrain_or_model, torch_dtype=torch.bfloat16)
@@ -286,8 +286,8 @@ class FSDPModule(TorchModule):
         else:
             self.optimizer = optim.AdamW(
                 self.model.parameters(),
-                # lr=self.module_args.args_dict.get("learning_rate", 2e-6),
-                lr=self.model_args.get("learning_rate", 2e-6),
+
+                lr=self.module_args.get("learning_rate", 2e-6),
                 betas=(0.9, 0.999),
                 weight_decay=1e-2
             )
@@ -422,7 +422,7 @@ class FSDPModule(TorchModule):
         torch.distributed.barrier()
 
         # save for hf format
-        if self.model_args.get("save_hf", True):
+        if self.module_args.get("save_hf", True):
             state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
             with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, state_dict_cfg, None):
                 model_state_dict = self.model.state_dict()

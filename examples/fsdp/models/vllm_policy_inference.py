@@ -28,13 +28,13 @@ class VLLMPolicyInference(VLLMModule):
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
-        num_inference_per_prompt = 1 if is_eval else self.model_args["num_inference_per_prompt"]
+        num_inference_per_prompt = 1 if is_eval else self.module_args["num_inference_per_prompt"]
 
-        seq_length = self.model_args.get("seq_length")
+        seq_length = self.module_args.get("seq_length")
 
         prompts_dataset = VLLMPromptPipeline(
             prompts, seq_length, self.tokenizer.tokenizer, \
-            num_inference_per_prompt, enable_thinking=self.model_args.get("enable_thinking", False))
+            num_inference_per_prompt, enable_thinking=self.module_args.get("enable_thinking", False))
 
         return prompts_dataset
 
@@ -58,7 +58,7 @@ class VLLMPolicyInference(VLLMModule):
         response_token_length = rets['response_token_length']
         prompt_token_length = rets['prompt_token_length']
         seq_len = [l1 + l2 for l1, l2 in zip(prompt_token_length, response_token_length)]
-        clip_ratio = sum(1 for l in seq_len if l >= self.model_args.get("seq_length")) / len(seq_len)
+        clip_ratio = sum(1 for l in seq_len if l >= self.module_args.get("seq_length")) / len(seq_len)
         inference_stats = {
             "response_token_length": sum(response_token_length) / len(response_token_length),
             "prompt_token_length": sum(prompt_token_length) / len(prompt_token_length),
@@ -68,7 +68,7 @@ class VLLMPolicyInference(VLLMModule):
         return rets
 
     def decode_internal(self, batched_outputs, data_source_list=None, ground_truth_list=None):
-        max_tokens_length = self.model_args.get("seq_length")
+        max_tokens_length = self.module_args.get("seq_length")
         all_tokens = []
         str_outputs = []
         # str_prompts = []

@@ -48,18 +48,18 @@ class MegatronModule(TorchModule):
             print("Cannot import megatron, please set megatron python path first.")
         if not self.trainable:
             # inference only
-            if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
+            if self.module_args.get("micro_batch_size") != self.module_args.generation_batch_size:
                 self._logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
-            self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
+            self.module_args["micro_batch_size"] = self.module_args.generation_batch_size
         else:
-            self.model_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
-            self.model_args["global_batch_size"] = self.runtime_args.train_global_batch_size
-            if self.model_args.get("micro_batch_size") != self.runtime_args.train_micro_batch_size:
+            self.module_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
+            self.module_args["global_batch_size"] = self.runtime_args.train_global_batch_size
+            if self.module_args.get("micro_batch_size") != self.runtime_args.train_micro_batch_size:
                 self._logger.info(f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}")
-            if self.model_args.get("global_batch_size") != self.runtime_args.train_global_batch_size:
+            if self.module_args.get("global_batch_size") != self.runtime_args.train_global_batch_size:
                 self._logger.info(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
-        if not self.model_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
-            self.model_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
+        if not self.module_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
+            self.module_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
 
 
     def add_extra_args(self, parser):
@@ -94,8 +94,8 @@ class MegatronModule(TorchModule):
                         pass
                 return value
 
-            if self.model_args is not None:
-                for key, value in self.model_args.items():
+            if self.module_args is not None:
+                for key, value in self.module_args.items():
                     setattr(args, key, try_decltype(getattr(args, key, None), value))
             initialize_megatron(parsed_args=args)
         else:
@@ -106,7 +106,7 @@ class MegatronModule(TorchModule):
                 initialize_func = chatlearn_initialize_megatron
             initialize_func(extra_args_provider=self.add_extra_args,
                             ignore_unknown_args=True,
-                            args_dict=self.model_args)
+                            args_dict=self.module_args)
 
         if self.trainable:
             # slow down if set jit fusion for inference model

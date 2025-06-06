@@ -309,17 +309,119 @@ class PolicyArgsDictConfig(BaseConfig):
 class PolicyConfig(BaseModelConfig):
     """PolicyConfig"""
 
-    args_dict: PolicyArgsDictConfig = field(
-        default_factory=PolicyArgsDictConfig,
-        metadata={"help": "support for orignal args_dict"}
+    # args_dict: PolicyArgsDictConfig = field(
+    #     default_factory=PolicyArgsDictConfig,
+    #     metadata={"help": "support for orignal args_dict"}
+    # )
+
+    num_inference_per_prompt: int = field(
+        default=32,
+        metadata={"help": "number of response for per prompt"}
+    )
+    seq_length: int = field(
+        default=2048,
+        metadata={"help": "length of prompt + response"}
+    )
+    max_new_tokens: int = field(
+        default=2048,
+        metadata={"help": "length of response"}
+    )
+    temperature: float = field(
+        default=1.0,
+        metadata={"help": "temperature for sample train data"}
+    )
+    top_p: float = field(
+        default=1.0,
+        metadata={"help": "top_p for sample train data"}
+    )
+    top_k: int = field(
+        default=-1,
+        metadata={"help": "top_k for sample train data"}
+    )
+    presence_penalty: float = field(
+        default=0.0,
+        metadata={"help": "presence_penalty for sample train data"}
+    )
+    frequency_penalty: float = field(
+        default=0.0,
+        metadata={"help": "frequency_penalty for sample train data"}
+    )
+    repetition_penalty: float = field(
+        default=1.0,
+        metadata={"help": "repetition_penalty for sample train data"}
     )
 
-@dataclass
-class RefPolicyArgsDictConfig(BaseConfig):
+    eval_temperature: float = field(
+        default=0.6,
+        metadata={"help": "temperature for sample eval data"}
+    )
+    eval_top_p: float = field(
+        default=0.95,
+        metadata={"help": "top_p for sample eval data"}
+    )
+    eval_top_k: int = field(
+        default=20,
+        metadata={"help": "top_k for sample eval data"}
+    )
+    eval_presence_penalty: float = field(
+        default=0.0,
+        metadata={"help": "presence_penalty for sample eval data"}
+    )
+    eval_frequency_penalty: float = field(
+        default=0.0,
+        metadata={"help": "frequency_penalty for sample eval data"}
+    )
+    eval_repetition_penalty: float = field(
+        default=1.0,
+        metadata={"help": "repetition_penalty for sample eval data"}
+    )
+    vllm_prompt_key: str = field(
+        default="prompt",
+        metadata={"help": "vllm_prompt_key"}
+    )
+    vllm_input_ids_key: str = field(
+        default="input_ids",
+        metadata={"help": "vllm_input_ids_key"}
+    )
+    enable_thinking: bool = field(
+        default=False,
+        metadata={"help": "whether enable think or not"}
+    )
+    max_num_batched_tokens: int = field(
+        default=32768,
+        metadata={"help": "max_num_batched_tokens"}
+    )
+    max_seq_len_to_capture: int = field(
+        default=2348,
+        metadata={"help": "max_seq_len_to_capture"}
+    )
+    enable_stage_resume: bool = field(
+        default=False,
+        metadata={"help": "enable_stage_resume"}
+    )
+    gpu_memory_utilization: float = field(
+        default=0.8,
+        metadata={"help": "gpu_memory_utilization"}
+    )
+    enforce_eager: bool = field(
+        default=False,
+        metadata={"help": "enforce_eager"}
+    )
+    tokenizer: str = field(
+        default=MISSING,
+        metadata={"help": "tokenizer config path"}
+    )
     seed: int = field(
         default=1234,
         metadata={"help": "seed"}
     )
+
+@dataclass
+class RefPolicyArgsDictConfig(BaseConfig):
+    # seed: int = field(
+    #     default=1234,
+    #     metadata={"help": "seed"}
+    # )
     pretrain_or_model: str = field(
         default=MISSING,
         metadata={"help": "path to reference model"}
@@ -329,17 +431,18 @@ class RefPolicyArgsDictConfig(BaseConfig):
 class RefPolicyConfig(BaseModelConfig):
     """RefPolicyConfig"""
 
-    args_dict: RefPolicyArgsDictConfig = field(
-        default_factory=RefPolicyArgsDictConfig,
-        metadata={"help": "support for orignal args_dict"}
+    # args_dict: RefPolicyArgsDictConfig = field(
+    #     default_factory=RefPolicyArgsDictConfig,
+    #     metadata={"help": "support for orignal args_dict"}
+    # )
+
+    pretrain_or_model: str = field(
+        default=MISSING,
+        metadata={"help": "path to reference model"}
     )
 
 @dataclass
 class PolicyTrainerArgsDictConfig(BaseConfig):
-    seed: int = field(
-        default=1234,
-        metadata={"help": "seed"}
-    )
     pretrain_or_model: str = field(
         default=MISSING,
         metadata={"help": "path to reference model"}
@@ -365,17 +468,40 @@ class PolicyTrainerArgsDictConfig(BaseConfig):
     save_hf: bool = field(
         default=True
     )
-    seed: int = field(
-        default=1234
-    )
 
 @dataclass
 class PolicyTrainerConfig(BaseModelConfig):
     """PolicyTrainerConfig"""
 
-    args_dict: PolicyTrainerArgsDictConfig = field(
-        default_factory=PolicyTrainerArgsDictConfig,
-        metadata={"help": "support for orignal args_dict"}
+    # args_dict: PolicyTrainerArgsDictConfig = field(
+    #     default_factory=PolicyTrainerArgsDictConfig,
+    #     metadata={"help": "support for orignal args_dict"}
+    # )
+
+    pretrain_or_model: str = field(
+        default=MISSING,
+        metadata={"help": "path to reference model"}
+    )
+    learning_rate: float = field(
+        default=2e-06,
+        metadata={"help": "learning rate for policy model"}
+    )
+    grad_clip: float = field(
+        default=1.0,
+        metadata={"help": "grad clips for policy model"}
+    )
+    gradient_checkpointing: bool = field(
+        default=True,
+        metadata={"help": "whether gradient checkpointing"}
+    )
+    pos_clip_ratio: float = field(
+        default=0.2
+    )
+    negative_clip_ratio: float = field(
+        default=0.2
+    )
+    save_hf: bool = field(
+        default=True
     )
 
 
@@ -457,12 +583,8 @@ class RuntimeConfig(BaseConfig):
     )
 
     # config for data
-    # data_ratio: List[int] = field(
-    #     default_factory=list, # origin None
-    #     metadata={"help": "the ratio for each kind of data_path in a training episode"}
-    # )
-    data_ratio: Optional[int] = field(
-        default=None, # origin None
+    data_ratio: List[int] = field(
+        default_factory=list,
         metadata={"help": "the ratio for each kind of data_path in a training episode"}
     )
     data_shuffle: bool = field(
