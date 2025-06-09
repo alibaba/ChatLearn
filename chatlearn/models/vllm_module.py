@@ -399,7 +399,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         """
         offload weights
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
@@ -417,7 +417,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
                 wake_up should be called with all tags (or None) before the 
                 engine is used again.
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")

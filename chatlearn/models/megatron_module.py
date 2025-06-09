@@ -123,7 +123,9 @@ class MegatronModule(TorchModule):
             assert hasattr(self, "model")
             assert hasattr(self, "optimizer")
             assert hasattr(self, "opt_param_scheduler")
-            if self.module_args.offload_weights or self.module_args.free_grad_buffers or self.module_args.offload_optimizer_states:
+            if self.module_args.free_gpu_memory.offload_weights or \
+                self.module_args.free_gpu_memory.free_grad_buffers or \
+                self.module_args.free_gpu_memory.offload_optimizer_states:
                 self._memory_manager = create_trainer_memory_manager(
                     self.megatron_model(),
                     self.optimizer,
@@ -136,7 +138,7 @@ class MegatronModule(TorchModule):
         else:
             assert hasattr(self, "model")
             self.megatron_model().eval()
-            if self.module_args.offload_weights:
+            if self.module_args.free_gpu_memory.offload_weights:
                 self._memory_manager = InferenceMemoryManager(
                     self.megatron_model(),
                     self.runtime_args.bucket_size_mb_in_memory_manager,
@@ -313,56 +315,56 @@ class MegatronModule(TorchModule):
         """
         offload optimizer states
         """
-        if self.module_args.offload_optimizer_states:
+        if self.module_args.free_gpu_memory.offload_optimizer_states:
             self._memory_manager.offload_optimizer_states()
 
     def onload_optimizer_states(self):
         """
         onload optimizer states
         """
-        if self.module_args.offload_optimizer_states:
+        if self.module_args.free_gpu_memory.offload_optimizer_states:
             self._memory_manager.onload_optimizer_states()
 
     def offload_main_weights(self):
         """
         offload main weights
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._memory_manager.offload_main_weights()
 
     def onload_main_weights(self):
         """
         onload main weights
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._memory_manager.onload_main_weights()
 
     def offload_weights(self):
         """
         offload weights
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._memory_manager.offload_weights()
 
     def onload_weights(self):
         """
         onload weights
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._memory_manager.onload_weights()
 
     def free_grad_buffers(self):
         """
         free grad buffers and related tensors
         """
-        if self.module_args.free_grad_buffers:
+        if self.module_args.free_gpu_memory.free_grad_buffers:
             self._memory_manager.free_grad_buffers()
 
     def build_grad_buffers(self):
         """
         build grad buffers and related tensors
         """
-        if self.module_args.free_grad_buffers:
+        if self.module_args.free_gpu_memory.free_grad_buffers:
             self._memory_manager.build_grad_buffers()
 
     def get_pipeline_stage_layer_num(self):

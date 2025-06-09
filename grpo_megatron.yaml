@@ -25,11 +25,12 @@ runtime_args:
 
 models:
   policy:
+    free_gpu_memory:
+      offload_weights: True
     tensor_model_parallel_size: 4
     generation_batch_size: 256
     gpu_per_process: 1
     num_gpu: 8
-    offload_weights: True
     trainable: False
     # args_dict:
     tokenizer: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct
@@ -51,10 +52,11 @@ models:
     cpu_per_process: 1
     generation_batch_size: 256
   ref_policy:
+    free_gpu_memory:
+      offload_weights: True
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 8
-    offload_weights: True
     tensor_model_parallel_size: 4
     trainable: False
     load: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1
@@ -74,13 +76,14 @@ models:
     patch_tokenizer_type: Qwen2Tokenizer
     extra_vocab_size: 421
   policy_trainer:
+    free_gpu_memory:
+      offload_weights: True
+      offload_optimizer_states: True
+      free_grad_buffers: True
     trainable: True
-    free_grad_buffers: True
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 8
-    offload_optimizer_states: True
-    offload_weights: True
     tensor_model_parallel_size: 4
     # train config
     load: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1

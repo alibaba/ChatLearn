@@ -24,7 +24,6 @@ from chatlearn.utils.constant import (RAY_PG_STRATEGY,
 
 class BaseConfig:
     # TODO: Unifying Parameter Access Using dataclass approach
-
     def __setitem__(self, key, value):
         if hasattr(self, key):
             setattr(self, key, value)
@@ -57,6 +56,20 @@ class BaseConfig:
         """support args.values()"""
         return asdict(self).values()
 
+@dataclass
+class FreeGpuMemoryConfig(BaseConfig):
+    offload_weights: bool = field(
+        default=False,
+        metadata={"help": "whether offload weights to cpu, used for inference and trainer"}
+    )
+    free_grad_buffers: bool = field(
+        default=False,
+        metadata={"help": "whether free grad buffers, only used for Mcore"}
+    )
+    offload_optimizer_states: bool = field(
+        default=False,
+        metadata={"help": "whether offload optimizer states to cpu, used for trainer"}
+    )
 
 @dataclass
 class RuntimeEnvConfig(BaseConfig):
@@ -175,22 +188,26 @@ class BaseModelConfig(BaseConfig):
         default=1,
         metadata={"help": "rollout generation batch size"}
     )
-    offload_optimizer_states: bool = field(
-        default=False,
-        metadata={"help": "whether offload optimizer states"}
-    )
+    # offload_optimizer_states: bool = field(
+    #     default=False,
+    #     metadata={"help": "whether offload optimizer states"}
+    # )
     sync_frequency: int = field(
         default=1,
         metadata={"help": "parameter sync frequency"}
     )
-    offload_weights: bool = field(
-        default=False,
-        metadata={"help": "whether offload weights"}
+    free_gpu_memory: FreeGpuMemoryConfig = field(
+        default_factory=FreeGpuMemoryConfig,
+        metadata={"help": "free gpu memory config"}
     )
-    free_grad_buffers: bool = field(
-        default=False,
-        metadata={"help": "whether free grad buffers"}
-    )
+    # offload_weights: bool = field(
+    #     default=False,
+    #     metadata={"help": "whether offload weights"}
+    # )
+    # free_grad_buffers: bool = field(
+    #     default=False,
+    #     metadata={"help": "whether free grad buffers"}
+    # )
 
 @dataclass
 class PolicyConfig(BaseModelConfig):

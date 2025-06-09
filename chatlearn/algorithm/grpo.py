@@ -48,6 +48,7 @@ class GrpoModelConfig(BaseConfig):
         default_factory=PolicyTrainerConfig,
         metadata={"help": "Policy trainer config."}
     )
+
 @dataclass
 class GrpoConfig(BaseConfig):
     """GrpoConfig"""
