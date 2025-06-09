@@ -6,7 +6,7 @@ runtime_args:
   output_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
   data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/train.json
   eval_data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/test.json
-  data_checkpoint_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test/data_checkpoint_path/
+  data_checkpoint_path: ${runtime_args.output_dir}/data_checkpoint_path/
   # config for training
   num_episode: 200
   sample_per_episode: 2048
@@ -25,7 +25,6 @@ runtime_args:
 
 models:
   policy:
-    free_memory: True
     generation_batch_size: 256
     gpu_per_process: 1
     num_gpu: 8
@@ -51,7 +50,6 @@ models:
     cpu_per_process: 1
     generation_batch_size: 256
   ref_policy:
-    free_memory: True
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 8
@@ -59,11 +57,11 @@ models:
     offload_weights: True
     trainable: False
     # args_dict:
-    pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    # pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    pretrain_or_model: ${models.policy.tokenizer}
   policy_trainer:
     trainable: True
     free_grad_buffers: True
-    free_memory: True
     fsdp_size: 8
     generation_batch_size: 8
     gpu_per_process: 1
@@ -71,7 +69,8 @@ models:
     offload_optimizer_states: True
     offload_weights: True
     # args_dict:
-    pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    # pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
+    pretrain_or_model: ${models.policy.tokenizer}
     grad_clip: 1
     gradient_checkpointing: True
     pos_clip_ratio: 0.2

@@ -15,6 +15,7 @@
 """grpo algorithm"""
 
 from dataclasses import dataclass, field
+from typing import Any, Optional, List
 # from chatlearn.configs.common import (
 from configs.common import (
     BaseConfig,
@@ -50,7 +51,6 @@ class GrpoModelConfig(BaseConfig):
 @dataclass
 class GrpoConfig(BaseConfig):
     """GrpoConfig"""
-
     env_args: RuntimeEnvConfig = field(
         default_factory=RuntimeEnvConfig,
         metadata={"help": "Runtime environment config."}

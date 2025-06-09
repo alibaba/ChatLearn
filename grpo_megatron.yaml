@@ -26,7 +26,6 @@ runtime_args:
 models:
   policy:
     tensor_model_parallel_size: 4
-    free_memory: True
     generation_batch_size: 256
     gpu_per_process: 1
     num_gpu: 8
@@ -52,7 +51,6 @@ models:
     cpu_per_process: 1
     generation_batch_size: 256
   ref_policy:
-    free_memory: True
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 8
@@ -78,7 +76,6 @@ models:
   policy_trainer:
     trainable: True
     free_grad_buffers: True
-    free_memory: True
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 8

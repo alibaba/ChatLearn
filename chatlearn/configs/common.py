@@ -191,10 +191,6 @@ class BaseModelConfig(BaseConfig):
         default=False,
         metadata={"help": "whether free grad buffers"}
     )
-    free_memory: bool = field(
-        default=False,
-        metadata={"default": "overall switch for offload optimizer states/weights and free grad buffers"}
-    )
 
 @dataclass
 class PolicyConfig(BaseModelConfig):

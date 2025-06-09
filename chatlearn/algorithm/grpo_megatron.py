@@ -15,8 +15,7 @@
 """grpo algorithm"""
 
 from dataclasses import dataclass, field
-# from chatlearn.configs.common import (
-from configs.common import (
+from chatlearn.configs.common import (
     BaseConfig,
     RuntimeEnvConfig,
     PolicyConfig,
@@ -27,8 +26,7 @@ from configs.common import (
 )
 
 from configs.megatron_config import MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
-# from chatlearn.algorithm.base_algo import BaseAlgorithm
-from algorithm.base_algo import BaseAlgorithm
+from chatlearn.algorithm.base_algo import BaseAlgorithm
 from examples.mcore.entry.train_grpo import *
 
 
