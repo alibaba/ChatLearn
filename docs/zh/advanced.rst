@@ -91,12 +91,12 @@ replay_sample_fn
     def replay_sample_fn(episode_replay_buffers) -> List[dict]:
         """
         Args:
-            episode_replay_buffers : List[EpisodereplayBuffer]
+            episode_replay_buffers : List[EpisodeReplayBuffer]
         Return: list of dict
         """
 
 
-`replay_sample_fn` 接收 `episode_replay_buffers`，`episode_replay_buffers` 是一个 list 的 `EpisodereplayBuffer`。每个 `EpisodereplayBuffer` 记录了一个 episode 的 samples。`EpisodereplayBuffer` 有两个关键属性：
+`replay_sample_fn` 接收 `episode_replay_buffers`，`episode_replay_buffers` 是一个 list 的 `EpisodeReplayBuffer`。每个 `EpisodeReplayBuffer` 记录了一个 episode 的 samples。`EpisodeReplayBuffer` 有两个关键属性：
 
 1. `episode_id` 记录了当前是第几个 episode
 2. `buffer` 记录了所有的 samples，类型是 `List[dict]`，每个 dict 是一个 sample。

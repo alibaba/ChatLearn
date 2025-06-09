@@ -42,12 +42,12 @@ replay_sample_fn
     def replay_sample_fn(episode_replay_buffers) -> List[dict]:
         """
         Args:
-            episode_replay_buffers : List[EpisodereplayBuffer]
+            episode_replay_buffers : List[EpisodeReplayBuffer]
         Return: list of dict
         """
 
 
-`replay_sample_fn` receives `episode_replay_buffers`, which is a list of `EpisodereplayBuffer`. Each `EpisodereplayBuffer` records the samples for one episode. The `EpisodereplayBuffer` has two key attributes:
+`replay_sample_fn` receives `episode_replay_buffers`, which is a list of `EpisodeReplayBuffer`. Each `EpisodeReplayBuffer` records the samples for one episode. The `EpisodeReplayBuffer` has two key attributes:
 
 1. `episode_id` records the episode number.
 2. `buffer` records all the samples, which is a list of dictionaries, with each dictionary representing a sample.

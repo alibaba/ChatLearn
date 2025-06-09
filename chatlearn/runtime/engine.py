@@ -399,7 +399,7 @@ class Engine(BaseEngine):
 
         Args
         ----
-            replay_sample_manager: inputs List[EpisodereplayBuffer], return a list of dict.
+            replay_sample_manager: inputs List[EpisodeReplayBuffer], return a list of dict.
         """
         self._replay_sample_manager = replay_sample_manager
 

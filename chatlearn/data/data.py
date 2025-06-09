@@ -208,7 +208,7 @@ class StreamDataset:
         return self._has_next
 
     def set_dataset(self, queue, episode_id, replay_sample_manager=None, sample_per_episode=-1):
-        replay_buffer = EpisodereplayBuffer(episode_id, queue=queue)
+        replay_buffer = EpisodeReplayBuffer(episode_id, queue=queue)
         if self._max_replay_episode > 0 and episode_id >= self._replay_episode_offset:
             self._episode_replay_buffers.append(replay_buffer)
             if len(self._episode_replay_buffers) > self._max_replay_episode:
@@ -224,7 +224,7 @@ class StreamDataset:
 
             self.replay_sample_manager = replay_sample_manager
             buffer = self.replay_sample_manager(self._episode_replay_buffers)
-            self.replay_buffer = EpisodereplayBuffer(episode_id, buffer=buffer)
+            self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
             self._total_samples = len(self.replay_buffer)
             self._read_data_complete = True
         else:
@@ -253,8 +253,8 @@ class StreamDataset:
         except Exception:
             return "no replay", {}
 
-class EpisodereplayBuffer:
-    """EpisodereplayBuffer"""
+class EpisodeReplayBuffer:
+    """EpisodeReplayBuffer"""
 
     def __init__(self, episode_id, queue=None, buffer=None):
         self._episode_id = episode_id
@@ -319,7 +319,7 @@ class ReplaySampleManager:
         self._metric_prefix = "replay"
         self._metric_list = []
 
-    def __call__(self, episode_replay_buffers: List[EpisodereplayBuffer]) -> List[Dict]:
+    def __call__(self, episode_replay_buffers: List[EpisodeReplayBuffer]) -> List[Dict]:
         raise NotImplementedError("default replay sample function is not currently supported")
 
     def get_and_clear_metrics(self):
