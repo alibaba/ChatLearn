@@ -18,7 +18,6 @@ from collections import defaultdict
 from abc import abstractmethod
 import operator
 from functools import reduce
-import ray.util.collective as col
 import torch
 import torch.distributed as dist
 
@@ -160,12 +159,12 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
+    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument,abstract-method
         raise NotImplementedError(
             "ChatLearn does not support all-gathering routed experts for Megatron-LM. "
         )
 
-    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
+    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument,abstract-method
         raise NotImplementedError(
             "ChatLearn does not support all-to-all routed experts for Megatron-LM."
         )

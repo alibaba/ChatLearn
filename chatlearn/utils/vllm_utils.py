@@ -15,26 +15,17 @@
 """vllm utils"""
 
 import argparse
-import glob
-import operator
 import os
 import re
-import random
-import subprocess
 import sys
 
 from datetime import timedelta
-from functools import reduce
-import numpy as np
 
 import torch
 import torch.distributed
 from vllm.distributed.parallel_state import init_world_group
-from vllm.model_executor.model_loader.utils import set_default_torch_dtype as _set_default_torch_dtype
 from vllm.distributed import parallel_state as mpu
 from vllm.distributed.parallel_state import initialize_model_parallel
-from vllm.model_executor.model_loader.weight_utils import initialize_dummy_weights
-from vllm.distributed.utils import get_pp_indices
 from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion

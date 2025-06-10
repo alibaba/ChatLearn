@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Megatron module"""
-import inspect
 import re
 import torch
 import torch.distributed as dist
@@ -34,8 +33,8 @@ if IS_MEGATRON_SUPPORTED:
     try:
         # pylint: disable-next=import-outside-toplevel, unused-import
         from megatron.core.distributed.distributed_data_parallel import _ParamAndGradBuffer
-    except ImportError:
-        raise ValueError(f'Old or customed version of Megatron is no longer supported. Please checkout to 0f4e0e1872b62a96d0465de477f26ae81a2e33d7')
+    except ImportError as exc:
+        raise ValueError('Old or customed version of Megatron is no longer supported. Please checkout to 0f4e0e1872b62a96d0465de477f26ae81a2e33d7') from exc
 
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
 
@@ -59,9 +58,13 @@ if IS_MEGATRON_SUPPORTED:
                 self.model_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
                 self.model_args["global_batch_size"] = self.runtime_args.train_global_batch_size
                 if self.model_args.get("micro_batch_size") != self.runtime_args.train_micro_batch_size:
-                    self._logger.info(f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}")
+                    self._logger.info(
+                        f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}"
+                    )
                 if self.model_args.get("global_batch_size") != self.runtime_args.train_global_batch_size:
-                    self._logger.info(f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}")
+                    self._logger.info(
+                        f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}"
+                    )
             if not self.model_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
                 self.model_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
 
@@ -82,7 +85,7 @@ if IS_MEGATRON_SUPPORTED:
             """
             args = parse_args(self.add_extra_args, ignore_unknown_args=True)
 
-            def try_decltype(default_value, value):
+            def try_convert_to_default_type(default_value, value):
                 """Convert value to type(default_value) if possible"""
                 # NOTE: For complex cases, e.g., moe_layer_freq, default_type may differ from value_type
                 if default_value is None or value is None:
@@ -97,7 +100,7 @@ if IS_MEGATRON_SUPPORTED:
 
             if self.model_args is not None:
                 for key, value in self.model_args.items():
-                    setattr(args, key, try_decltype(getattr(args, key, None), value))
+                    setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
             initialize_megatron(parsed_args=args)
 
             if self.trainable:
@@ -323,15 +326,15 @@ if IS_MEGATRON_SUPPORTED:
             """
             save checkpoint at `iteration`
             :param iteration: save iteration
-            
+
             :meta private:
             """
             save_checkpoint_and_time(
-                iteration, 
-                self.model, 
+                iteration,
+                self.model,
                 self.optimizer,
-                self.opt_param_scheduler, 
-                0, 
+                self.opt_param_scheduler,
+                0,
                 None
             )
 
@@ -434,5 +437,7 @@ if IS_MEGATRON_SUPPORTED:
 
 else:
     class MegatronModule(TorchModule):
+        """Module Placeholder for Megatron Backend"""
         def __init__(self, *args, **kwargs):
+            # pylint: disable=super-init-not-called
             raise SystemError("Cannot import megatron backend, please check your environment variable.")

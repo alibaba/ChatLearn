@@ -21,6 +21,7 @@ from .megatron_vllm import(
     MegatronVllmMoonlightSync,
     MegatronVllmQWen2MCoreSync
 )
+from .base import BaseSync
 
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
@@ -29,7 +30,8 @@ def get_synchronizer(src_model: 'DistModel', dst_model: 'DistModel'):
     src_model = src_model.replicas[0].model
     dst_model = dst_model.replicas[0].model
     if not (isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule)):
-        raise NotImplementedError(f"Do not support parameter synchronization between {type(src_model)} and {type(dst_model)}.")
+        # NOTE: This branch is expected to be used in the UnitTest.
+        return BaseSync(src_model, dst_model)
     # NOTE: the parameter sync of megatron-vllm model pairs are also removed.
     name_to_synchronizer = {
         "Qwen2ForCausalLM": MegatronVllmQWen2MCoreSync,
