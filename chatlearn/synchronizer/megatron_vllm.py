@@ -159,12 +159,12 @@ class MegatronVllmSync(BaseSync):
                 params_to_sync_list[i] = (name, params_to_sync)
         return params_to_sync_list
 
-    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument,abstract-method
+    def allgather_routed_experts(self, name, params_to_sync, group_name, tp_rank): # pylint: disable=unused-argument
         raise NotImplementedError(
             "ChatLearn does not support all-gathering routed experts for Megatron-LM. "
         )
 
-    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument,abstract-method
+    def alltoall_routed_experts(self, name, params_to_sync, comm_group): # pylint: disable=unused-argument
         raise NotImplementedError(
             "ChatLearn does not support all-to-all routed experts for Megatron-LM."
         )
@@ -273,6 +273,7 @@ class MegatronVllmSync(BaseSync):
         return super().regroup_params_to_sync(name, param_data, tp_division, regroup_routed_experts)
 
 class MegatronVllmQWen2MCoreSync(MegatronVllmSync):
+    # pylint: disable=abstract-method
     """qwen2-dense-mcore"""
 
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):
@@ -280,6 +281,7 @@ class MegatronVllmQWen2MCoreSync(MegatronVllmSync):
         return MCore2Qwen2SyncMap(src_names, src_pipe_layer_offset)
 
 class MegatronVllmMoonlightSync(MegatronVllmSync):
+    # pylint: disable=abstract-method
     """Moonlight"""
 
     def stack_group_gemm(self, params_to_sync_list):
