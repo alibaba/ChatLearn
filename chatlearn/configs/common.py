@@ -176,18 +176,14 @@ class BaseModelConfig(BaseConfig):
         default=1,
         metadata={"help": "FSDP parallel size"}
     )
-    sp_size: int = field(
+    ulysses_sequence_parallel_size: int = field(
         default=1,
-        metadata={"help": "Sequence parallel size"}
+        metadata={"help": "ulysses sequence parallel size used for fsdp train backend"}
     )
     generation_batch_size: int = field(
         default=1,
         metadata={"help": "rollout generation batch size"}
     )
-    # offload_optimizer_states: bool = field(
-    #     default=False,
-    #     metadata={"help": "whether offload optimizer states"}
-    # )
     sync_frequency: int = field(
         default=1,
         metadata={"help": "parameter sync frequency"}
@@ -196,14 +192,6 @@ class BaseModelConfig(BaseConfig):
         default_factory=FreeGpuMemoryConfig,
         metadata={"help": "free gpu memory config"}
     )
-    # offload_weights: bool = field(
-    #     default=False,
-    #     metadata={"help": "whether offload weights"}
-    # )
-    # free_grad_buffers: bool = field(
-    #     default=False,
-    #     metadata={"help": "whether free grad buffers"}
-    # )
 
 @dataclass
 class PolicyConfig(BaseModelConfig):

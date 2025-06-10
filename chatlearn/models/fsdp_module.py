@@ -68,7 +68,7 @@ class FSDPModule(TorchModule):
             self.train_global_batch_size = self.runtime_args.train_global_batch_size
 
         self.fsdp_size = self.module_args.fsdp_size
-        self.sp_size = self.module_args.sp_size
+        self.sp_size = self.module_args.ulysses_sequence_parallel_size
         self.device_mesh = None
         self.sp_device_mesh = None
 

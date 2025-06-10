@@ -144,7 +144,7 @@ class MegatronTrainConfig(BaseConfig):
     )
     sequence_parallel: bool = field(
         default=True,
-        metadata={"help": "Enable sequence parallel optimization."}
+        metadata={"help": "Enable sequence parallel optimization for mcore"}
     )
     no_load_optim: bool = field(
         default=True,
