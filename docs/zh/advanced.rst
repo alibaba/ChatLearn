@@ -179,36 +179,3 @@ YAML 配置
               ranking: True
               min_prompt_length: ${batch_generation_min_prompt_length:0}
 
-
-Adaptive checkpoint
---------------------
-
-基础配置中，如果需要对 Alignment 的各个模型应用不同的并行策略，就要事先调用 Megatron-LM 的 `checkpoint_utils.py` 进行离线转换，然后读取转换并行策略后保存的 checkpoint 才能正常执行 Alignment 流程。进阶配置中，adaptive checkpoint 支持在模型 checkpoint 的加载过程中自适应读取 checkpoint 并自动转换成用户指定的并行策略。该进阶配置相比基础配置可以减少磁盘开销，多进程并行执行 checkpoint 转换。
-
-
-YAML 配置
->>>>>>>>>
-
-.. code-block:: yaml
-
-    # Whether to enable adaptive checkpoint, default: True
-    adaptive_parallel_strategy_on_checkpoint: True
-
-
-.. csv-table::
-   :header: "参数名", "类型", "注释"
-
-   "adaptive_parallel_strategy_on_checkpoint",               "bool",      "是否开启 adaptive checkpoint 功能。True 代表开启，False 代表关闭。"
-
-
-示例
->>>>
-
-下面这个示例将在 load checkpoint 的时候传入 `adaptive_parallel_strategy_on_checkpoint` 参数。如果在 yaml 中配置 `adaptive_parallel_strategy_on_checkpoint: True`，`load_checkpoint` 函数将从 checkpoint 自适应地初始化权重到 model 中。
-
-.. code-block:: python
-
-    load_checkpoint(
-        model, None, None,
-        adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint
-    )
