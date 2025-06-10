@@ -184,14 +184,14 @@ class MegatronRefPolicyConfig(BaseModelConfig, MegatronModelArchitectureConfig):
         metadata={"help": "path to reference model"}
     )
     # hard code
-    micro_batch_size: int = field(
-        default=1,
-        metadata={"help": "[required] micro batch size."}
-    )
-    global_batch_size: int = field(
-        default=1,
-        metadata={"help": "[required] global_batch_size."}
-    )
+    # micro_batch_size: int = field(
+    #     default=1,
+    #     metadata={"help": "[required] micro batch size."}
+    # )
+    # global_batch_size: int = field(
+    #     default=1,
+    #     metadata={"help": "[required] global_batch_size."}
+    # )
     seed: int = field(
         default=1234,
         metadata={"help": "seed"}
@@ -214,15 +214,15 @@ class MegatronPolicyTrainerConfig(BaseModelConfig, MegatronModelArchitectureConf
     )
 
     # hard code
-    micro_batch_size: int = field(
-        default=1,
-        metadata={"help": "[required] micro batch size."}
-    )
+    # micro_batch_size: int = field(
+    #     default=1,
+    #     metadata={"help": "[required] micro batch size."}
+    # )
 
-    global_batch_size: int = field(
-        default=1,
-        metadata={"help": "[required] global_batch_size."}
-    )
+    # global_batch_size: int = field(
+    #     default=1,
+    #     metadata={"help": "[required] global_batch_size."}
+    # )
     seed: int = field(
         default=1234,
         metadata={"help": "seed"}

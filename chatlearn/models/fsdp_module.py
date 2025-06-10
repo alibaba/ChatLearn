@@ -53,20 +53,6 @@ class FSDPModule(TorchModule):
 
         super().__init__(*args, **kwargs)
 
-        if not self.trainable:
-            # inference only
-            if (
-                self.module_args.get("train_micro_batch_size")
-                != self.module_args.generation_batch_size
-            ):
-                self._logger.info(
-                    f"{self.name} Overwrite train_micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}"
-                )
-            self.train_micro_batch_size = self.module_args.generation_batch_size
-        else:
-            self.train_micro_batch_size = self.runtime_args.train_micro_batch_size
-            self.train_global_batch_size = self.runtime_args.train_global_batch_size
-
         self.fsdp_size = self.module_args.fsdp_size
         self.sp_size = self.module_args.ulysses_sequence_parallel_size
         self.device_mesh = None
