@@ -172,10 +172,6 @@ class BaseModelConfig(BaseConfig):
         default=1,
         metadata={"help": "expert model parallel size for Megatron-Core"}
     )
-    zero_size: int = field(
-        default=1,
-        metadata={"help": "zero size"}
-    )
     fsdp_size: int = field(
         default=1,
         metadata={"help": "FSDP parallel size"}
