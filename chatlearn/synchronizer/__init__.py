@@ -13,47 +13,36 @@
 # limitations under the License.
 # ==============================================================================
 """synchronizer"""
-
+from typing import TYPE_CHECKING
 from transformers import AutoConfig
 from chatlearn.models.megatron_module import MegatronModule
 from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.runtime.dist_actor import DistModel
-from .base import BaseSync
-from .megatron_megatron import MegatronMegatronSync
 from .megatron_vllm import(
-    MegatronVllmQWenSync,
-    MegatronVllmQWen2Sync,
-    MegatronVllmLlamaSync,
     MegatronVllmMoonlightSync,
     MegatronVllmQWen2MCoreSync
 )
+from .base import BaseSync
 
-def get_synchronizer(src_model, dst_model):
-    assert isinstance(src_model, DistModel)
-    assert isinstance(dst_model, DistModel)
+if TYPE_CHECKING:
+    from chatlearn.runtime.dist_actor import DistModel
+
+def get_synchronizer(src_model: 'DistModel', dst_model: 'DistModel'):
     src_model = src_model.replicas[0].model
     dst_model = dst_model.replicas[0].model
-    if isinstance(src_model, MegatronModule) and isinstance(dst_model, MegatronModule):
-        return MegatronMegatronSync(src_model, dst_model)
-    elif isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule):
-        # config_dir = dst_model.module_args.args_dict["tokenizer"]
-        config_dir = dst_model.module_args["tokenizer"]
-        config =  AutoConfig.from_pretrained(config_dir, trust_remote_code=True)
-        model_class_name = config.architectures[0]
-        if model_class_name == "QWenLMHeadModel":
-            return MegatronVllmQWenSync(src_model, dst_model)
-        elif model_class_name in ["Qwen2ForCausalLM", "Qwen2MoeForCausalLM"]:
-            # NOTE: check if the model is mcore or not
-            # if src_model.module_args.args_dict.get("use_legacy_models", True):
-            if src_model.module_args.get("use_legacy_models", False):
-                return MegatronVllmQWen2Sync(src_model, dst_model)
-            return MegatronVllmQWen2MCoreSync(src_model, dst_model)
-        elif model_class_name == "LlamaForCausalLM":
-            return MegatronVllmLlamaSync(src_model, dst_model)
-        elif model_class_name in ["DeepseekV3ForCausalLM", "Qwen3ForCausalLM"]:
-            return MegatronVllmMoonlightSync(src_model, dst_model)
-        else:
-            raise RuntimeError(
-                f"Unsupported model {model_class_name}, Expect QWenLMHeadModel, Qwen2ForCausalLM, Qwen2MoeForCausalLM or LlamaForCausalLM.")
-    else:
+    if not (isinstance(src_model, MegatronModule) and isinstance(dst_model, VLLMModule)):
+        # NOTE: This branch is expected to be used in the UnitTest.
         return BaseSync(src_model, dst_model)
+    # NOTE: the parameter sync of megatron-vllm model pairs are also removed.
+    name_to_synchronizer = {
+        "Qwen2ForCausalLM": MegatronVllmQWen2MCoreSync,
+        "Qwen2MoeForCausalLM": MegatronVllmQWen2MCoreSync,
+        "DeepseekV3ForCausalLM": MegatronVllmMoonlightSync,
+        "Qwen3ForCausalLM": MegatronVllmMoonlightSync,
+        "Qwen3MoeForCausalLM": MegatronVllmMoonlightSync
+    }
+    config_dir = dst_model.module_args["tokenizer"]
+    config =  AutoConfig.from_pretrained(config_dir, trust_remote_code=True)
+    model_class_name = config.architectures[0]
+    if model_class_name not in name_to_synchronizer:
+        raise RuntimeError(f"Unsupported model {model_class_name}, currently support {list(name_to_synchronizer.keys())}.")
+    return name_to_synchronizer[model_class_name](src_model, dst_model)

@@ -15,10 +15,10 @@
 """Inference Memery manager for Megatron."""
 from typing import Optional, List
 
+from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel
+
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
 from chatlearn.utils.logger import log_rank_0
-from chatlearn.utils.megatron_import_helper import DistributedDataParallel
-
 
 class InferenceMemoryManager:
     """

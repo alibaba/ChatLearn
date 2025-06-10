@@ -12,28 +12,25 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Trainer Memery manager for Megatron V5"""
+"""Trainer Memery manager for Megatron-Core"""
 from typing import List, Optional
 
 import torch
 
 from megatron.core.optimizer.optimizer import ChainedOptimizer
 from megatron.core.transformer.moe.moe_layer import MoELayer
+from megatron.core import tensor_parallel
+from megatron.core.distributed.param_and_grad_buffer import BufferType
 
 from chatlearn.models.megatron.memory_manager.base_trainer import BaseTrainerMemoryManager
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors, FlatTensors
 from chatlearn.utils.logger import log_rank_0
-from chatlearn.utils.megatron_import_helper import tensor_parallel
-from chatlearn.utils.megatron_import_memory_helper import BufferType
-from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, check_megatron_versions
-
-check_megatron_versions([MegatronVersion.V5])
 
 
-__all__ = ['TrainerMemoryManagerV5']
+__all__ = ['TrainerMemoryManager']
 
 
-class TrainerMemoryManagerV5(BaseTrainerMemoryManager):
+class TrainerMemoryManager(BaseTrainerMemoryManager):
     """
     Memory manager for Megatron V5 trainer modules. Support ChainedOptimizer.
     """

@@ -43,12 +43,6 @@ class VLLMVersion(str, Enum):
     v_0_8_5 = "0.8.5"
 
 
-class QwenVersion(float, Enum):
-    """qwen version"""
-    v_1 = 1.0
-    v_2 = 2.0
-
-
 class RAY_PG_STRATEGY(Enum):
     """ray placement group strategy"""
     PACK = "PACK"
