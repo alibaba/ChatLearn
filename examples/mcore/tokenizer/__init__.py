@@ -20,6 +20,7 @@ from megatron.training import get_args
 def get_tokenizer():
     """Return tokenizer."""
     return _GLOBAL_TOKENIZER
+
 def _vocab_size_with_padding(orig_vocab_size, make_vocab_size_divisible_by, tensor_model_parallel_size):
     """Pad vocab size so it is divisible by model parallel size and
     still having GPU friendly size."""

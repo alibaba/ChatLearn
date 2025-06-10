@@ -60,8 +60,7 @@ class MegatronPolicyTrainer(MegatronModule):
         self.args = get_args()
         self.report_memory_flag = True
         self.iteration_for_log = 0
-        chatlearn_args = chatlearn.get_args()
-        build_tokenizer(chatlearn_args)
+        build_tokenizer(self.global_args)
 
         if self.trainable:
             self.model, self.optimizer, self.opt_param_scheduler = setup_model_and_optimizer(self.model_provider, ModelType.encoder_or_decoder)
@@ -88,7 +87,6 @@ class MegatronPolicyTrainer(MegatronModule):
             torch.cuda.memory._record_memory_history(True,
                                                      # keep 100,000 alloc/free events from before the snapshot
                                                      trace_alloc_max_entries=100000,
-
                                                      # record stack information for the trace events
                                                      trace_alloc_record_context=True)
 
