@@ -3,15 +3,15 @@ runtime_args:
   exp_name: grpo_test
   colocation: [policy,policy_trainer,ref_policy]
   # path config
-  output_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
-  data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/train.json
-  eval_data_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/dataset/MATH-lighteval/test.json
-  data_checkpoint_path: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test/data_checkpoint_path/
+  output_dir: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/output/grpo_test
+  data_path: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/dataset/MATH-lighteval/train.json
+  eval_data_path: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/dataset/MATH-lighteval/test.json
+  data_checkpoint_path: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/output/grpo_test/data_checkpoint_path/
   # config for training
   num_episode: 200
-  sample_per_episode: 2048
+  sample_per_episode: 512
   train_micro_batch_size: 8
-  train_global_batch_size: 2048
+  train_global_batch_size: 512
   save_episode_interval: 200
   # config for data
   data_shuffle: True
@@ -21,19 +21,19 @@ runtime_args:
   eval_episode_interval: 5
   enable_eval_before_training: False
   log_args_dict:
-    log_dir: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
+    log_dir: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/output/grpo_test
 
 models:
   policy:
     free_gpu_memory:
       offload_weights: True
-    tensor_model_parallel_size: 4
+    tensor_model_parallel_size: 2
     generation_batch_size: 256
     gpu_per_process: 1
-    num_gpu: 8
+    num_gpu: 2
     trainable: False
     # args_dict:
-    tokenizer: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct
+    tokenizer: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct
     num_inference_per_prompt: 32
     seq_length: 2048
     max_seq_len_to_capture: 2348
@@ -56,25 +56,25 @@ models:
       offload_weights: True
     generation_batch_size: 8
     gpu_per_process: 1
-    num_gpu: 8
-    tensor_model_parallel_size: 4
+    num_gpu: 2
+    tensor_model_parallel_size: 2
     trainable: False
-    load: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1
+    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1
     # model arch
-    num_layers: 28
-    hidden_size: 3584
-    num_attention_heads: 28
-    ffn_hidden_size: 18944
-    num_query_groups: 4
+    num_layers: 36
+    hidden_size: 2048
+    num_attention_heads: 16
+    ffn_hidden_size: 11008
+    num_query_groups: 2
     seq_length: 2048
-    max_position_embeddings: 131072
+    max_position_embeddings: 32768
     add_qkv_bias: True
     add_bias_linear: False
     rotary_base: 1000000
     group_query_attention: True
-    untie_embeddings_and_output_weights: True
+    untie_embeddings_and_output_weights: False
     patch_tokenizer_type: Qwen2Tokenizer
-    extra_vocab_size: 421
+    extra_vocab_size: 293
   policy_trainer:
     free_gpu_memory:
       offload_weights: True
@@ -83,10 +83,10 @@ models:
     trainable: True
     generation_batch_size: 8
     gpu_per_process: 1
-    num_gpu: 8
-    tensor_model_parallel_size: 4
+    num_gpu: 2
+    tensor_model_parallel_size: 2
     # train config
-    load: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1
+    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1
     save: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
     save_interval: 10000
     sequence_parallel: True
@@ -94,20 +94,20 @@ models:
     min_lr: 2e-6
     train_iters: 10000
     # model arch
-    num_layers: 28
-    hidden_size: 3584
-    num_attention_heads: 28
-    ffn_hidden_size: 18944
-    num_query_groups: 4
+    num_layers: 36
+    hidden_size: 2048
+    num_attention_heads: 16
+    ffn_hidden_size: 11008
+    num_query_groups: 2
     seq_length: 2048
-    max_position_embeddings: 131072
+    max_position_embeddings: 32768
     add_qkv_bias: True
     add_bias_linear: False
     rotary_base: 1000000
     group_query_attention: True
-    untie_embeddings_and_output_weights: True
+    untie_embeddings_and_output_weights: False
     patch_tokenizer_type: Qwen2Tokenizer
-    extra_vocab_size: 421
+    extra_vocab_size: 293
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2

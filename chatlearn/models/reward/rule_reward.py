@@ -24,7 +24,7 @@ import torch
 import numpy as np
 
 from chatlearn import BaseModule
-from examples.fsdp.utils.rule_reward_score import math
+from chatlearn.utils.rule_reward_score import math
 
 
 class RuleReward(BaseModule):
@@ -35,7 +35,6 @@ class RuleReward(BaseModule):
 
     def _forward_step(self, data: Dict) -> torch.Tensor:
 
-        # str_prompts_list = data["str_prompts"]
         str_outputs_list = data["str_outputs"]
         data_source_list = data["data_source"]
         ground_truth_list = data["ground_truth"]

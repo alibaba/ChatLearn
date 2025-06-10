@@ -18,7 +18,7 @@ from typing import List, Dict
 import torch
 import torch.nn.functional as F
 
-from examples.fsdp.data.prompt_dataset import VLLMPromptPipeline
+from chatlearn.data.prompt_dataset import VLLMPromptPipeline
 
 # pylint: disable=ungrouped-imports
 from chatlearn.models.vllm_module import VLLMModule

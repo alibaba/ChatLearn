@@ -35,7 +35,7 @@ if [ -z "$CHATLEARN" ]; then
 fi
 
 rm core*
-export MEGATRON_PATH=/mnt/workspace/yanhaiqiang.yhq/parameter_refactor/Megatron-LM
+export MEGATRON_PATH=/mnt/workspace/yanhaiqiang.yhq/Megatron-LM
 
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${CHATLEARN}/examples/mcore:${CHATLEARN}/examples:${PYTHONPATH}
 export num_device=$(($WORLD_SIZE * $GPUS_PER_NODE))
