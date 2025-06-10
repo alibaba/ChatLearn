@@ -140,37 +140,3 @@ Here is an example of configuring the batch generation optimization. Users can a
 
 
 
-Adaptive checkpoint
---------------------
-
-In the basic configuration, if different parallel strategies need to be applied to each model of alignment training, the `checkpoint_utils.py` of Megatron-LM needs to be called in advance for offline conversion. Then, the converted checkpoint with the desired parallel strategy can be loaded and the alignment process can be executed correctly.
-
-In the advanced configuration, adaptive checkpointing is supported, which allows for the automatic loading of checkpoints during the model checkpoint loading process and their conversion to the user-specified parallel strategy. This advanced configuration reduces disk overhead and enables checkpoint conversion to be executed in multiple processes in parallel.
-
-
-YAML Configuration
->>>>>>>>>>>>>>>>>>>
-
-.. code-block:: yaml
-
-    # Whether to enable adaptive checkpoint, default: True
-    adaptive_parallel_strategy_on_checkpoint: True
-
-
-.. csv-table::
-   :header: "Parameter Name", "Type", "Description"
-
-   "adaptive_parallel_strategy_on_checkpoint",               "bool",      "Specifies whether to enable the adaptive checkpoint functionality. True for enabling, False for disabling."
-
-
-Code Sample
->>>>>>>>>>>>
-
-Here is an example demonstrating how to pass the `adaptive_parallel_strategy_on_checkpoint` parameter when loading a checkpoint. If `adaptive_parallel_strategy_on_checkpoint: True` is configured in the YAML file, the `load_checkpoint` function will adaptively initialize the weights from the checkpoint into the model.
-
-.. code-block:: python
-
-    load_checkpoint(
-        model, None, None,
-        adaptive_parallel_strategy=self.args.adaptive_parallel_strategy_on_checkpoint
-    )

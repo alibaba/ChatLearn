@@ -13,6 +13,5 @@
 # limitations under the License.
 # ==============================================================================
 """Memery manager for Megatron modules which provides utilities to free memory when unused."""
-
-from chatlearn.models.megatron.memory_manager.base_trainer import create_trainer_memory_manager
+from chatlearn.models.megatron.memory_manager.trainer import TrainerMemoryManager
 from chatlearn.models.megatron.memory_manager.inference import InferenceMemoryManager

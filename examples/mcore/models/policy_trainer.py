@@ -21,17 +21,16 @@ import inspect
 
 from megatron.core.transformer.spec_utils import import_module
 from megatron.core.enums import ModelType
-from megatron.training.training import save_checkpoint_and_time, print_datetime,  setup_model_and_optimizer
+from megatron.training.training import setup_model_and_optimizer
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import get_timers
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training import get_model
 from megatron.training import get_args, print_rank_0
 from megatron.core import mpu
-from megatron.training.initialize import set_jit_fusion_options
 from megatron.training.utils import calc_params_l2_norm
 from megatron.core.pipeline_parallel import get_forward_backward_func
-from megatron.training.utils import unwrap_model,logical_and_across_model_parallel_group
+from megatron.training.utils import logical_and_across_model_parallel_group
 from megatron.core.utils import get_model_config
 from megatron.core.distributed import finalize_model_grads
 from megatron.training.arguments import core_transformer_config_from_args

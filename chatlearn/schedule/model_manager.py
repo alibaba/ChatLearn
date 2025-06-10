@@ -29,13 +29,12 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
-from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup, ParameterSyncGroupwithHEP
+from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup
 from chatlearn.synchronizer.parameter_sync_fsdp import FSDP2VllmParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
-from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
 from .port_manager import PortManager
 from ..utils import future
 
@@ -128,7 +127,6 @@ class ModelManager:
 
     def build_parameter_group(self):
         # set ParameterSyncGroup
-        megatron_version = get_megatron_version()
         for src_model, dst_model in self._parameter_sync_model_pair:
             logger.info(
                 f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
@@ -137,15 +135,6 @@ class ModelManager:
 
             if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
                 sync_group = FSDP2VllmParameterSyncGroup(
-                    self._name2distmodel[src_model.name],
-                    self._name2distmodel[dst_model.name],
-                    group_name,
-                    sync_frequency,
-                    self.error_signal
-                )
-            elif megatron_version == MegatronVersion.V4:
-                logger.info("QWEN_VERSION has been set to qwen_moe_v1, where HEP is enabled.")
-                sync_group = ParameterSyncGroupwithHEP(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
                     group_name,

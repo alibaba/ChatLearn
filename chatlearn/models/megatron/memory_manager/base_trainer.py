@@ -19,60 +19,15 @@ from typing import List, Optional
 
 import torch
 
-from chatlearn.utils.flat_tensors import BucketizedFlatTensors
-from chatlearn.utils.logger import log_rank_0
-from chatlearn.utils.megatron_import_memory_helper import MegatronVersion, get_megatron_version
-from chatlearn.utils.megatron_import_helper import (
-    DistributedDataParallel,
-    MixedPrecisionOptimizer,
+from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel
+from megatron.core.optimizer.optimizer import MixedPrecisionOptimizer
+from megatron.core.optimizer import (
     DistributedOptimizer,
     Float16OptimizerWithFloat16Params,
 )
 
-
-def create_trainer_memory_manager(
-    model,
-    optimizer,
-    use_distributed_optimizer,
-    accumulate_allreduce_grads_in_fp32,
-    params_dtype,
-    bucket_size_mb=0,
-) -> 'BaseTrainerMemoryManager':
-    """
-    Create a trainer memory manager based on megatron version.
-    """
-    version = get_megatron_version()
-    if version in [MegatronVersion.V1, MegatronVersion.V2]:
-        # pylint: disable-next=import-outside-toplevel
-        from chatlearn.models.megatron.memory_manager.trainer_v1v2 import TrainerMemoryManagerV1V2
-
-        cls = TrainerMemoryManagerV1V2
-    elif version in [MegatronVersion.V3]:
-        # pylint: disable-next=import-outside-toplevel
-        from chatlearn.models.megatron.memory_manager.trainer_v3 import TrainerMemoryManagerV3
-
-        cls = TrainerMemoryManagerV3
-    elif version in [MegatronVersion.V4]:
-        # pylint: disable-next=import-outside-toplevel
-        from chatlearn.models.megatron.memory_manager.trainer_v4 import TrainerMemoryManagerV4
-
-        cls = TrainerMemoryManagerV4
-    elif version in [MegatronVersion.V5]:
-        # pylint: disable-next=import-outside-toplevel
-        from chatlearn.models.megatron.memory_manager.trainer_v5 import TrainerMemoryManagerV5
-
-        cls = TrainerMemoryManagerV5
-    else:
-        raise ValueError(f'Unsupported version of Megatron for trainer memory manager: {version}')
-
-    return cls(
-        model,
-        optimizer,
-        use_distributed_optimizer,
-        accumulate_allreduce_grads_in_fp32,
-        params_dtype,
-        bucket_size_mb,
-    )
+from chatlearn.utils.flat_tensors import BucketizedFlatTensors
+from chatlearn.utils.logger import log_rank_0
 
 
 class BaseTrainerMemoryManager(ABC):
@@ -101,17 +56,12 @@ class BaseTrainerMemoryManager(ABC):
             model, (DistributedDataParallel,)
         ), f'Only support model type DistributedDataParallel, current type is {str(type(model))}.'
         sub_optimizers = [optimizer]
-        if get_megatron_version() != MegatronVersion.V5:
-            assert isinstance(
-                optimizer, (MixedPrecisionOptimizer,)
-            ), f'Only support optimizer type MixedPrecisionOptimizer and its subclasses, current type is {str(type(optimizer))}.'
-        else:
-            from megatron.core.optimizer.optimizer import ChainedOptimizer # pylint: disable=import-outside-toplevel
-            assert isinstance(
-                optimizer, (MixedPrecisionOptimizer, ChainedOptimizer)
-            ), f'Only support optimizer type MixedPrecisionOptimizer, ChainedOptimizer and its subclasses, current type is {str(type(optimizer))}.'
-            if isinstance(optimizer, ChainedOptimizer):
-                sub_optimizers = optimizer.chained_optimizers
+        from megatron.core.optimizer.optimizer import ChainedOptimizer # pylint: disable=import-outside-toplevel
+        assert isinstance(
+            optimizer, (MixedPrecisionOptimizer, ChainedOptimizer)
+        ), f'Only support optimizer type MixedPrecisionOptimizer, ChainedOptimizer and its subclasses, current type is {str(type(optimizer))}.'
+        if isinstance(optimizer, ChainedOptimizer):
+            sub_optimizers = optimizer.chained_optimizers
 
         for optim in sub_optimizers:
             # sanity check
@@ -123,8 +73,6 @@ class BaseTrainerMemoryManager(ABC):
 
         self._main_weights_offloaded = False
         self._group_flat_main_weights: Optional[List[BucketizedFlatTensors]] = None
-
-        self._megatron_version = get_megatron_version()
 
     def _optimizer_load_state_bucket_into_device(self, device):
         """put the state bucket onto a device"""
