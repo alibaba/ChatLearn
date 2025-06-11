@@ -111,8 +111,8 @@ class GrpoConfig(BaseConfig):
             refpolicy_cls, policytrainer_cls = MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
         else:
             raise Exception(f"not support train backend: {train_backend}")
-        self.models.ref_policy = convert_to_dataclass(MegatronRefPolicyConfig, self.models.ref_policy)
-        self.models.policy_trainer = convert_to_dataclass(MegatronPolicyTrainerConfig, self.models.policy_trainer)
+        self.models.ref_policy = convert_to_dataclass(refpolicy_cls, self.models.ref_policy)
+        self.models.policy_trainer = convert_to_dataclass(policytrainer_cls, self.models.policy_trainer)
 
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
 
