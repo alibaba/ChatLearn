@@ -343,6 +343,10 @@ class PolicyTrainerConfig(BaseModelConfig):
 class RuntimeConfig(BaseConfig):
     """RuntimeConfig"""
     # setup config
+    train_backend: str = field(
+        default=MISSING,
+        metadata={"help": "which train backend to use, one of megatron or fsdp"}
+    )
     exp_name: str = field(
         default="CHATLEARN",
         metadata={"help": "exp name for each run"}

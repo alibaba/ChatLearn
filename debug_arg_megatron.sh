@@ -41,4 +41,4 @@ export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${CHATLEARN}/examples/mcore:${CH
 export num_device=$(($WORLD_SIZE * $GPUS_PER_NODE))
 
 
-python chatlearn/entrypoint.py grpo_megatron --config-file grpo_megatron.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}
+python chatlearn/entrypoint.py grpo --config-file grpo_megatron.yaml 2>&1 | tee ${log_file}.log ; exit ${PIPESTATUS[0]}

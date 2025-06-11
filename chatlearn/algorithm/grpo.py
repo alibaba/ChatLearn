@@ -16,8 +16,8 @@
 
 import json
 import random
-from dataclasses import dataclass, field
-from typing import Any, Optional, List, Dict
+from dataclasses import dataclass, field, fields
+from typing import Any, Optional, List, Dict, Union
 from collections import defaultdict
 
 import torch
@@ -32,8 +32,10 @@ from configs.common import (
     BaseModelConfig
 )
 from algorithm.base_algo import BaseAlgorithm
+from configs.megatron_config import MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
 
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
+from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import MegatronPolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import VLLMPolicyInference
 from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
@@ -44,6 +46,22 @@ import chatlearn
 from chatlearn import Engine
 from chatlearn.models.base_module import BaseModule
 
+
+def convert_to_dataclass(cls, data):
+    if isinstance(data, dict):
+        field_types = {f.name: f.type for f in fields(cls)}
+        converted = {}
+        for k, v in data.items():
+            if k in field_types and isinstance(v, dict):
+                converted[k] = convert_to_dataclass(field_types[k], v)
+            else:
+                converted[k] = v
+        return cls(**converted)
+    return data
+trainbackend2config_map = {
+    "fsdp": (RefPolicyConfig, PolicyTrainerConfig),
+    "megatron": (MegatronRefPolicyConfig, MegatronPolicyTrainerConfig)
+}
 @dataclass
 class GrpoModelConfig(BaseConfig):
     policy: PolicyConfig = field(
@@ -54,14 +72,23 @@ class GrpoModelConfig(BaseConfig):
         default_factory=BaseModelConfig,
         metadata={"help": "Reward config."}
     )
-    ref_policy: RefPolicyConfig = field(
-        default_factory=RefPolicyConfig,
-        metadata={"help": "Reference policy config."}
+    # ref_policy: RefPolicyConfig = field(
+    #     default_factory=RefPolicyConfig,
+    #     metadata={"help": "Reference policy config."}
+    # )
+    # policy_trainer: PolicyTrainerConfig = field(
+    #     default_factory=PolicyTrainerConfig,
+    #     metadata={"help": "Policy trainer config."}
+    # )
+    ref_policy: Any = field(
+        default=None,
+        metadata={"help": "Reference policy config. One of RefPolicyConfig or MegatronRefPolicyConfig."}
     )
-    policy_trainer: PolicyTrainerConfig = field(
-        default_factory=PolicyTrainerConfig,
-        metadata={"help": "Policy trainer config."}
+    policy_trainer: Any = field(
+        default=None,
+        metadata={"help": "Policy trainer config. One of PolicyTrainerConfig or MegatronPolicyTrainerConfig."}
     )
+
 
 @dataclass
 class GrpoConfig(BaseConfig):
@@ -78,6 +105,17 @@ class GrpoConfig(BaseConfig):
         default_factory=GrpoModelConfig,
         metadata={"help": "Grpo model config."}
     )
+
+    def __post_init__(self):
+        train_backend = self.runtime_args.train_backend
+        if train_backend == "fsdp":
+            refpolicy_cls, policytrainer_cls = RefPolicyConfig, PolicyTrainerConfig
+        elif train_backend == "megatron":
+            refpolicy_cls, policytrainer_cls = MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
+        else:
+            raise Exception(f"not support train backend: {train_backend}")
+        self.models.ref_policy = convert_to_dataclass(MegatronRefPolicyConfig, self.models.ref_policy)
+        self.models.policy_trainer = convert_to_dataclass(MegatronPolicyTrainerConfig, self.models.policy_trainer)
 
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
 
@@ -162,21 +200,24 @@ class GrpoAlgorithm(BaseAlgorithm):
     def __init__(self, cfg: GrpoConfig) -> None:
         self.cfg = cfg
 
-
     def run(self) -> None:
         chatlearn.init(self.cfg)
-        args = chatlearn.get_args()
-        policy_trainer = PolicyTrainer("policy_trainer")
-        ref_policy = PolicyTrainer("ref_policy")
+
+        if self.cfg.runtime_args.train_backend == "fsdp":
+            policy_trainer = PolicyTrainer("policy_trainer")
+            ref_policy = PolicyTrainer("ref_policy")
+        elif self.cfg.runtime_args.train_backend == "megatron":
+            policy_trainer = MegatronPolicyTrainer("policy_trainer")
+            ref_policy = MegatronPolicyTrainer("ref_policy")
         policy = VLLMPolicyInference("policy")
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 
         # get train and evaluation data
-        train_data_path_list = [item.strip() for item in args.runtime_args.data_path.split(",")]
+        train_data_path_list = [item.strip() for item in self.cfg.runtime_args.data_path.split(",")]
         train_data = read_data_path_list(train_data_path_list)
 
-        eval_data_path_list = [item.strip() for item in args.runtime_args.eval_data_path.split(',')]
+        eval_data_path_list = [item.strip() for item in self.cfg.runtime_args.eval_data_path.split(',')]
         eval_data = read_data_path_list(eval_data_path_list)
 
         # put data in engine._all_datasets

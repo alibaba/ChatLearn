@@ -1,5 +1,6 @@
 runtime_args:
   # setup config
+  train_backend: fsdp
   exp_name: grpo_test
   colocation: [policy,policy_trainer,ref_policy]
   # path config
