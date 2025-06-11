@@ -41,12 +41,13 @@ from chatlearn.utils.utils import listdict_to_dictlist
 try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
-except:
+except Exception:
     print("please set megatron path for running megatron backend")
 
 
 @dataclass
 class GrpoModelConfig(BaseConfig):
+    """GrpoModelConfig"""
     policy: PolicyConfig = field(
         default_factory=PolicyConfig, metadata={"help": "Policy config."}
     )

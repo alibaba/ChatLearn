@@ -35,10 +35,10 @@ def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
     data = []
     for data_path in data_path_list:
         if mode == "json":
-            with open(data_path, 'r') as f:
+            with open(data_path, 'r', encoding='utf-8') as f:
                 data.extend(json.load(f))
         elif mode == "jsonl":
-            with open(data_path, 'r') as f:
+            with open(data_path, 'r', encoding='utf-8') as f:
                 data.extend([json.loads(line) for line in f])
     return data
 
