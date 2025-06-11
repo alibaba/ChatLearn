@@ -18,6 +18,7 @@ import math
 import random
 import copy
 import os
+import json
 from typing import List, Dict
 
 import ray
@@ -28,6 +29,18 @@ from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
 
+
+def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
+
+    data = []
+    for data_path in data_path_list:
+        if mode == "json":
+            with open(data_path, 'r') as f:
+                data.extend(json.load(f))
+        elif mode == "jsonl":
+            with open(data_path, 'r') as f:
+                data.extend([json.loads(line) for line in f])
+    return data
 
 def get_iter_keys(data):
     """
