@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+# pylint: disable=unspecified-encoding
 import inspect
 import os
 from contextlib import nullcontext
@@ -48,6 +48,7 @@ OLD_TAG = "old_logprobs"
 
 
 class MegatronPolicyTrainer(MegatronModule):
+    """MegatronPolicyTrainer"""
 
     def setup(self):
         self.stats = {}

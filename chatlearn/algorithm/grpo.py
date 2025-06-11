@@ -115,6 +115,7 @@ class GrpoConfig(BaseConfig):
 
 
 class GRPOEvaluator(Evaluator):
+    """GRPOEvaluator"""
 
     def post_process(self, results, eval_info):
         # results Dict[List]
