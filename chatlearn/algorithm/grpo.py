@@ -43,7 +43,6 @@ from chatlearn.utils.utils import listdict_to_dictlist
 import chatlearn
 from chatlearn import Engine
 from chatlearn.models.base_module import BaseModule
-# from examples.fsdp.entry.train_grpo import *
 
 @dataclass
 class GrpoModelConfig(BaseConfig):

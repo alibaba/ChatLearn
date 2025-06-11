@@ -14,6 +14,7 @@
 # ==============================================================================
 
 import math
+
 from transformers import AutoTokenizer, AutoProcessor
 from megatron.training import get_args
 
@@ -21,14 +22,14 @@ def get_tokenizer():
     """Return tokenizer."""
     return _GLOBAL_TOKENIZER
 
-def _vocab_size_with_padding(orig_vocab_size, make_vocab_size_divisible_by, tensor_model_parallel_size):
-    """Pad vocab size so it is divisible by model parallel size and
-    still having GPU friendly size."""
+# def _vocab_size_with_padding(orig_vocab_size, make_vocab_size_divisible_by, tensor_model_parallel_size):
+#     """Pad vocab size so it is divisible by model parallel size and
+#     still having GPU friendly size."""
 
-    after = orig_vocab_size
-    multiple = make_vocab_size_divisible_by * tensor_model_parallel_size
-    after = int(math.ceil(after / multiple) * multiple)
-    return after
+#     after = orig_vocab_size
+#     multiple = make_vocab_size_divisible_by * tensor_model_parallel_size
+#     after = int(math.ceil(after / multiple) * multiple)
+#     return after
 
 def build_tokenizer(args):
     patch_tokenizer_type = args.models['policy_trainer']['patch_tokenizer_type']
@@ -189,7 +190,6 @@ def build_tokenizer(args):
 
     if getattr(args, "padded_vocab_size", None) is None:
         padded_vocab_size = tokenizer.vocab_size
-        # args.models['policy'].args_dict['padded_vocab_size'] = padded_vocab_size
         get_args().padded_vocab_size = padded_vocab_size
 
     global _GLOBAL_TOKENIZER

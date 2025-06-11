@@ -44,10 +44,10 @@ from megatron.core.models.gpt.gpt_layer_specs import (
 
 import chatlearn
 from chatlearn import MegatronModule
-
-from tokenizer import build_tokenizer
-from .policy_model import PolicyModel
-from .train_helper import training_log, forward_step, inference_forward_step
+from chatlearn.algorithm.grpo_utils.megatron_utils import (
+    build_tokenizer, PolicyModel,
+    training_log, forward_step, inference_forward_step
+)
 
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"
@@ -216,8 +216,7 @@ class MegatronPolicyTrainer(MegatronModule):
 
         loss_reduced = {}
         # NOTE: for compatability
-        is_lbl = hasattr(ModelType, 'encoder_or_decoder_with_lbl') and args.model_type == ModelType.encoder_or_decoder_with_lbl
-        if mpu.is_pipeline_last_stage(ignore_virtual=True) or is_lbl:
+        if mpu.is_pipeline_last_stage(ignore_virtual=True):
             total_losses = {}
             for i in range(len(losses_reduced)):
                 for key in losses_reduced[i].keys():
@@ -246,8 +245,6 @@ class MegatronPolicyTrainer(MegatronModule):
                     if args.virtual_pipeline_model_parallel_size is not None:
                         loss_reduced[key] *= args.virtual_pipeline_model_parallel_size
 
-            #return loss_reduced, skipped_iter, grad_norm, num_zeros_in_grad, {}
-        #return {}, skipped_iter, grad_norm, num_zeros_in_grad, {}
         self.iteration_for_log += 1
 
         self.args.consumed_train_samples += mpu.get_data_parallel_world_size() * \
