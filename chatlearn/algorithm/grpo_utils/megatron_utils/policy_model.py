@@ -25,6 +25,8 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.training import get_args
 from torch import Tensor
 
+from chatlearn.configs.common import BaseModelConfig
+
 
 class PolicyModel(GPTModel):
     """PolicyModel"""
@@ -50,6 +52,7 @@ class PolicyModel(GPTModel):
         scatter_embedding_sequence_parallel: bool = True,
         seq_len_interpolation_factor: Optional[float] = None,
         mtp_block_spec: Optional[ModuleSpec] = None,
+        module_args: Optional[BaseModelConfig] = None
     ) -> None:
         super().__init__(
             config=config,
@@ -71,7 +74,8 @@ class PolicyModel(GPTModel):
             mtp_block_spec=mtp_block_spec,
         )
 
-        self.args = get_args()
+        # chatlearn module args
+        self.module_args = module_args
 
     def forward(
         self,
@@ -131,14 +135,14 @@ class PolicyModel(GPTModel):
         )
 
         logprobs_diff = forward_logprob - old_logprobs
-        logprobs_diff = torch.clamp(logprobs_diff, max=self.args.diff_clip_ratio)
+        logprobs_diff = torch.clamp(logprobs_diff, max=self.module_args.diff_clip_ratio)
         ratio = torch.exp(logprobs_diff)
         pg_loss = -advantages.unsqueeze(-1) * ratio
         pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(
-            ratio, 1.0 - self.args.neg_clip_ratio, 1.0 + self.args.pos_clip_ratio
+            ratio, 1.0 - self.module_args.neg_clip_ratio, 1.0 + self.module_args.pos_clip_ratio
         )
         pg_loss_clip = torch.max(pg_loss, pg_loss_2)
-        pg_loss_upperbound = torch.ones_like(pg_loss) * self.args.final_clip_ratio
+        pg_loss_upperbound = torch.ones_like(pg_loss) * self.module_args.final_clip_ratio
         pg_loss = torch.min(pg_loss_clip, pg_loss_upperbound)
         assert not torch.isnan(pg_loss).any(), "pg loss is nan"
         pg_loss = torch.masked_select(

@@ -234,7 +234,7 @@ class PolicyTrainer(FSDPModule):
                 advantages=inputs["advantages"],
                 diff_clip_ratio=self.module_args.get("diff_clip_ratio", 10),
                 pos_clip_ratio=self.module_args.get("pos_clip_ratio", 0.2),
-                negative_clip_ratio=self.module_args.get("negative_clip_ratio", 0.2),
+                neg_clip_ratio=self.module_args.get("neg_clip_ratio", 0.2),
                 final_clip_ratio=self.module_args.get("final_clip_ratio", 3),
             )
 
@@ -261,7 +261,7 @@ class PolicyTrainer(FSDPModule):
             entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
             entropy_loss_list.append(entropy_loss)
         grad_norm = (
-            self.model.clip_grad_norm_(max_norm=self.module_args.get("grad_clip", 1))
+            self.model.clip_grad_norm_(max_norm=self.module_args.optimizer.clip_grad)
             .detach()
             .item()
         )

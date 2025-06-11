@@ -24,17 +24,6 @@ def get_tokenizer():
     """Return tokenizer."""
     return _GLOBAL_TOKENIZER
 
-
-# def _vocab_size_with_padding(orig_vocab_size, make_vocab_size_divisible_by, tensor_model_parallel_size):
-#     """Pad vocab size so it is divisible by model parallel size and
-#     still having GPU friendly size."""
-
-#     after = orig_vocab_size
-#     multiple = make_vocab_size_divisible_by * tensor_model_parallel_size
-#     after = int(math.ceil(after / multiple) * multiple)
-#     return after
-
-
 def build_tokenizer(args):
     patch_tokenizer_type = args.models["policy_trainer"]["patch_tokenizer_type"]
 
@@ -122,9 +111,9 @@ def build_tokenizer(args):
             def eod_id(self):
                 return self.tokenizer.pad_token_id
 
-        tokenizer_path = args.models["policy"]["tokenizer"]
+        tokenizer_path = args.models["policy"].load
         tokenizer = _DeepSeekV2Tokenizer(
-            tokenizer_path, extra_vocab_size=args.models["policy"]["extra_vocab_size"]
+            tokenizer_path, extra_vocab_size=args.models["policy_trainer"]["extra_vocab_size"]
         )
 
     elif patch_tokenizer_type == "Qwen2Tokenizer":
@@ -213,7 +202,7 @@ def build_tokenizer(args):
             def eod_id(self):
                 return self.tokenizer.pad_token_id
 
-        tokenizer_path = args.models["policy"]["tokenizer"]
+        tokenizer_path = args.models["policy"].load
         tokenizer = _Qwen2Tokenizer(
             tokenizer_path,
             extra_vocab_size=args.models["policy_trainer"]["extra_vocab_size"],

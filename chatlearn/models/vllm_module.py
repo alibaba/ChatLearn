@@ -60,7 +60,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.tokenizer = None
         self._model = None
         self.llm = None
-        self.model_config =  AutoConfig.from_pretrained(self.module_args['tokenizer'])
+        self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
@@ -96,8 +96,8 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         from vllm.engine.arg_utils import AsyncEngineArgs # pylint: disable=import-outside-toplevel
         from vllm.usage.usage_lib import UsageContext # pylint: disable=import-outside-toplevel
         self.engine_args = AsyncEngineArgs(
-            model=self.module_args['tokenizer'],
-            tokenizer=self.module_args['tokenizer'],
+            model=self.module_args['load'],
+            tokenizer=self.module_args['load'],
             max_seq_len_to_capture=self.module_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
@@ -135,7 +135,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def setup(self):
         """Set up tokenizer."""
         super().setup()
-        tokenizer = AutoTokenizer.from_pretrained(self.module_args['tokenizer'], trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
@@ -157,8 +157,8 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         else:
             seed = self.module_args.get("seed", 0)
         self.llm = LLM(
-            model=self.module_args['tokenizer'],
-            tokenizer=self.module_args['tokenizer'],
+            model=self.module_args.load,
+            tokenizer=self.module_args.load,
             max_seq_len_to_capture=self.module_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.

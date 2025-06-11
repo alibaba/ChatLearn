@@ -233,8 +233,7 @@ class FSDPModule(TorchModule):
         self.setup_distributed()
         args = dict_to_simplenamespace(self.module_args)
         self.args = args
-        # model = self.create_model(args.pretrain_or_model, torch_dtype=torch.float32)
-        model = self.create_model(args.pretrain_or_model, torch_dtype=torch.bfloat16)
+        model = self.create_model(args.load, torch_dtype=torch.bfloat16)
         # Setup device mesh and apply patch for sequence parallel
         # Sequence_parallel should only be used during training
         if self.sp_size > 1:
@@ -242,7 +241,7 @@ class FSDPModule(TorchModule):
             self.create_sp_device_mesh()
             apply_sp_monkey_patch(model.config)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            args.pretrain_or_model, trust_remote_code=True, use_fast=True
+            args.load, trust_remote_code=True, use_fast=True
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
         mix_precision_config = MixedPrecision(
@@ -273,9 +272,9 @@ class FSDPModule(TorchModule):
             self.optimizer = optim.AdamW(
                 self.model.parameters(),
 
-                lr=self.module_args.get("learning_rate", 2e-6),
-                betas=(0.9, 0.999),
-                weight_decay=1e-2
+                lr=self.module_args.optimizer.lr,
+                betas=(self.module_args.optimizer.adam_beta1, self.module_args.optimizer.adam_beta2),
+                weight_decay=self.module_args.optimizer.weight_decay
             )
 
         # resume model weights

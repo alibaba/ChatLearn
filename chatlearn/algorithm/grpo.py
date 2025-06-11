@@ -15,7 +15,8 @@
 """grpo algorithm"""
 
 from dataclasses import dataclass, field, fields
-from typing import Any
+from typing import Any, Optional
+import traceback
 
 import torch
 from algorithm.base_algo import BaseAlgorithm
@@ -23,7 +24,8 @@ from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
                             PolicyTrainerConfig, RefPolicyConfig,
                             RuntimeConfig, RuntimeEnvConfig)
 from configs.megatron_config import (MegatronPolicyTrainerConfig,
-                                     MegatronRefPolicyConfig)
+                                     MegatronRefPolicyConfig,
+                                     MegatronModelArchitectureConfig)
 
 import chatlearn
 from chatlearn import Engine
@@ -42,6 +44,7 @@ try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
 except Exception:
+    traceback.print_exc()
     print("please set megatron path for running megatron backend")
 
 

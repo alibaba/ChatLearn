@@ -8,7 +8,7 @@ def calculate_grpo_loss(
     advantages: torch.Tensor,
     diff_clip_ratio: float = 10,
     pos_clip_ratio: float = 0.2,
-    negative_clip_ratio: float = 0.2,
+    neg_clip_ratio: float = 0.2,
     final_clip_ratio: float = 0.01,
 ):
     logprobs_diff = log_probs - old_log_probs
@@ -19,7 +19,7 @@ def calculate_grpo_loss(
     pg_loss = -advantages.unsqueeze(-1) * ratio
     # Upper and lower bound clip
     pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(
-        ratio, 1 - negative_clip_ratio, 1 + pos_clip_ratio
+        ratio, 1 - neg_clip_ratio, 1 + pos_clip_ratio
     )
     pg_loss_clip = torch.max(pg_loss, pg_loss_2)
     pg_loss_upperbound = torch.ones_like(pg_loss) * final_clip_ratio

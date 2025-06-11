@@ -193,6 +193,7 @@ class MegatronPolicyTrainer(MegatronModule):
                 rotary_base=args.rotary_base,
                 rope_scaling=args.use_rope_scaling,
                 mtp_block_spec=mtp_block_spec,
+                module_args=self.module_args
             )
 
         return model

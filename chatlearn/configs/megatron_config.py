@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
-from .common import BaseConfig, BaseModelConfig
+from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
 
 
 @dataclass
@@ -82,8 +82,6 @@ class MegatronModelArchitectureConfig(BaseConfig):
     extra_vocab_size: int = field(
         default=MISSING, metadata={"help": "config vocab_size - tokenizer vocab_size"}
     )
-    # debug
-    make_vocab_size_divisible_by: int = field(default=128)
 
 
 @dataclass
@@ -98,9 +96,6 @@ class MegatronTrainConfig(BaseConfig):
         default=MISSING,
         metadata={"help": "Total number of iterations to train over all"},
     )
-    clip_grad: float = field(
-        default=1.0, metadata={"help": "Gradient clipping based on global L2 norm."}
-    )
     bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
     use_checkpoint_opt_param_scheduler: bool = field(
         default=True,
@@ -109,18 +104,6 @@ class MegatronTrainConfig(BaseConfig):
                        (learning rate, warmup iterations, minimum learning \
                        rate, maximum number of iterations, and decay style \
                        from checkpoint and ignore input arguments."
-        },
-    )
-    adam_beta1: float = field(
-        default=0.9,
-        metadata={
-            "help": "First coefficient for computing running averages of gradient and its square"
-        },
-    )
-    adam_beta2: float = field(
-        default=0.95,
-        metadata={
-            "help": "Second coefficient for computing running averages of gradient and its square"
         },
     )
     recompute_granularity: str = field(
@@ -153,13 +136,8 @@ class MegatronTrainConfig(BaseConfig):
             "help": "Load model for finetuning. Do not load optimizer or rng state from checkpoint and set iteration to 0."
         },
     )
-    lr: float = field(default=2e-6, metadata={"help": "Initial learning rate."})
-    min_lr: float = field(
-        default=0, metadata={"help": "Minimum value for learning rate."}
-    )
-    weight_decay: float = field(
-        default=0.01,
-        metadata={"help": "Weight decay coefficient for L2 regularization."},
+    optimizer: OptimizerConfig = field(
+        default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
 
 
@@ -168,15 +146,6 @@ class MegatronRefPolicyConfig(BaseModelConfig, MegatronModelArchitectureConfig):
     """RefPolicyConfig"""
 
     load: str = field(default=MISSING, metadata={"help": "path to reference model"})
-    # hard code
-    # micro_batch_size: int = field(
-    #     default=1,
-    #     metadata={"help": "[required] micro batch size."}
-    # )
-    # global_batch_size: int = field(
-    #     default=1,
-    #     metadata={"help": "[required] global_batch_size."}
-    # )
     seed: int = field(default=1234, metadata={"help": "seed"})
 
 
@@ -185,20 +154,8 @@ class MegatronPolicyTrainerConfig(
     BaseModelConfig, MegatronModelArchitectureConfig, MegatronTrainConfig
 ):
     """PolicyTrainerConfig"""
-
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     diff_clip_ratio: float = field(default=10)
     final_clip_ratio: float = field(default=3)
-
-    # hard code
-    # micro_batch_size: int = field(
-    #     default=1,
-    #     metadata={"help": "[required] micro batch size."}
-    # )
-
-    # global_batch_size: int = field(
-    #     default=1,
-    #     metadata={"help": "[required] global_batch_size."}
-    # )
     seed: int = field(default=1234, metadata={"help": "seed"})

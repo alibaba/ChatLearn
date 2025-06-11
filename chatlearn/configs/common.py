@@ -109,6 +109,32 @@ class LogConfig(BaseConfig):
     wandb_name: Optional[str] = field(default=None, metadata={"help": "wandb name"})
     wandb_resume: str = field(default="allow", metadata={"help": "wandb resume"})
 
+@dataclass
+class OptimizerConfig(BaseConfig):
+    """OptimizerConfig"""
+    clip_grad: float = field(
+        default=1.0, metadata={"help": "Gradient clipping based on global L2 norm."}
+    )
+    lr: float = field(default=2e-6, metadata={"help": "Initial learning rate."})
+    min_lr: float = field(
+        default=0, metadata={"help": "Minimum value for learning rate."}
+    )
+    weight_decay: float = field(
+        default=0.01,
+        metadata={"help": "Weight decay coefficient for L2 regularization."},
+    )
+    adam_beta1: float = field(
+        default=0.9,
+        metadata={
+            "help": "First coefficient for computing running averages of gradient and its square"
+        },
+    )
+    adam_beta2: float = field(
+        default=0.95,
+        metadata={
+            "help": "Second coefficient for computing running averages of gradient and its square"
+        },
+    )
 
 @dataclass
 class BaseModelConfig(BaseConfig):
@@ -219,7 +245,7 @@ class PolicyConfig(BaseModelConfig):
         default=0.8, metadata={"help": "gpu_memory_utilization"}
     )
     enforce_eager: bool = field(default=False, metadata={"help": "enforce_eager"})
-    tokenizer: str = field(default=MISSING, metadata={"help": "tokenizer config path"})
+    load: str = field(default=MISSING, metadata={"help": "model weights and tokenizer config path"})
     seed: int = field(default=1234, metadata={"help": "seed"})
 
 
@@ -227,7 +253,7 @@ class PolicyConfig(BaseModelConfig):
 class RefPolicyConfig(BaseModelConfig):
     """RefPolicyConfig"""
 
-    pretrain_or_model: str = field(
+    load: str = field(
         default=MISSING, metadata={"help": "path to reference model"}
     )
 
@@ -236,20 +262,23 @@ class RefPolicyConfig(BaseModelConfig):
 class PolicyTrainerConfig(BaseModelConfig):
     """PolicyTrainerConfig"""
 
-    pretrain_or_model: str = field(
-        default=MISSING, metadata={"help": "path to reference model"}
+    load: str = field(
+        default=MISSING, metadata={"help": "path to policy model"}
     )
-    learning_rate: float = field(
-        default=2e-06, metadata={"help": "learning rate for policy model"}
-    )
-    grad_clip: float = field(
-        default=1.0, metadata={"help": "grad clips for policy model"}
+    # learning_rate: float = field(
+    #     default=2e-06, metadata={"help": "learning rate for policy model"}
+    # )
+    # grad_clip: float = field(
+    #     default=1.0, metadata={"help": "grad clips for policy model"}
+    # )
+    optimizer: OptimizerConfig = field(
+        default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
     gradient_checkpointing: bool = field(
         default=True, metadata={"help": "whether gradient checkpointing"}
     )
     pos_clip_ratio: float = field(default=0.2)
-    negative_clip_ratio: float = field(default=0.2)
+    neg_clip_ratio: float = field(default=0.2)
     save_hf: bool = field(default=True)
 
 

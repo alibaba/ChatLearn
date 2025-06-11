@@ -34,7 +34,7 @@ models:
     num_gpu: 2
     trainable: False
     # args_dict:
-    tokenizer: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct
+    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct
     num_inference_per_prompt: 32
     seq_length: 2048
     max_seq_len_to_capture: 2348
@@ -81,6 +81,10 @@ models:
       offload_weights: True
       offload_optimizer_states: True
       free_grad_buffers: True
+    optimizer:
+      lr: 2e-6
+      min_lr: 2e-6
+      clip_grad: 1
     trainable: True
     generation_batch_size: 8
     gpu_per_process: 1
@@ -91,8 +95,6 @@ models:
     save: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/output/grpo_test
     save_interval: 10000
     sequence_parallel: True
-    lr: 2e-6
-    min_lr: 2e-6
     train_iters: 10000
     # model arch
     num_layers: 36

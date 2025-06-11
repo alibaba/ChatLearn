@@ -33,7 +33,7 @@ models:
     num_gpu: 2
     trainable: False
     # args_dict:
-    tokenizer: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen3-4B
+    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen3-4B
     num_inference_per_prompt: 32
     seq_length: 2048
     max_seq_len_to_capture: 2348
@@ -61,22 +61,22 @@ models:
     trainable: False
     # args_dict:
     # pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
-    pretrain_or_model: ${models.policy.tokenizer}
+    load: ${models.policy.load}
   policy_trainer: 
     free_gpu_memory:
       offload_weights: True
       offload_optimizer_states: True
       free_grad_buffers: True
+    optimizer:
+      lr: 2e-6
+      clip_grad: 1
     trainable: True
     fsdp_size: 2
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 2
-    # args_dict:
-    # pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
-    pretrain_or_model: ${models.policy.tokenizer}
-    grad_clip: 1
+    load: ${models.policy.load}
     gradient_checkpointing: True
     pos_clip_ratio: 0.2
-    negative_clip_ratio: 0.2
+    neg_clip_ratio: 0.2
     save_hf: True
