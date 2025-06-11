@@ -2,6 +2,7 @@ import torch
 import numpy as np
 import random
 
+
 def calculate_grpo_loss(
     log_probs: torch.Tensor,
     old_log_probs: torch.Tensor,
@@ -14,11 +15,13 @@ def calculate_grpo_loss(
     logprobs_diff = log_probs - old_log_probs
     # clip logprobs_diff before exp to avoid overflow
     logprobs_diff = torch.clamp(logprobs_diff, max=diff_clip_ratio)
-    
+
     ratio = torch.exp(logprobs_diff)
     pg_loss = -advantages.unsqueeze(-1) * ratio
     # Upper and lower bound clip
-    pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(ratio, 1 - negative_clip_ratio, 1 + pos_clip_ratio)
+    pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(
+        ratio, 1 - negative_clip_ratio, 1 + pos_clip_ratio
+    )
     pg_loss_clip = torch.max(pg_loss, pg_loss_2)
     pg_loss_upperbound = torch.ones_like(pg_loss) * final_clip_ratio
     # final clip on loss

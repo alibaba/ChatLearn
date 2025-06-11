@@ -24,6 +24,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.packed_seq_params import PackedSeqParams
 
+
 class PolicyModel(GPTModel):
     """PolicyModel"""
 
@@ -39,8 +40,8 @@ class PolicyModel(GPTModel):
         parallel_output: bool = True,
         share_embeddings_and_output_weights: bool = False,
         position_embedding_type: Literal[
-            'learned_absolute', 'rope', 'mrope', 'none'
-        ] = 'learned_absolute',
+            "learned_absolute", "rope", "mrope", "none"
+        ] = "learned_absolute",
         rotary_percent: float = 1.0,
         rotary_base: int = 10000,
         rope_scaling: bool = False,
@@ -50,43 +51,43 @@ class PolicyModel(GPTModel):
         mtp_block_spec: Optional[ModuleSpec] = None,
     ) -> None:
         super().__init__(
-        config=config,
-        transformer_layer_spec=transformer_layer_spec,
-        vocab_size=vocab_size,
-        max_sequence_length=max_sequence_length,
-        pre_process=pre_process,
-        post_process=post_process,
-        fp16_lm_cross_entropy=fp16_lm_cross_entropy,
-        parallel_output=parallel_output,
-        share_embeddings_and_output_weights=share_embeddings_and_output_weights,
-        position_embedding_type=position_embedding_type,
-        rotary_percent=rotary_percent,
-        rotary_base=rotary_base,
-        rope_scaling=rope_scaling,
-        rope_scaling_factor=rope_scaling_factor,
-        scatter_embedding_sequence_parallel=scatter_embedding_sequence_parallel,
-        seq_len_interpolation_factor=seq_len_interpolation_factor,
-        mtp_block_spec=mtp_block_spec
-    )
+            config=config,
+            transformer_layer_spec=transformer_layer_spec,
+            vocab_size=vocab_size,
+            max_sequence_length=max_sequence_length,
+            pre_process=pre_process,
+            post_process=post_process,
+            fp16_lm_cross_entropy=fp16_lm_cross_entropy,
+            parallel_output=parallel_output,
+            share_embeddings_and_output_weights=share_embeddings_and_output_weights,
+            position_embedding_type=position_embedding_type,
+            rotary_percent=rotary_percent,
+            rotary_base=rotary_base,
+            rope_scaling=rope_scaling,
+            rope_scaling_factor=rope_scaling_factor,
+            scatter_embedding_sequence_parallel=scatter_embedding_sequence_parallel,
+            seq_len_interpolation_factor=seq_len_interpolation_factor,
+            mtp_block_spec=mtp_block_spec,
+        )
 
         self.args = get_args()
 
     def forward(
-                self,
-                input_ids: Tensor,
-                position_ids: Tensor,
-                attention_mask: Tensor,
-                decoder_input: Tensor = None,
-                labels: Tensor = None,
-                inference_context: BaseInferenceContext = None,
-                packed_seq_params: PackedSeqParams = None,
-                extra_block_kwargs: dict = None,
-                runtime_gather_output: Optional[bool] = None,
-                *,
-                inference_params: Optional[BaseInferenceContext] = None,
-                loss_mask: Optional[Tensor] = None,
-                training_inputs: dict = None,
-        ):
+        self,
+        input_ids: Tensor,
+        position_ids: Tensor,
+        attention_mask: Tensor,
+        decoder_input: Tensor = None,
+        labels: Tensor = None,
+        inference_context: BaseInferenceContext = None,
+        packed_seq_params: PackedSeqParams = None,
+        extra_block_kwargs: dict = None,
+        runtime_gather_output: Optional[bool] = None,
+        *,
+        inference_params: Optional[BaseInferenceContext] = None,
+        loss_mask: Optional[Tensor] = None,
+        training_inputs: dict = None,
+    ):
 
         # untransposed hidden_states or transposed logits with shape [b, s, h]
         hidden_states_or_logits = super().forward(
@@ -100,36 +101,48 @@ class PolicyModel(GPTModel):
             packed_seq_params=packed_seq_params,
             extra_block_kwargs=extra_block_kwargs,
             runtime_gather_output=runtime_gather_output,
-            inference_params=inference_params
-        ) 
+            inference_params=inference_params,
+        )
 
         if not self.post_process:
             return hidden_states_or_logits
 
         if training_inputs is None:
-            return self.compute_language_model_loss(
-                labels, 
-                hidden_states_or_logits.transpose(0, 1).contiguous() # [b s h] => [s b h]
-            ) if labels is not None else hidden_states_or_logits
+            return (
+                self.compute_language_model_loss(
+                    labels,
+                    hidden_states_or_logits.transpose(
+                        0, 1
+                    ).contiguous(),  # [b s h] => [s b h]
+                )
+                if labels is not None
+                else hidden_states_or_logits
+            )
 
         # [b s h] => [s b h]
         all_token_logits = hidden_states_or_logits.transpose(0, 1).contiguous()
-        old_logprobs = training_inputs['old_logprobs']
-        ref_logprobs = training_inputs['ref_logprobs']
-        advantages = training_inputs['advantages']
+        old_logprobs = training_inputs["old_logprobs"]
+        ref_logprobs = training_inputs["ref_logprobs"]
+        advantages = training_inputs["advantages"]
 
-        forward_logprob = self.compute_language_model_loss(labels, all_token_logits) * -1
+        forward_logprob = (
+            self.compute_language_model_loss(labels, all_token_logits) * -1
+        )
 
         logprobs_diff = forward_logprob - old_logprobs
         logprobs_diff = torch.clamp(logprobs_diff, max=self.args.diff_clip_ratio)
         ratio = torch.exp(logprobs_diff)
         pg_loss = -advantages.unsqueeze(-1) * ratio
-        pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(ratio, 1.0 - self.args.neg_clip_ratio, 1.0 + self.args.pos_clip_ratio)
+        pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(
+            ratio, 1.0 - self.args.neg_clip_ratio, 1.0 + self.args.pos_clip_ratio
+        )
         pg_loss_clip = torch.max(pg_loss, pg_loss_2)
         pg_loss_upperbound = torch.ones_like(pg_loss) * self.args.final_clip_ratio
         pg_loss = torch.min(pg_loss_clip, pg_loss_upperbound)
         assert not torch.isnan(pg_loss).any(), "pg loss is nan"
-        pg_loss = torch.masked_select(pg_loss, training_inputs["all_token_loss_mask"].bool())
+        pg_loss = torch.masked_select(
+            pg_loss, training_inputs["all_token_loss_mask"].bool()
+        )
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
@@ -137,8 +150,12 @@ class PolicyModel(GPTModel):
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()
         kl_loss = torch.clamp(kld, min=-10, max=10)
-        kl_loss = torch.masked_select(kl_loss, training_inputs["all_token_loss_mask"].bool())
+        kl_loss = torch.masked_select(
+            kl_loss, training_inputs["all_token_loss_mask"].bool()
+        )
 
-        entropy_loss = torch.masked_select(-forward_logprob, training_inputs["all_token_loss_mask"].bool())
+        entropy_loss = torch.masked_select(
+            -forward_logprob, training_inputs["all_token_loss_mask"].bool()
+        )
 
         return pg_loss.contiguous(), kl_loss.contiguous(), entropy_loss.contiguous()

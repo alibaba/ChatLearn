@@ -28,7 +28,7 @@ from configs.common import (
     RuntimeConfig,
     RefPolicyConfig,
     PolicyTrainerConfig,
-    BaseModelConfig
+    BaseModelConfig,
 )
 from algorithm.base_algo import BaseAlgorithm
 from configs.megatron_config import MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
@@ -44,8 +44,11 @@ from chatlearn.utils.utils import listdict_to_dictlist
 from chatlearn import Engine
 from chatlearn.models.base_module import BaseModule
 from chatlearn.data.data import read_data_path_list
+
 try:
-    from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import MegatronPolicyTrainer
+    from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import (
+        MegatronPolicyTrainer,
+    )
 except:
     print("please set megatron path for running megatron backend")
 
@@ -53,37 +56,38 @@ except:
 @dataclass
 class GrpoModelConfig(BaseConfig):
     policy: PolicyConfig = field(
-        default_factory=PolicyConfig,
-        metadata={"help": "Policy config."}
+        default_factory=PolicyConfig, metadata={"help": "Policy config."}
     )
     reward: BaseModelConfig = field(
-        default_factory=BaseModelConfig,
-        metadata={"help": "Reward config."}
+        default_factory=BaseModelConfig, metadata={"help": "Reward config."}
     )
     ref_policy: Any = field(
         default=None,
-        metadata={"help": "Reference policy config. One of RefPolicyConfig or MegatronRefPolicyConfig."}
+        metadata={
+            "help": "Reference policy config. One of RefPolicyConfig or MegatronRefPolicyConfig."
+        },
     )
     policy_trainer: Any = field(
         default=None,
-        metadata={"help": "Policy trainer config. One of PolicyTrainerConfig or MegatronPolicyTrainerConfig."}
+        metadata={
+            "help": "Policy trainer config. One of PolicyTrainerConfig or MegatronPolicyTrainerConfig."
+        },
     )
 
 
 @dataclass
 class GrpoConfig(BaseConfig):
     """GrpoConfig"""
+
     env_args: RuntimeEnvConfig = field(
         default_factory=RuntimeEnvConfig,
-        metadata={"help": "Runtime environment config."}
+        metadata={"help": "Runtime environment config."},
     )
     runtime_args: RuntimeConfig = field(
-        default_factory=RuntimeConfig,
-        metadata={"help": "Runtime config."}
+        default_factory=RuntimeConfig, metadata={"help": "Runtime config."}
     )
     models: GrpoModelConfig = field(
-        default_factory=GrpoModelConfig,
-        metadata={"help": "Grpo model config."}
+        default_factory=GrpoModelConfig, metadata={"help": "Grpo model config."}
     )
 
     def __post_init__(self):
@@ -98,16 +102,24 @@ class GrpoConfig(BaseConfig):
                         converted[k] = v
                 return cls(**converted)
             return data
-        
+
         train_backend = self.runtime_args.train_backend
         if train_backend == "fsdp":
             refpolicy_cls, policytrainer_cls = RefPolicyConfig, PolicyTrainerConfig
         elif train_backend == "megatron":
-            refpolicy_cls, policytrainer_cls = MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
+            refpolicy_cls, policytrainer_cls = (
+                MegatronRefPolicyConfig,
+                MegatronPolicyTrainerConfig,
+            )
         else:
             raise Exception(f"not support train backend: {train_backend}")
-        self.models.ref_policy = convert_to_dataclass(refpolicy_cls, self.models.ref_policy)
-        self.models.policy_trainer = convert_to_dataclass(policytrainer_cls, self.models.policy_trainer)
+        self.models.ref_policy = convert_to_dataclass(
+            refpolicy_cls, self.models.ref_policy
+        )
+        self.models.policy_trainer = convert_to_dataclass(
+            policytrainer_cls, self.models.policy_trainer
+        )
+
 
 class GRPOEvaluator(Evaluator):
 
@@ -122,19 +134,21 @@ class GRPOEvaluator(Evaluator):
         reward_score = sum(rule_rewards_flatten) / len(rule_rewards_flatten)
         eval_reward_stats = {"eval_reward_score": reward_score}
 
-
         self._metric_list.append(eval_reward_stats)
-        
+
         return results
 
 
 class GRPOEngine(Engine):
     """GRPO Engine."""
-    def __init__(self,
-                 policy: VLLMPolicyInference,
-                 reward: RuleReward,
-                 ref_policy: PolicyTrainer,
-                 policy_trainer: PolicyTrainer):
+
+    def __init__(
+        self,
+        policy: VLLMPolicyInference,
+        reward: RuleReward,
+        ref_policy: PolicyTrainer,
+        policy_trainer: PolicyTrainer,
+    ):
         def env_compute_flow(batch):
             policy_out = policy.forward_step(batch)
             old_logprobs_out = policy_trainer.forward_step(policy_out)
@@ -153,8 +167,11 @@ class GRPOEngine(Engine):
         env = Environment(env_compute_flow)
         trainer = Trainer(trainer_compute_flow)
         evaluator = GRPOEvaluator(evaluator_flow)
-        super().__init__(environment=env, trainer=trainer, evaluator=evaluator, name='grpo')
+        super().__init__(
+            environment=env, trainer=trainer, evaluator=evaluator, name="grpo"
+        )
         self.set_parameter_sync(policy_trainer, policy)
+
 
 class GrpoAlgorithm(BaseAlgorithm):
     """GrpoAlgorithm"""
@@ -176,10 +193,14 @@ class GrpoAlgorithm(BaseAlgorithm):
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 
         # get train and evaluation data
-        train_data_path_list = [item.strip() for item in self.cfg.runtime_args.data_path.split(",")]
+        train_data_path_list = [
+            item.strip() for item in self.cfg.runtime_args.data_path.split(",")
+        ]
         train_data = read_data_path_list(train_data_path_list)
 
-        eval_data_path_list = [item.strip() for item in self.cfg.runtime_args.eval_data_path.split(',')]
+        eval_data_path_list = [
+            item.strip() for item in self.cfg.runtime_args.eval_data_path.split(",")
+        ]
         eval_data = read_data_path_list(eval_data_path_list)
 
         # put data in engine._all_datasets
@@ -187,4 +208,3 @@ class GrpoAlgorithm(BaseAlgorithm):
         engine.evaluator.set_dataset(eval_data)
         engine.set_replay_sample_manager(compute_grpo_adv)
         engine.learn()
-        
