@@ -1,15 +1,10 @@
 """prompt dataset"""
 
-import copy
 from collections import defaultdict
 from typing import List, Dict
 
-import torch
 from torch.utils.data import Dataset
-import torch.nn.functional as F
 from transformers import AutoTokenizer
-
-from chatlearn.utils.utils import multi_thread_data_processing
 
 
 class VLLMPromptPipeline(Dataset):
@@ -37,7 +32,14 @@ class VLLMPromptPipeline(Dataset):
     {"input_ids": prompt_ids, "prompt": prompt}
     """
 
-    def __init__(self, data_list: List[Dict], seq_length: int, tokenizer: AutoTokenizer = None, num_inference_per_prompt: int = 1, enable_thinking = False):# pylint: disable=super-init-not-called
+    def __init__(
+        self,
+        data_list: List[Dict],
+        seq_length: int,
+        tokenizer: AutoTokenizer = None,
+        num_inference_per_prompt: int = 1,
+        enable_thinking=False,
+    ):  # pylint: disable=super-init-not-called
         super().__init__()
 
         self.tokenizer = tokenizer
@@ -46,14 +48,24 @@ class VLLMPromptPipeline(Dataset):
         for data_item in data_list:
             prompt = data_item["prompt"]
             data_source = data_item.get("data_source", "")
-            ground_truth = data_item['reward_model']['ground_truth']
+            ground_truth = data_item["reward_model"]["ground_truth"]
             if isinstance(prompt, list):
-                prompt = self.tokenizer.apply_chat_template(prompt, tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
+                prompt = self.tokenizer.apply_chat_template(
+                    prompt,
+                    tokenize=False,
+                    add_generation_prompt=True,
+                    enable_thinking=enable_thinking,
+                )
             input_ids = self.tokenizer.encode(prompt)
-            processed_data = {"input_ids": input_ids, "prompt": prompt, "data_source": data_source, "ground_truth": ground_truth}
+            processed_data = {
+                "input_ids": input_ids,
+                "prompt": prompt,
+                "data_source": data_source,
+                "ground_truth": ground_truth,
+            }
             if seq_length > len(input_ids):
-                self.data.extend([processed_data]*num_inference_per_prompt)
-        
+                self.data.extend([processed_data] * num_inference_per_prompt)
+
     def __getitem__(self, ix: int):
         return self.data[ix]
 

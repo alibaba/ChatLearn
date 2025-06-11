@@ -14,10 +14,8 @@
 # ==============================================================================
 """grpo algorithm"""
 
-import json
-import random
 from dataclasses import dataclass, field, fields
-from typing import Any, Dict, List, Optional, Union
+from typing import Any
 
 import torch
 from algorithm.base_algo import BaseAlgorithm
@@ -34,7 +32,6 @@ from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
 from chatlearn.data.data import read_data_path_list
-from chatlearn.models.base_module import BaseModule
 from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator

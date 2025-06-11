@@ -1,6 +1,4 @@
-import random
-
-import numpy as np
+"""pg loss"""
 import torch
 
 
