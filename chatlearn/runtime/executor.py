@@ -344,7 +344,6 @@ class Executor:
             func_name: str
             to_empty_cache: None or boolean
         """
-        model = model_node.model
         # output is a list of tuple, each tuple is (remote_refs, mb)
         output = self.generate_step_one_model_internal(model_node, in_queue, step_num, replica, func_name, to_empty_cache,
                                                        is_eval, to_onload, to_offload, micro_batch_index)
