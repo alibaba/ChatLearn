@@ -58,10 +58,7 @@ def convert_to_dataclass(cls, data):
                 converted[k] = v
         return cls(**converted)
     return data
-trainbackend2config_map = {
-    "fsdp": (RefPolicyConfig, PolicyTrainerConfig),
-    "megatron": (MegatronRefPolicyConfig, MegatronPolicyTrainerConfig)
-}
+
 @dataclass
 class GrpoModelConfig(BaseConfig):
     policy: PolicyConfig = field(
