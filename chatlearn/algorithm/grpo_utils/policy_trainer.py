@@ -1,15 +1,13 @@
+# pylint: skip-file
 import math
-from typing import Optional, Tuple
 
 import torch
 import torch.distributed as dist
-import torch.nn as nn
 import torch.nn.functional as F
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
 from chatlearn.utils.communication_op import gather, get_sp_parallel_group
-
 from .loss_gallery import calculate_grpo_loss
 
 REF_TAG = "ref_logprobs"
@@ -31,7 +29,7 @@ def generate_loss_mask_position_ids(
 ):
     # Setup attention mask by prompt token length and response token length
     loss_mask = torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
-    for i in range(len(prompt_token_length)):
+    for i, _ in enumerate(prompt_token_length):
         loss_mask[
             i,
             prompt_token_length[i] : prompt_token_length[i] + response_token_length[i],
@@ -44,6 +42,7 @@ def generate_loss_mask_position_ids(
 
 
 class PolicyTrainer(FSDPModule):
+    """policy trainer"""
 
     def setup(self):
         super().setup()
@@ -240,7 +239,8 @@ class PolicyTrainer(FSDPModule):
             )
 
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-            # Reference: https://github.com/pytorch/pytorch/blob/c45515c2eda19b1a1ff5762f1571c6fe63773c8a/torch/distributed/fsdp/_runtime_utils.py#L848
+            # Reference: https://github.com/pytorch/pytorch/blob/ \
+            # c45515c2eda19b1a1ff5762f1571c6fe63773c8a/torch/distributed/fsdp/_runtime_utils.py#L848
             # Since grad will be divided by fsdp world size in backward hook
             # We need to multiple pg_loss_mean by sp_size to avoid mean calculate of grad within dp rank
             pg_loss_mean = torch.mean(pg_loss) / micro_bs_num * self.sp_size

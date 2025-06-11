@@ -1,4 +1,8 @@
-from .common import *
+from dataclasses import dataclass, field
+
+from omegaconf import MISSING
+
+from .common import BaseConfig, BaseModelConfig
 
 
 @dataclass

@@ -19,8 +19,7 @@ from typing import Any, Iterator, List, Optional, Union
 
 from omegaconf import MISSING
 
-from chatlearn.utils.constant import (PARAM_SYNC_COMM_TYPE, RAY_PG_STRATEGY,
-                                      ROUTED_EXPERT_REGROUPING_COMM_TYPE)
+from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE, RAY_PG_STRATEGY
 
 
 class BaseConfig:

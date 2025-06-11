@@ -86,9 +86,7 @@ class VLLMPolicyInference(VLLMModule):
         max_tokens_length = self.module_args.get("seq_length")
         all_tokens = []
         str_outputs = []
-        # str_prompts = []
         prompt_token_ids: list = []
-        logprobs = []
         prompt_token_length = []
         response_token_length = []
         data_sources = []
