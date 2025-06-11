@@ -1,4 +1,4 @@
-# noqa: C0114
+# pylint: disable=missing-module-docstring
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING
