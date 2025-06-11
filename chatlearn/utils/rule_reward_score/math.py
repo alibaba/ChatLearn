@@ -1,3 +1,4 @@
+"""used for compute math rule score"""
 def compute_score(solution_str, ground_truth) -> float:
     retval = 0.0
     try:
@@ -176,6 +177,7 @@ def strip_string(string):
 
     # remove percentage
     string = string.replace("\\%", "")
+    # pylint: disable=anomalous-backslash-in-string
     string = string.replace("\%", "")  # noqa: W605
 
     # " 0." equivalent to " ." and "{0." equivalent to "{." Alternatively, add "0" if "." is the start of the string
