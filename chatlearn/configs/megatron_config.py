@@ -1,4 +1,5 @@
 # pylint: disable=missing-module-docstring
+# pylint: disable=missing-class-docstring
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING
