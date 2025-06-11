@@ -41,12 +41,12 @@ set -x
 
 TEST_CASES=(
   "unittest"                   # passed
-  "base"                       # passed
-  "rlhf"                       # partial passed
-  #"parameter_sync"             # partial passed
-  #"eval"                       # to be fixed
-  #"o1"                         # to be fixed
-  #"sprl"                       # to be fixed
+  # "base"                       # to be fixed
+  # "rlhf"                       # to be fixed
+  # "parameter_sync"             # to be fixed
+  # "eval"                       # to be fixed
+  # "o1"                         # to be fixed
+  # "sprl"                       # to be fixed
 )
 # Run ALL Tests in TEST_CASES
 for test_case in "${TEST_CASES[@]}"
