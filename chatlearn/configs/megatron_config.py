@@ -1,3 +1,4 @@
+# noqa: C0114
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING

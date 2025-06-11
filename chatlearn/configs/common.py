@@ -1,3 +1,4 @@
+# noqa: C0114
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +16,7 @@
 """common configs"""
 
 from dataclasses import asdict, dataclass, field
-from typing import Any, Iterator, List, Optional, Union
+from typing import Any, Iterator, List, Optional
 
 from omegaconf import MISSING
 
