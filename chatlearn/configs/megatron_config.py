@@ -142,8 +142,12 @@ class MegatronTrainConfig(BaseConfig):
 
 
 @dataclass
-class MegatronRefPolicyConfig(BaseModelConfig, MegatronModelArchitectureConfig):
+class MegatronRefPolicyConfig(BaseModelConfig):
     """RefPolicyConfig"""
+    megatron_model_cfg: MegatronModelArchitectureConfig = field(
+        default_factory=MegatronModelArchitectureConfig, 
+        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
+    )
 
     load: str = field(default=MISSING, metadata={"help": "path to reference model"})
     seed: int = field(default=1234, metadata={"help": "seed"})
@@ -151,9 +155,13 @@ class MegatronRefPolicyConfig(BaseModelConfig, MegatronModelArchitectureConfig):
 
 @dataclass
 class MegatronPolicyTrainerConfig(
-    BaseModelConfig, MegatronModelArchitectureConfig, MegatronTrainConfig
+    BaseModelConfig, MegatronTrainConfig
 ):
     """PolicyTrainerConfig"""
+    megatron_model_cfg: MegatronModelArchitectureConfig = field(
+        default_factory=MegatronModelArchitectureConfig, 
+        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
+    )
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     diff_clip_ratio: float = field(default=10)

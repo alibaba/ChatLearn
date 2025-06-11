@@ -22,7 +22,7 @@ runtime_args:
   eval_episode_interval: 5
   enable_eval_before_training: False
   log_args_dict:
-    log_dir: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/output/grpo_test
+    log_dir: ${runtime_args.output_dir}
 
 models:
   policy:
@@ -32,7 +32,6 @@ models:
     gpu_per_process: 1
     num_gpu: 2
     trainable: False
-    # args_dict:
     load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen3-4B
     num_inference_per_prompt: 32
     seq_length: 2048
@@ -59,8 +58,6 @@ models:
     num_gpu: 2
     fsdp_size: 2
     trainable: False
-    # args_dict:
-    # pretrain_or_model: /mnt/workspace/yanhaiqiang.yhq/parameter_refactor/ChatLearn/Qwen3-8B
     load: ${models.policy.load}
   policy_trainer: 
     free_gpu_memory:

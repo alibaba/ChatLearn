@@ -25,7 +25,7 @@ def get_tokenizer():
     return _GLOBAL_TOKENIZER
 
 def build_tokenizer(args):
-    patch_tokenizer_type = args.models["policy_trainer"]["patch_tokenizer_type"]
+    patch_tokenizer_type = args.models["policy_trainer"].megatron_model_cfg.patch_tokenizer_type
 
     if patch_tokenizer_type == "DeepSeekV2Tokenizer":
         from megatron.core.datasets.megatron_tokenizer import MegatronTokenizer
@@ -113,7 +113,7 @@ def build_tokenizer(args):
 
         tokenizer_path = args.models["policy"].load
         tokenizer = _DeepSeekV2Tokenizer(
-            tokenizer_path, extra_vocab_size=args.models["policy_trainer"]["extra_vocab_size"]
+            tokenizer_path, extra_vocab_size=args.models["policy_trainer"].megatron_model_cfg.extra_vocab_size
         )
 
     elif patch_tokenizer_type == "Qwen2Tokenizer":
@@ -205,7 +205,7 @@ def build_tokenizer(args):
         tokenizer_path = args.models["policy"].load
         tokenizer = _Qwen2Tokenizer(
             tokenizer_path,
-            extra_vocab_size=args.models["policy_trainer"]["extra_vocab_size"],
+            extra_vocab_size=args.models["policy_trainer"].megatron_model_cfg.extra_vocab_size,
         )
 
     else:

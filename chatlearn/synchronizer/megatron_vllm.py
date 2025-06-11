@@ -34,6 +34,7 @@ class MegatronVllmSync(BaseSync):
     def __init__(self, src_model, dst_model):
         super().__init__(src_model, dst_model)
         self.src_module_args = src_model.module_args
+        self.src_megatron_model_cfg = src_model.module_args.megatron_model_cfg
         self.dst_module_args = dst_model.module_args
         self.is_parameter_changed = True
 
@@ -108,13 +109,13 @@ class MegatronVllmSync(BaseSync):
             if op_name in to_fix_modules_list:
                 checkpoint_version = 3.0
                 tp_size = self.src_module_args["tensor_model_parallel_size"]
-                heads = self.src_module_args["num_attention_heads"] // tp_size
-                hidden_size_per_head =  self.src_module_args["hidden_size"] // self.src_module_args["num_attention_heads"]
+                heads = self.src_megatron_model_cfg["num_attention_heads"] // tp_size
+                hidden_size_per_head =  self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
                 if self._to_fix_qkv_ordering_func is split_attn_state:
-                    _num_query_groups = self.src_module_args["num_query_groups"]//tp_size  \
-                        if self.src_module_args["group_query_attention"] else heads
+                    _num_query_groups = self.src_megatron_model_cfg["num_query_groups"]//tp_size  \
+                        if self.src_megatron_model_cfg["group_query_attention"] else heads
                     params_to_sync = self._to_fix_qkv_ordering_func(
-                        params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.src_module_args["hidden_size"])
+                        params_to_sync, heads, _num_query_groups, hidden_size_per_head, self.src_megatron_model_cfg["hidden_size"])
                     params_to_sync_list[i] = (name, params_to_sync)
                 else:
                     input_shape = params_to_sync.size()
@@ -189,8 +190,8 @@ class MegatronVllmSync(BaseSync):
                 "self_attention.linear_qkv" in name) and 'norm' not in name:
             src_tp_size = self.src_module_args["tensor_model_parallel_size"]
             dst_tp_size = self.dst_module_args["tensor_model_parallel_size"]
-            heads = self.src_module_args["num_attention_heads"] // src_tp_size
-            hidden_size_per_head = self.src_module_args["hidden_size"] // self.src_module_args["num_attention_heads"]
+            heads = self.src_megatron_model_cfg["num_attention_heads"] // src_tp_size
+            hidden_size_per_head = self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
 
             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
             division = reduce(operator.mul, param_shape, 1)
@@ -207,8 +208,8 @@ class MegatronVllmSync(BaseSync):
                     param_data = torch.concat(param_data_list, dim=0).view(param_data_shape)
                     del param_data_list
             else:
-                if self.src_module_args["group_query_attention"]:
-                    num_query_groups = self.src_module_args["num_query_groups"]
+                if self.src_megatron_model_cfg["group_query_attention"]:
+                    num_query_groups = self.src_megatron_model_cfg["num_query_groups"]
                     assert num_query_groups == self.dst_module_args["num_query_groups"], (
                         f"num_query_groups of src model ({num_query_groups}) must be equal to num_query_groups of "
                         f"dst model ({self.dst_moduel_args['num_query_groups']}). Please double-check your config."
@@ -227,7 +228,7 @@ class MegatronVllmSync(BaseSync):
                         param_data = param_data.view((heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head))
                     else:
                         param_data = param_data.view(
-                            (heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head, self.src_module_args["hidden_size"]))
+                            (heads + 2 * src_num_query_groups_per_replica, hidden_size_per_head, self.src_megatron_model_cfg["hidden_size"]))
                     param_data_list = []
                     head_offset = heads // tp_division
                     for idx in range(tp_division):
@@ -261,7 +262,7 @@ class MegatronVllmSync(BaseSync):
                         if len(param_data_shape) == 1:
                             qkv_proj = qkv_proj.reshape(-1).contiguous()
                         else:
-                            qkv_proj = qkv_proj.reshape(-1, self.src_module_args["hidden_size"]).contiguous()
+                            qkv_proj = qkv_proj.reshape(-1, self.src_megatron_model_cfg["hidden_size"]).contiguous()
 
                         param_data_list.append(qkv_proj)
                     param_data = torch.concat(param_data_list, dim=0)

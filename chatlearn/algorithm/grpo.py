@@ -89,6 +89,7 @@ class GrpoConfig(BaseConfig):
     def __post_init__(self):
         def convert_to_dataclass(cls, data):
             if isinstance(data, dict):
+                print(data)
                 field_types = {f.name: f.type for f in fields(cls)}
                 converted = {}
                 for k, v in data.items():
