@@ -63,8 +63,7 @@ class BaseModule:
             global_args = args
             set_global_variables(args)
         self.global_args = global_args
-        args = getattr(global_args.models, name)
-        # args = global_args.models[name]
+        args = global_args.models[name]
         self.total_gpu = args.num_gpu
         self.total_cpu = args.num_cpu
         self.gpu_per_process = args.gpu_per_process
@@ -72,7 +71,6 @@ class BaseModule:
         self._runtime_args = self.global_args.runtime_args
         self._module_args = args
         self.replica_id = replica_id
-        # self.config_dir = args.config_dir
         self._is_colocate = False
 
         if self.total_gpu > 0:

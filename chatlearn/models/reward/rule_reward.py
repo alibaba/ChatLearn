@@ -1,4 +1,3 @@
-
 # Copyright 2024 Alibaba-inc. and/or its affiliates
 # Copyright 2022 EleutherAI and the HuggingFace Inc. team. All rights reserved.
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,21 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
-
-import argparse
-import copy
-import os
-from collections import defaultdict
+"""rule reward"""
 from typing import Dict
 
 import torch
-import numpy as np
 
 from chatlearn import BaseModule
 from chatlearn.utils.rule_reward_score import math
 
 
 class RuleReward(BaseModule):
+    """rule reward"""
 
     def setup(self):
         self.stats = {}

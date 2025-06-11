@@ -14,15 +14,13 @@
 # ==============================================================================
 """common configs"""
 
-from dataclasses import dataclass, field, asdict
-from typing import List, Optional, Union, Any, Iterator
+from dataclasses import asdict, dataclass, field
+from typing import Any, Iterator, List, Optional, Union
+
 from omegaconf import MISSING
 
-from chatlearn.utils.constant import (
-    RAY_PG_STRATEGY,
-    PARAM_SYNC_COMM_TYPE,
-    ROUTED_EXPERT_REGROUPING_COMM_TYPE,
-)
+from chatlearn.utils.constant import (PARAM_SYNC_COMM_TYPE, RAY_PG_STRATEGY,
+                                      ROUTED_EXPERT_REGROUPING_COMM_TYPE)
 
 
 class BaseConfig:

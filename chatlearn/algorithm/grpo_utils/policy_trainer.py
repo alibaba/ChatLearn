@@ -1,17 +1,16 @@
-from typing import Tuple, Optional
 import math
+from typing import Optional, Tuple
 
 import torch
+import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.distributed as dist
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
-from chatlearn.utils.communication_op import get_sp_parallel_group, gather
+from chatlearn.utils.communication_op import gather, get_sp_parallel_group
 
 from .loss_gallery import calculate_grpo_loss
-
 
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"

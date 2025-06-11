@@ -13,13 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 """vllm policy inference"""
-from typing import List, Dict
+from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
 
 from chatlearn.data.prompt_dataset import VLLMPromptPipeline
-
 # pylint: disable=ungrouped-imports
 from chatlearn.models.vllm_module import VLLMModule
 

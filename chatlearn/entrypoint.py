@@ -19,11 +19,12 @@ from importlib import import_module
 import sys
 import traceback
 from typing import Dict, Tuple, Type, Any
+from omegaconf import OmegaConf
 import hydra
 from hydra.core.global_hydra import GlobalHydra
 from hydra.core.config_store import ConfigStore
+
 from chatlearn.algorithm.base_algo import BaseAlgorithm
-from omegaconf import OmegaConf
 
 
 # e.g. python chatlearn/chatlearn.py grpo --config-file grpo.yaml runtime.data_path=/tmp/data runtime.eval_data_path=/tmp/eval_data
@@ -32,8 +33,6 @@ from omegaconf import OmegaConf
 #  "engine_name": ("module_path", "algo_class_name", "config_class")
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
     "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
-    # "grpo_megatron": ("algorithm.grpo_megatron", "GrpoAlgorithmMegatron", "GrpoConfigMegatron"),
-    "ppo": ("algorithm.ppo", "PpoAlgorithm", "PpoConfig"),
 }
 
 
@@ -126,7 +125,7 @@ class ChatlearnLauncher:
 
         try:
             self._run_algorithm(algo_args)
-        except Exception as e:
+        except Exception:
             traceback.print_exc()
             sys.exit(1)
 

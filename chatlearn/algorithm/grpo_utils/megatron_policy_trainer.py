@@ -13,44 +13,35 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Union
-import torch
+import inspect
 import os
 from contextlib import nullcontext
-import inspect
+from typing import Union
 
-from megatron.core.transformer.spec_utils import import_module
-from megatron.core.enums import ModelType
-from megatron.training.training import setup_model_and_optimizer
-from megatron.core.num_microbatches_calculator import get_num_microbatches
-from megatron.training import get_timers
-from megatron.training.checkpointing import load_checkpoint
-from megatron.training import get_model
-from megatron.training import get_args, print_rank_0
+import torch
 from megatron.core import mpu
-from megatron.training.utils import calc_params_l2_norm
-from megatron.core.pipeline_parallel import get_forward_backward_func
-from megatron.training.utils import logical_and_across_model_parallel_group
-from megatron.core.utils import get_model_config
 from megatron.core.distributed import finalize_model_grads
-from megatron.training.arguments import core_transformer_config_from_args
-from megatron.training.yaml_arguments import core_transformer_config_from_yaml
+from megatron.core.enums import ModelType
 from megatron.core.models.gpt.gpt_layer_specs import (
-    get_gpt_decoder_block_spec,
-    get_gpt_layer_local_spec,
-    get_gpt_layer_with_transformer_engine_spec,
-    get_gpt_mtp_block_spec,
-)
+    get_gpt_decoder_block_spec, get_gpt_layer_local_spec,
+    get_gpt_layer_with_transformer_engine_spec, get_gpt_mtp_block_spec)
+from megatron.core.num_microbatches_calculator import get_num_microbatches
+from megatron.core.pipeline_parallel import get_forward_backward_func
+from megatron.core.transformer.spec_utils import import_module
+from megatron.core.utils import get_model_config
+from megatron.training import get_args, get_model, get_timers, print_rank_0
+from megatron.training.arguments import core_transformer_config_from_args
+from megatron.training.checkpointing import load_checkpoint
+from megatron.training.training import setup_model_and_optimizer
+from megatron.training.utils import (calc_params_l2_norm,
+                                     logical_and_across_model_parallel_group)
+from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
 import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
-    build_tokenizer,
-    PolicyModel,
-    training_log,
-    forward_step,
-    inference_forward_step,
-)
+    PolicyModel, build_tokenizer, forward_step, inference_forward_step,
+    training_log)
 
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"

@@ -14,31 +14,26 @@
 # ==============================================================================
 """grpo algorithm"""
 import json
-from typing import List
 from collections import defaultdict
 from dataclasses import dataclass, field
+from typing import List
 
 import torch
+from configs.megatron_config import (MegatronPolicyTrainerConfig,
+                                     MegatronRefPolicyConfig)
 
-from chatlearn.configs.common import (
-    BaseConfig,
-    RuntimeEnvConfig,
-    PolicyConfig,
-    RuntimeConfig,
-    BaseModelConfig,
-)
-
-from configs.megatron_config import MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
-from chatlearn.algorithm.base_algo import BaseAlgorithm
 import chatlearn
-from chatlearn import Evaluator
-from chatlearn.utils.utils import listdict_to_dictlist
-from chatlearn import Engine, Environment, Trainer
-from chatlearn.algorithm.grpo_utils.vllm_policy_inference import VLLMPolicyInference
+from chatlearn import Engine, Environment, Evaluator, Trainer
+from chatlearn.algorithm.base_algo import BaseAlgorithm
+from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
+    MegatronPolicyTrainer as PolicyTrainer
+from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
+    VLLMPolicyInference
+from chatlearn.configs.common import (BaseConfig, BaseModelConfig,
+                                      PolicyConfig, RuntimeConfig,
+                                      RuntimeEnvConfig)
 from chatlearn.models.reward.rule_reward import RuleReward
-from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import (
-    MegatronPolicyTrainer as PolicyTrainer,
-)
+from chatlearn.utils.utils import listdict_to_dictlist
 
 
 @dataclass

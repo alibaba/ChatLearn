@@ -17,38 +17,33 @@
 import json
 import random
 from dataclasses import dataclass, field, fields
-from typing import Any, Optional, List, Dict, Union
+from typing import Any, Dict, List, Optional, Union
 
 import torch
-
-from configs.common import (
-    BaseConfig,
-    RuntimeEnvConfig,
-    PolicyConfig,
-    RuntimeConfig,
-    RefPolicyConfig,
-    PolicyTrainerConfig,
-    BaseModelConfig,
-)
 from algorithm.base_algo import BaseAlgorithm
-from configs.megatron_config import MegatronRefPolicyConfig, MegatronPolicyTrainerConfig
+from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
+                            PolicyTrainerConfig, RefPolicyConfig,
+                            RuntimeConfig, RuntimeEnvConfig)
+from configs.megatron_config import (MegatronPolicyTrainerConfig,
+                                     MegatronRefPolicyConfig)
+
 import chatlearn
-from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
-from chatlearn.algorithm.grpo_utils.vllm_policy_inference import VLLMPolicyInference
+from chatlearn import Engine
 from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
+from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
+from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
+    VLLMPolicyInference
+from chatlearn.data.data import read_data_path_list
+from chatlearn.models.base_module import BaseModule
 from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
-from chatlearn.runtime.trainer import Trainer
 from chatlearn.runtime.evaluator import Evaluator
+from chatlearn.runtime.trainer import Trainer
 from chatlearn.utils.utils import listdict_to_dictlist
-from chatlearn import Engine
-from chatlearn.models.base_module import BaseModule
-from chatlearn.data.data import read_data_path_list
 
 try:
-    from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import (
-        MegatronPolicyTrainer,
-    )
+    from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
+        MegatronPolicyTrainer
 except:
     print("please set megatron path for running megatron backend")
 

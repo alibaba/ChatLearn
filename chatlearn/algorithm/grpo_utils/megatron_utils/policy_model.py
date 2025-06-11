@@ -13,16 +13,16 @@
 # limitations under the License.
 # ==============================================================================
 
-import torch
 from typing import Literal, Optional
-from torch import Tensor
 
+import torch
 from megatron.core.inference.contexts import BaseInferenceContext
-from megatron.training import get_args
 from megatron.core.models.gpt import GPTModel
-from megatron.core.transformer.transformer_config import TransformerConfig
-from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.transformer.spec_utils import ModuleSpec
+from megatron.core.transformer.transformer_config import TransformerConfig
+from megatron.training import get_args
+from torch import Tensor
 
 
 class PolicyModel(GPTModel):

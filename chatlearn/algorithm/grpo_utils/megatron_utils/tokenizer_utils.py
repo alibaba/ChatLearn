@@ -15,8 +15,8 @@
 
 import math
 
-from transformers import AutoTokenizer, AutoProcessor
 from megatron.training import get_args
+from transformers import AutoProcessor, AutoTokenizer
 
 
 def get_tokenizer():

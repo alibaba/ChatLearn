@@ -14,17 +14,16 @@
 # ==============================================================================
 
 import copy
-import torch
 from functools import partial
 
-from megatron.training import print_rank_last, is_last_rank, get_args, get_timers
-from megatron.training.training import print_datetime
-from megatron.training.utils import report_memory, unwrap_model
+import torch
 from megatron.core.num_microbatches_calculator import get_num_microbatches
-from megatron.training.utils import (
-    average_losses_across_data_parallel_group,
-    get_ltor_masks_and_position_ids,
-)
+from megatron.training import (get_args, get_timers, is_last_rank,
+                               print_rank_last)
+from megatron.training.training import print_datetime
+from megatron.training.utils import (average_losses_across_data_parallel_group,
+                                     get_ltor_masks_and_position_ids,
+                                     report_memory, unwrap_model)
 
 from chatlearn.utils import to_device
 
