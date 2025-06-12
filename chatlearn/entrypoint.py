@@ -94,7 +94,6 @@ class ChatlearnLauncher:
         cs.store(name=algo_args.algorithm, node=config_cls)
         GlobalHydra.instance().clear()
         with hydra.initialize(config_path=None, version_base=None):
-            # cfg = hydra.compose(config_name=algo_args.algorithm, overrides=algo_args.hydra_args)
             cfg = hydra.compose(config_name=algo_args.algorithm)
 
             if algo_args.config_file is not None:
@@ -107,8 +106,6 @@ class ChatlearnLauncher:
                             OmegaConf.update(external_cfg, key, value.lower().strip() == 'true')
                         else:
                             OmegaConf.update(external_cfg, key, origin_type(value))
-                        # if OmegaConf.select(external_cfg, key) is not None:
-                        #     OmegaConf.update(external_cfg, key, value)
                 cfg = OmegaConf.merge(cfg, external_cfg) # include $
             cfg = OmegaConf.to_object(cfg) # real cfg
             instance = algo_cls(cfg)
