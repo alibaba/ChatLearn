@@ -57,30 +57,42 @@ class GrpoModelConfig(BaseConfig):
     reward: BaseModelConfig = field(
         default_factory=BaseModelConfig, metadata={"help": "Reward config."}
     )
-    ref_policy: Optional[RefPolicyConfig] = field(
+    ref_policy: Any = field(
         default=None,
         metadata={
-            "help": "Reference policy config for fsdp"
+            "help": "Reference policy config. One of RefPolicyConfig or MegatronRefPolicyConfig."
         },
     )
-    policy_trainer: Optional[PolicyTrainerConfig] = field(
+    policy_trainer: Any = field(
         default=None,
         metadata={
-            "help": "Policy trainer config for fsdp"
+            "help": "Policy trainer config. One of PolicyTrainerConfig or MegatronPolicyTrainerConfig."
         },
     )
-    megatron_ref_policy: Optional[MegatronRefPolicyConfig] = field(
-        default=None,
-        metadata={
-            "help": "Reference policy config for megatron"
-        },
-    )
-    megatron_policy_trainer: Optional[MegatronPolicyTrainerConfig] = field(
-        default=None,
-        metadata={
-            "help": "Policy trainer config for megatron"
-        },
-    )
+    # ref_policy: Optional[RefPolicyConfig] = field(
+    #     default=None,
+    #     metadata={
+    #         "help": "Reference policy config for fsdp"
+    #     },
+    # )
+    # policy_trainer: Optional[PolicyTrainerConfig] = field(
+    #     default=None,
+    #     metadata={
+    #         "help": "Policy trainer config for fsdp"
+    #     },
+    # )
+    # megatron_ref_policy: Optional[MegatronRefPolicyConfig] = field(
+    #     default=None,
+    #     metadata={
+    #         "help": "Reference policy config for megatron"
+    #     },
+    # )
+    # megatron_policy_trainer: Optional[MegatronPolicyTrainerConfig] = field(
+    #     default=None,
+    #     metadata={
+    #         "help": "Policy trainer config for megatron"
+    #     },
+    # )
 
 
 @dataclass
@@ -98,35 +110,35 @@ class GrpoConfig(BaseConfig):
         default_factory=GrpoModelConfig, metadata={"help": "Grpo model config."}
     )
 
-    # def __post_init__(self):
-    #     def convert_to_dataclass(cls, data):
-    #         if isinstance(data, dict):
-    #             field_types = {f.name: f.type for f in fields(cls)}
-    #             converted = {}
-    #             for k, v in data.items():
-    #                 if k in field_types and isinstance(v, dict):
-    #                     converted[k] = convert_to_dataclass(field_types[k], v)
-    #                 else:
-    #                     converted[k] = v
-    #             return cls(**converted)
-    #         return data
+    def __post_init__(self):
+        def convert_to_dataclass(cls, data):
+            if isinstance(data, dict):
+                field_types = {f.name: f.type for f in fields(cls)}
+                converted = {}
+                for k, v in data.items():
+                    if k in field_types and isinstance(v, dict):
+                        converted[k] = convert_to_dataclass(field_types[k], v)
+                    else:
+                        converted[k] = v
+                return cls(**converted)
+            return data
 
-    #     train_backend = self.runtime_args.train_backend
-    #     if train_backend == "fsdp":
-    #         refpolicy_cls, policytrainer_cls = RefPolicyConfig, PolicyTrainerConfig
-    #     elif train_backend == "megatron":
-    #         refpolicy_cls, policytrainer_cls = (
-    #             MegatronRefPolicyConfig,
-    #             MegatronPolicyTrainerConfig,
-    #         )
-    #     else:
-    #         raise Exception(f"not support train backend: {train_backend}")
-    #     self.models.ref_policy = convert_to_dataclass(
-    #         refpolicy_cls, self.models.ref_policy
-    #     )
-    #     self.models.policy_trainer = convert_to_dataclass(
-    #         policytrainer_cls, self.models.policy_trainer
-    #     )
+        train_backend = self.runtime_args.train_backend
+        if train_backend == "fsdp":
+            refpolicy_cls, policytrainer_cls = RefPolicyConfig, PolicyTrainerConfig
+        elif train_backend == "megatron":
+            refpolicy_cls, policytrainer_cls = (
+                MegatronRefPolicyConfig,
+                MegatronPolicyTrainerConfig,
+            )
+        else:
+            raise Exception(f"not support train backend: {train_backend}")
+        self.models.ref_policy = convert_to_dataclass(
+            refpolicy_cls, self.models.ref_policy
+        )
+        self.models.policy_trainer = convert_to_dataclass(
+            policytrainer_cls, self.models.policy_trainer
+        )
 
 
 class GRPOEvaluator(Evaluator):
@@ -195,8 +207,8 @@ class GrpoAlgorithm(BaseAlgorithm):
             policy_trainer = PolicyTrainer("policy_trainer")
             ref_policy = PolicyTrainer("ref_policy")
         elif self.cfg.runtime_args.train_backend == "megatron":
-            policy_trainer = MegatronPolicyTrainer("megatron_policy_trainer")
-            ref_policy = MegatronPolicyTrainer("megatron_ref_policy")
+            policy_trainer = MegatronPolicyTrainer("policy_trainer")
+            ref_policy = MegatronPolicyTrainer("ref_policy")
         policy = VLLMPolicyInference("policy")
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
