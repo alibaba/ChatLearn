@@ -37,18 +37,27 @@ models:
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 2
-    fsdp_size: 2
+    fsdp_size: ${models.policy_trainer.num_gpu}
     load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen3-4B
     gradient_checkpointing: True
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
     save_hf: True
+  ref_policy:
+    free_gpu_memory:
+      offload_weights: True
+    generation_batch_size: 8
+    gpu_per_process: 1
+    num_gpu: ${models.policy_trainer.num_gpu}
+    fsdp_size: ${models.policy_trainer.num_gpu}
+    trainable: False
+    load: ${models.policy_trainer.load}
   policy:
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 256
     gpu_per_process: 1
-    num_gpu: 2
+    num_gpu: ${models.policy_trainer.num_gpu}
     tensor_model_parallel_size: 1
     trainable: False
     load: ${models.policy_trainer.load}
@@ -69,12 +78,3 @@ models:
     num_cpu: 2
     cpu_per_process: 1
     generation_batch_size: 256
-  ref_policy:
-    free_gpu_memory:
-      offload_weights: True
-    generation_batch_size: 8
-    gpu_per_process: 1
-    num_gpu: 2
-    fsdp_size: 2
-    trainable: False
-    load: ${models.policy_trainer.load}

@@ -32,5 +32,4 @@ fi
 
 rm core*
 
-export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 export num_device=$(($WORLD_SIZE * $GPUS_PER_NODE))

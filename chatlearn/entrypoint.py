@@ -92,21 +92,25 @@ class ChatlearnLauncher:
         algo_cls, config_cls = self._load_algorithm(algo_args.algorithm)
         cs = ConfigStore.instance()
         cs.store(name=algo_args.algorithm, node=config_cls)
-
         GlobalHydra.instance().clear()
         with hydra.initialize(config_path=None, version_base=None):
-            cfg = hydra.compose(config_name=algo_args.algorithm, overrides=algo_args.hydra_args)
-            # cfg = hydra.compose(config_name=algo_args.algorithm)
+            # cfg = hydra.compose(config_name=algo_args.algorithm, overrides=algo_args.hydra_args)
+            cfg = hydra.compose(config_name=algo_args.algorithm)
 
             if algo_args.config_file is not None:
                 external_cfg = OmegaConf.load(algo_args.config_file)
                 for arg in algo_args.hydra_args:
                     if '=' in arg:
                         key, value = arg.split('=', 1)
-                        if OmegaConf.select(external_cfg, key) is not None:
-                            OmegaConf.update(external_cfg, key, value)
-                cfg = OmegaConf.merge(cfg, external_cfg)
-            cfg = OmegaConf.to_object(cfg)
+                        origin_type = type(OmegaConf.select(external_cfg, key))
+                        if origin_type == bool:
+                            OmegaConf.update(external_cfg, key, value.lower().strip() == 'true')
+                        else:
+                            OmegaConf.update(external_cfg, key, origin_type(value))
+                        # if OmegaConf.select(external_cfg, key) is not None:
+                        #     OmegaConf.update(external_cfg, key, value)
+                cfg = OmegaConf.merge(cfg, external_cfg) # include $
+            cfg = OmegaConf.to_object(cfg) # real cfg
             instance = algo_cls(cfg)
             instance.run()
 

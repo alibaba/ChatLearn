@@ -1,12 +1,12 @@
 runtime_args:
   # setup config
   train_backend: megatron
-  exp_name: grpo_test
+  exp_name: grpo_megatron
   colocation: [policy,policy_trainer,ref_policy]
   # path config
-  output_dir: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/output/grpo_test
-  data_path: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/dataset/MATH-lighteval/train.json
-  eval_data_path: /mnt/workspace/yanhaiqiang.yhq/ChatLearn/dataset/MATH-lighteval/test.json
+  output_dir: your_output_dir
+  data_path: your_data_path
+  eval_data_path: your_eval_data_path
   data_checkpoint_path: ${runtime_args.output_dir}/data_checkpoint_path/
   # config for training
   num_episode: 200
@@ -25,34 +25,7 @@ runtime_args:
     log_dir: ${runtime_args.output_dir}
 
 models:
-  policy:
-    free_gpu_memory:
-      offload_weights: True
-    tensor_model_parallel_size: 2
-    generation_batch_size: 256
-    gpu_per_process: 1
-    num_gpu: 2
-    trainable: False
-    # args_dict:
-    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct
-    num_inference_per_prompt: 32
-    seq_length: 2048
-    max_seq_len_to_capture: 2348
-    temperature: 1.0
-    top_p: 1.0
-    eval_temperature: 0.6
-    eval_top_p: 0.95
-    eval_top_k: 20
-    vllm_prompt_key: prompt
-    vllm_input_ids_key: input_ids
-    enable_thinking: False
-    enable_stage_resume: False
-    gpu_memory_utilization: 0.8
-  reward:
-    num_cpu: 2
-    cpu_per_process: 1
-    generation_batch_size: 256
-  megatron_policy_trainer:
+  policy_trainer:
     free_gpu_memory:
       offload_weights: True
       offload_optimizer_states: True
@@ -93,13 +66,40 @@ models:
     neg_clip_ratio: 0.2
     diff_clip_ratio: 10
     final_clip_ratio: 3
-  megatron_ref_policy:
+  ref_policy:
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 8
     gpu_per_process: 1
-    num_gpu: 2
+    num_gpu: ${models.policy_trainer.num_gpu}
     tensor_model_parallel_size: 2
     trainable: False
-    load: ${models.megatron_policy_trainer.load}
-    megatron_model_cfg: ${models.megatron_policy_trainer.megatron_model_cfg}
+    load: ${models.policy_trainer.load}
+    megatron_model_cfg: ${models.policy_trainer.megatron_model_cfg}
+  policy:
+    free_gpu_memory:
+      offload_weights: True
+    tensor_model_parallel_size: 2
+    generation_batch_size: 256
+    gpu_per_process: 1
+    num_gpu: ${models.policy_trainer.num_gpu}
+    trainable: False
+    # args_dict:
+    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct
+    num_inference_per_prompt: 32
+    seq_length: 2048
+    max_seq_len_to_capture: 2348
+    temperature: 1.0
+    top_p: 1.0
+    eval_temperature: 0.6
+    eval_top_p: 0.95
+    eval_top_k: 20
+    vllm_prompt_key: prompt
+    vllm_input_ids_key: input_ids
+    enable_thinking: False
+    enable_stage_resume: False
+    gpu_memory_utilization: 0.8
+  reward:
+    num_cpu: 2
+    cpu_per_process: 1
+    generation_batch_size: 256
