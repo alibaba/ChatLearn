@@ -28,8 +28,9 @@ try:
 except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
-from .torch_module import TorchModule
 from chatlearn.configs.common import BaseConfig
+from .torch_module import TorchModule
+
 
 if IS_MEGATRON_SUPPORTED:
     try:
@@ -92,9 +93,9 @@ if IS_MEGATRON_SUPPORTED:
                     if isinstance(value, BaseConfig):
                         set_megatron_cfg(value)
                     elif hasattr(args, key):
-                            setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
+                        setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
             set_megatron_cfg(self.module_args)
-            
+
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
             args.micro_batch_size = self.runtime_args.train_micro_batch_size if self.trainable else self.module_args.generation_batch_size
             args.global_batch_size = self.runtime_args.train_global_batch_size if self.trainable else self.module_args.generation_batch_size

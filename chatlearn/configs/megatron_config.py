@@ -145,7 +145,7 @@ class MegatronTrainConfig(BaseConfig):
 class MegatronRefPolicyConfig(BaseModelConfig):
     """RefPolicyConfig"""
     megatron_model_cfg: MegatronModelArchitectureConfig = field(
-        default_factory=MegatronModelArchitectureConfig, 
+        default_factory=MegatronModelArchitectureConfig,
         metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
     )
 
@@ -159,7 +159,7 @@ class MegatronPolicyTrainerConfig(
 ):
     """PolicyTrainerConfig"""
     megatron_model_cfg: MegatronModelArchitectureConfig = field(
-        default_factory=MegatronModelArchitectureConfig, 
+        default_factory=MegatronModelArchitectureConfig,
         metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
     )
     pos_clip_ratio: float = field(default=0.2)

@@ -15,7 +15,7 @@
 """grpo algorithm"""
 
 from dataclasses import dataclass, field, fields
-from typing import Any, Optional
+from typing import Any
 import traceback
 
 import torch
@@ -24,8 +24,7 @@ from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
                             PolicyTrainerConfig, RefPolicyConfig,
                             RuntimeConfig, RuntimeEnvConfig)
 from configs.megatron_config import (MegatronPolicyTrainerConfig,
-                                     MegatronRefPolicyConfig,
-                                     MegatronModelArchitectureConfig)
+                                     MegatronRefPolicyConfig)
 
 import chatlearn
 from chatlearn import Engine
@@ -69,30 +68,6 @@ class GrpoModelConfig(BaseConfig):
             "help": "Policy trainer config. One of PolicyTrainerConfig or MegatronPolicyTrainerConfig."
         },
     )
-    # ref_policy: Optional[RefPolicyConfig] = field(
-    #     default=None,
-    #     metadata={
-    #         "help": "Reference policy config for fsdp"
-    #     },
-    # )
-    # policy_trainer: Optional[PolicyTrainerConfig] = field(
-    #     default=None,
-    #     metadata={
-    #         "help": "Policy trainer config for fsdp"
-    #     },
-    # )
-    # megatron_ref_policy: Optional[MegatronRefPolicyConfig] = field(
-    #     default=None,
-    #     metadata={
-    #         "help": "Reference policy config for megatron"
-    #     },
-    # )
-    # megatron_policy_trainer: Optional[MegatronPolicyTrainerConfig] = field(
-    #     default=None,
-    #     metadata={
-    #         "help": "Policy trainer config for megatron"
-    #     },
-    # )
 
 
 @dataclass
