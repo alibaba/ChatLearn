@@ -101,7 +101,7 @@ class ChatlearnLauncher:
                 for arg in algo_args.hydra_args:
                     if '=' in arg:
                         key, value = arg.split('=', 1)
-                        if OmegaConf.select(external_cfg, key):
+                        if OmegaConf.select(external_cfg, key) is not None:
                             OmegaConf.update(external_cfg, key, value)
                 cfg = OmegaConf.merge(cfg, external_cfg)
             cfg = OmegaConf.to_object(cfg)
