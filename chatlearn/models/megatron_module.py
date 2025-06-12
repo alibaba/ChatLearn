@@ -40,7 +40,7 @@ if IS_MEGATRON_SUPPORTED:
         raise ValueError(
             'Old or customed version of Megatron is no longer supported. Please checkout to 0f4e0e1872b62a96d0465de477f26ae81a2e33d7'
         ) from exc
-
+    # pylint: disable-next=ungrouped-imports
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
 
     class MegatronModule(TorchModule):
