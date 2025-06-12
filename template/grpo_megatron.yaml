@@ -40,7 +40,7 @@ models:
     num_gpu: 2
     tensor_model_parallel_size: 2
     # train config
-    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1
+    load: your_megatron_model_path
     save: ${runtime_args.output_dir}
     save_interval: 10000
     sequence_parallel: True
@@ -85,7 +85,7 @@ models:
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     # args_dict:
-    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen2.5-3B-Instruct
+    load: your_hf_model_path
     num_inference_per_prompt: 32
     seq_length: 2048
     max_seq_len_to_capture: 2348

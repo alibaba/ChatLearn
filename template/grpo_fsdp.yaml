@@ -38,7 +38,7 @@ models:
     gpu_per_process: 1
     num_gpu: 2
     fsdp_size: ${models.policy_trainer.num_gpu}
-    load: /mnt/workspace/yanhaiqiang.yhq/hub/Qwen3-4B
+    load: your_hf_model_path
     gradient_checkpointing: True
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
