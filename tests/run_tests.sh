@@ -49,6 +49,7 @@ TEST_CASES=(
   # "sprl"                       # to be fixed
 )
 # Run ALL Tests in TEST_CASES
+pip install --no-cache-dir hydra-core==1.3.2
 for test_case in "${TEST_CASES[@]}"
 do
     run_test python test_main.py -t "$test_case" -c "configs/$test_case.yaml" || exit 1
