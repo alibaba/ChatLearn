@@ -34,13 +34,13 @@ from .torch_module import TorchModule
 
 if IS_MEGATRON_SUPPORTED:
     try:
-        # pylint: disable-next=import-outside-toplevel, unused-import
+        # pylint: disable=import-outside-toplevel
         from megatron.core.distributed.distributed_data_parallel import _ParamAndGradBuffer
     except ImportError as exc:
         raise ValueError(
             'Old or customed version of Megatron is no longer supported. Please checkout to 0f4e0e1872b62a96d0465de477f26ae81a2e33d7'
         ) from exc
-
+    # pylint: disable=import-outside-toplevel
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
 
     class MegatronModule(TorchModule):
