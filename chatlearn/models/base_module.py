@@ -184,15 +184,6 @@ class BaseModule:
         """
         return self._runtime_args
 
-    # @property
-    # def model_args(self):
-    #     """
-    #     Return model arguments, such as those related to Megatron,
-    #     should be specified in a separate configuration yaml file for the model being used.
-    #     """
-    #     # return self._module_args.args_dict
-    #     return self._module_args
-
     @property
     def module_args(self):
         """
