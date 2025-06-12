@@ -109,7 +109,10 @@ class MegatronVllmSync(BaseSync):
                 checkpoint_version = 3.0
                 tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
                 heads = self.src_module_args.args_dict["num_attention_heads"] // tp_size
-                hidden_size_per_head =  self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
+                if "kv_channels" in self.src_module_args.args_dict:
+                    hidden_size_per_head =  self.src_module_args.args_dict["kv_channels"]
+                else:
+                    hidden_size_per_head =  self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
                 if self._to_fix_qkv_ordering_func is split_attn_state:
                     _num_query_groups = self.src_module_args.args_dict["num_query_groups"]//tp_size  \
                         if self.src_module_args.args_dict["group_query_attention"] else heads
