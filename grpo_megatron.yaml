@@ -52,7 +52,7 @@ models:
     num_cpu: 2
     cpu_per_process: 1
     generation_batch_size: 256
-  policy_trainer:
+  megatron_policy_trainer:
     free_gpu_memory:
       offload_weights: True
       offload_optimizer_states: True
@@ -93,7 +93,7 @@ models:
     neg_clip_ratio: 0.2
     diff_clip_ratio: 10
     final_clip_ratio: 3
-  ref_policy:
+  megatron_ref_policy:
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 8
@@ -101,6 +101,5 @@ models:
     num_gpu: 2
     tensor_model_parallel_size: 2
     trainable: False
-    load: ${models.policy_trainer.load}
-    # model arch
-    megatron_model_cfg: ${models.policy_trainer.megatron_model_cfg}
+    load: ${models.megatron_policy_trainer.load}
+    megatron_model_cfg: ${models.megatron_policy_trainer.megatron_model_cfg}
