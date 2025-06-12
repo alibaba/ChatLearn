@@ -361,6 +361,18 @@ class MegatronVllmMoonlightSync(MegatronVllmSync):
         params_to_sync_list = super().transform_parameters(params_to_sync_list)
         params_to_sync_list = self.stack_group_gemm(params_to_sync_list)
         params_to_sync_list = self.collect_linear_kv_down_proj(params_to_sync_list)
+        params_to_sync_list = self.transform_exper_bias(params_to_sync_list)
+        return params_to_sync_list
+
+    def transform_exper_bias(self, params_to_sync_list):
+        """
+            Megatron will convert expert_bias to fp32 in the first forward step
+            for precision, however during parameter sync, we need to convert it back
+            to keep consistency with vLLM.
+        """
+        for i, (name, params_to_sync) in enumerate(params_to_sync_list):
+            if 'expert_bias' in name:
+                params_to_sync_list[i] = (name, params_to_sync.to(torch.bfloat16))
         return params_to_sync_list
 
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):

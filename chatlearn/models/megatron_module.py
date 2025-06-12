@@ -15,6 +15,7 @@
 """Megatron module"""
 import re
 import torch
+import functools
 import torch.distributed as dist
 
 try:
@@ -23,6 +24,7 @@ try:
     from megatron.core import parallel_state as mpu
     from megatron.training.initialize import initialize_megatron, set_jit_fusion_options
     from megatron.training.training import save_checkpoint_and_time
+    from megatron.training.utils import unwrap_model
     IS_MEGATRON_SUPPORTED = True
 except ImportError:
     IS_MEGATRON_SUPPORTED = False
@@ -51,22 +53,8 @@ if IS_MEGATRON_SUPPORTED:
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            if not self.trainable:
-                # inference only
-                if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
-                    self._logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
-                self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
-            else:
-                self.model_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
-                self.model_args["global_batch_size"] = self.runtime_args.train_global_batch_size
-                if self.model_args.get("micro_batch_size") != self.runtime_args.train_micro_batch_size:
-                    self._logger.info(
-                        f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}"
-                    )
-                if self.model_args.get("global_batch_size") != self.runtime_args.train_global_batch_size:
-                    self._logger.info(
-                        f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}"
-                    )
+            self.model_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
+            self.model_args["global_batch_size"] = self.runtime_args.train_global_batch_size
             if not self.model_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
                 self.model_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
 
@@ -268,6 +256,12 @@ if IS_MEGATRON_SUPPORTED:
 
             :meta private:
             """
+            layer_re = re.compile(r'layers\.([0-9]+)')
+            def update_layer_num(start_layer_num, m):
+                # This assumes no interleaved pipeline execution
+                layer = int(m.group(1))
+                layer += start_layer_num
+                return f'layers.{layer}'
             src_layer_offset = self.get_pipeline_stage_layer_offset()
             model = self.megatron_model()
             is_tgt_last_stage = target_pipe_rank == num_target_pipe_stage - 1 and target_pipe_rank != 0
