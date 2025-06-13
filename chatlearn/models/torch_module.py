@@ -151,10 +151,10 @@ class TorchModule(BaseModule):
 
         if not self.is_colocate:
             return
-        to_onload_weights = self._get_if_not_none(to_onload_weights, self.module_args.offload_weights)
-        to_build_grad_buffers = self._get_if_not_none(to_build_grad_buffers, self.module_args.free_grad_buffers)
-        to_onload_main_weights = self._get_if_not_none(to_onload_main_weights, self.module_args.offload_weights)
-        to_onload_optimizer_states = self._get_if_not_none(to_onload_optimizer_states, self.module_args.offload_optimizer_states)
+        to_onload_weights = self._get_if_not_none(to_onload_weights, self.module_args.free_gpu_memory.offload_weights)
+        to_build_grad_buffers = self._get_if_not_none(to_build_grad_buffers, self.module_args.free_gpu_memory.free_grad_buffers)
+        to_onload_main_weights = self._get_if_not_none(to_onload_main_weights, self.module_args.free_gpu_memory.offload_weights)
+        to_onload_optimizer_states = self._get_if_not_none(to_onload_optimizer_states, self.module_args.free_gpu_memory.offload_optimizer_states)
         if to_onload_weights or to_build_grad_buffers or to_onload_main_weights or to_onload_optimizer_states:
             log_rank_0(get_full_proc_memory_info('Before onload'), self._logger)
             torch.cuda.synchronize()
@@ -188,10 +188,10 @@ class TorchModule(BaseModule):
         # to make more space for `offload_main_weights`.
         if not self.is_colocate:
             return
-        to_offload_weights = self._get_if_not_none(to_offload_weights, self.module_args.offload_weights)
-        to_offload_main_weights = self._get_if_not_none(to_offload_main_weights, self.module_args.offload_weights)
-        to_free_grad_buffers = self._get_if_not_none(to_free_grad_buffers, self.module_args.free_grad_buffers)
-        to_offload_optimizer_states = self._get_if_not_none(to_offload_optimizer_states, self.module_args.offload_optimizer_states)
+        to_offload_weights = self._get_if_not_none(to_offload_weights, self.module_args.free_gpu_memory.offload_weights)
+        to_offload_main_weights = self._get_if_not_none(to_offload_main_weights, self.module_args.free_gpu_memory.offload_weights)
+        to_free_grad_buffers = self._get_if_not_none(to_free_grad_buffers, self.module_args.free_gpu_memory.free_grad_buffers)
+        to_offload_optimizer_states = self._get_if_not_none(to_offload_optimizer_states, self.module_args.free_gpu_memory.offload_optimizer_states)
         if to_free_grad_buffers or to_offload_weights or to_offload_optimizer_states or to_offload_main_weights:
             log_rank_0(get_full_proc_memory_info('Before offload'), self._logger)
             torch.cuda.synchronize()

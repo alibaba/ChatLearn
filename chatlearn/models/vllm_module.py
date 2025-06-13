@@ -60,7 +60,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.tokenizer = None
         self._model = None
         self.llm = None
-        self.model_config =  AutoConfig.from_pretrained(self.model_args['tokenizer'])
+        self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
@@ -82,23 +82,23 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         return parser
 
     def init_engine_args(self):
-        dtype = self.model_args.get("dtype", "bfloat16")
-        if self.model_args.get("fp16", False):
+        dtype = self.module_args.get("dtype", "bfloat16")
+        if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
 
-        if self.model_args.get("apply_replica_id_to_seed", True):
-            seed = self.model_args.get("seed", 0) + self.replica_id
+        if self.module_args.get("apply_replica_id_to_seed", True):
+            seed = self.module_args.get("seed", 0) + self.replica_id
         else:
-            seed = self.model_args.get("seed", 0)
+            seed = self.module_args.get("seed", 0)
 
         from vllm.engine.arg_utils import AsyncEngineArgs # pylint: disable=import-outside-toplevel
         from vllm.usage.usage_lib import UsageContext # pylint: disable=import-outside-toplevel
         self.engine_args = AsyncEngineArgs(
-            model=self.model_args['tokenizer'],
-            tokenizer=self.model_args['tokenizer'],
-            max_seq_len_to_capture=self.model_args.get("max_seq_len_to_capture", 32768),
+            model=self.module_args['load'],
+            tokenizer=self.module_args['load'],
+            max_seq_len_to_capture=self.module_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
@@ -108,18 +108,18 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             dtype=dtype,
             # scheduling strategy
             max_num_seqs=self.module_args.generation_batch_size,
-            max_num_batched_tokens = self.model_args.get("max_num_batched_tokens", None),
-            num_scheduler_steps=self.model_args.get("num_scheduler_steps", 1),
-            gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
+            max_num_batched_tokens = self.module_args.get("max_num_batched_tokens", None),
+            num_scheduler_steps=self.module_args.get("num_scheduler_steps", 1),
+            gpu_memory_utilization=self.module_args.get("gpu_memory_utilization", 0.90),
             # logger
-            disable_log_requests=self.model_args.get("disable_log_requests", True),
-            disable_log_stats=self.model_args.get("disable_log_stats", True),
+            disable_log_requests=self.module_args.get("disable_log_requests", True),
+            disable_log_stats=self.module_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            enforce_eager=self.model_args.get("enforce_eager", True),
+            enforce_eager=self.module_args.get("enforce_eager", True),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
-            swap_space=self.model_args.get("swap_space", 16))
+            swap_space=self.module_args.get("swap_space", 16))
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
 
 
@@ -130,12 +130,12 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         parallel_state.set_custom_all_reduce(False)
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
-                        args_dict=self.model_args)
+                        args_dict=self.module_args)
 
     def setup(self):
         """Set up tokenizer."""
         super().setup()
-        tokenizer = AutoTokenizer.from_pretrained(self.model_args['tokenizer'], trust_remote_code=True)
+        tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
@@ -146,20 +146,20 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         os.environ['VLLM_HOST_IP'] = self.get_address()
         set_vllm_actors(workers)
 
-        dtype = self.model_args.get("dtype", "bfloat16")
-        if self.model_args.get("fp16", False):
+        dtype = self.module_args.get("dtype", "bfloat16")
+        if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.model_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
 
-        if self.model_args.get("apply_replica_id_to_seed", True):
-            seed = self.model_args.get("seed", 0) + self.replica_id
+        if self.module_args.get("apply_replica_id_to_seed", True):
+            seed = self.module_args.get("seed", 0) + self.replica_id
         else:
-            seed = self.model_args.get("seed", 0)
+            seed = self.module_args.get("seed", 0)
         self.llm = LLM(
-            model=self.model_args['tokenizer'],
-            tokenizer=self.model_args['tokenizer'],
-            max_seq_len_to_capture=self.model_args.get("max_seq_len_to_capture", 32768),
+            model=self.module_args.load,
+            tokenizer=self.module_args.load,
+            max_seq_len_to_capture=self.module_args.get("max_seq_len_to_capture", 32768),
             seed=seed,
             # load model: 'dummy' for megatron ckpt or mock weight; others for hf ckpt.
             load_format=load_format,
@@ -169,18 +169,18 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             dtype=dtype,
             # scheduling strategy
             max_num_seqs=self.module_args.generation_batch_size,
-            max_num_batched_tokens = self.model_args.get("max_num_batched_tokens", None),
-            num_scheduler_steps=self.model_args.get("num_scheduler_steps", 1),
-            gpu_memory_utilization=self.model_args.get("gpu_memory_utilization", 0.90),
+            max_num_batched_tokens = self.module_args.get("max_num_batched_tokens", None),
+            num_scheduler_steps=self.module_args.get("num_scheduler_steps", 1),
+            gpu_memory_utilization=self.module_args.get("gpu_memory_utilization", 0.90),
             # logger
-            disable_log_requests=self.model_args.get("disable_log_requests", True),
-            disable_log_stats=self.model_args.get("disable_log_stats", True),
+            disable_log_requests=self.module_args.get("disable_log_requests", True),
+            disable_log_stats=self.module_args.get("disable_log_stats", True),
             trust_remote_code=True,
-            enforce_eager=self.model_args.get("enforce_eager", False),
+            enforce_eager=self.module_args.get("enforce_eager", False),
             disable_custom_all_reduce=True,
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
-            swap_space=self.model_args.get("swap_space", 16))
+            swap_space=self.module_args.get("swap_space", 16))
 
         self.offload_weights()
 
@@ -208,14 +208,14 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         num_layers = self.model_config.num_hidden_layers
         remainder = num_layers % pipeline_world_size
 
-        if not self.model_args.get("allow_padding_num_layers", None):
+        if not self.module_args.get("allow_padding_num_layers", None):
             assert remainder == 0, \
                 f"expect num_layers % pipeline_model_size == 0 when VLLM_PP_LAYER_PARTITION is not set. \
                 while num_layers = {num_layers} pipeline_model_size = {pipeline_world_size}"
             return
 
         if remainder > 0:
-            assert not self.model_args.get("standalone_embedding_stage", False), \
+            assert not self.module_args.get("standalone_embedding_stage", False), \
                 "not support standalone embedding stage if allow_padding_num_layers is true"
             # pad num_layers to make num_layers % pipeline_model_parallel_size == 0
             num_layers_with_padding = num_layers - remainder + pipeline_world_size
@@ -227,8 +227,8 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             num_layers // pipeline_world_size)
 
         # Each stage gets a contiguous set of layers.
-        if self.model_args.get("pipeline_layers", None) is not None:
-            rank_sizes = self.model_args.get("pipeline_layers", None)
+        if self.module_args.get("pipeline_layers", None) is not None:
+            rank_sizes = self.module_args.get("pipeline_layers", None)
             assert isinstance(rank_sizes, list) and all(isinstance(ele, int) for ele in rank_sizes), \
                 f"pipeline_layers expected to be list, and num layer of each stage to be integer, while {rank_sizes}."
         else:
@@ -254,23 +254,23 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
-        if not self.model_args.get("use_beam_search", False):
-            temperature = self.model_args.get("eval_temperature", 1.0) if is_eval else self.model_args.get(
+        if not self.module_args.get("use_beam_search", False):
+            temperature = self.module_args.get("eval_temperature", 1.0) if is_eval else self.module_args.get(
                 "temperature", 1.0)
-        top_p = self.model_args.get("eval_top_p", 1.0) if is_eval else self.model_args.get("top_p", 1.0)
-        top_k = self.model_args.get("eval_top_k", -1) if is_eval else self.model_args.get("top_k", -1)
-        min_p = self.model_args.get("eval_min_p", 0.0) if is_eval else self.model_args.get("min_p", 0.0)
-        presence_penalty = self.model_args.get("eval_presence_penalty", 0.0) if is_eval else self.model_args.get(
+        top_p = self.module_args.get("eval_top_p", 1.0) if is_eval else self.module_args.get("top_p", 1.0)
+        top_k = self.module_args.get("eval_top_k", -1) if is_eval else self.module_args.get("top_k", -1)
+        min_p = self.module_args.get("eval_min_p", 0.0) if is_eval else self.module_args.get("min_p", 0.0)
+        presence_penalty = self.module_args.get("eval_presence_penalty", 0.0) if is_eval else self.module_args.get(
             "presence_penalty", 0.0)
-        frequency_penalty = self.model_args.get("eval_frequency_penalty", 0.0) if is_eval else self.model_args.get(
+        frequency_penalty = self.module_args.get("eval_frequency_penalty", 0.0) if is_eval else self.module_args.get(
             "frequency_penalty", 0.0)
-        repetition_penalty = self.model_args.get("eval_repetition_penalty", 1.0) if is_eval else self.model_args.get(
+        repetition_penalty = self.module_args.get("eval_repetition_penalty", 1.0) if is_eval else self.module_args.get(
             "repetition_penalty", 1.0)
-        stop = self.model_args.get("stop_token_list", None)
+        stop = self.module_args.get("stop_token_list", None)
         if stop is not None and isinstance(stop, str):
             stop = stop.split(";")
         sampling_params = SamplingParams(
-            n=self.model_args.get("n", 1),
+            n=self.module_args.get("n", 1),
             presence_penalty=presence_penalty,
             frequency_penalty=frequency_penalty,
             repetition_penalty=repetition_penalty,
@@ -278,16 +278,16 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             top_p=top_p,
             top_k=top_k,
             min_p=min_p,
-            ignore_eos=self.model_args.get("ignore_eos", False),
+            ignore_eos=self.module_args.get("ignore_eos", False),
             stop=stop,
-            logprobs=self.model_args.get("logprobs", 1),
-            detokenize=self.model_args.get("detokenize", False),
-            prompt_logprobs=self.model_args.get("prompt_logprobs", None),
-            skip_special_tokens=self.model_args.get('skip_special_tokens', True)
+            logprobs=self.module_args.get("logprobs", 1),
+            detokenize=self.module_args.get("detokenize", False),
+            prompt_logprobs=self.module_args.get("prompt_logprobs", None),
+            skip_special_tokens=self.module_args.get('skip_special_tokens', True)
         )
         # VLLMVersion.v_0_3_0, VLLMVersion.v_0_5_1
         if hasattr(sampling_params, 'use_beam_search'):
-            sampling_params.use_beam_search = self.model_args.get("use_beam_search", False)
+            sampling_params.use_beam_search = self.module_args.get("use_beam_search", False)
         return sampling_params
 
     def update_weights_from_ipc_handles(self, reduce_data):
@@ -307,9 +307,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self.llm.wake_up()
 
         # preprocess query
-        prompt_key = self.model_args.get("vllm_prompt_key", "prompt")
-        input_ids_key = self.model_args.get("vllm_input_ids_key", "input_ids")
-        seq_len = self.model_args.get("seq_length")
+        prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
+        input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
+        seq_len = self.module_args.get("seq_length")
 
         prompts = query[prompt_key]
         prompts_token_ids = query[input_ids_key]
@@ -399,7 +399,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         """
         offload weights
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
@@ -417,7 +417,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
                 wake_up should be called with all tags (or None) before the 
                 engine is used again.
         """
-        if self.module_args.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights:
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")

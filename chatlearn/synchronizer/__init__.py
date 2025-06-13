@@ -40,8 +40,7 @@ def get_synchronizer(src_model: 'DistModel', dst_model: 'DistModel'):
         "Qwen3ForCausalLM": MegatronVllmMoonlightSync,
         "Qwen3MoeForCausalLM": MegatronVllmMoonlightSync
     }
-    config_dir = dst_model.module_args.args_dict["tokenizer"]
-    config =  AutoConfig.from_pretrained(config_dir, trust_remote_code=True)
+    config =  AutoConfig.from_pretrained(dst_model.module_args.load, trust_remote_code=True)
     model_class_name = config.architectures[0]
     if model_class_name not in name_to_synchronizer:
         raise RuntimeError(f"Unsupported model {model_class_name}, currently support {list(name_to_synchronizer.keys())}.")

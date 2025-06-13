@@ -161,23 +161,21 @@ class Environment(Executor):
             model = self.models[0]
 
         _batch_per_episode = self.batch_per_episode(model)
+        # dp_size: numer of dp
         dp_size = len(model.replicas[0].dp_rank_to_actors)
-        if model.module_args.zero_size > 1:
-            assert _batch_per_episode % model.module_args.zero_size == 0
-            return _batch_per_episode // model.module_args.zero_size
-        elif dp_size > 1: # for trainable model or ep model
-            if _batch_per_episode < dp_size:
-                raise NotImplementedError(
-                    "Currently ChaLearn requires batch_per_episode >= len(dp_rank_to_actors), "
-                    f"got {_batch_per_episode} and {dp_size}. "
-                    f"Please allocate more replicas to inference model {model.name} to walk-around the issue."
-                )
-            assert _batch_per_episode % dp_size == 0, (
-                "Inner loop in Executor.generate_step_one_model_internal() depends on dp_size of each replica."
+
+        if _batch_per_episode < dp_size:
+            raise NotImplementedError(
+                "Currently ChaLearn requires batch_per_episode >= len(dp_rank_to_actors), "
+                f"got {_batch_per_episode} and {dp_size}. "
+                f"Please allocate more replicas to inference model {model.name} to walk-around the issue."
             )
-            return _batch_per_episode // dp_size
-        else:
-            return _batch_per_episode
+        assert _batch_per_episode % dp_size == 0, (
+            "Inner loop in Executor.generate_step_one_model_internal() depends on dp_size of each replica."
+        )
+        return _batch_per_episode // dp_size
+
+
 
     def execute(self, is_eval):
         data_queues, out_queue = self.setup_queues()

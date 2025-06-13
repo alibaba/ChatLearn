@@ -71,7 +71,6 @@ class BaseModule:
         self._runtime_args = self.global_args.runtime_args
         self._module_args = args
         self.replica_id = replica_id
-        self.config_dir = args.config_dir
         self._is_colocate = False
 
         if self.total_gpu > 0:
@@ -79,13 +78,12 @@ class BaseModule:
                 args.tensor_model_parallel_size
                 * args.pipeline_model_parallel_size
                 * args.expert_model_parallel_size
-                * args.zero_size
                 * args.fsdp_size
             )
             assert self._num_gpu_per_replica <= self.total_gpu, \
                 f"_num_gpu_per_replica {self._num_gpu_per_replica} larger than total_gpu {self.total_gpu} " + \
                 f"tp_size: {args.tensor_model_parallel_size} pp_size: {args.pipeline_model_parallel_size} " + \
-                f"ep_size: {args.expert_model_parallel_size} zero_size: {args.zero_size}"
+                f"ep_size: {args.expert_model_parallel_size}"
             assert self.total_gpu % self._num_gpu_per_replica == 0
             if not self.trainable:
                 self._num_replica = args.num_gpu // self._num_gpu_per_replica
@@ -185,14 +183,6 @@ class BaseModule:
         the settings that are specified under the "runtime" section of the YAML configuration file.
         """
         return self._runtime_args
-
-    @property
-    def model_args(self):
-        """
-        Return model arguments, such as those related to Megatron,
-        should be specified in a separate configuration yaml file for the model being used.
-        """
-        return self._module_args.args_dict
 
     @property
     def module_args(self):
@@ -403,7 +393,7 @@ class BaseModule:
             if self.data_ckpt_manager is not None:
                 consumed_samples = self.runtime_args.consumed_samples
         collate_fn = all_datasets[0].collate_fn if hasattr(all_datasets[0], 'collate_fn') else None
-        drop_last = self.model_args['drop_last'] if 'drop_last' in self.model_args else False
+        drop_last = self.module_args['drop_last'] if 'drop_last' in self.module_args else False
         dataloader = self.build_dataloader(all_datasets,
                                            sample_per_episode=sample_per_episode,
                                            collate_fn=collate_fn,
@@ -450,12 +440,12 @@ class BaseModule:
             f"data_ratio: {data_ratio}",
             self._logger
         )
-        if "num_inference_per_prompt" in self.model_args:
-            num_inference_per_prompt = self.model_args["num_inference_per_prompt"]
+        if "num_inference_per_prompt" in self.module_args:
+            num_inference_per_prompt = self.module_args["num_inference_per_prompt"]
         else:
             num_inference_per_prompt = 1
-        vllm_prompt_key = self.model_args["vllm_prompt_key"] \
-            if "vllm_prompt_key" in self.model_args else "prompt"
+        vllm_prompt_key = self.module_args["vllm_prompt_key"] \
+            if "vllm_prompt_key" in self.module_args else "prompt"
         self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
@@ -1202,7 +1192,7 @@ class BaseModule:
         """
         if is_eval:
             return False
-        if self.model_args.get("enable_stage_resume", False):
+        if self.module_args.get("enable_stage_resume", False):
             assert self.runtime_args.data_checkpoint_path, \
                 "data_checkpoint_path must be set for stage resume."
             return True

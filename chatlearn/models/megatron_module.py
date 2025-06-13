@@ -3,7 +3,6 @@
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
 # You may obtain a copy of the License at
-#
 #     http://www.apache.org/licenses/LICENSE-2.0
 #
 # Unless required by applicable law or agreed to in writing, software
@@ -14,6 +13,8 @@
 # ==============================================================================
 """Megatron module"""
 import re
+from dataclasses import fields
+
 import torch
 import torch.distributed as dist
 
@@ -27,17 +28,19 @@ try:
 except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
+from chatlearn.configs.common import BaseConfig
 from .torch_module import TorchModule
+
 
 if IS_MEGATRON_SUPPORTED:
     try:
-        # pylint: disable-next=import-outside-toplevel, unused-import
+        # pylint: disable-next=import-outside-toplevel, unused-import, ungrouped-imports
         from megatron.core.distributed.distributed_data_parallel import _ParamAndGradBuffer
     except ImportError as exc:
         raise ValueError(
             'Old or customed version of Megatron is no longer supported. Please checkout to 0f4e0e1872b62a96d0465de477f26ae81a2e33d7'
         ) from exc
-
+    # pylint: disable-next=ungrouped-imports
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
 
     class MegatronModule(TorchModule):
@@ -48,27 +51,6 @@ if IS_MEGATRON_SUPPORTED:
         name : str
             model name
         """
-
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
-            if not self.trainable:
-                # inference only
-                if self.model_args.get("micro_batch_size") != self.module_args.generation_batch_size:
-                    self._logger.info(f"{self.name} Overwrite micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}")
-                self.model_args["micro_batch_size"] = self.module_args.generation_batch_size
-            else:
-                self.model_args["micro_batch_size"] = self.runtime_args.train_micro_batch_size
-                self.model_args["global_batch_size"] = self.runtime_args.train_global_batch_size
-                if self.model_args.get("micro_batch_size") != self.runtime_args.train_micro_batch_size:
-                    self._logger.info(
-                        f"{self.name} Overwrite micro_batch_size with train_micro_batch_size {self.module_args.train_micro_batch_size}"
-                    )
-                if self.model_args.get("global_batch_size") != self.runtime_args.train_global_batch_size:
-                    self._logger.info(
-                        f"{self.name} Overwrite global_batch_size with train_global_batch_size {self.module_args.train_global_batch_size}"
-                    )
-            if not self.model_args.get("tensorboard_dir") and self.runtime_args.output_dir is not None:
-                self.model_args['tensorboard_dir'] = f"{self.runtime_args.output_dir}/tensorboard"
 
         def add_extra_args(self, parser):
             """
@@ -100,9 +82,23 @@ if IS_MEGATRON_SUPPORTED:
                         pass
                 return value
 
-            if self.model_args is not None:
-                for key, value in self.model_args.items():
-                    setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
+            def set_megatron_cfg(cfg: BaseConfig):
+                """
+                set chatlearn cfg to megatron args
+                will not set BaseConfig and key not in megatron args
+                """
+                for field in fields(cfg):
+                    key = field.name
+                    value = getattr(cfg, key)
+                    if isinstance(value, BaseConfig):
+                        set_megatron_cfg(value)
+                    elif hasattr(args, key):
+                        setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
+            set_megatron_cfg(self.module_args)
+
+            # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
+            args.micro_batch_size = self.runtime_args.train_micro_batch_size if self.trainable else self.module_args.generation_batch_size
+            args.global_batch_size = self.runtime_args.train_global_batch_size if self.trainable else self.module_args.generation_batch_size
             initialize_megatron(parsed_args=args)
 
             if self.trainable:
@@ -119,7 +115,9 @@ if IS_MEGATRON_SUPPORTED:
                 assert hasattr(self, "model")
                 assert hasattr(self, "optimizer")
                 assert hasattr(self, "opt_param_scheduler")
-                if self.module_args.offload_weights or self.module_args.free_grad_buffers or self.module_args.offload_optimizer_states:
+                if self.module_args.free_gpu_memory.offload_weights or \
+                    self.module_args.free_gpu_memory.free_grad_buffers or \
+                    self.module_args.free_gpu_memory.offload_optimizer_states:
                     self._memory_manager = TrainerMemoryManager(
                         self.megatron_model(),
                         self.optimizer,
@@ -132,7 +130,7 @@ if IS_MEGATRON_SUPPORTED:
             else:
                 assert hasattr(self, "model")
                 self.megatron_model().eval()
-                if self.module_args.offload_weights:
+                if self.module_args.free_gpu_memory.offload_weights:
                     self._memory_manager = InferenceMemoryManager(
                         self.megatron_model(),
                         self.runtime_args.bucket_size_mb_in_memory_manager,
@@ -345,56 +343,56 @@ if IS_MEGATRON_SUPPORTED:
             """
             offload optimizer states
             """
-            if self.module_args.offload_optimizer_states:
+            if self.module_args.free_gpu_memory.offload_optimizer_states:
                 self._memory_manager.offload_optimizer_states()
 
         def onload_optimizer_states(self):
             """
             onload optimizer states
             """
-            if self.module_args.offload_optimizer_states:
+            if self.module_args.free_gpu_memory.offload_optimizer_states:
                 self._memory_manager.onload_optimizer_states()
 
         def offload_main_weights(self):
             """
             offload main weights
             """
-            if self.module_args.offload_weights:
+            if self.module_args.free_gpu_memory.offload_weights:
                 self._memory_manager.offload_main_weights()
 
         def onload_main_weights(self):
             """
             onload main weights
             """
-            if self.module_args.offload_weights:
+            if self.module_args.free_gpu_memory.offload_weights:
                 self._memory_manager.onload_main_weights()
 
         def offload_weights(self):
             """
             offload weights
             """
-            if self.module_args.offload_weights:
+            if self.module_args.free_gpu_memory.offload_weights:
                 self._memory_manager.offload_weights()
 
         def onload_weights(self):
             """
             onload weights
             """
-            if self.module_args.offload_weights:
+            if self.module_args.free_gpu_memory.offload_weights:
                 self._memory_manager.onload_weights()
 
         def free_grad_buffers(self):
             """
             free grad buffers and related tensors
             """
-            if self.module_args.free_grad_buffers:
+            if self.module_args.free_gpu_memory.free_grad_buffers:
                 self._memory_manager.free_grad_buffers()
 
         def build_grad_buffers(self):
             """
             build grad buffers and related tensors
             """
-            if self.module_args.free_grad_buffers:
+            if self.module_args.free_gpu_memory.free_grad_buffers:
                 self._memory_manager.build_grad_buffers()
 
         def get_pipeline_stage_layer_num(self):

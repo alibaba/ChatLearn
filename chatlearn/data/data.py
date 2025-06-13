@@ -18,6 +18,7 @@ import math
 import random
 import copy
 import os
+import json
 from typing import List, Dict
 
 import ray
@@ -28,6 +29,18 @@ from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
 
+
+def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
+
+    data = []
+    for data_path in data_path_list:
+        if mode == "json":
+            with open(data_path, 'r', encoding='utf-8') as f:
+                data.extend(json.load(f))
+        elif mode == "jsonl":
+            with open(data_path, 'r', encoding='utf-8') as f:
+                data.extend([json.loads(line) for line in f])
+    return data
 
 def get_iter_keys(data):
     """
@@ -102,7 +115,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_relay_episode=0, relay_episode_offset=0):
+    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -117,18 +130,18 @@ class StreamDataset:
         self._padding_value = {key: value["padding_value"] for key, value in padding_config.items()}
         self._padding_type = {key: value["padding_type"] for key, value in padding_config.items()}
 
-        if max_relay_episode < 0:
-            max_relay_episode = math.inf
-        self._max_relay_episode = max_relay_episode
-        self._relay_episode_offset = relay_episode_offset
-        self._episode_relay_buffers = []
-        self.relay_sample_manager = None
+        if max_replay_episode < 0:
+            max_replay_episode = math.inf
+        self._max_replay_episode = max_replay_episode
+        self._replay_episode_offset = replay_episode_offset
+        self._episode_replay_buffers = []
+        self.replay_sample_manager = None
 
     def shuffle(self):
         """
-        shuffle relay buffer
+        shuffle replay buffer
         """
-        self.relay_buffer.shuffle()
+        self.replay_buffer.shuffle()
         self.iter = self.__iter__() # pylint: disable=unnecessary-dunder-call
         self._has_next = True
 
@@ -141,10 +154,10 @@ class StreamDataset:
         return self.iter_fixed()
 
     def _get_batch(self, start_index: int):
-        end_index = min(start_index + self.batch_size, len(self.relay_buffer))
-        data_to_batch = self.relay_buffer.get_samples(start_index, end_index)
+        end_index = min(start_index + self.batch_size, len(self.replay_buffer))
+        data_to_batch = self.replay_buffer.get_samples(start_index, end_index)
         if len(data_to_batch) < self.batch_size:
-            data_to_batch += self.relay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
+            data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
         batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
         return batched_data
 
@@ -157,18 +170,18 @@ class StreamDataset:
         batch_count = 0
         while produce_index < self._total_samples:
             # read from cache
-            if len(self.relay_buffer) < self._total_samples:
-                while len(self.relay_buffer) < self._total_samples and \
-                    (len(self.relay_buffer) - produce_index) < self.batch_size:
-                    self.relay_buffer.add_raw_batch()
+            if len(self.replay_buffer) < self._total_samples:
+                while len(self.replay_buffer) < self._total_samples and \
+                    (len(self.replay_buffer) - produce_index) < self.batch_size:
+                    self.replay_buffer.add_raw_batch()
             batched_data = self._get_batch(produce_index)
             yield batched_data
             batch_count += 1
             produce_index += self.batch_size
 
         assert batch_count == math.ceil(self._total_samples / self.batch_size)
-        assert produce_index >= len(self.relay_buffer), \
-               f"produce_index: {produce_index} < len(self.relay_buffer) {len(self.relay_buffer)}"
+        assert produce_index >= len(self.replay_buffer), \
+               f"produce_index: {produce_index} < len(self.replay_buffer) {len(self.replay_buffer)}"
 
     def iter_dynamic(self):
         """
@@ -179,17 +192,17 @@ class StreamDataset:
             return self.iter_fixed()
         batch_count = 0
 
-        while self.relay_buffer.queue_not_empty():
-            while self.relay_buffer.queue_not_empty() and \
-                (len(self.relay_buffer) - produce_index) < self.batch_size:
+        while self.replay_buffer.queue_not_empty():
+            while self.replay_buffer.queue_not_empty() and \
+                (len(self.replay_buffer) - produce_index) < self.batch_size:
                 # get from queue
-                self.relay_buffer.add_raw_batch()
+                self.replay_buffer.add_raw_batch()
             batched_data = self._get_batch(produce_index)
             yield batched_data
             batch_count += 1
             produce_index += self.batch_size
         self._read_data_complete = True
-        assert len(self.relay_buffer) == self._total_samples
+        assert len(self.replay_buffer) == self._total_samples
         self._num_batches = batch_count
 
     def next(self):
@@ -207,38 +220,38 @@ class StreamDataset:
         """
         return self._has_next
 
-    def set_dataset(self, queue, episode_id, relay_sample_manager=None, sample_per_episode=-1):
-        relay_buffer = EpisodeRelayBuffer(episode_id, queue=queue)
-        if self._max_relay_episode > 0 and episode_id >= self._relay_episode_offset:
-            self._episode_relay_buffers.append(relay_buffer)
-            if len(self._episode_relay_buffers) > self._max_relay_episode:
-                old_buffer = self._episode_relay_buffers.pop(0)
+    def set_dataset(self, queue, episode_id, replay_sample_manager=None, sample_per_episode=-1):
+        replay_buffer = EpisodeReplayBuffer(episode_id, queue=queue)
+        if self._max_replay_episode > 0 and episode_id >= self._replay_episode_offset:
+            self._episode_replay_buffers.append(replay_buffer)
+            if len(self._episode_replay_buffers) > self._max_replay_episode:
+                old_buffer = self._episode_replay_buffers.pop(0)
                 del old_buffer
 
             # this function will sync until all data computing finished,
             # which will block training until environment rollout finished.
             if os.getenv("SKIP_GENERATION", None) is None:
-                relay_buffer.sync()
-            if relay_sample_manager is None:
-                raise Exception("default relay sample function is not currently supported")
+                replay_buffer.sync()
+            if replay_sample_manager is None:
+                raise Exception("default replay sample function is not currently supported")
 
-            self.relay_sample_manager = relay_sample_manager
-            buffer = self.relay_sample_manager(self._episode_relay_buffers)
-            self.relay_buffer = EpisodeRelayBuffer(episode_id, buffer=buffer)
-            self._total_samples = len(self.relay_buffer)
+            self.replay_sample_manager = replay_sample_manager
+            buffer = self.replay_sample_manager(self._episode_replay_buffers)
+            self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
+            self._total_samples = len(self.replay_buffer)
             self._read_data_complete = True
         else:
             num_rollout_batches = queue.qsize()
-            self.relay_buffer = relay_buffer
-            self.relay_buffer.add_raw_batch()
+            self.replay_buffer = replay_buffer
+            self.replay_buffer.add_raw_batch()
             assert sample_per_episode != -1, "In fixed batch size, you must set sample_per_episode for StreamDataset."
             self._total_samples = sample_per_episode
             self._read_data_complete = num_rollout_batches <= 1
         self.iter = iter(self)
         self._has_next = True
 
-    def episode_relay_buffers(self):
-        return self._episode_relay_buffers
+    def episode_replay_buffers(self):
+        return self._episode_replay_buffers
 
     def total_samples(self):
         return self._total_samples
@@ -247,14 +260,14 @@ class StreamDataset:
         return math.ceil(self._total_samples / self.batch_size)
 
     def get_and_clear_metrics(self):
-        # TODO: deal with situation that relay_sample_manager is None
+        # TODO: deal with situation that replay_sample_manager is None
         try:
-            return self.relay_sample_manager.get_and_clear_metrics()
+            return self.replay_sample_manager.get_and_clear_metrics()
         except Exception:
-            return "no relay", {}
+            return "no replay", {}
 
-class EpisodeRelayBuffer:
-    """EpisodeRelayBuffer"""
+class EpisodeReplayBuffer:
+    """EpisodeReplayBuffer"""
 
     def __init__(self, episode_id, queue=None, buffer=None):
         self._episode_id = episode_id
@@ -310,17 +323,17 @@ class EpisodeRelayBuffer:
         return self._episode_id
 
 
-class RelaySampleManager:
+class ReplaySampleManager:
     """
-    Relay sample Manager, users should inherit it to self-defined relay samples for trainer
+    replay sample Manager, users should inherit it to self-defined replay samples for trainer
     """
     def __init__(self, global_args):
         self.args = global_args
-        self._metric_prefix = "relay"
+        self._metric_prefix = "replay"
         self._metric_list = []
 
-    def __call__(self, episode_relay_buffers: List[EpisodeRelayBuffer]) -> List[Dict]:
-        raise NotImplementedError("default relay sample function is not currently supported")
+    def __call__(self, episode_replay_buffers: List[EpisodeReplayBuffer]) -> List[Dict]:
+        raise NotImplementedError("default replay sample function is not currently supported")
 
     def get_and_clear_metrics(self):
         if self._metric_list is None or len(self._metric_list) == 0:

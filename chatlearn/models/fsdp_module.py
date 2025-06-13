@@ -53,22 +53,8 @@ class FSDPModule(TorchModule):
 
         super().__init__(*args, **kwargs)
 
-        if not self.trainable:
-            # inference only
-            if (
-                self.model_args.get("train_micro_batch_size")
-                != self.module_args.generation_batch_size
-            ):
-                self._logger.info(
-                    f"{self.name} Overwrite train_micro_batch_size with generation_batch_size {self.module_args.generation_batch_size}"
-                )
-            self.train_micro_batch_size = self.module_args.generation_batch_size
-        else:
-            self.train_micro_batch_size = self.runtime_args.train_micro_batch_size
-            self.train_global_batch_size = self.runtime_args.train_global_batch_size
-
         self.fsdp_size = self.module_args.fsdp_size
-        self.sp_size = self.module_args.sp_size
+        self.sp_size = self.module_args.ulysses_sequence_parallel_size
         self.device_mesh = None
         self.sp_device_mesh = None
 
@@ -245,10 +231,9 @@ class FSDPModule(TorchModule):
         """
         super().model_setup()
         self.setup_distributed()
-        args = dict_to_simplenamespace(self.model_args)
+        args = dict_to_simplenamespace(self.module_args)
         self.args = args
-        # model = self.create_model(args.pretrain_or_model, torch_dtype=torch.float32)
-        model = self.create_model(args.pretrain_or_model, torch_dtype=torch.bfloat16)
+        model = self.create_model(args.load, torch_dtype=torch.bfloat16)
         # Setup device mesh and apply patch for sequence parallel
         # Sequence_parallel should only be used during training
         if self.sp_size > 1:
@@ -256,7 +241,7 @@ class FSDPModule(TorchModule):
             self.create_sp_device_mesh()
             apply_sp_monkey_patch(model.config)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            args.pretrain_or_model, trust_remote_code=True, use_fast=True
+            args.load, trust_remote_code=True, use_fast=True
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
         mix_precision_config = MixedPrecision(
@@ -286,9 +271,10 @@ class FSDPModule(TorchModule):
         else:
             self.optimizer = optim.AdamW(
                 self.model.parameters(),
-                lr=self.module_args.args_dict.get("learning_rate", 2e-6),
-                betas=(0.9, 0.999),
-                weight_decay=1e-2
+
+                lr=self.module_args.optimizer.lr,
+                betas=(self.module_args.optimizer.adam_beta1, self.module_args.optimizer.adam_beta2),
+                weight_decay=self.module_args.optimizer.weight_decay
             )
 
         # resume model weights
@@ -421,7 +407,7 @@ class FSDPModule(TorchModule):
         torch.distributed.barrier()
 
         # save for hf format
-        if self.model_args.get("save_hf", True):
+        if self.module_args.get("save_hf", True):
             state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
             with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, state_dict_cfg, None):
                 model_state_dict = self.model.state_dict()

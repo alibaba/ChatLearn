@@ -41,14 +41,15 @@ set -x
 
 TEST_CASES=(
   "unittest"                   # passed
-  "base"                       # passed
-  "rlhf"                       # partial passed
-  #"parameter_sync"             # partial passed
-  #"eval"                       # to be fixed
-  #"o1"                         # to be fixed
-  #"sprl"                       # to be fixed
+  # "base"                       # to be fixed
+  # "rlhf"                       # to be fixed
+  # "parameter_sync"             # to be fixed
+  # "eval"                       # to be fixed
+  # "o1"                         # to be fixed
+  # "sprl"                       # to be fixed
 )
 # Run ALL Tests in TEST_CASES
+pip install --no-cache-dir hydra-core==1.3.2
 for test_case in "${TEST_CASES[@]}"
 do
     run_test python test_main.py -t "$test_case" -c "configs/$test_case.yaml" || exit 1

@@ -422,8 +422,8 @@ class DistModel:
 
     @property
     def enable_offload(self):
-        return self.module_args.free_grad_buffers or self.module_args.offload_weights or \
-            self.module_args.offload_optimizer_states
+        return self.module_args.free_gpu_memory.free_grad_buffers or self.module_args.free_gpu_memory.offload_weights or \
+            self.module_args.free_gpu_memory.offload_optimizer_states
 
     def __str__(self):
         return f"{self.__class__.__name__}({self.name})"

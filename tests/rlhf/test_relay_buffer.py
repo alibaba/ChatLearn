@@ -72,7 +72,7 @@ class PPOValue(TorchModule):
         return num_mb
 
 
-def test_relay_buffer():
+def test_replay_buffer():
     policy = PolicyModel("policy")
     reference = ReferenceModel("reference")
     reward = RewardModel("reward")
@@ -80,17 +80,17 @@ def test_relay_buffer():
     ppo_policy = PPOPolicy("ppo_policy")
     ppo_value = PPOValue("ppo_value")
 
-    chatlearn.get_args().runtime_args.max_relay_episode = 5
+    chatlearn.get_args().runtime_args.max_replay_episode = 5
     chatlearn.get_args().runtime_args.num_episode = 3
     chatlearn.get_args().runtime_args.sample_per_episode = 16
-    chatlearn.get_args().runtime_args.stream_data_loader_type = "relay"
+    chatlearn.get_args().runtime_args.stream_data_loader_type = "replay"
 
     sample_per_episode = chatlearn.get_args().runtime_args.sample_per_episode
 
-    class RelaySampleManagerTester(RelaySampleManager):
-            def __call__(self, episode_relay_buffers):
-                buffer = episode_relay_buffers[-1].buffer
-                episode_id = episode_relay_buffers[-1]._episode_id
+    class ReplaySampleManagerTester(ReplaySampleManager):
+            def __call__(self, episode_replay_buffers):
+                buffer = episode_replay_buffers[-1].buffer
+                episode_id = episode_replay_buffers[-1]._episode_id
                 assert len(buffer) == 1024
                 for i in range(len(buffer)):
                     assert int(buffer[i]['query'][0].item()) == i + episode_id * 1024
@@ -98,8 +98,8 @@ def test_relay_buffer():
 
 
     engine = RLHFEngine(policy, reference, reward, value, ppo_policy, ppo_value)
-    relay_sample_manager = RelaySampleManagerTester(chatlearn.get_args())
-    engine.set_relay_sample_manager(relay_sample_manager)
+    replay_sample_manager = ReplaySampleManagerTester(chatlearn.get_args())
+    engine.set_replay_sample_manager(replay_sample_manager)
     assert policy.num_replica == 1
     assert reference.num_replica == 1
     data = []
@@ -108,8 +108,8 @@ def test_relay_buffer():
     engine.set_dataset(data)
     engine.learn()
     assert len(engine.env._all_datasets[0]) == 35, len(engine.env._all_datasets[0])
-    ref = engine._data_loader.episode_relay_buffers.remote()
-    episode_relay_buffers = ray.get(ref)
+    ref = engine._data_loader.episode_replay_buffers.remote()
+    episode_replay_buffers = ray.get(ref)
     micro_batch_per_episode = ray.get(engine._data_loader.batch_per_episode.remote())
     assert micro_batch_per_episode == 10, micro_batch_per_episode
     assert engine.env.batch_per_episode == 4
@@ -117,6 +117,6 @@ def test_relay_buffer():
 
     engine.stop()
 
-TEST_CASE = [test_relay_buffer]
+TEST_CASE = [test_replay_buffer]
 #TODO breaked from some reason, need to be fixed
 TEST_CASE = []
