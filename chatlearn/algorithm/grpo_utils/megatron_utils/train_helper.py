@@ -110,35 +110,6 @@ def training_log(
         got_nan
     )
 
-    # Logging.
-    timers_to_log = [
-        "forward-backward",
-        "forward-compute",
-        "backward-compute",
-        "batch-generator",
-        "forward-recv",
-        "forward-send",
-        "backward-recv",
-        "backward-send",
-        "forward-send-forward-recv",
-        "forward-send-backward-recv",
-        "backward-send-forward-recv",
-        "backward-send-backward-recv",
-        "forward-backward-send-forward-backward-recv",
-        "layernorm-grads-all-reduce",
-        "embedding-grads-all-reduce",
-        "grads-all-reduce",
-        "grads-reduce-scatter",
-        "params-all-gather",
-        "optimizer-copy-to-main-grad",
-        "optimizer-unscale-and-check-inf",
-        "optimizer-clip-main-grad",
-        "optimizer-count-zeros",
-        "optimizer-inner-step",
-        "optimizer-copy-main-to-model-params",
-        "optimizer",
-    ]
-
     # Calculate batch size.
     batch_size = (
         args.micro_batch_size * args.data_parallel_size * get_num_microbatches()
@@ -219,7 +190,6 @@ def training_log(
             report_memory("(after {} iterations)".format(iteration))
             report_memory_flag = False
         print_datetime("Logger")
-        timers.log(timers_to_log, normalizer=args.log_interval)
 
         if not torch.distributed.is_initialized() or torch.distributed.get_rank() == (
             torch.distributed.get_world_size() - 1

@@ -28,6 +28,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.neg_clip_ratio=0.2 \
         models.ref_policy.tensor_model_parallel_size=2 \
         models.ref_policy.generation_batch_size=2 \
+        models.policy.load=${CHATLEARN}/Qwen2.5-3B-Instruct \
         models.policy.generation_batch_size=256 \
         models.policy.tensor_model_parallel_size=2 \
         models.policy.seq_length=2048 \
