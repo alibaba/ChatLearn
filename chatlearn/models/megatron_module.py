@@ -417,14 +417,15 @@ if IS_MEGATRON_SUPPORTED:
             )
             to_be_merged = []
             for name, params_to_sync in self.named_parameters.items():
+                if 'extra_state' in name:
+                    continue
                 if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
                     to_be_merged.append([name, params_to_sync])
             to_be_merged = sorted(to_be_merged, key=lambda x: x[0])
             self._sparse_params = {}
             for name, params_to_sync in to_be_merged:
-                w, h = params_to_sync.shape
                 out_tensor = torch.empty(
-                    [get_expert_model_parallel_world_size(), w, h],
+                    [get_expert_model_parallel_world_size(), *params_to_sync.shape],
                     dtype=params_to_sync.dtype,
                     device=params_to_sync.device
                 )

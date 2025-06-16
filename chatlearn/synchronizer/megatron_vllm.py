@@ -193,8 +193,10 @@ class MegatronVllmSync(BaseSync):
             src_tp_size = self.src_module_args.args_dict["tensor_model_parallel_size"]
             dst_tp_size = self.dst_module_args.args_dict["tensor_model_parallel_size"]
             heads = self.src_module_args.args_dict["num_attention_heads"] // src_tp_size
-            hidden_size_per_head = self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
-
+            if "kv_channels" in self.src_model_args.args_dict:
+                hidden_size_per_head = self.src_module_args.args_dict["kv_channels"]
+            else:
+                hidden_size_per_head = self.src_module_args.args_dict["hidden_size"] // self.src_module_args.args_dict["num_attention_heads"]
             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
             division = reduce(operator.mul, param_shape, 1)
             num_elements = param_data.numel()
