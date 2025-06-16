@@ -57,6 +57,8 @@ class FSDPModule(TorchModule):
         self.sp_size = self.module_args.ulysses_sequence_parallel_size
         self.device_mesh = None
         self.sp_device_mesh = None
+        self.packing = self.module_args.packing
+        self.max_token_in_seq = self.module_args.max_token_in_packing
 
     def get_visible_gpus(self):
         """
@@ -258,7 +260,7 @@ class FSDPModule(TorchModule):
             device_id=torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mix_precision_config,
-            sync_module_states=True,
+            sync_module_states=False,
             param_init_fn=FSDPModule.init_fn,
             device_mesh=self.device_mesh,
             forward_prefetch=False,

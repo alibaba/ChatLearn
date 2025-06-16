@@ -172,6 +172,10 @@ class BaseModelConfig(BaseConfig):
         default=1,
         metadata={"help": "ulysses sequence parallel size used for fsdp train backend"},
     )
+    packing: bool = field(default=False, metadata={"help": "Whether to use sequence packing"})
+    max_token_in_packing: int = field(
+        default=32768, metadata={"help": "max token in packing when packing is enabled"}
+    )
     generation_batch_size: int = field(
         default=1, metadata={"help": "rollout generation batch size"}
     )
@@ -181,6 +185,7 @@ class BaseModelConfig(BaseConfig):
     free_gpu_memory: FreeGpuMemoryConfig = field(
         default_factory=FreeGpuMemoryConfig, metadata={"help": "free gpu memory config"}
     )
+
 
 
 @dataclass
@@ -457,3 +462,67 @@ class RuntimeConfig(BaseConfig):
             "help": "[optional] log time and memory per `log_interval` iterations."
         },
     )
+
+def _config_validate(cfg):
+    # Check batchsize compatibility
+    sample_per_episode = cfg.runtime_args.sample_per_episode
+    train_global_batch_size = cfg.runtime_args.train_global_batch_size
+    assert sample_per_episode % train_global_batch_size == 0, \
+        "runtime_args.sample_per_episode must be divisible by runtime_args.train_global_batch_size"
+    
+    # Check vllm compatibility
+    vllm_num_inference_per_prompt = cfg.models.policy.num_inference_per_prompt
+    policy_num_gpu = cfg.models.policy.num_gpu
+    assert sample_per_episode % vllm_num_inference_per_prompt == 0, \
+        "total_train_sample must be divisible by models.policy.num_inference_per_prompt"
+    assert policy_num_gpu % cfg.models.policy.tensor_model_parallel_size == 0, \
+        "models.policy.num_gpu must be divisible by tensor_model_parallel_size"
+    vllm_dp_size = policy_num_gpu // cfg.models.policy.tensor_model_parallel_size
+    assert sample_per_episode % vllm_dp_size == 0, (
+        "vllm_dp_size = models.policy.num_gpu // models.policy.tensor_model_parallel_size, \
+            runtime_args.sample_per_episode must be divisible by vllm_dp_size"
+    )
+
+    # Check trainer/ref policy compatibility
+    if cfg.runtime_args.train_backend=='fsdp':
+        # Check FSDP compatibility for policy_trainer
+        trainer_gpu = cfg.models.policy_trainer.num_gpu
+        train_sp_size = cfg.models.policy_trainer.ulysses_sequence_parallel_size
+        assert trainer_gpu % train_sp_size == 0, \
+            "models.policy_trainer.num_gpu must be divisible by models.policy_trainer.ulysses_sequence_parallel_size"
+        train_fsdp_dp_size = trainer_gpu // train_sp_size
+        train_micro_batch_size = cfg.runtime_args.train_micro_batch_size
+        train_generation_batch_size = cfg.models.policy_trainer.generation_batch_size
+        assert train_global_batch_size % (train_fsdp_dp_size * train_micro_batch_size) == 0, (
+            "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size \
+                runtime_args.train_global_batch_size must be divisible by train_fsdp_dp_size"
+        )
+        assert sample_per_episode % train_generation_batch_size == 0, (
+            "runtime_args.sample_per_episode must be divisible by models.policy_trainer.generation_batch_size"
+        )
+        if cfg.models.policy_trainer.packing:
+            assert train_global_batch_size == train_fsdp_dp_size * train_micro_batch_size, (
+                "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size. \
+                    When models.policy_trainer.packing is True, \
+                        runtime_args.train_global_batch_size must be equal to train_fsdp_dp_size * runtime.train_micro_batch_size"
+            )
+            assert sample_per_episode == train_fsdp_dp_size * train_generation_batch_size, (
+                 "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size. \
+                    When models.policy_trainer.packing is True, \
+                        runtime_args.sample_per_episode must be equal to train_fsdp_dp_size * models.policy_trainer.generation_batch_size"
+            )
+
+        # Check FSDP compatibility for ref_policy
+        ref_num_gpu = cfg.models.ref_policy.num_gpu
+        ref_sp_size = cfg.models.ref_policy.ulysses_sequence_parallel_size
+        ref_fsdp_dp_size = ref_num_gpu // ref_sp_size
+        ref_generation_batch_size = cfg.models.ref_policy.generation_batch_size
+        assert sample_per_episode % ref_generation_batch_size == 0, (
+            "runtime_args.sample_per_episode must be divisible by models.ref_policy.generation_batch_size"
+        )
+        if cfg.models.ref_policy.packing:
+            assert sample_per_episode == ref_fsdp_dp_size * ref_generation_batch_size, (
+                "ref_fsdp_dp_size = cfg.models.ref_policy.num_gpu // models.ref_policy.ulysses_sequence_parallel_size. \
+                    When models.policy_trainer.packing is True, \
+                        runtime_args.sample_per_episode must be equal to train_fsdp_dp_size * models.ref_policy.generation_batch_size"
+            )

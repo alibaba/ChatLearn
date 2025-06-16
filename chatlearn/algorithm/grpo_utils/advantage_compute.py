@@ -2,7 +2,7 @@
 from collections import defaultdict
 
 import torch
-
+import random
 
 def compute_grpo_adv(episode_replay_buffers):
     buffers = episode_replay_buffers[-1].buffer
@@ -20,4 +20,6 @@ def compute_grpo_adv(episode_replay_buffers):
         for i, li in enumerate(l):
             li["advantages"] = (rewards[i] - mean) / (std + 1e-5)
         res_buffers.extend(l)
+    # Shuffle train sample to balance training workload across dp_ranks
+    random.shuffle(res_buffers)
     return res_buffers
