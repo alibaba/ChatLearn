@@ -15,9 +15,9 @@ You can use a VPC address to accelerate image pulling. The image address should 
 2. Code Preparation
 
 ```bash
+git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 git clone https://github.com/NVIDIA/Megatron-LM.git
 cd Megatron-LM && git checkout 6ba97dd37150a6bfba03d31808674211cf2a4d0d
-git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 
 ## Data Preparation
@@ -54,11 +54,11 @@ Below codes show how to convert qwen2.5 7B model ckpt.
 ```bash
 wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar
 tar -xvf Pai-Megatron-Patch.tar
-cd ~/Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
+cd Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
 bash hf2mcore_qwen2.5_convertor.sh \
 3B \
-/mnt/qwen-ckpts/Qwen2.5-3B-Instruct  \
-/mnt/qwen-ckpts/Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1 \
+../../../../Qwen2.5-3B-Instruct  \
+../../../../Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1 \
 2  \
 1  \
 bf16 \
@@ -70,12 +70,12 @@ false
 You can run the following command to start training:
 
 ```bash
-export MEGATRON_PATH="your megatron path"
+export MEGATRON_PATH=./Megatron-LM
 bash scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_megatron_vllm_qwen2.5_3b_grpo.sh](../../../scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh):
 
 ```bash
 export WANDB_API_KEY="Your-Wandb-api-key"

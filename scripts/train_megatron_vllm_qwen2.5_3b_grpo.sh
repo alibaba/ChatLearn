@@ -2,7 +2,7 @@
 set -x
 
 export CHATLEARN=$(pwd)
-export MEGATRON_PATH=${CHATLEARN}/../Megatron-LM
+export MEGATRON_PATH=${CHATLEARN}/Megatron-LM
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 

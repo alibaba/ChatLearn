@@ -38,7 +38,7 @@ bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_fsdp_vllm_qwen3_8b_grpo.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh):
 
 ```bash
 export WANDB_API_KEY="Your-Wandb-api-key"

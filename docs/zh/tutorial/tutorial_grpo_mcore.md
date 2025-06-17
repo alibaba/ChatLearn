@@ -14,9 +14,9 @@ dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2
 2. 代码准备
 
 ```bash
+git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 git clone https://github.com/NVIDIA/Megatron-LM.git
 cd Megatron-LM && git checkout 6ba97dd37150a6bfba03d31808674211cf2a4d0d
-git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 
 ## 数据准备
@@ -53,11 +53,11 @@ HG_CKPT_PATH=$9                # HF的CKPT的路径
 ```bash
 wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar
 tar -xvf Pai-Megatron-Patch.tar
-cd ~/Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
+cd Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
 bash hf2mcore_qwen2.5_convertor.sh \
 3B \
-/mnt/qwen-ckpts/Qwen2.5-3B-Instruct  \
-/mnt/qwen-ckpts/Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1 \
+../../../../Qwen2.5-3B-Instruct  \
+../../../../Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1 \
 2  \
 1  \
 bf16 \
@@ -69,12 +69,12 @@ false
 运行以下命令开始训练：
 
 ```bash
-export MEGATRON_PATH="your megatron path"
-bash examples/mcore/scripts/train_grpo_qwen2_5.sh
+export MEGATRON_PATH=./Megatron-LM
+bash scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh
 ```
 
 ## 使用 Wandb 监控
-如需使用 Wandb 记录训练过程，请修改[train_grpo_qwen2_5.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh)中的配置：
+如需使用 Wandb 记录训练过程，请修改[train_megatron_vllm_qwen2.5_3b_grpo.sh](../../../scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh)中的配置：
 
 ```bash
 export WANDB_API_KEY="Your-Wandb-api-key"
