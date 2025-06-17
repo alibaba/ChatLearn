@@ -13,9 +13,8 @@ from chatlearn.utils.communication_op import gather, get_sp_parallel_group
 from .loss_gallery import calculate_grpo_loss
 from .trainer_utils import (logprobs_from_logits,
                             sp_split,
-                            generate_loss_mask_position_ids,
-                            bin_packing,
-                            regroup_data_packing)
+                            generate_loss_mask_position_ids)
+from .packing_utils import regroup_data_packing
 import time
 
 

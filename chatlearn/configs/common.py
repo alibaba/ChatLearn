@@ -504,7 +504,7 @@ def _config_validate(cfg):
             assert train_global_batch_size == train_fsdp_dp_size * train_micro_batch_size, (
                 "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size. \
                     When models.policy_trainer.packing is True, \
-                        runtime_args.train_global_batch_size must be equal to train_fsdp_dp_size * runtime.train_micro_batch_size"
+                        runtime_args.train_global_batch_size must be equal to train_fsdp_dp_size * runtime_args.train_micro_batch_size"
             )
             assert sample_per_episode == train_fsdp_dp_size * train_generation_batch_size, (
                  "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size. \
