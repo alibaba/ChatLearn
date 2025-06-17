@@ -1,8 +1,8 @@
 """compute advantage for grpo"""
 from collections import defaultdict
+import random
 
 import torch
-import random
 
 def compute_grpo_adv(episode_replay_buffers):
     buffers = episode_replay_buffers[-1].buffer

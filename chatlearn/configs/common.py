@@ -469,7 +469,7 @@ def _config_validate(cfg):
     train_global_batch_size = cfg.runtime_args.train_global_batch_size
     assert sample_per_episode % train_global_batch_size == 0, \
         "runtime_args.sample_per_episode must be divisible by runtime_args.train_global_batch_size"
-    
+
     # Check vllm compatibility
     vllm_num_inference_per_prompt = cfg.models.policy.num_inference_per_prompt
     policy_num_gpu = cfg.models.policy.num_gpu

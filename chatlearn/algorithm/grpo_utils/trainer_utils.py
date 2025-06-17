@@ -1,9 +1,24 @@
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Trainer Utilities"""
 from typing import List
+import warnings
 
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
-import warnings
+
 import numpy as np
 
 def logprobs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
@@ -27,7 +42,7 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: l
     # For post-training, we only train on response tokens
     loss_mask = torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
     attn_mask = torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
-    for i in range(len(prompt_token_length)):
+    for i in range(len(prompt_token_length)): # pylint: disable=consider-using-enumerate
         loss_mask[i, prompt_token_length[i]: prompt_token_length[i] + response_token_length[i]] = 1.0
         attn_mask[i, : prompt_token_length[i] + response_token_length[i]] = 1.0
     _, seq_len = tokens.size()
@@ -35,6 +50,7 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: l
     position_ids = position_ids.unsqueeze(0).expand_as(tokens)
 
     return attn_mask, loss_mask, position_ids
+
 def bin_packing(seq_len_list, max_train_token):
     """
     Implementation of best fit decreasing bin packing algorithm
@@ -42,7 +58,7 @@ def bin_packing(seq_len_list, max_train_token):
     if sum(np.array(seq_len_list) > max_train_token) >  0:
         message = f"Max length in microbatch exceeds max_token_in_seq, max length: {max(seq_len_list)}, max_train_token: {max_train_token}"
         warnings.warn(message)
-        
+
     seqlen_id_mapping = {i: seq_len for i, seq_len in enumerate(seq_len_list)}
     sorted_mapping = dict(sorted(seqlen_id_mapping.items(), key=lambda item: item[1], reverse=True))
     bins_id = []
@@ -50,16 +66,16 @@ def bin_packing(seq_len_list, max_train_token):
     for key, value in sorted_mapping.items():
         min_space_left = None
         best_bin_index = None
-        for id, bin in enumerate(bins_seqlen):
-            space_left = max_train_token - sum(bin)
+        for id_, bin_ in enumerate(bins_seqlen):
+            space_left = max_train_token - sum(bin_)
             if space_left > value:
                 if min_space_left is None:
                     min_space_left = space_left
-                    best_bin_index = id
+                    best_bin_index = id_
                 else:
                     if space_left < min_space_left:
-                        min_space_left = min_space_left
-                        best_bin_index = id
+                        min_space_left = space_left
+                        best_bin_index = id_
         if best_bin_index is None:
             bins_id.append([key])
             bins_seqlen.append([value])
@@ -78,15 +94,15 @@ def bin_packing_fix_bin(seq_len_list, bin_size):
     bins_seqlen = [[] for i in range(bin_size)]
     for key, value in sorted_mapping.items():
         min_sum = None
-        for id, bin in enumerate(bins_seqlen):
-            bin_sum = value + sum(bin)
+        for id_, bin_ in enumerate(bins_seqlen):
+            bin_sum = value + sum(bin_)
             if min_sum is None:
                 min_sum = bin_sum
-                best_bin_index = id
+                best_bin_index = id_
             else:
                 if bin_sum < min_sum:
                     min_sum = bin_sum
-                    best_bin_index = id
+                    best_bin_index = id_
         bins_id[best_bin_index].append(key)
         bins_seqlen[best_bin_index].append(value)
     # sort bins by seqlen in  single bin
@@ -102,7 +118,7 @@ def prepare_packing_attn_mask(total_seq_len_list, dtype, pad_size):
     min_dtype = torch.finfo(dtype).min
     causal_mask = torch.full((total_seq_length, total_seq_length), fill_value=min_dtype, dtype=dtype)
     seqlen_gather = 0
-    for i in range(len(total_seq_len_list)):
+    for seq_now in total_seq_len_list:
         seq_now = total_seq_len_list[i]
         tri_mask = torch.tril(torch.ones((seq_now, seq_now), dtype=dtype)) == 0
         causal_mask[seqlen_gather : seqlen_gather + seq_now, seqlen_gather : seqlen_gather + seq_now] *= tri_mask
@@ -115,14 +131,14 @@ def regroup_data_from_list(data_all, data_position):
         return data_all[torch.tensor(data_position)]
     if isinstance(data_all, list):
         return [data_all[item] for item in data_position]
-    
+
 def regroup_data_packing(data_list, key_list, max_train_token):
     # data_b should contain all data in one microbatch
     data_b = data_list[0]
     regroup_data_list = []
     # Get train tokens for whole minibatch
     total_token_length = [
-        prompt_len + response_len 
+        prompt_len + response_len
         for prompt_len, response_len 
         in zip(data_b["prompt_token_length"], data_b["response_token_length"])
     ]
