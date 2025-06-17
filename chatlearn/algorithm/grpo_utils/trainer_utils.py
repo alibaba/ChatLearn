@@ -13,13 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 """Trainer Utilities"""
-from typing import List, Dict
-import warnings
+from typing import List
 
 import torch
 import torch.nn.functional as F
-
-import numpy as np
 
 def logprobs_from_logits(logits: torch.Tensor, labels: torch.Tensor) -> torch.Tensor:
     """
