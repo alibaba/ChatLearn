@@ -25,7 +25,7 @@ We take [MATH-lighteval](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-l
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # preprocess dataset
-python examples/fsdp/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
+python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
 modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
@@ -34,14 +34,17 @@ modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 You can run the following command to start training:
 
 ```bash
-bash examples/fsdp/scripts/train_grpo_qwen3.sh
+bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../examples/fsdp/scripts/train_grpo_qwen3.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh):
 
 ```bash
-export enable_wandb=True
-export wandb_project="Your-Wandb-Project-Name"
 export WANDB_API_KEY="Your-Wandb-api-key"
+```
+Change the configuration to:
+```bash
+runtime_args.log_args_dict.enable_wandb=True
+runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```

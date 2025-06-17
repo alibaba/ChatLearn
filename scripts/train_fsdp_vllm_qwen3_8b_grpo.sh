@@ -4,7 +4,7 @@ set -x
 export CHATLEARN=$(pwd)
 export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
-
+export RAY_DEDUP_LOGS=0
 export exp_name=qwen3-grpo
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
@@ -15,19 +15,21 @@ python chatlearn/entrypoint.py grpo \
         runtime_args.num_episode=200 \
         runtime_args.sample_per_episode=512 \
         runtime_args.train_global_batch_size=512 \
-        runtime_args.train_micro_batch_size=8 \
+        runtime_args.train_micro_batch_size=64 \
         runtime_args.save_episode_interval=5 \
         runtime_args.eval_episode_interval=5 \
-        runtime_args.enable_eval_before_training=False \
+        runtime_args.enable_eval_before_training=True \
+        runtime_args.log_args_dict.enable_wandb=False \
+        runtime_args.log_args_dict.wandb_project=your_wandb_project \
         models.policy_trainer.num_gpu=${num_device} \
-        models.policy_trainer.packing=False \
-        models.policy_trainer.generation_batch_size=8 \
+        models.policy_trainer.packing=True \
+        models.policy_trainer.generation_batch_size=64 \
         models.policy_trainer.ulysses_sequence_parallel_size=1 \
-        models.policy_trainer.load=${CHATLEARN}/Qwen3-8B/ \
+        models.policy_trainer.load=/mnt/workspace/ckpts/huggingface/Qwen3-8B/ \
         models.policy_trainer.optimizer.lr=2e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \
-        models.ref_policy.generation_batch_size=8 \
+        models.ref_policy.generation_batch_size=64 \
         models.policy.generation_batch_size=64 \
         models.policy.tensor_model_parallel_size=1 \
         models.policy.seq_length=2048 \

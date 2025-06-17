@@ -15,7 +15,6 @@ from .trainer_utils import (logprobs_from_logits,
                             sp_split,
                             generate_loss_mask_position_ids)
 from .packing_utils import regroup_data_packing
-import time
 
 
 REF_TAG = "ref_logprobs"
@@ -30,7 +29,6 @@ class PolicyTrainer(FSDPModule):
         self._metric_prefix = "policy_trainer"
 
     def preprocess_data_list(self, data_list, training:bool):
-        top = time.time()
         minibatch_size_per_rank = len(data_list) * data_list[0]["all_tokens"].size(0)
         if self.packing:
             # When packing is enabled, data_list will only contain one microbatch
@@ -254,7 +252,6 @@ class PolicyTrainer(FSDPModule):
         self._metric_list.append(train_stats)
 
     def forward_step(self, data):
-        start = time.time()
         total_size = data['all_tokens'].shape[0]
         ori_seq_len = data['all_tokens'].shape[1]
 

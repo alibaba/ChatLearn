@@ -27,9 +27,9 @@ We take [MATH-lighteval](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-l
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # preprocess dataset
-python examples/mcore/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
+python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen2.5-7B-Instruct --local_dir Qwen2.5-7B-Instruct
+modelscope download --model Qwen/Qwen2.5-3B-Instruct --local_dir Qwen2.5-3B-Instruct
 ```
 
 ## CKPT Conversion
@@ -52,13 +52,14 @@ HG_CKPT_PATH=$9                # huggingface ckpt path
 
 Below codes show how to convert qwen2.5 7B model ckpt.
 ```bash
-git clone --recurse-submodules https://github.com/alibaba/Pai-Megatron-Patch.git
+wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar
+tar -xvf Pai-Megatron-Patch.tar
 cd ~/Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
 bash hf2mcore_qwen2.5_convertor.sh \
-7B \
-/mnt/qwen-ckpts/Qwen2.5-7B-Instruct  \
-/mnt/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1   \
-4  \
+3B \
+/mnt/qwen-ckpts/Qwen2.5-3B-Instruct  \
+/mnt/qwen-ckpts/Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1 \
+2  \
 1  \
 bf16 \
 true \
@@ -70,14 +71,17 @@ You can run the following command to start training:
 
 ```bash
 export MEGATRON_PATH="your megatron path"
-bash examples/mcore/scripts/train_grpo_qwen2_5.sh
+bash scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../examples/mcore/scripts/train_grpo_qwen2_5.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh):
 
 ```bash
-export enable_wandb=True
-export wandb_project="Your-Wandb-Project-Name"
 export WANDB_API_KEY="Your-Wandb-api-key"
+```
+Change the configuration to:
+```bash
+runtime_args.log_args_dict.enable_wandb=True
+runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```

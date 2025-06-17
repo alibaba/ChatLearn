@@ -24,7 +24,7 @@ git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # 数据集预处理
-python examples/fsdp/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
+python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # 下载模型权重
 modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
@@ -33,14 +33,17 @@ modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 运行以下命令开始训练：
 
 ```bash
-bash examples/fsdp/scripts/train_grpo_qwen3.sh
+bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
 ## 使用 Wandb 监控
-如需使用 Wandb 记录训练过程，请修改[train_grpo_qwen3.sh](../../../examples/fsdp/scripts/train_grpo_qwen3.sh)中的配置：
+如需使用 Wandb 记录训练过程，请修改[train_grpo_qwen3.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh)中的配置：
 
 ```bash
-export enable_wandb=True
-export wandb_project="Your-Wandb-Project-Name"
 export WANDB_API_KEY="Your-Wandb-api-key"
+```
+将配置项改为：
+```bash
+runtime_args.log_args_dict.enable_wandb=True
+runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```

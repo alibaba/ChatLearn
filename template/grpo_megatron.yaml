@@ -23,7 +23,12 @@ runtime_args:
   enable_eval_before_training: False
   log_args_dict:
     log_dir: ${runtime_args.output_dir}
-
+    enable_wandb: False
+    wandb_project: your_wandb_project
+    wandb_dir: ${runtime_args.output_dir}
+    wandb_name: ${runtime_args.exp_name}
+    wandb_id: ${runtime_args.exp_name}
+    wandb_resume: allow
 models:
   policy_trainer:
     free_gpu_memory:
