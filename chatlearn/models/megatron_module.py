@@ -268,6 +268,12 @@ if IS_MEGATRON_SUPPORTED:
 
             :meta private:
             """
+            layer_re = re.compile(r'layers\.([0-9]+)')
+            def update_layer_num(start_layer_num, m):
+                # This assumes no interleaved pipeline execution
+                layer = int(m.group(1))
+                layer += start_layer_num
+                return f'layers.{layer}'
             src_layer_offset = self.get_pipeline_stage_layer_offset()
             model = self.megatron_model()
             is_tgt_last_stage = target_pipe_rank == num_target_pipe_stage - 1 and target_pipe_rank != 0
@@ -302,7 +308,6 @@ if IS_MEGATRON_SUPPORTED:
                 name_mapping[tgt_name] = src_name
 
             return name_mapping
-
         def get_local_param_ranks(self):
             """
             :meta private:
