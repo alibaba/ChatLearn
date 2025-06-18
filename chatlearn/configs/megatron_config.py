@@ -179,11 +179,23 @@ class MegatronTrainConfig(BaseConfig):
 
 
 @dataclass
-class MegatronRefPolicyConfig(BaseModelConfig, MegatronTrainConfig):
+class MegatronRefPolicyConfig(BaseModelConfig):
     """RefPolicyConfig"""
     megatron_model_cfg: MegatronModelArchitectureConfig = field(
         default_factory=MegatronModelArchitectureConfig,
         metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
+    )
+    load: str = field(default=MISSING, metadata={"help": "path to reference model"})
+    seed: int = field(default=1234, metadata={"help": "seed"})
+    seq_length: int = field(
+        default=MISSING,
+        metadata={"help": "Maximum sequence length to process."},
+    )
+    tokenizer_type: str = field(
+        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
+    )
+    tokenizer_model: str = field(
+        default=None, metadata={"help": "pretrained model name or path"}
     )
 
 

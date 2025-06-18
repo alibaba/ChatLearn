@@ -18,7 +18,7 @@
 ---
 
 *最新进展* 🔥
-- [2025/5] 训练支持Mcore框架！基于Mcore和vLLM，我们提供了Qwen2.5模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_mcore.md)!🔥
+- [2025/5] 训练支持Mcore框架！基于Mcore和vLLM，我们提供了Qwen3模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_mcore.md)!🔥
 - [2025/5] 训练支持FSDP框架！基于FSDP和vLLM，我们提供了Qwen3模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_fsdp.md)!🔥
 - [2024/8] 正式开源 ChatLearn，更多介绍请参考我们的 [文档](docs/zh/chatlearn.md)。
 

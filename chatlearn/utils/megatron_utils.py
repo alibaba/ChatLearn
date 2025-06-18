@@ -43,7 +43,7 @@ def update_cfg(cfg):
         cfg.models.policy_trainer.megatron_model_cfg.moe_token_dispatcher_type = "alltoall"
         cfg.models.policy_trainer.megatron_model_cfg.moe_router_topk = hf_transformer_config.num_experts_per_tok
         cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type= "seq_aux_loss"
-        cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
+        cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [1] * hf_transformer_config.num_hidden_layers
         cfg.models.policy_trainer.megatron_model_cfg.moe_ffn_hidden_size = hf_transformer_config.moe_intermediate_size
         cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff= 0.001
         

@@ -68,10 +68,6 @@ models:
     seq_length: ${models.policy_trainer.seq_length}
     tokenizer_type: 'HuggingFaceTokenizer'
     tokenizer_model: ${models.policy.load}
-    tensor_model_parallel_size: ${models.policy_trainer.tensor_model_parallel_size}
-    pipeline_model_parallel_size: ${models.policy_trainer.pipeline_model_parallel_size}
-    expert_tensor_parallel_size: ${models.policy_trainer.expert_tensor_parallel_size}
-    expert_model_parallel_size: ${models.policy_trainer.expert_model_parallel_size}
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
