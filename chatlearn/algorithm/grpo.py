@@ -22,7 +22,7 @@ import torch
 from algorithm.base_algo import BaseAlgorithm
 from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
                             PolicyTrainerConfig, RefPolicyConfig,
-                            RuntimeConfig, RuntimeEnvConfig)
+                            RuntimeConfig, RuntimeEnvConfig, _config_validate)
 from configs.megatron_config import (MegatronPolicyTrainerConfig,
                                      MegatronRefPolicyConfig)
 
@@ -115,6 +115,7 @@ class GrpoConfig(BaseConfig):
         self.models.policy_trainer = convert_to_dataclass(
             policytrainer_cls, self.models.policy_trainer
         )
+        _config_validate(self)
 
 
 class GRPOEvaluator(Evaluator):

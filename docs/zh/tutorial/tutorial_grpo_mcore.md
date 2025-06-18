@@ -14,9 +14,9 @@ dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2
 2. 代码准备
 
 ```bash
+git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 git clone https://github.com/NVIDIA/Megatron-LM.git
 cd Megatron-LM && git checkout 6ba97dd37150a6bfba03d31808674211cf2a4d0d
-git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 
 ## 数据准备
@@ -25,10 +25,10 @@ git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 # 下载数据集
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
-# 数据集预处理
-python examples/fsdp/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
-# 下载模型权重
-modelscope download --model Qwen/Qwen2.5-7B-Instruct --local_dir Qwen2.5-7B-Instruct
+# preprocess dataset
+python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
+# download model weight
+modelscope download --model Qwen/Qwen2.5-3B-Instruct --local_dir Qwen2.5-3B-Instruct
 ```
 
 ## 模型转换
@@ -51,13 +51,14 @@ HG_CKPT_PATH=$9                # HF的CKPT的路径
 
 例如，使用下述脚本将7B量级的Qwen2.5的Huggingface格式的模型转换到MCore格式
 ```bash
-git clone --recurse-submodules https://github.com/alibaba/Pai-Megatron-Patch.git
-cd ~/Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
+wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar
+tar -xvf Pai-Megatron-Patch.tar
+cd Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
 bash hf2mcore_qwen2.5_convertor.sh \
-7B \
-/mnt/qwen-ckpts/Qwen2.5-7B-Instruct  \
-/mnt/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1   \
-4  \
+3B \
+../../../../Qwen2.5-3B-Instruct  \
+../../../../Qwen2.5-3B-Instruct-hf-to-mcore-tp2-pp1 \
+2  \
 1  \
 bf16 \
 true \
@@ -68,15 +69,18 @@ false
 运行以下命令开始训练：
 
 ```bash
-export MEGATRON_PATH="your megatron path"
-bash examples/mcore/scripts/train_grpo_qwen2_5.sh
+export MEGATRON_PATH=./Megatron-LM
+bash scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh
 ```
 
 ## 使用 Wandb 监控
-如需使用 Wandb 记录训练过程，请修改[train_grpo_qwen2_5.sh](../../../examples/mcore/scripts/train_grpo_qwen2_5.sh)中的配置：
+如需使用 Wandb 记录训练过程，请修改[train_megatron_vllm_qwen2.5_3b_grpo.sh](../../../scripts/train_megatron_vllm_qwen2.5_3b_grpo.sh)中的配置：
 
 ```bash
-export enable_wandb=True
-export wandb_project="Your-Wandb-Project-Name"
 export WANDB_API_KEY="Your-Wandb-api-key"
+```
+将配置项改为：
+```bash
+runtime_args.log_args_dict.enable_wandb=True
+runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```
