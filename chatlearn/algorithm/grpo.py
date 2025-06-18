@@ -126,11 +126,20 @@ class GRPOEvaluator(Evaluator):
         results = listdict_to_dictlist(results)
         # convert list[tensor(n,1)] to list[float]
         rule_rewards = results.get("rule_rewards", [])
+        data_source = results.get("eval_source", [])
         rule_rewards_flatten = torch.cat(rule_rewards).squeeze().tolist()
-
         reward_score = sum(rule_rewards_flatten) / len(rule_rewards_flatten)
-        eval_reward_stats = {"eval_reward_score": reward_score}
-
+        #eval_reward_stats = {"eval_reward_score": reward_score}
+        data_source_to_id_map = {}
+        for i, source in enumerate(data_source):
+            if source in data_source_to_id_map.keys():
+                data_source_to_id_map[source].append(i)
+            else:
+                data_source_to_id_map[source] = [i]
+        eval_reward_stats = {}
+        for key in data_source_to_id_map.keys():
+            selected = [rule_rewards_flatten[i] for i in data_source_to_id_map[key]]
+            eval_reward_stats["eval_"+key] = sum(selected) / len(selected)
         self._metric_list.append(eval_reward_stats)
 
         return results
