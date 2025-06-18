@@ -69,6 +69,7 @@ models:
     seq_length: ${models.policy_trainer.seq_length}
     tokenizer_type: 'HuggingFaceTokenizer'
     tokenizer_model: ${models.policy.load}
+    bf16: True
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False

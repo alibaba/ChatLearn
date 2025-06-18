@@ -197,6 +197,7 @@ class MegatronRefPolicyConfig(BaseModelConfig):
     tokenizer_model: str = field(
         default=None, metadata={"help": "pretrained model name or path"}
     )
+    bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
 
 
 @dataclass
