@@ -14,13 +14,14 @@
 """Megatron module"""
 import re
 from dataclasses import fields
-
+import functools
 import torch
 import torch.distributed as dist
 
 try:
     from megatron.training import get_args
     from megatron.training.arguments import parse_args
+    from megatron.training.utils import unwrap_model
     from megatron.core import parallel_state as mpu
     from megatron.training.initialize import initialize_megatron, set_jit_fusion_options
     from megatron.training.training import save_checkpoint_and_time
