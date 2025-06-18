@@ -97,8 +97,10 @@ if IS_MEGATRON_SUPPORTED:
             set_megatron_cfg(self.module_args)
 
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
-            args.micro_batch_size = self.runtime_args.train_micro_batch_size if self.trainable else self.module_args.generation_batch_size
-            args.global_batch_size = self.runtime_args.train_global_batch_size if self.trainable else self.module_args.generation_batch_size
+            #args.micro_batch_size = self.runtime_args.train_micro_batch_size if self.trainable else self.module_args.generation_batch_size
+            #args.global_batch_size = self.runtime_args.train_global_batch_size if self.trainable else self.module_args.generation_batch_size
+            args.micro_batch_size = self.runtime_args.train_micro_batch_size
+            args.global_batch_size = self.runtime_args.train_global_batch_size
             initialize_megatron(parsed_args=args)
 
             if self.trainable:

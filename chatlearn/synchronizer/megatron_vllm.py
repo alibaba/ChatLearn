@@ -210,10 +210,6 @@ class MegatronVllmSync(BaseSync):
             else:
                 if self.src_megatron_model_cfg["group_query_attention"]:
                     num_query_groups = self.src_megatron_model_cfg["num_query_groups"]
-                    assert num_query_groups == self.dst_module_args["num_query_groups"], (
-                        f"num_query_groups of src model ({num_query_groups}) must be equal to num_query_groups of "
-                        f"dst model ({self.dst_moduel_args['num_query_groups']}). Please double-check your config."
-                    )
                     src_num_query_groups_per_replica = num_query_groups // src_tp_size
                     if dst_tp_size >= num_query_groups:
                         num_dst_kv_head_replicas = dst_tp_size // num_query_groups

@@ -20,8 +20,6 @@ import sys
 import traceback
 from typing import Dict, Tuple, Type, Any
 from omegaconf import OmegaConf
-from transformers import AutoConfig
-from omegaconf.dictconfig import DictConfig
 import hydra
 from hydra.core.global_hydra import GlobalHydra
 from hydra.core.config_store import ConfigStore
@@ -89,30 +87,6 @@ class ChatlearnLauncher:
         except Exception as e:
             raise RuntimeError(f"Failed to load algorithm: {algo_name} ({str(e)})") from e
 
-    def _update_external_config(self, hf_transformer_config: AutoConfig, external_cfg: DictConfig) -> DictConfig:
-        # external_cfg['policy_trainer']['megatron_model_cfg']
-        # transformers.models.qwen3.configuration_qwen3.Qwen3Config
-        # omegaconf.dictconfig.DictConfig
-        megatron_model_cfg = {}
-        megatron_model_cfg['num_layers'] = hf_transformer_config.num_hidden_layers
-        megatron_model_cfg['hidden_size'] = hf_transformer_config.hidden_size
-        megatron_model_cfg['num_attention_heads'] = hf_transformer_config.num_attention_heads
-        megatron_model_cfg['ffn_hidden_size'] = hf_transformer_config.intermediate_size
-        megatron_model_cfg['num_query_groups'] = hf_transformer_config.num_key_value_heads
-        megatron_model_cfg['max_position_embeddings'] = hf_transformer_config.max_position_embeddings
-        megatron_model_cfg['add_qkv_bias'] = hf_transformer_config.hidden_size
-        megatron_model_cfg['add_bias_linear'] = hf_transformer_config.hidden_size
-        megatron_model_cfg['rotary_base'] = hf_transformer_config.rope_theta
-        megatron_model_cfg['norm_epsilon'] = hf_transformer_config.rms_norm_eps
-        megatron_model_cfg['group_query_attention'] = True
-        megatron_model_cfg['untie_embeddings_and_output_weights'] = not hf_transformer_config.tie_word_embeddings
-        megatron_model_cfg['group_query_attention'] = hf_transformer_config.hidden_size
-        megatron_model_cfg['untie_embeddings_and_output_weights'] = hf_transformer_config.hidden_size
-        megatron_model_cfg['vocab_size'] = hf_transformer_config.vocab_size
-
-        OmegaConf.update(external_cfg['models']['policy_trainer'], 'megatron_model_cfg', megatron_model_cfg)
-        
-        return external_cfg
 
     def _run_algorithm(self, algo_args) -> None:
         algo_cls, config_cls = self._load_algorithm(algo_args.algorithm)
@@ -121,10 +95,9 @@ class ChatlearnLauncher:
         GlobalHydra.instance().clear()
         with hydra.initialize(config_path=None, version_base=None):
             cfg = hydra.compose(config_name=algo_args.algorithm)
+
             if algo_args.config_file is not None:
                 external_cfg = OmegaConf.load(algo_args.config_file)
-                hf_model_path = None
-                train_backend = None 
                 for arg in algo_args.hydra_args:
                     if '=' in arg:
                         key, value = arg.split('=', 1)
@@ -133,13 +106,8 @@ class ChatlearnLauncher:
                             OmegaConf.update(external_cfg, key, value.lower().strip() == 'true')
                         else:
                             OmegaConf.update(external_cfg, key, origin_type(value))
-                    if 'models.policy.load' in arg:
-                        hf_model_path = arg.split('=', 1)[1]
-                    if 'train_backend' in arg:
-                        train_backend = arg.split('=', 1)[1]
-                if train_backend == "megatron":
-                    hf_transformer_config = AutoConfig.from_pretrained(hf_model_path)
-                    external_cfg = self._update_external_config(hf_transformer_config, external_cfg)
+
+
                 cfg = OmegaConf.merge(cfg, external_cfg) # include $
             cfg = OmegaConf.to_object(cfg) # real cfg
             instance = algo_cls(cfg)
@@ -148,7 +116,7 @@ class ChatlearnLauncher:
 
     def run(self) -> None:
         args, _ = self.parser.parse_known_args()
-        
+
         if not args.algorithm:
             self.parser.print_help()
             return
@@ -159,7 +127,7 @@ class ChatlearnLauncher:
             sys.exit(1)
 
         algo_args = self.parser.parse_args()
- 
+
         try:
             self._run_algorithm(algo_args)
         except Exception:

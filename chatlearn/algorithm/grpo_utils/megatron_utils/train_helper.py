@@ -19,7 +19,7 @@ from functools import partial
 
 import torch
 from megatron.core.num_microbatches_calculator import get_num_microbatches
-from megatron.training import (get_args, get_timers, is_last_rank,
+from megatron.training import (get_args, get_timers, is_last_rank, get_tokenizer,
                                print_rank_last)
 from megatron.training.training import print_datetime
 from megatron.training.utils import (average_losses_across_data_parallel_group,
@@ -27,8 +27,6 @@ from megatron.training.utils import (average_losses_across_data_parallel_group,
                                      report_memory, unwrap_model)
 
 from chatlearn.utils import to_device
-
-from .tokenizer_utils import get_tokenizer
 
 
 def pad_to_max_len(all_tokens_right_padded, max_len, pad_value):
@@ -219,7 +217,7 @@ def get_batch(batch_data):
     tokens_ = data_b["all_tokens"].long()
 
     max_size = args.seq_length + 1
-    tokens_ = pad_to_max_len(tokens_, max_size, pad_value=get_tokenizer().eod_id)
+    tokens_ = pad_to_max_len(tokens_, max_size, pad_value=get_tokenizer().eod)
 
     labels = tokens_[:, 1:].contiguous()
     tokens = tokens_[:, :-1].contiguous()
@@ -233,7 +231,7 @@ def get_batch(batch_data):
     # Get the masks and position ids.
     attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
         tokens,
-        get_tokenizer().eod_id,
+        get_tokenizer().eod,
         args.reset_position_ids,
         args.reset_attention_mask,
         args.eod_mask_loss,
@@ -297,14 +295,14 @@ def inference_get_batch(data_iter):
 
     # pad to max seq length or to tp*N
     max_size = args.seq_length + 1
-    pad_all_tokens = pad_to_max_len(tokens_, max_size, pad_value=get_tokenizer().eod_id)
+    pad_all_tokens = pad_to_max_len(tokens_, max_size, pad_value=get_tokenizer().eod)
 
     labels = pad_all_tokens[:, 1:]
     tokens_ = pad_all_tokens[:, :-1]
 
     attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
         tokens_,
-        get_tokenizer().eod_id,
+        get_tokenizer().eod,
         args.reset_position_ids,
         args.reset_attention_mask,
         args.eod_mask_loss,
