@@ -39,6 +39,7 @@ models:
       lr: 2e-6
       min_lr: 2e-6
       clip_grad: 1
+    bf16: True
     seq_length: 2048
     tokenizer_type: 'HuggingFaceTokenizer'
     tokenizer_model: ${models.policy.load}

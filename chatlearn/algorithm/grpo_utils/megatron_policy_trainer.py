@@ -179,7 +179,6 @@ class MegatronPolicyTrainer(MegatronModule):
                 )
 
         with build_model_context(**build_model_context_args):
-            from torch import distributed as dist
             model = PolicyModel(
                 config=config,
                 transformer_layer_spec=transformer_layer_spec,
