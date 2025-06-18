@@ -106,8 +106,6 @@ class ChatlearnLauncher:
                             OmegaConf.update(external_cfg, key, value.lower().strip() == 'true')
                         else:
                             OmegaConf.update(external_cfg, key, origin_type(value))
-
-
                 cfg = OmegaConf.merge(cfg, external_cfg) # include $
             cfg = OmegaConf.to_object(cfg) # real cfg
             instance = algo_cls(cfg)
