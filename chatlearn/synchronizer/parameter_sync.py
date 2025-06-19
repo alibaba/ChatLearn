@@ -1098,7 +1098,7 @@ class ParameterSyncGroup:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
         else:
             # TODO: when two groups share more than two ranks, they could not be run simutaniously
-            # Examine the actor mapping or implement an automatic multi-thread strategy to avoid 
+            # Examine the actor mapping or implement an automatic multi-thread strategy to avoid
             # this problem. max_workers = len(sorted_send_actors) # fully-parallel
             max_workers = 1 # sequential
             logger.info(f"Use {max_workers} workers for first_stage broadcasting.")
