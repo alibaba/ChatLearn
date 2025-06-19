@@ -1,5 +1,22 @@
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""patches for qwen3-moe model"""
+from concurrent.futures import ThreadPoolExecutor
+
 import torch
-import torch.nn as nn
+from torch import nn
 import torch.nn.functional as F
 
 from transformer_engine.pytorch.cpp_extensions import grouped_gemm
@@ -9,10 +26,9 @@ from transformer_engine.pytorch.permutation import (
     moe_unpermute,
 )
 from transformers.activations import ACT2FN
-import gc
-from concurrent.futures import ThreadPoolExecutor
 
 class GroupGemm(torch.autograd.Function):
+    # Autograd function for grouped gemm
     @staticmethod
     def forward(
         ctx,
@@ -26,7 +42,6 @@ class GroupGemm(torch.autograd.Function):
         n_gemm = len(m_splits)
         weights = weights_bias[:n_gemm]
         bias = weights_bias[n_gemm:]
-        #print(bias)
         in_features = weights[0].shape[-1]
         inputmats = torch.split(inp.view(-1, in_features), m_splits)
         output_tensor = torch.empty(
@@ -34,8 +49,6 @@ class GroupGemm(torch.autograd.Function):
             dtype=activation_dtype,
             device=inputmats[0].device,
         )
-        # print(f"weight dtype: {weights[0].dtype}")
-        # print(f"input dtype: {inputmats[0].dtype}")
         _ = grouped_gemm(
             weights,
             inputmats,
@@ -45,15 +58,16 @@ class GroupGemm(torch.autograd.Function):
             bias=bias,
             use_bias=use_bias,
         )
-        ctx.save_for_backward(
-            *inputmats,
-            *weights,
-        )
-        ctx.m_splits = m_splits
-        ctx.num_gemm = n_gemm
-        ctx.activation_dtype = activation_dtype
-        ctx.use_bias = use_bias
-        ctx.inp_shape = inp.shape
+        if is_grad_enabled:
+            ctx.save_for_backward(
+                *inputmats,
+                *weights,
+            )
+            ctx.m_splits = m_splits
+            ctx.num_gemm = n_gemm
+            ctx.activation_dtype = activation_dtype
+            ctx.use_bias = use_bias
+            ctx.inp_shape = inp.shape
         return output_tensor.view(-1, *inp.shape[1:-1], output_tensor.shape[-1])
 
     @staticmethod
@@ -123,19 +137,18 @@ def grouped_linear(inp, m_splits, use_bias, is_grad_enabled, activation_dtype, w
     return output
 
 class MoeGroupMLP(nn.Module):
+    # Group MLP Layer
     def __init__(self, config, intermediate_size):
         super().__init__()
         self.num_experts = config.num_experts
-        # gating
         hidden_size = config.hidden_size
         self.gate_weight = nn.Parameter(torch.empty(intermediate_size * self.num_experts, hidden_size))
         self.up_weight = torch.nn.Parameter(torch.empty(intermediate_size * self.num_experts, hidden_size))
         self.down_weight = torch.nn.Parameter(torch.empty(hidden_size * self.num_experts, intermediate_size))
         self.act_fn = ACT2FN[config.hidden_act]
-    
-    def forward(self, hidden_states, router_weights, ori_shape, selected_experts, topk_map, token_per_expert) -> torch.Tensor:
-        # expert_mask = torch.nn.functional.one_hot(selected_experts, num_classes=self.num_experts).permute(2, 1, 0)
-        batch_size, sequence_length, hidden_dim = ori_shape
+
+    def forward(self, hidden_states, router_weights, ori_shape, selected_experts, token_per_expert) -> torch.Tensor:
+        _, sequence_length, _ = ori_shape
         topk = router_weights.shape[1]
 
         grouped_input, row_id_map = moe_permute(hidden_states, selected_experts)
@@ -169,12 +182,13 @@ class MoeGroupMLP(nn.Module):
             weights_bias = self.down_weight,
             num_experts=self.num_experts
         )
-        final_hidden_states = moe_unpermute(down_output, row_id_map, probs)#.reshape(batch_size * sequence_length, 8, hidden_dim)
+        final_hidden_states = moe_unpermute(down_output, row_id_map, probs)
         final_hidden_states = final_hidden_states.view(topk, sequence_length, -1).permute(1,0,2)
         final_hidden_states = torch.sum(final_hidden_states, dim=1).squeeze(1)
         return final_hidden_states
 
 class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
+    # MOE Block support grouped linear
     def __init__(self, config):
         super().__init__()
         self.num_experts = config.num_experts
@@ -184,18 +198,17 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
         # gating
         self.gate = nn.Linear(config.hidden_size, config.num_experts, bias=False)
         self.group_mlp = MoeGroupMLP(config, config.moe_intermediate_size)
-    
+
     def topk_expert(self, logits):
         routing_weights = F.softmax(logits, dim=1, dtype=torch.float)
         routing_weights, selected_experts = torch.topk(routing_weights, self.top_k, dim=-1)
         if self.norm_topk_prob:  # only diff with mixtral sparse moe block!
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
-        topk_masked_gates = torch.zeros_like(logits, dtype=routing_weights.dtype).scatter(1, selected_experts, routing_weights)
         topk_map = torch.zeros_like(logits).int().scatter(1, selected_experts, 1).bool()
         tokens_per_expert = topk_map.sum(dim=0)
         return routing_weights, selected_experts, topk_map, tokens_per_expert
+
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
-        """ """
         batch_size, sequence_length, hidden_dim = hidden_states.shape
         ori_shape = (batch_size, sequence_length, hidden_dim)
         hidden_states = hidden_states.view(-1, hidden_dim)
@@ -203,14 +216,16 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
         router_logits = self.gate(hidden_states)
         routing_weights, selected_experts, topk_map, tokens_per_expert = self.topk_expert(router_logits)
 
-        final_hidden_states = self.group_mlp(hidden_states, routing_weights.to(hidden_states.dtype), ori_shape, selected_experts, topk_map, tokens_per_expert)
+        final_hidden_states = self.group_mlp(
+                                hidden_states, 
+                                routing_weights.to(hidden_states.dtype), 
+                                ori_shape, 
+                                selected_experts, 
+                                tokens_per_expert)
         return final_hidden_states, router_logits
-
-import time
 
 def apply_group_gemm_patch(model):
     cnt = 0
-    cpy_cost = []
     with torch.device('meta'):
         dummy_moe_layer = Qwen3MoeSparseMoeBlock_Grouped(model.config)
     num_experts = model.config.num_experts
@@ -222,7 +237,7 @@ def apply_group_gemm_patch(model):
         end_idx_0 = (i + 1) * size_0
         start_idx_1 = i * size_1
         end_idx_1 = (i + 1) * size_1
-        
+
         moe_group_layer.group_mlp.gate_weight.data[start_idx_0:end_idx_0].copy_(
             layer.mlp.experts[i].gate_proj.weight.data
         )
@@ -234,20 +249,13 @@ def apply_group_gemm_patch(model):
         )
 
     for layer in model.model.layers:
-        start = time.time()
         cnt += 1
         if model.device.type == 'meta':
-            #print(f"debugyy : {model.device}")
             with torch.device('meta'):
                 moe_group_layer = Qwen3MoeSparseMoeBlock_Grouped(model.config).to(model.dtype)
         else:
-            #print(f"prepare layer: {time.time() - start}")
             moe_group_layer = Qwen3MoeSparseMoeBlock_Grouped(model.config).to(model.dtype)
             moe_group_layer.gate.weight.data.copy_(layer.mlp.gate.weight.data)
-            # for i in range(num_experts):
-            #     moe_group_layer.group_mlp.gate_weight.data[i * size_0: (i + 1) * size_0].copy_(layer.mlp.experts[i].gate_proj.weight.data)
-            #     moe_group_layer.group_mlp.up_weight.data[i * size_0: (i + 1) * size_0].copy_(layer.mlp.experts[i].up_proj.weight.data)
-            #     moe_group_layer.group_mlp.down_weight.data[i * size_1: (i + 1) * size_1].copy_(layer.mlp.experts[i].down_proj.weight.data)
             with ThreadPoolExecutor(max_workers=16) as executor:
                 futures = [
                     executor.submit(
@@ -258,12 +266,6 @@ def apply_group_gemm_patch(model):
                 ]
                 for future in futures:
                     future.result()
-        cpy_cost.append(time.time() - start)
-        print(f"copy weights: {cpy_cost[-1]}")
         old_mlp = layer.mlp
         del old_mlp
         layer.register_module("mlp",  moe_group_layer)
-        print(f"total cost for one layer: {time.time() - start}")
-    #gc.collect()
-        #print(f"clean and register: {time.time() - start}")
-        

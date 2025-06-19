@@ -304,7 +304,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             rebuild_func, rebuild_args = reduced
             reconstructed_tensor = rebuild_func(*rebuild_args)
            # print(f"{name}: {reconstructed_tensor.shape}")
-            if name.split('.')[-1] in mapping.keys():
+            if name.split('.')[-1] in mapping:
                 reconstructed_tensor = torch.chunk(reconstructed_tensor, n_expert, dim=0)
                 for i in range(n_expert):
                     part = name.split('.')[-1]
