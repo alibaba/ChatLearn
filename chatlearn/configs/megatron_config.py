@@ -4,9 +4,9 @@ from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
-from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
-
 from megatron.training.arguments import moe_freq_type
+
+from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
 
 
 @dataclass
@@ -82,11 +82,11 @@ class MegatronModelArchitectureConfig(BaseConfig):
         metadata={"help": "Number of Experts in MoE (None means no MoE)"},
     )
     moe_grouped_gemm: bool = field(
-        default=False, metadata={"help": "When there are multiple experts per rank, launch multiple local GEMM kernels in multiple streams to improve the utilization and performance with GroupedLinear in TransformerEngine."}
+        default=False, metadata={"help": "open moe grouped gemm"}
     )
     moe_token_dispatcher_type: str = field(
         default="allgather",
-        metadata={"help": "The type of token dispatcher to use. The default is 'allgather'. Options are 'allgather', 'alltoall' and 'alltoall_seq'. We recommend using 'alltoall' when applying expert parallelism. For more information, please refer to the documentation in core/moe/README."},
+        metadata={"help": "The type of token dispatcher to use."},
     )
     moe_router_topk: int = field(
         default=2,
@@ -112,7 +112,6 @@ class MegatronModelArchitectureConfig(BaseConfig):
 
 @dataclass
 class MegatronTrainConfig(BaseConfig):
-    
     expert_tensor_parallel_size: int = field(
         default=None, metadata={"help": "expert model parallel size for Megatron-Core"}
     )

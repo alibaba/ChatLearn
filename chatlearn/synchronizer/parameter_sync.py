@@ -1406,3 +1406,4 @@ class ParameterSyncGroup:
         self.reset_synchronizer()
 
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
+        

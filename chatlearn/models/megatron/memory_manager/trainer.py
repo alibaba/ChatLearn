@@ -356,3 +356,4 @@ class TrainerMemoryManager(BaseTrainerMemoryManager):
             flat_main_weights.copy_to_primary_store()
 
         self._main_weights_offloaded = True
+        

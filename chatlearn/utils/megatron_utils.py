@@ -48,7 +48,6 @@ def update_cfg(cfg):
         cfg.models.policy_trainer.megatron_model_cfg.moe_ffn_hidden_size = hf_transformer_config.moe_intermediate_size
         cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff= 0.001
         
-
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg
 
     return cfg
