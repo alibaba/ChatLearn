@@ -155,11 +155,11 @@ class MegatronTrainConfig(BaseConfig):
         },
     )
     sequence_parallel: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Enable sequence parallel optimization for mcore"},
     )
     use_distributed_optimizer: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "use_distributed_optimizer"},
     )
     no_load_optim: bool = field(

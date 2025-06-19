@@ -73,12 +73,12 @@ models:
     tokenizer_model: ${models.policy.load}
     bf16: True
     sequence_parallel: True
-    tensor_model_parallel_size: 1
-    pipeline_model_parallel_size: 1
-    expert_tensor_parallel_size: 1
-    expert_model_parallel_size: 1
+    tensor_model_parallel_size: ${models.policy_trainer.tensor_model_parallel_size}
+    pipeline_model_parallel_size: ${models.policy_trainer.pipeline_model_parallel_size}
+    expert_tensor_parallel_size: ${models.policy_trainer.expert_tensor_parallel_size}
+    expert_model_parallel_size: ${models.policy_trainer.expert_model_parallel_size}
     gpu_per_process: 1
-    num_gpu: 1
+    num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     load: ${models.policy_trainer.load}
   policy:
@@ -87,7 +87,7 @@ models:
     tensor_model_parallel_size: 2
     generation_batch_size: 256
     gpu_per_process: 1
-    num_gpu: 1
+    num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     # args_dict:
     load: your_hf_model_path

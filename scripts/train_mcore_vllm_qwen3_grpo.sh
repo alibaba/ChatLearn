@@ -41,7 +41,6 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.enable_eval_before_training=true \
         models.policy_trainer.num_gpu=${num_device} \
         models.policy_trainer.bf16=true \
-        models.policy_trainer.trainable=true \
         models.policy_trainer.sequence_parallel=true \
         models.policy_trainer.use_distributed_optimizer=true \
         models.policy_trainer.recompute_granularity='selective' \
@@ -57,20 +56,14 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.optimizer.min_lr=2e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \
-        models.ref_policy.num_gpu=${num_device} \
-        models.ref_policy.tensor_model_parallel_size=4 \
-        models.ref_policy.pipeline_model_parallel_size=1 \
-        models.ref_policy.expert_tensor_parallel_size=1 \
-        models.ref_policy.expert_model_parallel_size=1 \
-        models.ref_policy.generation_batch_size=128 \
-        models.policy.num_gpu=${num_device} \
+        models.reward.generation_batch_size=128 \
         models.policy.load=${hf_ckpt_path} \
         models.policy.generation_batch_size=128 \
-        models.policy.tensor_model_parallel_size=4 \
+        models.policy.tensor_model_parallel_size=8 \
         models.policy.seq_length=2048 \
         models.policy.max_seq_len_to_capture=2348 \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=False \
-        models.reward.generation_batch_size=128 \
+        
         2>&1 | tee ${log_file} ; exit ${PIPESTATUS[0]}
