@@ -14,13 +14,14 @@
 """Megatron module"""
 import re
 from dataclasses import fields
-
+import functools
 import torch
 import torch.distributed as dist
 
 try:
     from megatron.training import get_args
     from megatron.training.arguments import parse_args
+    from megatron.training.utils import unwrap_model
     from megatron.core import parallel_state as mpu
     from megatron.training.initialize import initialize_megatron, set_jit_fusion_options
     from megatron.training.training import save_checkpoint_and_time
@@ -97,8 +98,9 @@ if IS_MEGATRON_SUPPORTED:
             set_megatron_cfg(self.module_args)
 
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
-            args.micro_batch_size = self.runtime_args.train_micro_batch_size if self.trainable else self.module_args.generation_batch_size
-            args.global_batch_size = self.runtime_args.train_global_batch_size if self.trainable else self.module_args.generation_batch_size
+            args.micro_batch_size = self.runtime_args.train_micro_batch_size
+            args.global_batch_size = self.runtime_args.train_global_batch_size
+            args.bf16 = self.module_args.bf16
             initialize_megatron(parsed_args=args)
 
             if self.trainable:
@@ -266,6 +268,12 @@ if IS_MEGATRON_SUPPORTED:
 
             :meta private:
             """
+            layer_re = re.compile(r'layers\.([0-9]+)')
+            def update_layer_num(start_layer_num, m):
+                # This assumes no interleaved pipeline execution
+                layer = int(m.group(1))
+                layer += start_layer_num
+                return f'layers.{layer}'
             src_layer_offset = self.get_pipeline_stage_layer_offset()
             model = self.megatron_model()
             is_tgt_last_stage = target_pipe_rank == num_target_pipe_stage - 1 and target_pipe_rank != 0
@@ -300,7 +308,6 @@ if IS_MEGATRON_SUPPORTED:
                 name_mapping[tgt_name] = src_name
 
             return name_mapping
-
         def get_local_param_ranks(self):
             """
             :meta private:
@@ -421,14 +428,15 @@ if IS_MEGATRON_SUPPORTED:
             )
             to_be_merged = []
             for name, params_to_sync in self.named_parameters.items():
+                if 'extra_state' in name:
+                    continue
                 if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
                     to_be_merged.append([name, params_to_sync])
             to_be_merged = sorted(to_be_merged, key=lambda x: x[0])
             self._sparse_params = {}
             for name, params_to_sync in to_be_merged:
-                w, h = params_to_sync.shape
                 out_tensor = torch.empty(
-                    [get_expert_model_parallel_world_size(), w, h],
+                    [get_expert_model_parallel_world_size(), *params_to_sync.shape],
                     dtype=params_to_sync.dtype,
                     device=params_to_sync.device
                 )

@@ -4,6 +4,8 @@ from dataclasses import dataclass, field
 
 from omegaconf import MISSING
 
+from megatron.training.arguments import moe_freq_type
+
 from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
 
 
@@ -31,9 +33,6 @@ class MegatronModelArchitectureConfig(BaseConfig):
     )
     num_query_groups: int = field(
         default=MISSING, metadata={"help": "num query groups"}
-    )
-    seq_length: int = field(
-        default=MISSING, metadata={"help": "Maximum sequence length to process."}
     )
     max_position_embeddings: int = field(
         default=MISSING,
@@ -71,23 +70,63 @@ class MegatronModelArchitectureConfig(BaseConfig):
     untie_embeddings_and_output_weights: bool = field(
         default=MISSING, metadata={"help": "Untie embeddings and output weights."}
     )
-    tokenizer_type: str = field(
-        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
-    )
-    patch_tokenizer_type: str = field(
-        default=MISSING,
-        metadata={"help": "What type of tokenizer to use. should match true model"},
+    qk_layernorm: bool = field(
+        default=MISSING, metadata={"help": "qk layer norm"}
     )
     vocab_size: int = field(default=32000)
-    extra_vocab_size: int = field(
-        default=MISSING, metadata={"help": "config vocab_size - tokenizer vocab_size"}
+    kv_channels: int = field(
+        default=MISSING, metadata={"help": "kv channels"}
     )
+    num_experts: int = field(
+        default=None,
+        metadata={"help": "Number of Experts in MoE (None means no MoE)"},
+    )
+    moe_grouped_gemm: bool = field(
+        default=False, metadata={"help": "open moe grouped gemm"}
+    )
+    moe_token_dispatcher_type: str = field(
+        default="allgather",
+        metadata={"help": "The type of token dispatcher to use."},
+    )
+    moe_router_topk: int = field(
+        default=2,
+        metadata={"help": "Number of experts to route to for each token. The default is 2."},
+    )
+    moe_router_load_balancing_type: str = field(
+        default="aux_loss",
+        metadata={"help": "Determines the load balancing strategy for the router."},
+    )
+    moe_layer_freq: moe_freq_type = field(
+        default=1,
+        metadata={"help": "Frequency between MoE layers and Dense layers."},
+    )
+    moe_ffn_hidden_size: int = field(
+        default=None,
+        metadata={"help": "The hidden size of each expert\'s feed-forward network (ffn). "},
+    )
+    moe_aux_loss_coeff: float = field(
+        default=0.0, metadata={"help": "Scaling coefficient for the aux loss: a starting value of 1e-2 is recommended."}
+    )
+
 
 
 @dataclass
 class MegatronTrainConfig(BaseConfig):
+    expert_tensor_parallel_size: int = field(
+        default=None, metadata={"help": "expert model parallel size for Megatron-Core"}
+    )
     load: str = field(default=MISSING, metadata={"help": "path to train model"})
     save: str = field(default=MISSING, metadata={"help": "path to save model"})
+    tokenizer_type: str = field(
+        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
+    )
+    tokenizer_model: str = field(
+        default=None, metadata={"help": "pretrained model name or path"}
+    )
+    seq_length: int = field(
+        default=MISSING,
+        metadata={"help": "Maximum sequence length to process."},
+    )
     save_interval: int = field(
         default=MISSING,
         metadata={"help": "Number of iterations between persistent checkpoint saves."},
@@ -115,8 +154,12 @@ class MegatronTrainConfig(BaseConfig):
         },
     )
     sequence_parallel: bool = field(
-        default=True,
+        default=False,
         metadata={"help": "Enable sequence parallel optimization for mcore"},
+    )
+    use_distributed_optimizer: bool = field(
+        default=False,
+        metadata={"help": "use_distributed_optimizer"},
     )
     no_load_optim: bool = field(
         default=True,
@@ -148,9 +191,26 @@ class MegatronRefPolicyConfig(BaseModelConfig):
         default_factory=MegatronModelArchitectureConfig,
         metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
     )
-
     load: str = field(default=MISSING, metadata={"help": "path to reference model"})
     seed: int = field(default=1234, metadata={"help": "seed"})
+    sequence_parallel: bool = field(
+        default=True,
+        metadata={"help": "Enable sequence parallel optimization for mcore"},
+    )
+    seq_length: int = field(
+        default=MISSING,
+        metadata={"help": "Maximum sequence length to process."},
+    )
+    tokenizer_type: str = field(
+        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
+    )
+    tokenizer_model: str = field(
+        default=None, metadata={"help": "pretrained model name or path"}
+    )
+    bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
+    expert_tensor_parallel_size: int = field(
+        default=None, metadata={"help": "expert model parallel size for Megatron-Core"}
+    )
 
 
 @dataclass
