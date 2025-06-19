@@ -35,6 +35,7 @@ def update_cfg(cfg):
     cfg.models.policy_trainer.megatron_model_cfg.untie_embeddings_and_output_weights = not hf_transformer_config.tie_word_embeddings
     cfg.models.policy_trainer.megatron_model_cfg.vocab_size = hf_transformer_config.vocab_size
     cfg.models.policy_trainer.megatron_model_cfg.qk_layernorm = True
+    cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
 
     # moe cfgs
     if "Qwen3MoeForCausalLM" == hf_transformer_config.architectures[0]:

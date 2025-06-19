@@ -56,6 +56,8 @@ models:
     save: ${runtime_args.output_dir}
     save_interval: 10000
     sequence_parallel: True
+    use_distributed_optimizer: True
+    recompute_granularity: 'selective'
     train_iters: 10000
     # other 
     pos_clip_ratio: 0.2
@@ -70,8 +72,13 @@ models:
     tokenizer_type: 'HuggingFaceTokenizer'
     tokenizer_model: ${models.policy.load}
     bf16: True
+    sequence_parallel: True
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    expert_tensor_parallel_size: 1
+    expert_model_parallel_size: 1
     gpu_per_process: 1
-    num_gpu: ${models.policy_trainer.num_gpu}
+    num_gpu: 1
     trainable: False
     load: ${models.policy_trainer.load}
   policy:
@@ -80,7 +87,7 @@ models:
     tensor_model_parallel_size: 2
     generation_batch_size: 256
     gpu_per_process: 1
-    num_gpu: ${models.policy_trainer.num_gpu}
+    num_gpu: 1
     trainable: False
     # args_dict:
     load: your_hf_model_path

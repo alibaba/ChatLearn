@@ -129,16 +129,16 @@ class TrainerMemoryManager(BaseTrainerMemoryManager):
                             BucketizedFlatTensors([buffer.param_data], self._bucket_size_mb, 'cpu')
                         )
 
-                # Remove references from params
-                for p in self._model.parameters():
-                    # save the shape for reconstruction
-                    p._saved_shape = p.shape
-                    p.data = FlatTensors._EMPTY_TENSOR
+            # Remove references from params
+            for p in self._model.parameters():
+                # save the shape for reconstruction
+                p._saved_shape = p.shape
+                p.data = FlatTensors._EMPTY_TENSOR
 
-                # Remove references from buckets
-                for buffer in self._buffers:
-                    for bucket in buffer.buckets:
-                        bucket.param_data = None
+            # Remove references from buckets
+            for buffer in self._buffers:
+                for bucket in buffer.buckets:
+                    bucket.param_data = None
         elif self._group_flat_weights is None:
             optimizer_groups = []
             for optimizer in self._get_optimizers():

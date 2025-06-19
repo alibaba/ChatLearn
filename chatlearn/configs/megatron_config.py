@@ -74,6 +74,9 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=MISSING, metadata={"help": "qk layer norm"}
     )
     vocab_size: int = field(default=32000)
+    kv_channels: int = field(
+        default=MISSING, metadata={"help": "kv channels"}
+    )
     num_experts: int = field(
         default=None,
         metadata={"help": "Number of Experts in MoE (None means no MoE)"},
@@ -155,6 +158,10 @@ class MegatronTrainConfig(BaseConfig):
         default=True,
         metadata={"help": "Enable sequence parallel optimization for mcore"},
     )
+    use_distributed_optimizer: bool = field(
+        default=True,
+        metadata={"help": "use_distributed_optimizer"},
+    )
     no_load_optim: bool = field(
         default=True,
         metadata={"help": "Do not load optimizer when loading checkpoint."},
@@ -187,6 +194,10 @@ class MegatronRefPolicyConfig(BaseModelConfig):
     )
     load: str = field(default=MISSING, metadata={"help": "path to reference model"})
     seed: int = field(default=1234, metadata={"help": "seed"})
+    sequence_parallel: bool = field(
+        default=True,
+        metadata={"help": "Enable sequence parallel optimization for mcore"},
+    )
     seq_length: int = field(
         default=MISSING,
         metadata={"help": "Maximum sequence length to process."},
@@ -198,6 +209,9 @@ class MegatronRefPolicyConfig(BaseModelConfig):
         default=None, metadata={"help": "pretrained model name or path"}
     )
     bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
+    expert_tensor_parallel_size: int = field(
+        default=None, metadata={"help": "expert model parallel size for Megatron-Core"}
+    )
 
 
 @dataclass

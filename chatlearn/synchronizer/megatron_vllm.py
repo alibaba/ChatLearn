@@ -110,7 +110,10 @@ class MegatronVllmSync(BaseSync):
                 checkpoint_version = 3.0
                 tp_size = self.src_module_args["tensor_model_parallel_size"]
                 heads = self.src_megatron_model_cfg["num_attention_heads"] // tp_size
-                hidden_size_per_head =  self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
+                if "kv_channels" in self.src_megatron_model_cfg:
+                    hidden_size_per_head =  self.src_megatron_model_cfg["kv_channels"]
+                else:
+                    hidden_size_per_head =  self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
                 if self._to_fix_qkv_ordering_func is split_attn_state:
                     _num_query_groups = self.src_megatron_model_cfg["num_query_groups"]//tp_size  \
                         if self.src_megatron_model_cfg["group_query_attention"] else heads
@@ -191,7 +194,11 @@ class MegatronVllmSync(BaseSync):
             src_tp_size = self.src_module_args["tensor_model_parallel_size"]
             dst_tp_size = self.dst_module_args["tensor_model_parallel_size"]
             heads = self.src_megatron_model_cfg["num_attention_heads"] // src_tp_size
-            hidden_size_per_head = self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
+            #hidden_size_per_head = self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
+            if "kv_channels" in self.src_megatron_model_cfg:
+                hidden_size_per_head =  self.src_megatron_model_cfg["kv_channels"]
+            else:
+                hidden_size_per_head =  self.src_megatron_model_cfg["hidden_size"] // self.src_megatron_model_cfg["num_attention_heads"]
 
             param_shape = (3, heads, hidden_size_per_head) + param_data_shape[1:]
             division = reduce(operator.mul, param_shape, 1)
@@ -358,8 +365,19 @@ class MegatronVllmMoonlightSync(MegatronVllmSync):
         params_to_sync_list = super().transform_parameters(params_to_sync_list)
         params_to_sync_list = self.stack_group_gemm(params_to_sync_list)
         params_to_sync_list = self.collect_linear_kv_down_proj(params_to_sync_list)
+        params_to_sync_list = self.transform_exper_bias(params_to_sync_list)
         return params_to_sync_list
 
+    def transform_exper_bias(self, params_to_sync_list):
+        """
+            Megatron will convert expert_bias to fp32 in the first forward step
+            for precision, however during parameter sync, we need to convert it back
+            to keep consistency with vLLM.
+        """
+        for i, (name, params_to_sync) in enumerate(params_to_sync_list):
+            if 'expert_bias' in name:
+                params_to_sync_list[i] = (name, params_to_sync.to(torch.bfloat16))
+        return params_to_sync_list
     def map_src_to_dst(self, src_names, src_pipe_layer_offset):
         self._to_fix_qkv_ordering_func = split_attn_state
         return MCore2MoonlightSyncMap(src_names, src_pipe_layer_offset)

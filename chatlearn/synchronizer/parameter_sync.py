@@ -923,8 +923,7 @@ class ParameterSyncGroup:
             if key not in self._send_recv_param_names:
                 self._send_recv_param_names[key] = (dst_names, dst_names)
             else:
-                dst_names0 = self._send_recv_param_names[key][0]
-                dst_names0 += dst_names
+                dst_names0 = self._send_recv_param_names[key][0] + dst_names
                 self._send_recv_param_names[key] = (dst_names0, dst_names0)
         if not self.synchronizer.is_parameter_changed:
             pipe_stage = self.get_actor_pipe_rank(send_actor)
@@ -1098,7 +1097,11 @@ class ParameterSyncGroup:
                 else:
                     raise RuntimeError("support p2p only for scenes that trainer_tp not equal to inference_tp.")
         else:
-            max_workers = len(sorted_send_actors)
+            # TODO: when two groups share more than two ranks, they could not be run simutaniously
+            # Examine the actor mapping or implement an automatic multi-thread strategy to avoid 
+            # this problem.
+            # max_workers = len(sorted_send_actors) # fully-parallel
+            max_workers = 1 # sequential
             logger.info(f"Use {max_workers} workers for first_stage broadcasting.")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = []
