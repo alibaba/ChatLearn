@@ -25,3 +25,11 @@ def apply_sp_monkey_patch(model_config):
         register_sp_attention_forward()
     else:
         raise ValueError(f"Unsupported model architecture: {model_config.architectures}")
+
+def apply_group_gemm(model):
+    if model.config.architectures[0] == "Qwen3MoeForCausalLM":
+        from chatlearn.models.patches.transformers.qwen3_moe_patch import apply_group_gemm_patch \
+            # pylint: disable=import-outside-toplevel
+        apply_group_gemm_patch(model)
+    else:
+        raise ValueError(f"Unsupported model architecture: {model_config.architectures} for groupgemm patch")

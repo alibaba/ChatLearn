@@ -23,6 +23,8 @@ python chatlearn/entrypoint.py grpo \
         runtime_args.log_args_dict.wandb_project=your_wandb_project \
         models.policy_trainer.num_gpu=${num_device} \
         models.policy_trainer.packing=True \
+        models.policy_trainer.meta_init=False \
+        models.policy_trainer.groupgemm=False \
         models.policy_trainer.generation_batch_size=64 \
         models.policy_trainer.ulysses_sequence_parallel_size=1 \
         models.policy_trainer.load=${CHATLEARN}/Qwen3-8B/ \

@@ -176,6 +176,12 @@ class BaseModelConfig(BaseConfig):
     max_token_in_packing: int = field(
         default=32768, metadata={"help": "max token in packing when packing is enabled"}
     )
+    meta_init: bool = field(
+        default=False, metadata={"help": "Whether to use meta init for FSDP. When using groupgemm, recommend enable meta init"}
+    )
+    groupgemm: bool = field(
+        default=False, metadata={"help": "Whether to use groupgemm patch for moe, now only support qwen3moe model"}
+    )
     generation_batch_size: int = field(
         default=1, metadata={"help": "rollout generation batch size"}
     )

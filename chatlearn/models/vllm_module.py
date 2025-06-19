@@ -61,6 +61,11 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self._model = None
         self.llm = None
         self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
+        if self.model_config.architectures[0] == "Qwen3MoeForCausalLM":
+            self.param_update_fn = self.update_weights_from_ipc_handles_qwen3_moe
+        else:
+            self.param_update_fn = self.update_weights_from_ipc_handles_naive
+
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
@@ -80,7 +85,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         group.add_argument('--distributed-timeout-minutes', type=int, default=10,
                            help='Timeout minutes for torch.distributed.')
         return parser
-
     def init_engine_args(self):
         dtype = self.module_args.get("dtype", "bfloat16")
         if self.module_args.get("fp16", False):
@@ -290,12 +294,33 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             sampling_params.use_beam_search = self.module_args.get("use_beam_search", False)
         return sampling_params
 
-    def update_weights_from_ipc_handles(self, reduce_data):
+    def update_weights_from_ipc_handles_qwen3_moe(self, reduce_data):
+        n_expert = self.model_config.num_experts
+        mapping = {
+            'gate_weight': 'gate_proj.weight',
+            'up_weight': 'up_proj.weight',
+            'down_weight': 'down_proj.weight'}
+        for name, reduced in reduce_data.items():
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor = rebuild_func(*rebuild_args)
+           # print(f"{name}: {reconstructed_tensor.shape}")
+            if name.split('.')[-1] in mapping:
+                reconstructed_tensor = torch.chunk(reconstructed_tensor, n_expert, dim=0)
+                for i in range(n_expert):
+                    part = name.split('.')[-1]
+                    local_name = name.replace('group_mlp', f"experts.{i}").replace(part, mapping[part])
+                    self.model.load_weights([(local_name, reconstructed_tensor[i])])
+            else:
+                self.model.load_weights([(name, reconstructed_tensor)])
 
+    def update_weights_from_ipc_handles_naive(self, reduce_data):
         for name, reduced in reduce_data.items():
             rebuild_func, rebuild_args = reduced
             reconstructed_tensor = rebuild_func(*rebuild_args)
             self.model.load_weights([(name, reconstructed_tensor)])
+
+    def update_weights_from_ipc_handles(self, reduce_data):
+        self.param_update_fn(reduce_data)
 
     def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
         # resume from stage checkpoint.
