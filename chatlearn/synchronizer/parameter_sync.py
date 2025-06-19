@@ -1099,8 +1099,7 @@ class ParameterSyncGroup:
         else:
             # TODO: when two groups share more than two ranks, they could not be run simutaniously
             # Examine the actor mapping or implement an automatic multi-thread strategy to avoid 
-            # this problem.
-            # max_workers = len(sorted_send_actors) # fully-parallel
+            # this problem. max_workers = len(sorted_send_actors) # fully-parallel
             max_workers = 1 # sequential
             logger.info(f"Use {max_workers} workers for first_stage broadcasting.")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -1406,4 +1405,3 @@ class ParameterSyncGroup:
         self.reset_synchronizer()
 
         logger.info(f"Group {self.group_name} sync all parameters done, comm_type {self._comm_type}")
-        
