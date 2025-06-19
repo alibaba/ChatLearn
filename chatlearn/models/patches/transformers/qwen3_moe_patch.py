@@ -28,7 +28,7 @@ from transformer_engine.pytorch.permutation import (
 from transformers.activations import ACT2FN
 
 class GroupGemm(torch.autograd.Function):
-    # Autograd function for grouped gemm
+    """ Autograd function for grouped gemm"""
     @staticmethod
     def forward(
         ctx,
@@ -137,7 +137,7 @@ def grouped_linear(inp, m_splits, use_bias, is_grad_enabled, activation_dtype, w
     return output
 
 class MoeGroupMLP(nn.Module):
-    # Group MLP Layer
+    """ Group MLP Layer """
     def __init__(self, config, intermediate_size):
         super().__init__()
         self.num_experts = config.num_experts
@@ -188,7 +188,7 @@ class MoeGroupMLP(nn.Module):
         return final_hidden_states
 
 class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
-    # MOE Block support grouped linear
+    """ MOE Block support grouped linear """
     def __init__(self, config):
         super().__init__()
         self.num_experts = config.num_experts
@@ -206,7 +206,7 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
             routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
         topk_map = torch.zeros_like(logits).int().scatter(1, selected_experts, 1).bool()
         tokens_per_expert = topk_map.sum(dim=0)
-        return routing_weights, selected_experts, topk_map, tokens_per_expert
+        return routing_weights, selected_experts, tokens_per_expert
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
@@ -214,14 +214,15 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
         hidden_states = hidden_states.view(-1, hidden_dim)
         # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
-        routing_weights, selected_experts, topk_map, tokens_per_expert = self.topk_expert(router_logits)
+        routing_weights, selected_experts, tokens_per_expert = self.topk_expert(router_logits)
 
         final_hidden_states = self.group_mlp(
-                                hidden_states, 
-                                routing_weights.to(hidden_states.dtype), 
-                                ori_shape, 
-                                selected_experts, 
-                                tokens_per_expert)
+                                hidden_states,
+                                routing_weights.to(hidden_states.dtype),
+                                ori_shape,
+                                selected_experts,
+                                tokens_per_expert
+                                )
         return final_hidden_states, router_logits
 
 def apply_group_gemm_patch(model):

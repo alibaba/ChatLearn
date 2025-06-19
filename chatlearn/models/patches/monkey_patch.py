@@ -28,7 +28,7 @@ def apply_sp_monkey_patch(model_config):
 
 def apply_group_gemm(model):
     if model.config.architectures[0] == "Qwen3MoeForCausalLM":
-        from chatlearn.models.patches.transformers.qwen3_moe_patch import apply_group_gemm_patch
+        from chatlearn.models.patches.transformers.qwen3_moe_patch import apply_group_gemm_patch \
             # pylint: disable=import-outside-toplevel
         apply_group_gemm_patch(model)
     else:
