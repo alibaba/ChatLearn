@@ -30,13 +30,13 @@ from torch.distributed.fsdp.wrap import (size_based_auto_wrap_policy, transforme
 from torch.distributed.fsdp._runtime_utils import _lazy_init
 from torch.multiprocessing.reductions import reduce_tensor
 
-from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.trainer_pt_utils import get_module_class_from_name
 
 from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
-from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch
+from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from .torch_module import TorchModule
 
 
@@ -180,13 +180,24 @@ class FSDPModule(TorchModule):
         )
         self.timers("empty_cache").stop()
 
-    def create_model(self, model_path, torch_dtype):
-        model = AutoModelForCausalLM.from_pretrained(
-            pretrained_model_name_or_path=model_path,
-            torch_dtype=torch_dtype,
-            attn_implementation="flash_attention_2",
-            trust_remote_code=True,
-        )
+    def create_model(self, model_path, torch_dtype, meta_init):
+        if not meta_init:
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model_name_or_path=model_path,
+                torch_dtype=torch_dtype,
+                attn_implementation="flash_attention_2",
+                trust_remote_code=True,
+            )
+        else:
+            model_config = AutoConfig.from_pretrained(model_path)
+            with torch.device('meta'):
+                model = AutoModelForCausalLM.from_config(
+                    model_config,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=True
+                )
+        dist.barrier()
         return model
 
     @property
@@ -235,7 +246,14 @@ class FSDPModule(TorchModule):
         self.setup_distributed()
         args = dict_to_simplenamespace(self.module_args)
         self.args = args
-        model = self.create_model(args.load, torch_dtype=torch.bfloat16)
+
+        local_rank = dist.get_rank()
+        # When meta_init is enabled, we only load checkpoint on rank 0
+        meta_init = self.module_args.meta_init and local_rank != 0
+        model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
+        if self.module_args.groupgemm:
+            apply_group_gemm(model)
+            dist.barrier()
         # Setup device mesh and apply patch for sequence parallel
         # Sequence_parallel should only be used during training
         if self.sp_size > 1:
@@ -253,6 +271,8 @@ class FSDPModule(TorchModule):
         )
         sharding_strategy = ShardingStrategy.FULL_SHARD
         auto_wrap_policy = self.get_fsdp_wrap_policy(module = model)
+        # If meta_init is True, other rank need to sync params from rank 0
+        sync_module_states = self.module_args.meta_init
         self.model = FSDP(
             model,
             cpu_offload=None,
@@ -260,7 +280,7 @@ class FSDPModule(TorchModule):
             device_id=torch.cuda.current_device(),
             sharding_strategy=sharding_strategy,  # zero3
             mixed_precision=mix_precision_config,
-            sync_module_states=False,
+            sync_module_states=sync_module_states,
             param_init_fn=FSDPModule.init_fn,
             device_mesh=self.device_mesh,
             forward_prefetch=False,

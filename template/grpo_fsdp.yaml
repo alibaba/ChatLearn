@@ -46,6 +46,8 @@ models:
     fsdp_size: ${models.policy_trainer.num_gpu}
     ulysses_sequence_parallel_size: 1
     packing: False
+    meta_init: False
+    groupgemm: False
     max_token_in_packing: 32768
     load: your_hf_model_path
     gradient_checkpointing: True
@@ -59,6 +61,8 @@ models:
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
     fsdp_size: ${models.policy_trainer.num_gpu}
+    meta_init: ${models.policy_trainer.meta_init}
+    groupgemm: ${models.policy_trainer.groupgemm}
     trainable: False
     load: ${models.policy_trainer.load}
     packing: ${models.policy_trainer.packing}
