@@ -38,6 +38,7 @@ from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.utils.utils import listdict_to_dictlist
+from chatlearn.utils.megatron_utils import update_cfg
 
 try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
@@ -182,6 +183,9 @@ class GrpoAlgorithm(BaseAlgorithm):
     """GrpoAlgorithm"""
 
     def __init__(self, cfg: GrpoConfig) -> None:
+        if cfg.runtime_args.train_backend == "megatron":
+            cfg = update_cfg(cfg)
+
         self.cfg = cfg
 
     def run(self) -> None:

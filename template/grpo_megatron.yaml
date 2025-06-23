@@ -30,7 +30,7 @@ runtime_args:
     wandb_id: ${runtime_args.exp_name}
     wandb_resume: allow
 models:
-  policy_trainer:
+  policy_trainer: 
     free_gpu_memory:
       offload_weights: True
       offload_optimizer_states: True
@@ -39,33 +39,26 @@ models:
       lr: 2e-6
       min_lr: 2e-6
       clip_grad: 1
+    bf16: True
+    seq_length: 2048
+    tokenizer_type: 'HuggingFaceTokenizer'
+    tokenizer_model: ${models.policy.load}
     trainable: True
     generation_batch_size: 8
     gpu_per_process: 1
-    num_gpu: 2
-    tensor_model_parallel_size: 2
+    num_gpu: 1
+    tensor_model_parallel_size: 1
+    pipeline_model_parallel_size: 1
+    expert_tensor_parallel_size: 1
+    expert_model_parallel_size: 1
     # train config
     load: your_megatron_model_path
     save: ${runtime_args.output_dir}
     save_interval: 10000
     sequence_parallel: True
+    use_distributed_optimizer: True
+    recompute_granularity: 'selective'
     train_iters: 10000
-    # model arch
-    megatron_model_cfg:
-      num_layers: 36
-      hidden_size: 2048
-      num_attention_heads: 16
-      ffn_hidden_size: 11008
-      num_query_groups: 2
-      seq_length: 2048
-      max_position_embeddings: 32768
-      add_qkv_bias: True
-      add_bias_linear: False
-      rotary_base: 1000000
-      group_query_attention: True
-      untie_embeddings_and_output_weights: False
-      patch_tokenizer_type: Qwen2Tokenizer
-      extra_vocab_size: 293
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
@@ -75,12 +68,19 @@ models:
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 8
+    seq_length: ${models.policy_trainer.seq_length}
+    tokenizer_type: 'HuggingFaceTokenizer'
+    tokenizer_model: ${models.policy.load}
+    bf16: True
+    sequence_parallel: True
+    tensor_model_parallel_size: ${models.policy_trainer.tensor_model_parallel_size}
+    pipeline_model_parallel_size: ${models.policy_trainer.pipeline_model_parallel_size}
+    expert_tensor_parallel_size: ${models.policy_trainer.expert_tensor_parallel_size}
+    expert_model_parallel_size: ${models.policy_trainer.expert_model_parallel_size}
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
-    tensor_model_parallel_size: 2
     trainable: False
     load: ${models.policy_trainer.load}
-    megatron_model_cfg: ${models.policy_trainer.megatron_model_cfg}
   policy:
     free_gpu_memory:
       offload_weights: True
