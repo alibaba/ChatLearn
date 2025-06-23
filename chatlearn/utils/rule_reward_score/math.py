@@ -215,6 +215,6 @@ def strip_string(string):
 
 if __name__ == "__main__":
 
-    pred = "step by step and output the final answer within \\boxed{073}"
-    gt = "73"
+    pred = "step by step and output the final answer within \\boxed{18}"
+    gt = "18"
     print(compute_score(pred, gt))

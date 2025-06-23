@@ -147,8 +147,8 @@ class MoeGroupMLP(nn.Module):
         self.down_weight = torch.nn.Parameter(torch.empty(hidden_size * self.num_experts, intermediate_size))
         self.act_fn = ACT2FN[config.hidden_act]
 
-    def forward(self, hidden_states, router_weights, ori_shape, selected_experts, token_per_expert) -> torch.Tensor:
-        _, sequence_length, _ = ori_shape
+    def forward(self, hidden_states, router_weights, selected_experts, token_per_expert) -> torch.Tensor:
+        flat_seqlen = hidden_states.shape[0]
         topk = router_weights.shape[1]
 
         grouped_input, row_id_map = moe_permute(hidden_states, selected_experts)
@@ -183,7 +183,7 @@ class MoeGroupMLP(nn.Module):
             num_experts=self.num_experts
         )
         final_hidden_states = moe_unpermute(down_output, row_id_map, probs)
-        final_hidden_states = final_hidden_states.view(topk, sequence_length, -1).permute(1,0,2)
+        final_hidden_states = final_hidden_states.view(topk, flat_seqlen, -1).permute(1,0,2)
         final_hidden_states = torch.sum(final_hidden_states, dim=1).squeeze(1)
         return final_hidden_states
 
@@ -219,10 +219,10 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
         final_hidden_states = self.group_mlp(
                                 hidden_states,
                                 routing_weights.to(hidden_states.dtype),
-                                ori_shape,
                                 selected_experts,
                                 tokens_per_expert
                                 )
+        final_hidden_states = final_hidden_states.view(ori_shape)
         return final_hidden_states, router_logits
 
 def apply_group_gemm_patch(model):
