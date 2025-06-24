@@ -29,14 +29,14 @@ modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/M
 # preprocess dataset
 python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen2.5-3B-Instruct --local_dir Qwen2.5-3B-Instruct
+modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
 
 ## CKPT Conversion
 
 Please check [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch) for detailed ckpt conversion
 
-Below codes show how to convert qwen2.5 7B model ckpt.
+Below codes show how to convert qwen3 8B model ckpt.
 ```bash
 cd Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
 bash scripts/qwen3/run_8xH20.sh \
