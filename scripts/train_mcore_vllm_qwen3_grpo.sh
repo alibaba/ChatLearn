@@ -29,8 +29,8 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.exp_name=${exp_name} \
         runtime_args.log_args_dict.enable_tensorboard=True \
         runtime_args.train_backend=megatron \
-        runtime_args.data_path=/mnt/data/datasets/gsm8k/train.json \
-        runtime_args.eval_data_path=/mnt/data/datasets/gsm8k/test.json \
+        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
+        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=50 \
         runtime_args.sample_per_episode=2048 \
