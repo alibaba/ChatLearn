@@ -13,12 +13,10 @@ export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatr
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
-#hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen3-8B
-#mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore
-hf_ckpt_path=${CHATLEARN}/Qwen3-30B-A3B
-mcore_ckpt_path=${CHATLEARN}/Qwen3-30B-A3B-to-mcore
+hf_ckpt_path=${CHATLEARN}/Qwen3-8B
+mcore_ckpt_path=${CHATLEARN}/Qwen3-8B-to-mcore
 
-exp_name="test_qwen3_30b"
+exp_name="test_qwen3_8b"
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
@@ -49,9 +47,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.train_iters=50 \
         models.policy_trainer.seq_length=2048 \
         models.policy_trainer.tensor_model_parallel_size=4 \
-        models.policy_trainer.pipeline_model_parallel_size=4 \
-        models.policy_trainer.expert_tensor_parallel_size=4 \
-        models.policy_trainer.expert_model_parallel_size=1 \
+        models.policy_trainer.pipeline_model_parallel_size=1 \
         models.policy_trainer.generation_batch_size=128 \
         models.policy_trainer.load=${mcore_ckpt_path} \
         models.policy_trainer.save_interval=1000000 \
