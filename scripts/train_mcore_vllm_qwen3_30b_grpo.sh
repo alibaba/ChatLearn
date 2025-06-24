@@ -9,7 +9,7 @@ export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
-export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250621
+export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250328
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
