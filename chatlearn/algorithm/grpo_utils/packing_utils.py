@@ -111,7 +111,7 @@ def merge_data_list(data_list: List):
     for data_all in data_list:
         for key in data_all:
             merged_data[key].append(data_all[key])
-    for key in merged_data:
+    for key in merged_data: # pylint: disable=consider-using-dict-items
         if isinstance(merged_data[key][0], torch.Tensor):
             merged_data[key] = torch.cat(merged_data[key], dim=0)
         elif isinstance(merged_data[key][0], list):

@@ -42,7 +42,7 @@ try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
     from configs.megatron_config import (MegatronPolicyTrainerConfig,
-                                     MegatronRefPolicyConfig)
+                                         MegatronRefPolicyConfig)
 except Exception:
     traceback.print_exc()
     print("please set megatron path for running megatron backend")
