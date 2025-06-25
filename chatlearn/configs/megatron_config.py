@@ -96,6 +96,13 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default="aux_loss",
         metadata={"help": "Determines the load balancing strategy for the router."},
     )
+    moe_router_dtype: str = field(
+        default=None,
+        metadata={"help": "moe_router_dtype"},
+    )
+    moe_router_pre_softmax: bool = field(
+        default=False, metadata={"help": "moe_router_pre_softmax"}
+    )
     moe_layer_freq: moe_freq_type = field(
         default=1,
         metadata={"help": "Frequency between MoE layers and Dense layers."},
@@ -130,6 +137,12 @@ class MegatronTrainConfig(BaseConfig):
     save_interval: int = field(
         default=MISSING,
         metadata={"help": "Number of iterations between persistent checkpoint saves."},
+    )
+    log_interval: int = field(
+        default=1,
+        metadata={
+            "help": "[optional] log time and memory per `log_interval` iterations."
+        },
     )
     train_iters: int = field(
         default=MISSING,

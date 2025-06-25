@@ -24,6 +24,8 @@ runtime_args:
   log_args_dict:
     log_dir: ${runtime_args.output_dir}
     enable_wandb: False
+    enable_tensorboard: False
+    tensorboard_dir: ${runtime_args.output_dir}
     wandb_project: your_wandb_project
     wandb_dir: ${runtime_args.output_dir}
     wandb_name: ${runtime_args.exp_name}
@@ -55,6 +57,7 @@ models:
     load: your_megatron_model_path
     save: ${runtime_args.output_dir}
     save_interval: 10000
+    log_interval: 1
     sequence_parallel: True
     use_distributed_optimizer: True
     recompute_granularity: 'selective'

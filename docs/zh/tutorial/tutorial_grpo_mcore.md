@@ -48,11 +48,11 @@ bf16
 运行以下命令开始训练：
 
 ```bash
-bash scripts/train_mcore_vllm_qwen3_grpo.sh
+bash scripts/train_mcore_vllm_qwen3_8b_grpo.sh
 ```
 
 ## 使用 Wandb 监控
-如需使用 Wandb 记录训练过程，请修改[train_mcore_vllm_qwen3_grpo.sh](../../../scripts/train_mcore_vllm_qwen3_grpo.sh)中的配置：
+如需使用 Wandb 记录训练过程，请修改[train_mcore_vllm_qwen3_8b_grpo.sh](../../../scripts/train_mcore_vllm_qwen3_8b_grpo.sh)中的配置：
 
 ```bash
 export WANDB_API_KEY="Your-Wandb-api-key"
