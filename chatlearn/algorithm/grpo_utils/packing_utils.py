@@ -101,9 +101,26 @@ def regroup_data_from_list(data_all: Dict, data_position: List[int]):
     if isinstance(data_all, list):
         return [data_all[item] for item in data_position]
 
+def merge_data_list(data_list: List):
+    if len(data_list) == 1:
+        return data_list[0]
+    # Extract all data
+    merged_data = {}
+    for key in data_list[0]:
+        merged_data[key] = []
+    for data_all in data_list:
+        for key in data_all:
+            merged_data[key].append(data_all[key])
+    for key in merged_data:
+        if isinstance(merged_data[key][0], torch.Tensor):
+            merged_data[key] = torch.cat(merged_data[key], dim=0)
+        elif isinstance(merged_data[key][0], list):
+            merged_data[key] = [item for sub_list in merged_data[key] for item in sub_list]
+    return merged_data
+
 def regroup_data_packing(data_list: List, key_list: List[str], max_train_token: int):
     # data_b should contain all data in one microbatch
-    data_b = data_list[0]
+    data_b = merge_data_list(data_list)
     regroup_data_list = []
     # Get train tokens for whole minibatch
     total_token_length = [
