@@ -41,7 +41,7 @@ from chatlearn.utils.megatron_utils import update_cfg
 try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
-    from configs.megatron_config import (MegatronPolicyTrainerConfig,
+    from configs.megatron_config import (MegatronPolicyTrainerConfig, # pylint: disable=ungrouped-imports
                                          MegatronRefPolicyConfig)
 except Exception:
     traceback.print_exc()
