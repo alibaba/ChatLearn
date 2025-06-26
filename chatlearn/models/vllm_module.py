@@ -16,7 +16,7 @@
 
 import inspect
 import os
-from typing import Optional
+from typing import Optional, Dict
 import copy
 
 import torch
@@ -32,6 +32,7 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
 from .torch_module import TorchModule
 
 # pylint: disable=unexpected-keyword-arg
@@ -185,6 +186,13 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
             swap_space=self.module_args.get("swap_space", 16))
+
+        # TODO: currently, we naively assign param_id according to local_name,
+        # TODO: assign global param_id in the future
+        self.local_name_to_param_id = {
+            k: i for i, k in enumerate(list(self.model.state_dict.keys()))
+        }
+        self.param_metadata = self.get_parameter_metadata()
 
         self.offload_weights()
 
@@ -446,3 +454,25 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
+
+    @torch.no_grad()
+    def map_local_parame_name_to_global(self):
+        """generate a global name for each parameter in the model 
+        (just name of PP1EP1). For vLLM module (currently w/o EP),
+        simply return all keys
+        """
+        return list(self.model.state_dict.keys())
+
+    @torch.no_grad()
+    def get_parameter_metadata(self) -> Dict[str, ShardedTensorInfo]:
+        """Collect parameter shape info of this rank
+        """
+        if self.local_name_to_param_id is None:
+            raise ValueError("Call set_param_id before call this function")
+        
+        infos = {}
+        for name, sharded_info in build_sharded_info_for_vllm_model(self.model).items():
+            param_id = self.local_name_to_param_id[name]
+            sharded_info.param_id = param_id
+            infos[param_id] = sharded_info
+        return infos
