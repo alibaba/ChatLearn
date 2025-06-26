@@ -18,6 +18,7 @@ import random
 import functools
 import gc
 from contextlib import contextmanager, nullcontext
+import copy
 
 import ray
 import numpy as np
@@ -40,7 +41,7 @@ from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from .torch_module import TorchModule
 
-from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard, FSDPModule as TorchFSDPModule
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -190,6 +191,7 @@ class FSDPModule(TorchModule):
                 attn_implementation="flash_attention_2",
                 trust_remote_code=True,
             )
+            self.total_params = sum(p.numel() for p in model.parameters())
         else:
             model_config = AutoConfig.from_pretrained(model_path)
             with torch.device('meta'):
@@ -244,6 +246,7 @@ class FSDPModule(TorchModule):
         """
         :meta private:
         """
+        # torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         super().model_setup()
         self.setup_distributed()
         args = dict_to_simplenamespace(self.module_args)
@@ -315,7 +318,6 @@ class FSDPModule(TorchModule):
         else:
             self.optimizer = optim.AdamW(
                 self.model.parameters(),
-
                 lr=self.module_args.optimizer.lr,
                 betas=(self.module_args.optimizer.adam_beta1, self.module_args.optimizer.adam_beta2),
                 weight_decay=self.module_args.optimizer.weight_decay
@@ -360,24 +362,35 @@ class FSDPModule(TorchModule):
     #                 reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param.full_tensor())
     #             return reduce_tensor_dict
 
-    def get_fsdp_param_name(self):
+    def get_fsdp_param_name(self, block_size=3_000_000_000):
         name_list = []
-        for name, _ in self.model.named_parameters():
-            name_list.append(name)
+        param_cnt = 0
+        name_list_item = []
+        for name, param in self.model.named_parameters():
+            param_cnt += param.numel()
+            name_list_item.append(name)
+            if param_cnt >= block_size:
+                name_list.append(copy.deepcopy(name_list_item))
+                name_list_item = []
+                param_cnt = 0
+        if len(name_list_item) > 0:
+            name_list.append(copy.deepcopy(name_list_item))
         return name_list
 
-    def get_weight_ipc_handles_by_name(self, block_name: str):
+    def get_weight_ipc_handles_by_name(self, block_name: list[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
-        torch.cuda.empty_cache()
+        # torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        reduce_tensor_dict = {}
         for name, param in self.model.named_parameters():
-            if name==block_name:
-                reduce_tensor_dict = {}
+            if name in block_name:
 
                 reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach())
-                return reduce_tensor_dict
+        print("debughh", len(reduce_tensor_dict))
+        # torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        return reduce_tensor_dict
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         # _lazy_init(self.model, self.model)
@@ -393,8 +406,12 @@ class FSDPModule(TorchModule):
         # if empty_cache:
         #     torch.cuda.empty_cache()
         device_id = torch.cuda.current_device()
-        for param in self.model.parameters():
-            param.data = param.data.to(torch.device(f"cuda:{device_id}"), non_blocking=True)
+        # for param in self.model.parameters():
+        #     param.data = param.data.to(torch.device(f"cuda:{device_id}"), non_blocking=True)
+        self.model.to(torch.device(f"cuda:{device_id}"))
+        if empty_cache:
+            gc.collect()
+            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def offload_weights(self, empty_cache=True):
@@ -422,10 +439,19 @@ class FSDPModule(TorchModule):
         # torch.cuda.ipc_collect()
         # if empty_cache:
         #     torch.cuda.empty_cache()
-        for param in self.model.parameters():
-            param.data = param.data.to(torch.device("cpu"), non_blocking=True)
+
+        # for param in self.model.parameters():
+        #     param.data = param.data.to(torch.device("cpu"), non_blocking=True)
+        for module in self.model.modules():
+            if isinstance(module, TorchFSDPModule):
+                for fsdp_param in fully_shard.state(module)._fsdp_param_group.fsdp_params:
+                    fsdp_param.free_unsharded_param()
+        self.model.zero_grad(set_to_none=True)
+        self.model.cpu()
+        # torch.cuda.synchronize()
         torch.cuda.ipc_collect()
         if empty_cache:
+            gc.collect()
             torch.cuda.empty_cache()
 
     @torch.no_grad()
@@ -438,7 +464,7 @@ class FSDPModule(TorchModule):
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to("cpu", non_blocking=True)
-
+        torch.cuda.synchronize()
         if empty_cache:
             torch.cuda.empty_cache()
 
@@ -446,7 +472,7 @@ class FSDPModule(TorchModule):
     def onload_optimizer_states(self, empty_cache=True):
         if not self.optimizer.state:
             return
-        device = torch.cuda.current_device()
+        device_id = torch.cuda.current_device()
         for param_group in self.optimizer.param_groups:
             for param in param_group["params"]:
                 state = self.optimizer.state[param]

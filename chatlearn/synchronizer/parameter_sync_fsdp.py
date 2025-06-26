@@ -54,7 +54,7 @@ class FSDP2VllmParameterSyncGroup:
         dst_model_ranks = flatten(self.dst_model.all_ranks, reverse=True)
 
         param_name_list = ray.get(self.src_model.get_actor(0).get_fsdp_param_name.remote())
-
+        print("debughh", len(param_name_list), param_name_list)
         for param_name in param_name_list:
 
             refs = []

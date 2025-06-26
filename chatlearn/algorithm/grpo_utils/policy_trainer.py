@@ -251,7 +251,7 @@ class PolicyTrainer(FSDPModule):
             "grad_norm": grad_norm,
         }
         self._metric_list.append(train_stats)
-
+    @torch.no_grad()
     def forward_step(self, data):
         total_size = data['all_tokens'].shape[0]
         ori_seq_len = data['all_tokens'].shape[1]
@@ -297,4 +297,5 @@ class PolicyTrainer(FSDPModule):
         if OLD_TAG in data.keys():
             tag = REF_TAG
         data.update({tag: output_logprobs})
+
         return data
