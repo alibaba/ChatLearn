@@ -12,12 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import math
-import torch
-from typing import *
+from typing import List, Tuple
 from dataclasses import dataclass, field
 from copy import deepcopy
 
+import torch
 
 @dataclass
 class ShardedTensorInfo:

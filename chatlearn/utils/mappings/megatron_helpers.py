@@ -12,9 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import torch
-
-from typing import TYPE_CHECKING, List, Dict
+from typing import TYPE_CHECKING, Dict
 from torch import nn
 
 from .sharded_tensor_info import ShardedTensorInfo
@@ -27,7 +25,6 @@ try:
     from megatron.core import mpu
     from megatron.core.extensions.transformer_engine import (
         TELinear,
-        TEDotProductAttention,
         TELayerNormColumnParallelLinear,
         TEColumnParallelGroupedLinear,
         TERowParallelGroupedLinear
@@ -38,7 +35,7 @@ try:
         ColumnParallelLinear
     )
     HAVE_MEGATRON = True
-except:
+except ImportError:
     HAVE_MEGATRON = False
 
 

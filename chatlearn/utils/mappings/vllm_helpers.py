@@ -96,11 +96,11 @@ def _prepare_metadata(module: nn.Module):
                 get_current_vllm_config().parallel_config.enable_expert_parallel and
                 tp_size * dp_size > 1
             )
+        # pylint: disable=unnecessary-lambda-assignment
         smallest_multiple = lambda x, k: x + ((k - x % k) % k)
         if use_ep:
             # NOTE: currently vllm ep is not supported in parameter sync.
             padded_global_num_experts = smallest_multiple(module.global_num_experts, ep_size)
-            local_num_experts = module.local_num_experts
             _, w, h = module.w13_weight.shape
             results['w13_weight'] = ShardedTensorInfo(
                 dtype=module.w13_weight.dtype,
