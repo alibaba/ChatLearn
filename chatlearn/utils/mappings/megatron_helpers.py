@@ -23,13 +23,14 @@ if TYPE_CHECKING:
     from megatron.core.models.gpt import GPTModel
 
 try:
+    from transformer_engine.pytorch import RMSNorm, LayerNorm
     from megatron.core import mpu
     from megatron.core.extensions.transformer_engine import (
-        TEGroupedLinear,
         TELinear,
         TEDotProductAttention,
         TELayerNormColumnParallelLinear,
-        TENorm,
+        TEColumnParallelGroupedLinear,
+        TERowParallelGroupedLinear
     )
     from megatron.core.transformer.moe.router import TopKRouter
     from megatron.core.tensor_parallel import (
@@ -45,7 +46,7 @@ def _prepare_metadata(module: nn.Module):
     if not HAVE_MEGATRON:
         raise SystemError("Cannot call this function without megatron")
     results = {}
-    if isinstance(module, TENorm):
+    if isinstance(module, (RMSNorm, LayerNorm)):
         results['weight'] = ShardedTensorInfo.from_global_shape(
             tuple(module.weight.shape), dtype=module.weight.dtype
         )
@@ -54,13 +55,24 @@ def _prepare_metadata(module: nn.Module):
                 tuple(module.bias.shape), dtype=module.bias.dtype
             )
     elif isinstance(module, (TELinear, TELayerNormColumnParallelLinear, ColumnParallelLinear)):
-        if module.is_expert:
-            tp_rank = mpu.get_expert_tensor_parallel_rank()
-            tp_size = mpu.get_expert_tensor_parallel_world_size()
-        else:
+        if isinstance(module, ColumnParallelLinear):
+            # NOTE: Megatron-LM 0.12.1 still not support `tp_group` attr
+            parallel_mode = 'column'
+            use_bias = module.bias is not None
             tp_rank = mpu.get_tensor_model_parallel_rank()
             tp_size = mpu.get_tensor_model_parallel_world_size()
-        parallel_mode = 'column' if isinstance(module, ColumnParallelLinear) else module.parallel_mode
+        else:
+            parallel_mode = module.parallel_mode
+            use_bias = module.use_bias
+            if module.tp_group is None:
+                tp_rank, tp_size = None, None
+                if parallel_mode != 'duplicated':
+                    # explicit_expert_comm is True, thus in expert
+                    tp_rank = mpu.get_expert_tensor_parallel_rank()
+                    tp_size = mpu.get_expert_tensor_parallel_world_size()
+            else:
+                tp_rank, tp_size = module.tp_group.rank(), module.tp_group.size()
+        w, h = module.weight.shape
         if parallel_mode == 'row':
             global_shape=(w, h * tp_size)
             axis_fragmentations=(1, tp_size)
@@ -73,52 +85,50 @@ def _prepare_metadata(module: nn.Module):
             axis_fragmentations=(1, 1)
             global_offset=(0, 0)
             global_shape=(w, h)  
-        w, h = module.weight.shape
         results['weight'] = ShardedTensorInfo(
             dtype=module.weight.dtype,
             global_shape=global_shape,
             axis_fragmentations=axis_fragmentations,
             global_offset=global_offset
         )
-        if module.bias is not None:
+        if use_bias:
             results['bias'] = ShardedTensorInfo(
                 dtype=module.bias.dtype,
                 global_shape=global_shape[:1],
                 axis_fragmentations=axis_fragmentations[:1],
                 global_offset=global_offset[:1]
             )
-        
-        if hasattr(module, 'layer_norm_weight'):
+        layer_norm_weight = getattr(module, 'layer_norm_weight', None)
+        if layer_norm_weight is not None:
             results['layer_norm_weight'] = ShardedTensorInfo.from_global_shape(
-                module.layer_norm_weight.shape,
-                dtype=module.layer_norm_weight.dtype
+                layer_norm_weight.shape,
+                dtype=layer_norm_weight.dtype
             )
-        if hasattr(module, 'layer_norm_bias'):
+        layer_norm_bias = getattr(module, 'layer_norm_bias', None)
+        if layer_norm_bias is not None:
             results['layer_norm_bias'] = ShardedTensorInfo.from_global_shape(
-                module.layer_norm_bias.shape,
-                dtype=module.layer_norm_bias.dtype
+                layer_norm_bias.shape,
+                dtype=layer_norm_bias.dtype
             )
-    elif isinstance(module, TEGroupedLinear):
-        if module.is_expert:
+    elif isinstance(module, (TEColumnParallelGroupedLinear, TERowParallelGroupedLinear)):
+        if module.tp_group is None:
+            # explicit_expert_comm is True, thus in expert
             tp_rank = mpu.get_expert_tensor_parallel_rank()
             tp_size = mpu.get_expert_tensor_parallel_world_size()
         else:
-            tp_rank = mpu.get_tensor_model_parallel_rank()
-            tp_size = mpu.get_tensor_model_parallel_world_size()
+            tp_rank, tp_size = module.tp_group.rank(), module.tp_group.size()
 
         for gemm_id in range(module.num_gemms):
             weight = getattr(module, f"weight{gemm_id}")
             w, h = weight.shape
-            if module.parallel_mode == 'row':
+            if isinstance(module, TERowParallelGroupedLinear):
                 global_shape=(w, h * tp_size)
                 axis_fragmentations=(1, tp_size)
                 global_offset=(0, tp_rank)
-            elif module.parallel_mode == 'column':
+            else:
                 axis_fragmentations=(tp_size, 1)
                 global_offset=(tp_rank, 0)
                 global_shape=(w * tp_size, h)
-            else:
-                raise NotImplementedError("duplicated linear is not supported")
             results[f'weight{gemm_id}'] = ShardedTensorInfo(
                 dtype=weight.dtype,
                 global_shape=global_shape,
@@ -142,8 +152,8 @@ def _prepare_metadata(module: nn.Module):
                 tuple(module.expert_bias.shape), dtype=module.expert_bias.dtype
             )
     elif isinstance(module, VocabParallelEmbedding):
-        tp_rank = module.tp_group.rank()
-        tp_size = module.tp_group.size()
+        tp_rank = mpu.get_tensor_model_parallel_rank()
+        tp_size = mpu.get_tensor_model_parallel_world_size()
         w, h = module.weight.shape
         results['weight'] = ShardedTensorInfo(
             dtype=module.weight.dtype,
@@ -156,7 +166,7 @@ def _prepare_metadata(module: nn.Module):
 def build_sharded_info_for_mcore_model(
     model: 'GPTModel'
 ) -> Dict[str, ShardedTensorInfo]:
-    """build sharded tensor info from GPTModel
+    """build sharded tensor info from onloaded GPTModel. 
 
     Args:
         model (GPTModel): The given model

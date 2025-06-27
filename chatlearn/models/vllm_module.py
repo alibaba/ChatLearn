@@ -127,6 +127,23 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             swap_space=self.module_args.get("swap_space", 16))
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
 
+    def load_model(self):
+        """Initialize `self._model` here. This function is implicitly called in
+        `RayDistributedExecutor._init_workers_ray`
+        """
+        assert self.worker is not None, \
+                "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
+        self.worker.load_model()
+        self._model = self.worker.model_runner.model
+        # TODO: currently, we naively assign param_id according to local_name,
+        # TODO: assign global param_id in the future
+        self.local_name_to_param_id = {
+            k: i for i, k in enumerate(list(self.model.state_dict().keys()))
+        }
+        try:
+            self.param_metadata = self.get_parameter_metadata()
+        except Exception:
+            self.param_metadata = None
 
     def init(self):
         """
@@ -186,14 +203,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
             swap_space=self.module_args.get("swap_space", 16))
-
-        # TODO: currently, we naively assign param_id according to local_name,
-        # TODO: assign global param_id in the future
-        self.local_name_to_param_id = {
-            k: i for i, k in enumerate(list(self.model.state_dict.keys()))
-        }
-        self.param_metadata = self.get_parameter_metadata()
-
         self.offload_weights()
 
     def dump_parameters(self, dump_path_root):
@@ -395,10 +404,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     @property
     def model(self):
-        if self._model is None:
-            assert self.worker is not None, \
-                "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
-            self._model = self.worker.model_runner.model
         return self._model
 
     def tensor_parallel_rank(self):

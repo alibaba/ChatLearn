@@ -13,7 +13,10 @@
 # limitations under the License.
 # ==============================================================================
 import math
+from typing import Dict
+from torch import nn
 
+from vllm.config import get_current_vllm_config
 from vllm.model_executor.layers.fused_moe import FusedMoE
 from vllm.model_executor.layers.layernorm import RMSNorm
 from vllm.model_executor.layers.linear import (
@@ -43,10 +46,11 @@ def _prepare_metadata(module: nn.Module):
         ReplicatedLinear, 
         RowParallelLinear,
         ParallelLMHead,
-        ParallelLMHead
+        VocabParallelEmbedding
     )):
         tp_rank = get_tensor_model_parallel_rank()
         tp_size = get_tensor_model_parallel_world_size()
+        w, h = module.weight.shape
         if isinstance(module, RowParallelLinear):
             global_shape=(w, h * tp_size)
             axis_fragmentations=(1, tp_size)
@@ -60,16 +64,16 @@ def _prepare_metadata(module: nn.Module):
             axis_fragmentations=(1, 1)
             global_offset=(0, 0)
             global_shape=(w, h)  
-        w, h = module.weight.shape
         results['weight'] = ShardedTensorInfo(
             dtype=module.weight.dtype,
             global_shape=global_shape,
             axis_fragmentations=axis_fragmentations,
             global_offset=global_offset
         )
-        if module.bias is not None:
+        bias = getattr(module, 'bias', None)
+        if bias is not None:
             results['bias'] = ShardedTensorInfo(
-                dtype=module.bias.dtype,
+                dtype=bias.dtype,
                 global_shape=global_shape[:1],
                 axis_fragmentations=axis_fragmentations[:1],
                 global_offset=global_offset[:1]
@@ -81,9 +85,20 @@ def _prepare_metadata(module: nn.Module):
                 global_shape=e_score_correction_bias.shape
             )
     elif isinstance(module, FusedMoE):
-        parallel_config = module.moe_parallel_config
+        if hasattr(module, 'moe_parallel_config'):
+            parallel_config = module.moe_parallel_config
+            ep_rank, ep_size = module.ep_rank, module.ep_size
+            tp_rank, tp_size = module.tp_rank, module.tp_size
+            use_ep = parallel_config.use_ep
+        else:
+            ep_rank, ep_size = module.ep_rank, module.ep_size
+            tp_rank, tp_size = module.tp_rank, module.tp_size
+            use_ep = (
+                get_current_vllm_config().parallel_config.enable_expert_parallel and 
+                tp_size * dp_size > 1
+            )
         smallest_multiple = lambda x, k: x + ((k - x % k) % k)
-        if parallel_config.use_ep:
+        if use_ep:
             # NOTE: currently vllm ep is not supported in parameter sync.
             padded_global_num_experts = smallest_multiple(module.global_num_experts, ep_size)
             local_num_experts = module.local_num_experts
@@ -92,29 +107,29 @@ def _prepare_metadata(module: nn.Module):
                 dtype=module.w13_weight.dtype,
                 local_shape=module.w13_weight.shape,
                 global_shape=(padded_global_num_experts, w, h),
-                axis_fragmentations=(parallel_config.ep_size, 1, 1),
-                global_offset=(parallel_config.ep_rank, 0, 0),
+                axis_fragmentations=(ep_size, 1, 1),
+                global_offset=(ep_rank, 0, 0),
             )
             results['w2_weight'] = ShardedTensorInfo(
                 dtype=module.w13_weight.dtype,
                 local_shape=module.w13_weight.shape,
                 global_shape=(padded_global_num_experts, w, h),
-                axis_fragmentations=(parallel_config.ep_size, 1, 1),
-                global_offset=(parallel_config.ep_rank, 0, 0),
+                axis_fragmentations=(ep_size, 1, 1),
+                global_offset=(ep_rank, 0, 0),
             )
         else:
             l, w, h = module.w13_weight.shape
             results['w13_weight'] = ShardedTensorInfo(
                 dtype=module.w13_weight.dtype,
-                global_shape=(l, w * parallel_config.tp_size, h),
-                axis_fragmentations=(1, parallel_config.tp_size, 1),
-                global_offset=(0, parallel_config.tp_rank, 0),
+                global_shape=(l, w * tp_size, h),
+                axis_fragmentations=(1, tp_size, 1),
+                global_offset=(0, tp_rank, 0),
             )
             results['w2_weight'] = ShardedTensorInfo(
                 dtype=module.w2_weight.dtype,
-                global_shape=(l, w, h * parallel_config.tp_size),
-                axis_fragmentations=(1, 1, parallel_config.tp_size),
-                global_offset=(0, 0, parallel_config.tp_rank),
+                global_shape=(l, w, h * tp_size),
+                axis_fragmentations=(1, 1, tp_size),
+                global_offset=(0, 0, tp_rank),
             )
     return results
 

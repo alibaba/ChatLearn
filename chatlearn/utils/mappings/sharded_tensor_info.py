@@ -15,7 +15,7 @@
 import math
 import torch
 from typing import *
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from copy import deepcopy
 
 
@@ -43,16 +43,16 @@ class ShardedTensorInfo:
     Note that any local tensor can be indexed with (global_offset, 
     local_offset, local_shape) if the data exists on this rank.
     """
-    param_id: int
-    dtype: torch.dtype
+    param_id: int = field(default=None)
+    dtype: torch.dtype = field(default=None)
 
-    local_shape: Tuple[int, ...]
-    global_shape: Tuple[int, ...]
+    local_shape: Tuple[int, ...] = field(default=None)
+    global_shape: Tuple[int, ...]= field(default=None)
 
-    axis_fragmentations: Tuple[int, ...]
+    axis_fragmentations: Tuple[int, ...]= field(default=None)
 
-    local_offset: Tuple[int, ...]
-    global_offset: Tuple[int, ...]
+    local_offset: Tuple[int, ...] = field(default=None)
+    global_offset: Tuple[int, ...] = field(default=None)
 
     def copy(self):
         return deepcopy(self)
@@ -148,8 +148,8 @@ class ShardedTensorInfo:
     @classmethod
     def from_global_shape(cls, global_shape: Tuple[int, ...], param_id: int=None, dtype: torch.dtype=None):
         return cls(
-            param_id=None,
-            dtype=None,
+            param_id=param_id,
+            dtype=dtype,
             local_shape=global_shape,
             global_shape=global_shape,
             axis_fragmentations=(1, ) * len(global_shape),
@@ -166,25 +166,25 @@ class ShardedTensorInfo:
         assert self.global_offset is not None
         assert self.global_shape is not None
 
+        if self.local_offset is None:
+            self.local_offset = (0, ) * self.ndim
+
         assert (
             min(self.axis_fragmentations) > 0 and 
             min(self.global_offset) >= 0 and 
-            min(self.local_offset) >= 0 and 
-            min(self.local_shape) >= 0
+            min(self.local_offset) >= 0
         )
         assert all(l % a == 0 for l, a in zip(self.global_shape, self.axis_fragmentations))
         assert all(s < a for s, a in zip(self.global_offset, self.axis_fragmentations))
 
-        if self.local_offset is None:
-            self.local_offset = (0, ) * ndim
-        
-        grid_shape = (l // a for l, a in zip(self.global_shape, self.axis_fragmentation))
+        grid_shape = tuple(l // a for l, a in zip(self.global_shape, self.axis_fragmentations))
         if self.local_shape is not None:
+            assert min(self.local_shape) >= 0
             assert all(
                 s + l <= g for s, l, g in zip(
                     self.local_offset,
                     self.local_shape,
-                    self.grid_shape
+                    grid_shape
                 )
             )
         else:

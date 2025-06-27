@@ -114,6 +114,18 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             super().model_setup()
+            try:
+                self.map_local_parame_name_to_global()
+                # TODO: currently, we naively assign param_id according to local_name,
+                # TODO: assign global param_id in the future
+                self.local_name_to_param_id = {
+                k: i for i, k in enumerate(self.local_name_to_global_name.keys())
+                }
+                self.param_metadata = self.get_parameter_metadata()
+            except Exception:
+                self.local_name_to_param_id = None
+                self.param_metadata = None
+
             # TODO: we may need to let setup return model, optimizer and opt_param_scheduler
             if self.trainable:
                 assert hasattr(self, "model")
@@ -141,13 +153,6 @@ if IS_MEGATRON_SUPPORTED:
                     )
                     self.offload()
             self.set_pipe_layer_num_offset()
-            self.map_local_parame_name_to_global()
-            # TODO: currently, we naively assign param_id according to local_name,
-            # TODO: assign global param_id in the future
-            self.local_name_to_param_id = {
-               k: i for i, k in enumerate(self.local_name_to_global_name.keys())
-            }
-            self.param_metadata = self.get_parameter_metadata()
 
         def set_pipe_layer_num_offset(self):
             self.stage2layer_num = [None] * self.pipeline_model_parallel_size()
@@ -458,11 +463,12 @@ if IS_MEGATRON_SUPPORTED:
             """
             self.local_name_to_global_name = {}
             self.global_name_to_local_name = {}
-            model_config = self.megatron_model().config
-            offset = get_transformer_layer_offset(self.megatron_model(), None)
+            model_config = unwrap_model(self.megatron_model()).config
+            # TODO: `get_transformer_layer_offset()` requires `vp_stage` in the future
+            offset = get_transformer_layer_offset(model_config)
             if model_config.num_moe_experts is not None:
-                ep_rank = mpu.get_experts_model_parallel_rank()
-                ep_size = mpu.get_experts_model_parallel_world_size()
+                ep_rank = mpu.get_expert_model_parallel_rank()
+                ep_size = mpu.get_expert_model_parallel_world_size()
                 num_local_experts = model_config.num_moe_experts // ep_size
 
             # NOTE: this regex is for model with TEGroupedGEMM
@@ -492,7 +498,7 @@ if IS_MEGATRON_SUPPORTED:
             """
             infos = {}
             for name, sharded_info in build_sharded_info_for_mcore_model(
-                self.megatron_model()
+                unwrap_model(self.megatron_model())
             ).items():
                 param_id = self.local_name_to_param_id[name]
                 sharded_info.param_id = param_id
