@@ -23,8 +23,6 @@ from algorithm.base_algo import BaseAlgorithm
 from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
                             PolicyTrainerConfig, RefPolicyConfig,
                             RuntimeConfig, RuntimeEnvConfig, _config_validate)
-from configs.megatron_config import (MegatronPolicyTrainerConfig,
-                                     MegatronRefPolicyConfig)
 
 import chatlearn
 from chatlearn import Engine
@@ -43,6 +41,8 @@ from chatlearn.utils.megatron_utils import update_cfg
 try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
+    from configs.megatron_config import (MegatronPolicyTrainerConfig, # pylint: disable=ungrouped-imports
+                                         MegatronRefPolicyConfig)
 except Exception:
     traceback.print_exc()
     print("please set megatron path for running megatron backend")

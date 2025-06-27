@@ -4,6 +4,7 @@
 
 from dataclasses import asdict, dataclass, field
 from typing import Any, Iterator, List, Optional
+import warnings
 
 from omegaconf import MISSING
 
@@ -507,16 +508,16 @@ def _config_validate(cfg):
             "runtime_args.sample_per_episode must be divisible by models.policy_trainer.generation_batch_size"
         )
         if cfg.models.policy_trainer.packing:
-            assert train_global_batch_size == train_fsdp_dp_size * train_micro_batch_size, (
-                "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size. \
-                    When models.policy_trainer.packing is True, \
-                        runtime_args.train_global_batch_size must be equal to train_fsdp_dp_size * runtime_args.train_micro_batch_size"
-            )
-            assert sample_per_episode == train_fsdp_dp_size * train_generation_batch_size, (
-                 "train_fsdp_dp_size = models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size. \
-                    When models.policy_trainer.packing is True, \
-                        runtime_args.sample_per_episode must be equal to train_fsdp_dp_size * models.policy_trainer.generation_batch_size"
-            )
+            if train_global_batch_size != train_fsdp_dp_size * train_micro_batch_size:
+                warning_message = f"In order to maximum packing capacity, runtime_args.train_micro_batch_size should be set to \
+                    runtime_args.train_global_batch_size / (models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size) = \
+                    {train_global_batch_size // train_fsdp_dp_size}"
+                warnings.warn(message)
+            if sample_per_episode != train_fsdp_dp_size * train_generation_batch_size:
+                warning_message = f"In order to maximum packing capacity, models.policy_trainer.generation_batch_size should be set to \
+                    runtime_args.sample_per_episode / (models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size) = \
+                    {sample_per_episode // train_fsdp_dp_size}"
+                warnings.warn(warning_message)
 
         # Check FSDP compatibility for ref_policy
         ref_num_gpu = cfg.models.ref_policy.num_gpu
@@ -527,8 +528,8 @@ def _config_validate(cfg):
             "runtime_args.sample_per_episode must be divisible by models.ref_policy.generation_batch_size"
         )
         if cfg.models.ref_policy.packing:
-            assert sample_per_episode == ref_fsdp_dp_size * ref_generation_batch_size, (
-                "ref_fsdp_dp_size = cfg.models.ref_policy.num_gpu // models.ref_policy.ulysses_sequence_parallel_size. \
-                    When models.policy_trainer.packing is True, \
-                        runtime_args.sample_per_episode must be equal to train_fsdp_dp_size * models.ref_policy.generation_batch_size"
-            )
+            if sample_per_episode != ref_fsdp_dp_size * ref_generation_batch_size:
+                warning_message = f"In order to maximum packing capacity, models.ref_policy.generation_batch_size should be set to \
+                    runtime_args.sample_per_episode // (models.ref_policy.num_gpu // models.ref_policy.ulysses_sequence_parallel_size) = \
+                    {sample_per_episode // ref_fsdp_dp_size}"
+                warnings.warn(warning_message)
