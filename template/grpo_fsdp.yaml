@@ -31,7 +31,8 @@ runtime_args:
     wandb_resume: allow
 
 models:
-  policy_trainer: 
+  policy_trainer:
+    use_expandable_segments: False
     free_gpu_memory:
       offload_weights: True
       offload_optimizer_states: True
@@ -55,6 +56,7 @@ models:
     neg_clip_ratio: 0.2
     save_hf: True
   ref_policy:
+    use_expandable_segments: ${models.policy_trainer.use_expandable_segments}
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 8

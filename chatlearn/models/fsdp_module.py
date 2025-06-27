@@ -201,7 +201,8 @@ class FSDPModule(TorchModule):
         """
         :meta private:
         """
-        # torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         super().model_setup()
         self.setup_distributed()
         args = dict_to_simplenamespace(self.module_args)
@@ -308,12 +309,14 @@ class FSDPModule(TorchModule):
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
-        # torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
         for name, param in self.model.named_parameters():
             if name in block_name:
                 reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach())
-        # torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
