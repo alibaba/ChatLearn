@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""implementation of ShardedTensorInfo"""
 from typing import List, Tuple
 from dataclasses import dataclass, field
 from copy import deepcopy

@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""helper to collect shape infos for MCore model"""
 from typing import TYPE_CHECKING, Dict
 from torch import nn
 
@@ -21,6 +22,7 @@ if TYPE_CHECKING:
     from megatron.core.models.gpt import GPTModel
 
 try:
+    # pylint: disable=ungrouped-imports
     from transformer_engine.pytorch import RMSNorm, LayerNorm
     from megatron.core import mpu
     from megatron.core.extensions.transformer_engine import (

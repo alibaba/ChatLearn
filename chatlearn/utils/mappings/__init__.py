@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""utils to collect global shards info for ModelParallel"""
 from .sharded_tensor_info import ShardedTensorInfo
 from .megatron_helpers import build_sharded_info_for_mcore_model
 from .vllm_helpers import build_sharded_info_for_vllm_model

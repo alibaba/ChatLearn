@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""helper to collect shape infos for vLLM model"""
 from typing import Dict
 from torch import nn
 
