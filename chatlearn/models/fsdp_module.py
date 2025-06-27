@@ -191,7 +191,6 @@ class FSDPModule(TorchModule):
                 attn_implementation="flash_attention_2",
                 trust_remote_code=True,
             )
-            self.total_params = sum(p.numel() for p in model.parameters())
         else:
             model_config = AutoConfig.from_pretrained(model_path)
             with torch.device('meta'):
@@ -291,6 +290,7 @@ class FSDPModule(TorchModule):
         #     device_mesh=self.device_mesh,
         #     forward_prefetch=False,
         # )
+        full_state = model.state_dict()
         fsdp_kwargs = {
             "mesh": self.device_mesh,
             "mp_policy": mix_precision_config,
@@ -308,7 +308,27 @@ class FSDPModule(TorchModule):
         for idx, module in enumerate(modules):
             fully_shard(module, **fsdp_kwargs)
         fully_shard(model, **fsdp_kwargs)  # fsdp2 will not reshard_after_forward for root module
+
+
+        buffer_dict = {}
+        for name, buf in model.named_buffers():
+            buffer_dict[name] = buf
+        # Initialize the model
+        model.to_empty(device="cuda")
+        # for name, moudle in model.named_modules():
+        #     if hasattr(moudle, 'reset_parameters'):
+        #         moudle.reset_parameters()
         self.model = model
+        from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+        options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
+        set_model_state_dict(self.model, full_state, options=options)
+        if dist.get_rank()==0:
+            for name, buf in self.model.named_buffers():
+                buf.data.copy_(buffer_dict[name])
+
+        torch.cuda.synchronize()
+        for name, buf in self.model.named_buffers():
+            dist.broadcast(buf, src=0)
 
         self.model.to(torch.float32)
         FSDP.set_state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT)
@@ -326,7 +346,7 @@ class FSDPModule(TorchModule):
         # resume model weights
         if self.resume_training:
             self.load_checkpoint(self._episode_id)
-
+        del full_state
         self.offload()
 
     # def get_fsdp_param_name(self):
@@ -442,11 +462,11 @@ class FSDPModule(TorchModule):
 
         # for param in self.model.parameters():
         #     param.data = param.data.to(torch.device("cpu"), non_blocking=True)
-        for module in self.model.modules():
-            if isinstance(module, TorchFSDPModule):
-                for fsdp_param in fully_shard.state(module)._fsdp_param_group.fsdp_params:
-                    fsdp_param.free_unsharded_param()
-        self.model.zero_grad(set_to_none=True)
+        # for module in self.model.modules():
+        #     if isinstance(module, TorchFSDPModule):
+        #         for fsdp_param in fully_shard.state(module)._fsdp_param_group.fsdp_params:
+        #             fsdp_param.free_unsharded_param()
+        # self.model.zero_grad(set_to_none=True)
         self.model.cpu()
         # torch.cuda.synchronize()
         torch.cuda.ipc_collect()
@@ -478,7 +498,7 @@ class FSDPModule(TorchModule):
                 state = self.optimizer.state[param]
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
-                        state[key] = value.to(device, non_blocking=True)
+                        state[key] = value.to(torch.device(f"cuda:{device_id}"), non_blocking=True)
 
         if empty_cache:
             torch.cuda.empty_cache()
