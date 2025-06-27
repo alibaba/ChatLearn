@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import math
 from typing import Dict
 from torch import nn
 
@@ -25,7 +24,7 @@ from vllm.model_executor.layers.linear import (
     RowParallelLinear
 )
 from vllm.model_executor.layers.vocab_parallel_embedding import (
-    ParallelLMHead, 
+    ParallelLMHead,
     VocabParallelEmbedding
 )
 from vllm.distributed import (
@@ -42,8 +41,8 @@ def _prepare_metadata(module: nn.Module):
             tuple(module.weight.shape), dtype=module.weight.dtype
         )
     elif isinstance(module, (
-        ColumnParallelLinear, 
-        ReplicatedLinear, 
+        ColumnParallelLinear,
+        ReplicatedLinear,
         RowParallelLinear,
         ParallelLMHead,
         VocabParallelEmbedding
@@ -63,7 +62,7 @@ def _prepare_metadata(module: nn.Module):
         else:
             axis_fragmentations=(1, 1)
             global_offset=(0, 0)
-            global_shape=(w, h)  
+            global_shape=(w, h)
         results['weight'] = ShardedTensorInfo(
             dtype=module.weight.dtype,
             global_shape=global_shape,
@@ -78,7 +77,7 @@ def _prepare_metadata(module: nn.Module):
                 axis_fragmentations=axis_fragmentations[:1],
                 global_offset=global_offset[:1]
             )
-        e_score_correction_bias = getattr(module, 'e_score_correction_bias', None) 
+        e_score_correction_bias = getattr(module, 'e_score_correction_bias', None)
         if e_score_correction_bias is not None:
             results['e_score_correction_bias'] = ShardedTensorInfo.from_global_shape(
                 dtype=e_score_correction_bias.dtype,
@@ -94,7 +93,7 @@ def _prepare_metadata(module: nn.Module):
             ep_rank, ep_size = module.ep_rank, module.ep_size
             tp_rank, tp_size = module.tp_rank, module.tp_size
             use_ep = (
-                get_current_vllm_config().parallel_config.enable_expert_parallel and 
+                get_current_vllm_config().parallel_config.enable_expert_parallel and
                 tp_size * dp_size > 1
             )
         smallest_multiple = lambda x, k: x + ((k - x % k) % k)
@@ -142,7 +141,7 @@ def build_sharded_info_for_vllm_model(
         model (GPTModel): The given model
 
     Returns:
-        Dict[str, ShardedTensorInfo]: A dict maps local parameter 
+        Dict[str, ShardedTensorInfo]: A dict maps local parameter
         name to sharded_info
     """
     infos = {}

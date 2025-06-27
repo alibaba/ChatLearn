@@ -458,7 +458,7 @@ if IS_MEGATRON_SUPPORTED:
 
         @torch.no_grad()
         def map_local_parame_name_to_global(self):
-            """generate a global name for each parameter in the model 
+            """generate a global name for each parameter in the model
             (just name of PP1EP1)
             """
             self.local_name_to_global_name = {}
@@ -482,7 +482,7 @@ if IS_MEGATRON_SUPPORTED:
                     self.local_name_to_global_name[name] = name
                     self.global_name_to_local_name[name] = name
                     continue
-                
+
                 layer_idx = int(match.group(2)) + offset
                 expert_id = ''
                 if len(match.group(6)) > 0:
@@ -491,7 +491,7 @@ if IS_MEGATRON_SUPPORTED:
                 self.local_name_to_global_name[name] = global_name
                 self.global_name_to_local_name[global_name] = name
             return list(self.local_name_to_global_name.values())
-        
+
         @torch.no_grad()
         def get_parameter_metadata(self):
             """Collect parameter shape info of this rank

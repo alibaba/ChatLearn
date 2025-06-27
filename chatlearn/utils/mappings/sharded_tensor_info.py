@@ -39,8 +39,8 @@ class ShardedTensorInfo:
         local_offset: offset of this shard in a local tensor
         global_offset: offset of a local tensor in a global tensor,
             specified in number of tensor elements of this axis
-    
-    Note that any local tensor can be indexed with (global_offset, 
+
+    Note that any local tensor can be indexed with (global_offset,
     local_offset, local_shape) if the data exists on this rank.
     """
     param_id: int = field(default=None)
@@ -58,7 +58,7 @@ class ShardedTensorInfo:
         return deepcopy(self)
 
     def fragment(self, num_frags: int, axis: int=0) -> List['ShardedTensorInfo']:
-        """Apply new num_frags on the given axis. This operation 
+        """Apply new num_frags on the given axis. This operation
         may return one or more shards if the origin shard cannot
         be placed in one local tensor under new num_frags.
 
@@ -70,8 +70,8 @@ class ShardedTensorInfo:
         offset = (
             self.local_offset[axis] +
             (
-                self.global_offset[axis] * 
-                self.global_shape[axis] // 
+                self.global_offset[axis] *
+                self.global_shape[axis] //
                 self.axis_fragmentations[axis]
             )
         )
@@ -92,7 +92,7 @@ class ShardedTensorInfo:
                 local_offset=self.local_offset[:axis] + (left - cur, ) + self.local_offset[axis + 1:]
             ))
         return new_shards
-    
+
     def refragment(self, num_frags: int, axis: int=0) -> 'ShardedTensorInfo':
         """An wrapper to fragment with the given num_frags
         which has been applied earlier. In this case, the
@@ -113,8 +113,8 @@ class ShardedTensorInfo:
         return shard[0]
 
     def map_to_frag_id(self, frag_idx: int, axis: int=0) -> 'ShardedTensorInfo':
-        """Return a new shard with different frag_idx 
-        on the given axis. Used when you want to index 
+        """Return a new shard with different frag_idx
+        on the given axis. Used when you want to index
         another local tensor with the same local offset.
 
         Args:
@@ -141,10 +141,10 @@ class ShardedTensorInfo:
             global_offset=self.global_offset[:axis] + (offset, ) + self.global_offset[axis:],
             local_offset=self.local_offset[:axis] + (0, ) + self.local_offset[axis:]
         )
-    
+
     def index(self, tensor: torch.Tensor) -> torch.Tensor:
         raise NotImplementedError()
-    
+
     @classmethod
     def from_global_shape(cls, global_shape: Tuple[int, ...], param_id: int=None, dtype: torch.dtype=None):
         return cls(
@@ -170,8 +170,8 @@ class ShardedTensorInfo:
             self.local_offset = (0, ) * self.ndim
 
         assert (
-            min(self.axis_fragmentations) > 0 and 
-            min(self.global_offset) >= 0 and 
+            min(self.axis_fragmentations) > 0 and
+            min(self.global_offset) >= 0 and
             min(self.local_offset) >= 0
         )
         assert all(l % a == 0 for l, a in zip(self.global_shape, self.axis_fragmentations))

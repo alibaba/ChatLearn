@@ -84,7 +84,7 @@ def _prepare_metadata(module: nn.Module):
         else:
             axis_fragmentations=(1, 1)
             global_offset=(0, 0)
-            global_shape=(w, h)  
+            global_shape=(w, h)
         results['weight'] = ShardedTensorInfo(
             dtype=module.weight.dtype,
             global_shape=global_shape,
@@ -166,13 +166,13 @@ def _prepare_metadata(module: nn.Module):
 def build_sharded_info_for_mcore_model(
     model: 'GPTModel'
 ) -> Dict[str, ShardedTensorInfo]:
-    """build sharded tensor info from onloaded GPTModel. 
+    """build sharded tensor info from onloaded GPTModel.
 
     Args:
         model (GPTModel): The given model
 
     Returns:
-        Dict[str, ShardedTensorInfo]: A dict maps local parameter 
+        Dict[str, ShardedTensorInfo]: A dict maps local parameter
         name to sharded_info
     """
     # TODO: can we parse sharded info from sharded_state_dict?

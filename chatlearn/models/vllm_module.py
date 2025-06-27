@@ -447,12 +447,12 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         onload weights
         Wake up the engine from sleep mode. See the :meth:`sleep` method
         for more details.
-        
+
         Args:
-            tags: An optional list of tags to reallocate the engine memory 
-                for specific memory allocations. Values must be in 
+            tags: An optional list of tags to reallocate the engine memory
+                for specific memory allocations. Values must be in
                 ("weights", "kv_cache",). If None, all memory is reallocated.
-                wake_up should be called with all tags (or None) before the 
+                wake_up should be called with all tags (or None) before the
                 engine is used again.
         """
         if self.module_args.free_gpu_memory.offload_weights:
@@ -462,7 +462,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     @torch.no_grad()
     def map_local_parame_name_to_global(self):
-        """generate a global name for each parameter in the model 
+        """generate a global name for each parameter in the model
         (just name of PP1EP1). For vLLM module (currently w/o EP),
         simply return all keys
         """
@@ -474,7 +474,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         """
         if self.local_name_to_param_id is None:
             raise ValueError("Call set_param_id before call this function")
-        
+
         infos = {}
         for name, sharded_info in build_sharded_info_for_vllm_model(self.model).items():
             param_id = self.local_name_to_param_id[name]
