@@ -25,12 +25,11 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from torch import optim, nn
-from torch.distributed.fsdp import (ShardingStrategy, ShardedOptimStateDictConfig, ShardedStateDictConfig,
-                                    FullStateDictConfig, StateDictType, FullyShardedDataParallel as FSDP)
-from torch.distributed.fsdp.wrap import (size_based_auto_wrap_policy, transformer_auto_wrap_policy, lambda_auto_wrap_policy,
-                                        _or_policy)
-from torch.distributed.fsdp._runtime_utils import _lazy_init
+
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard, FSDPModule as TorchFSDPModule
+from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 from torch.multiprocessing.reductions import reduce_tensor
+from torch.distributed.tensor import DTensor
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
 from transformers.trainer_pt_utils import get_module_class_from_name
@@ -40,9 +39,6 @@ from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from .torch_module import TorchModule
-
-from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard, FSDPModule as TorchFSDPModule
-from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -227,6 +223,7 @@ class FSDPModule(TorchModule):
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
         # get state_dict to init model for meta init
+        full_state = None
         if self.module_args.meta_init:
             full_state = model.state_dict()
 
@@ -314,7 +311,8 @@ class FSDPModule(TorchModule):
         reduce_tensor_dict = {}
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach())
+                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach() \
+                                            if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict

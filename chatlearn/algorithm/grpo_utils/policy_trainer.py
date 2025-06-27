@@ -230,11 +230,6 @@ class PolicyTrainer(FSDPModule):
             # entropy loss
             entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
             entropy_loss_list.append(entropy_loss)
-        # grad_norm = (
-        #     self.model.clip_grad_norm_(max_norm=self.module_args.optimizer.clip_grad)
-        #     .detach()
-        #     .item()
-        # )
         grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
         self.optimizer.step()
         self.optimizer.zero_grad()
@@ -251,7 +246,7 @@ class PolicyTrainer(FSDPModule):
             "grad_norm": grad_norm,
         }
         self._metric_list.append(train_stats)
-    @torch.no_grad()
+
     def forward_step(self, data):
         total_size = data['all_tokens'].shape[0]
         ori_seq_len = data['all_tokens'].shape[1]
