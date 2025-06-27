@@ -22,6 +22,7 @@ import ray
 import numpy as np
 import torch
 import torch.distributed as dist
+from torch.distributed.tensor import DTensor
 from torch import optim, nn
 from torch.distributed.fsdp import (MixedPrecision, ShardingStrategy, ShardedOptimStateDictConfig, ShardedStateDictConfig,
                                     FullStateDictConfig, StateDictType, FullyShardedDataParallel as FSDP)
@@ -329,7 +330,10 @@ class FSDPModule(TorchModule):
                 state_dict = module.state_dict()
                 reduce_tensor_dict = {}
                 for name, param in state_dict.items():
-                    reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param.full_tensor())
+                    if isinstance(param, DTensor):
+                        reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param.full_tensor())
+                    else:
+                        reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param)
                 return reduce_tensor_dict
 
     @torch.no_grad()
