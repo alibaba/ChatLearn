@@ -17,7 +17,7 @@ hf_ckpt_path=${CHATLEARN}/Moonlight-16B-A3B-Instruct
 mcore_ckpt_path=${CHATLEARN}/Moonlight-16B-A3B-Instruct-to-mcore
 
 
-exp_name="test_qwen3_30b"
+exp_name="test_moonlight_16b_grpo"
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
