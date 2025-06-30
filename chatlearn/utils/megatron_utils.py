@@ -51,13 +51,13 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [1] * hf_transformer_config.num_hidden_layers
         elif "DeepseekV3ForCausalLM" == hf_transformer_config.architectures[0]:
             cfg.models.policy_trainer.megatron_model_cfg.num_experts = hf_transformer_config.n_routed_experts
-            cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [0] * hf_transformer_config.moe_layer_freq
-             + [1] * (hf_transformer_config.num_hidden_layers - hf_transformer_config.moe_layer_freq)
+            cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [0] * hf_transformer_config.moe_layer_freq \
+                + [1] * (hf_transformer_config.num_hidden_layers - hf_transformer_config.moe_layer_freq)
             cfg.models.policy_trainer.megatron_model_cfg.kv_lora_rank = hf_transformer_config.kv_lora_rank
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_num_groups = hf_transformer_config.n_group
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_group_topk = hf_transformer_config.topk_group
-            cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_intermediate_size = hf_transformer_config.n_shared_experts
-             * hf_transformer_config.moe_intermediate_size
+            cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_intermediate_size = hf_transformer_config.n_shared_experts \
+                 * hf_transformer_config.moe_intermediate_size
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_score_function = "sigmoid"
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = True
             cfg.models.policy_trainer.megatron_model_cfg.multi_latent_attention = True
