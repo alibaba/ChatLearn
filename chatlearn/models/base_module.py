@@ -604,7 +604,7 @@ class BaseModule:
                 for item in partition.parameters():
                     self._parameters.append(item)
                 for name, item in partition.named_buffers():
-                    if 'local_tokens_per' not in name:
+                    if all(k not in name for k in ['rotary_pos_emb', 'local_tokens_per']):
                         self._parameters.append(item)
         return self._parameters
 
@@ -623,7 +623,7 @@ class BaseModule:
                 for item in partition.named_parameters():
                     self._named_parameters[item[0]] = item[1]
                 for item in partition.named_buffers():
-                    if 'local_tokens_per' not in item[0]:
+                    if all(k not in item[0] for k in ['rotary_pos_emb', 'local_tokens_per']):
                         self._named_parameters[item[0]] = item[1]
         return self._named_parameters
 
@@ -642,7 +642,7 @@ class BaseModule:
                 for item in partition.named_parameters():
                     self._param_to_name[item[1]] = item[0]
                 for item in partition.named_buffers():
-                    if 'local_tokens_per' not in item[0]:
+                    if all(k not in item[0] for k in ['rotary_pos_emb', 'local_tokens_per']):
                         self._param_to_name[item[1]] = item[0]
         return self._param_to_name
 
