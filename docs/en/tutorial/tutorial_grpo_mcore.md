@@ -1,6 +1,6 @@
 # End-to-End GRPO Training Tutorial with Mcore
 
-This document provides instructions for end-to-end training using the ChatLearn, Mcore and vLLM framework, and the qwen2.5 model.
+This document provides instructions for end-to-end training using the ChatLearn, Mcore and vLLM framework, and the qwen3 model.
 
 ## Environment Setup
 1. Docker Image Preparation
@@ -15,69 +15,53 @@ You can use a VPC address to accelerate image pulling. The image address should 
 2. Code Preparation
 
 ```bash
-git clone https://github.com/NVIDIA/Megatron-LM.git
-cd Megatron-LM && git checkout 6ba97dd37150a6bfba03d31808674211cf2a4d0d
-git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
+git clone https://github.com/alibaba/ChatLearn.git
+wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar
+tar -xvf Pai-Megatron-Patch.tar
 ```
 
-## Data Preparation
+## Data & Model Preparation
 We take [MATH-lighteval](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-lighteval) as exmaple.
 ```bash
 # download dataset
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # preprocess dataset
-python examples/mcore/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
+python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen2.5-7B-Instruct --local_dir Qwen2.5-7B-Instruct
+modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
 
 ## CKPT Conversion
 
 Please check [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch) for detailed ckpt conversion
-dist_ckpt conversion please refer to https://github.com/alibaba/Pai-Megatron-Patch/tree/main/toolkits/distributed_checkpoints_convertor
 
-run `hf2mcore_qwen2.5_convertor.sh` script.
-```
-MODEL_SIZE=$1                  # model parameters：0.5B/1.5B/3B/7B/14B/32B/72B
-SOURCE_CKPT_PATH=$2            # source path
-TARGET_CKPT_PATH=$3            # target path
-TP=$4                          # tensor model parallel size
-PP=$5                          # pipeline model parallel size
-PR=$6                          # precision
-USE_TE=$7                      # whether use transformer engine
-mg2hf=$8                       # whether run mg2hf
-HG_CKPT_PATH=$9                # huggingface ckpt path
-```
-
-Below codes show how to convert qwen2.5 7B model ckpt.
+Below codes show how to convert qwen3 8B model ckpt.
 ```bash
-git clone --recurse-submodules https://github.com/alibaba/Pai-Megatron-Patch.git
-cd ~/Pai-Megatron-Patch/toolkits/model_checkpoints_convertor/qwen
-bash hf2mcore_qwen2.5_convertor.sh \
-7B \
-/mnt/qwen-ckpts/Qwen2.5-7B-Instruct  \
-/mnt/qwen-ckpts/Qwen2.5-7B-Instruct-hf-to-mcore-tp4-pp1   \
-4  \
-1  \
-bf16 \
-true \
-false 
-```
+cd Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
+bash scripts/qwen3/run_8xH20.sh \
+8B \
+/mnt/data/ckpts/huggingface/Qwen3-8B  \
+/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore \
+false  \
+true  \
+bf16
 
 ## Training
 You can run the following command to start training:
 
 ```bash
-export MEGATRON_PATH="your megatron path"
-bash examples/mcore/scripts/train_grpo_qwen2_5.sh
+bash scripts/train_mcore_vllm_qwen3_8b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_grpo_qwen3.sh](../../../examples/mcore/scripts/train_grpo_qwen2_5.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_mcore_vllm_qwen3_8b)grpo.sh](../../../scripts/train_mcore_vllm_qwen3_8b_grpo.sh):
 
 ```bash
-export enable_wandb=True
-export wandb_project="Your-Wandb-Project-Name"
 export WANDB_API_KEY="Your-Wandb-api-key"
+```
+Change the configuration to:
+```bash
+runtime_args.log_args_dict.enable_wandb=True
+runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```

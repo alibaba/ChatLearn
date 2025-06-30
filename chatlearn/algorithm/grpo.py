@@ -22,9 +22,7 @@ import torch
 from algorithm.base_algo import BaseAlgorithm
 from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
                             PolicyTrainerConfig, RefPolicyConfig,
-                            RuntimeConfig, RuntimeEnvConfig)
-from configs.megatron_config import (MegatronPolicyTrainerConfig,
-                                     MegatronRefPolicyConfig)
+                            RuntimeConfig, RuntimeEnvConfig, _config_validate)
 
 import chatlearn
 from chatlearn import Engine
@@ -38,10 +36,13 @@ from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.utils.utils import listdict_to_dictlist
+from chatlearn.utils.megatron_utils import update_cfg
 
 try:
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
+    from configs.megatron_config import (MegatronPolicyTrainerConfig, # pylint: disable=ungrouped-imports
+                                         MegatronRefPolicyConfig)
 except Exception:
     traceback.print_exc()
     print("please set megatron path for running megatron backend")
@@ -114,6 +115,7 @@ class GrpoConfig(BaseConfig):
         self.models.policy_trainer = convert_to_dataclass(
             policytrainer_cls, self.models.policy_trainer
         )
+        _config_validate(self)
 
 
 class GRPOEvaluator(Evaluator):
@@ -125,11 +127,19 @@ class GRPOEvaluator(Evaluator):
         results = listdict_to_dictlist(results)
         # convert list[tensor(n,1)] to list[float]
         rule_rewards = results.get("rule_rewards", [])
+        data_source = results.get("eval_source", [])
         rule_rewards_flatten = torch.cat(rule_rewards).squeeze().tolist()
-
-        reward_score = sum(rule_rewards_flatten) / len(rule_rewards_flatten)
-        eval_reward_stats = {"eval_reward_score": reward_score}
-
+        #eval_reward_stats = {"eval_reward_score": reward_score}
+        data_source_to_id_map = {}
+        for i, source in enumerate(data_source):
+            if source in data_source_to_id_map:
+                data_source_to_id_map[source].append(i)
+            else:
+                data_source_to_id_map[source] = [i]
+        eval_reward_stats = {}
+        for key, ids in data_source_to_id_map.items():
+            selected = [rule_rewards_flatten[i] for i in ids]
+            eval_reward_stats["eval_"+key] = sum(selected) / len(selected)
         self._metric_list.append(eval_reward_stats)
 
         return results
@@ -173,6 +183,9 @@ class GrpoAlgorithm(BaseAlgorithm):
     """GrpoAlgorithm"""
 
     def __init__(self, cfg: GrpoConfig) -> None:
+        if cfg.runtime_args.train_backend == "megatron":
+            cfg = update_cfg(cfg)
+
         self.cfg = cfg
 
     def run(self) -> None:

@@ -16,7 +16,7 @@
 
 import inspect
 import os
-from typing import Optional
+from typing import Optional, Dict
 import copy
 
 import torch
@@ -32,6 +32,7 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
 from .torch_module import TorchModule
 
 # pylint: disable=unexpected-keyword-arg
@@ -61,6 +62,11 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self._model = None
         self.llm = None
         self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
+        if self.model_config.architectures[0] == "Qwen3MoeForCausalLM":
+            self.param_update_fn = self.update_weights_from_ipc_handles_qwen3_moe
+        else:
+            self.param_update_fn = self.update_weights_from_ipc_handles_naive
+
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
@@ -80,7 +86,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         group.add_argument('--distributed-timeout-minutes', type=int, default=10,
                            help='Timeout minutes for torch.distributed.')
         return parser
-
     def init_engine_args(self):
         dtype = self.module_args.get("dtype", "bfloat16")
         if self.module_args.get("fp16", False):
@@ -122,6 +127,23 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             swap_space=self.module_args.get("swap_space", 16))
         return self.engine_args.create_engine_config(usage_context=UsageContext.ENGINE_CONTEXT)
 
+    def load_model(self):
+        """Initialize `self._model` here. This function is implicitly called in
+        `RayDistributedExecutor._init_workers_ray`
+        """
+        assert self.worker is not None, \
+                "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
+        self.worker.load_model()
+        self._model = self.worker.model_runner.model
+        # TODO: currently, we naively assign param_id according to local_name,
+        # TODO: assign global param_id in the future
+        self.local_name_to_param_id = {
+            k: i for i, k in enumerate(list(self.model.state_dict().keys()))
+        }
+        try:
+            self.param_metadata = self.get_parameter_metadata()
+        except Exception:
+            self.param_metadata = None
 
     def init(self):
         """
@@ -181,7 +203,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
             swap_space=self.module_args.get("swap_space", 16))
-
         self.offload_weights()
 
     def dump_parameters(self, dump_path_root):
@@ -290,12 +311,33 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             sampling_params.use_beam_search = self.module_args.get("use_beam_search", False)
         return sampling_params
 
-    def update_weights_from_ipc_handles(self, reduce_data):
+    def update_weights_from_ipc_handles_qwen3_moe(self, reduce_data):
+        n_expert = self.model_config.num_experts
+        mapping = {
+            'gate_weight': 'gate_proj.weight',
+            'up_weight': 'up_proj.weight',
+            'down_weight': 'down_proj.weight'}
+        for name, reduced in reduce_data.items():
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor = rebuild_func(*rebuild_args)
+           # print(f"{name}: {reconstructed_tensor.shape}")
+            if name.split('.')[-1] in mapping:
+                reconstructed_tensor = torch.chunk(reconstructed_tensor, n_expert, dim=0)
+                for i in range(n_expert):
+                    part = name.split('.')[-1]
+                    local_name = name.replace('group_mlp', f"experts.{i}").replace(part, mapping[part])
+                    self.model.load_weights([(local_name, reconstructed_tensor[i])])
+            else:
+                self.model.load_weights([(name, reconstructed_tensor)])
 
+    def update_weights_from_ipc_handles_naive(self, reduce_data):
         for name, reduced in reduce_data.items():
             rebuild_func, rebuild_args = reduced
             reconstructed_tensor = rebuild_func(*rebuild_args)
             self.model.load_weights([(name, reconstructed_tensor)])
+
+    def update_weights_from_ipc_handles(self, reduce_data):
+        self.param_update_fn(reduce_data)
 
     def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
         # resume from stage checkpoint.
@@ -362,10 +404,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     @property
     def model(self):
-        if self._model is None:
-            assert self.worker is not None, \
-                "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
-            self._model = self.worker.model_runner.model
         return self._model
 
     def tensor_parallel_rank(self):
@@ -409,15 +447,37 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         onload weights
         Wake up the engine from sleep mode. See the :meth:`sleep` method
         for more details.
-        
+
         Args:
-            tags: An optional list of tags to reallocate the engine memory 
-                for specific memory allocations. Values must be in 
+            tags: An optional list of tags to reallocate the engine memory
+                for specific memory allocations. Values must be in
                 ("weights", "kv_cache",). If None, all memory is reallocated.
-                wake_up should be called with all tags (or None) before the 
+                wake_up should be called with all tags (or None) before the
                 engine is used again.
         """
         if self.module_args.free_gpu_memory.offload_weights:
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
+
+    @torch.no_grad()
+    def map_local_parame_name_to_global(self):
+        """generate a global name for each parameter in the model
+        (just name of PP1EP1). For vLLM module (currently w/o EP),
+        simply return all keys
+        """
+        return list(self.model.state_dict.keys())
+
+    @torch.no_grad()
+    def get_parameter_metadata(self) -> Dict[str, ShardedTensorInfo]:
+        """Collect parameter shape info of this rank
+        """
+        if self.local_name_to_param_id is None:
+            raise ValueError("Call set_param_id before call this function")
+
+        infos = {}
+        for name, sharded_info in build_sharded_info_for_vllm_model(self.model).items():
+            param_id = self.local_name_to_param_id[name]
+            sharded_info.param_id = param_id
+            infos[param_id] = sharded_info
+        return infos

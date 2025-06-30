@@ -14,13 +14,14 @@
 """Megatron module"""
 import re
 from dataclasses import fields
-
+import functools
 import torch
 import torch.distributed as dist
 
 try:
     from megatron.training import get_args
     from megatron.training.arguments import parse_args
+    from megatron.training.utils import unwrap_model
     from megatron.core import parallel_state as mpu
     from megatron.training.initialize import initialize_megatron, set_jit_fusion_options
     from megatron.training.training import save_checkpoint_and_time
@@ -29,6 +30,7 @@ except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
 from chatlearn.configs.common import BaseConfig
+from chatlearn.utils.mappings import build_sharded_info_for_mcore_model
 from .torch_module import TorchModule
 
 
@@ -42,6 +44,8 @@ if IS_MEGATRON_SUPPORTED:
         ) from exc
     # pylint: disable-next=ungrouped-imports
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
+    # pylint: disable-next=ungrouped-imports
+    from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
     class MegatronModule(TorchModule):
         """MegatronModule is the class for Alignment Megatron models.
@@ -97,8 +101,9 @@ if IS_MEGATRON_SUPPORTED:
             set_megatron_cfg(self.module_args)
 
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
-            args.micro_batch_size = self.runtime_args.train_micro_batch_size if self.trainable else self.module_args.generation_batch_size
-            args.global_batch_size = self.runtime_args.train_global_batch_size if self.trainable else self.module_args.generation_batch_size
+            args.micro_batch_size = self.runtime_args.train_micro_batch_size
+            args.global_batch_size = self.runtime_args.train_global_batch_size
+            args.bf16 = self.module_args.bf16
             initialize_megatron(parsed_args=args)
 
             if self.trainable:
@@ -110,6 +115,18 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             super().model_setup()
+            try:
+                self.map_local_parame_name_to_global()
+                # TODO: currently, we naively assign param_id according to local_name,
+                # TODO: assign global param_id in the future
+                self.local_name_to_param_id = {
+                k: i for i, k in enumerate(self.local_name_to_global_name.keys())
+                }
+                self.param_metadata = self.get_parameter_metadata()
+            except Exception:
+                self.local_name_to_param_id = None
+                self.param_metadata = None
+
             # TODO: we may need to let setup return model, optimizer and opt_param_scheduler
             if self.trainable:
                 assert hasattr(self, "model")
@@ -266,6 +283,12 @@ if IS_MEGATRON_SUPPORTED:
 
             :meta private:
             """
+            layer_re = re.compile(r'layers\.([0-9]+)')
+            def update_layer_num(start_layer_num, m):
+                # This assumes no interleaved pipeline execution
+                layer = int(m.group(1))
+                layer += start_layer_num
+                return f'layers.{layer}'
             src_layer_offset = self.get_pipeline_stage_layer_offset()
             model = self.megatron_model()
             is_tgt_last_stage = target_pipe_rank == num_target_pipe_stage - 1 and target_pipe_rank != 0
@@ -300,7 +323,6 @@ if IS_MEGATRON_SUPPORTED:
                 name_mapping[tgt_name] = src_name
 
             return name_mapping
-
         def get_local_param_ranks(self):
             """
             :meta private:
@@ -337,7 +359,6 @@ if IS_MEGATRON_SUPPORTED:
                 0,
                 None
             )
-
 
         def offload_optimizer_states(self):
             """
@@ -421,20 +442,69 @@ if IS_MEGATRON_SUPPORTED:
             )
             to_be_merged = []
             for name, params_to_sync in self.named_parameters.items():
+                if 'extra_state' in name:
+                    continue
                 if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
                     to_be_merged.append([name, params_to_sync])
             to_be_merged = sorted(to_be_merged, key=lambda x: x[0])
             self._sparse_params = {}
             for name, params_to_sync in to_be_merged:
-                w, h = params_to_sync.shape
                 out_tensor = torch.empty(
-                    [get_expert_model_parallel_world_size(), w, h],
+                    [get_expert_model_parallel_world_size(), *params_to_sync.shape],
                     dtype=params_to_sync.dtype,
                     device=params_to_sync.device
                 )
                 dist.all_gather_into_tensor(out_tensor, params_to_sync, group=get_expert_model_parallel_group())
                 self._sparse_params[name] = out_tensor
 
+        @torch.no_grad()
+        def map_local_parame_name_to_global(self):
+            """generate a global name for each parameter in the model
+            (just name of PP1EP1)
+            """
+            self.local_name_to_global_name = {}
+            self.global_name_to_local_name = {}
+            model_config = unwrap_model(self.megatron_model()).config
+            # TODO: `get_transformer_layer_offset()` requires `vp_stage` in the future
+            offset = get_transformer_layer_offset(model_config)
+            if model_config.num_moe_experts is not None:
+                ep_rank = mpu.get_expert_model_parallel_rank()
+                ep_size = mpu.get_expert_model_parallel_world_size()
+                num_local_experts = model_config.num_moe_experts // ep_size
+
+            # NOTE: this regex is for model with TEGroupedGEMM
+            # SequentialMLP or GroupedMLP is not supported
+            regex = re.compile(r"(.*)decoder.layers\.(\d+)\.([a-z0-9_.]+)([\._])([a-z]+)([0-9]*)")
+            for name, maybe_tensor in self.megatron_model().state_dict_for_save_checkpoint().items():
+                if not isinstance(maybe_tensor, torch.Tensor):
+                    continue
+                match = regex.match(name)
+                if match is None:
+                    self.local_name_to_global_name[name] = name
+                    self.global_name_to_local_name[name] = name
+                    continue
+
+                layer_idx = int(match.group(2)) + offset
+                expert_id = ''
+                if len(match.group(6)) > 0:
+                    expert_id = int(match.group(6)) + num_local_experts * ep_rank
+                global_name = f"{match.group(1)}decoder.layers.{layer_idx}.{match.group(3)}{match.group(4)}{match.group(5)}{expert_id}"
+                self.local_name_to_global_name[name] = global_name
+                self.global_name_to_local_name[global_name] = name
+            return list(self.local_name_to_global_name.values())
+
+        @torch.no_grad()
+        def get_parameter_metadata(self):
+            """Collect parameter shape info of this rank
+            """
+            infos = {}
+            for name, sharded_info in build_sharded_info_for_mcore_model(
+                unwrap_model(self.megatron_model())
+            ).items():
+                param_id = self.local_name_to_param_id[name]
+                sharded_info.param_id = param_id
+                infos[param_id] = sharded_info
+            return infos
 else:
     class MegatronModule(TorchModule):
         """Module Placeholder for Megatron Backend"""

@@ -29,7 +29,7 @@ from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.core.transformer.spec_utils import import_module
 from megatron.core.utils import get_model_config
-from megatron.training import get_args, get_model, get_timers, print_rank_0
+from megatron.training import get_args, get_model, get_timers, print_rank_0, get_tokenizer
 from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training.training import setup_model_and_optimizer
@@ -40,7 +40,7 @@ from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
-    PolicyModel, build_tokenizer, forward_step, inference_forward_step,
+    PolicyModel, forward_step, inference_forward_step,
     training_log)
 
 REF_TAG = "ref_logprobs"
@@ -56,7 +56,8 @@ class MegatronPolicyTrainer(MegatronModule):
         self.args = get_args()
         self.report_memory_flag = True
         self.iteration_for_log = 0
-        build_tokenizer(self.global_args)
+        if getattr(self.global_args, "padded_vocab_size", None) is None:
+            get_args().padded_vocab_size = self.args.vocab_size
 
         if self.trainable:
             self.model, self.optimizer, self.opt_param_scheduler = (
