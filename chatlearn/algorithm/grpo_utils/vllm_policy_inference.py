@@ -29,17 +29,12 @@ class VLLMPolicyInference(VLLMModule):
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
-        num_inference_per_prompt = (
-            1 if is_eval else self.module_args["num_inference_per_prompt"]
-        )
-
         seq_length = self.module_args.get("seq_length")
 
         prompts_dataset = VLLMPromptPipeline(
             prompts,
             seq_length,
             self.tokenizer.tokenizer,
-            num_inference_per_prompt,
             enable_thinking=self.module_args.get("enable_thinking", False),
         )
 
