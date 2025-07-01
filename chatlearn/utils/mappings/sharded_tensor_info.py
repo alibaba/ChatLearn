@@ -89,7 +89,8 @@ class ShardedTensorInfo:
                 local_shape=self.local_shape[:axis] + (right - left, ) + self.local_shape[axis + 1:],
                 global_shape=self.global_shape,
                 axis_fragmentations=self.axis_fragmentations[:axis] + (num_frags, ) + self.axis_fragmentations[axis + 1:],
-                local_offset=self.local_offset[:axis] + (left - cur, ) + self.local_offset[axis + 1:]
+                local_offset=self.local_offset[:axis] + (left - cur, ) + self.local_offset[axis + 1:],
+                global_offset=self.global_offset[:axis] + (frag_idx, ) + self.global_offset[axis + 1:]
             ))
         return new_shards
 
@@ -160,6 +161,17 @@ class ShardedTensorInfo:
     @property
     def ndim(self):
         return len(self.global_shape)
+
+    def __hash__(self):
+        return hash((
+            self.param_id,
+            self.dtype,
+            *self.local_shape,
+            *self.global_shape,
+            *self.axis_fragmentations,
+            *self.local_offset,
+            *self.global_offset
+        ))
 
     def __post_init__(self):
         assert self.axis_fragmentations is not None

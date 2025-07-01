@@ -115,17 +115,6 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             super().model_setup()
-            try:
-                self.map_local_parame_name_to_global()
-                # TODO: currently, we naively assign param_id according to local_name,
-                # TODO: assign global param_id in the future
-                self.local_name_to_param_id = {
-                k: i for i, k in enumerate(self.local_name_to_global_name.keys())
-                }
-                self.param_metadata = self.get_parameter_metadata()
-            except Exception:
-                self.local_name_to_param_id = None
-                self.param_metadata = None
 
             # TODO: we may need to let setup return model, optimizer and opt_param_scheduler
             if self.trainable:
@@ -458,7 +447,7 @@ if IS_MEGATRON_SUPPORTED:
                 self._sparse_params[name] = out_tensor
 
         @torch.no_grad()
-        def map_local_parame_name_to_global(self):
+        def map_local_param_name_to_global(self):
             """generate a global name for each parameter in the model
             (just name of PP1EP1)
             """
@@ -494,7 +483,7 @@ if IS_MEGATRON_SUPPORTED:
             return list(self.local_name_to_global_name.values())
 
         @torch.no_grad()
-        def get_parameter_metadata(self):
+        def get_parameter_metadata(self, key_type: str='param_id'):
             """Collect parameter shape info of this rank
             """
             infos = {}
@@ -503,7 +492,12 @@ if IS_MEGATRON_SUPPORTED:
             ).items():
                 param_id = self.local_name_to_param_id[name]
                 sharded_info.param_id = param_id
-                infos[param_id] = sharded_info
+                if key_type == 'param_id':
+                    infos[param_id] = sharded_info
+                elif key_type == 'local_name':
+                    infos[name] = sharded_info
+                else:
+                    raise ValueError(f"Unsupport key_type: {key_type}")
             return infos
 else:
     class MegatronModule(TorchModule):

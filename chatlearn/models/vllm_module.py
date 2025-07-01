@@ -135,15 +135,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
                 "please set env variables `VLLM_USE_RAY_SPMD_WORKER=1` and `VLLM_USE_RAY_COMPILED_DAG=1` first."
         self.worker.load_model()
         self._model = self.worker.model_runner.model
-        # TODO: currently, we naively assign param_id according to local_name,
-        # TODO: assign global param_id in the future
-        self.local_name_to_param_id = {
-            k: i for i, k in enumerate(list(self.model.state_dict().keys()))
-        }
-        try:
-            self.param_metadata = self.get_parameter_metadata()
-        except Exception:
-            self.param_metadata = None
 
     def init(self):
         """
@@ -461,12 +452,15 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
 
     @torch.no_grad()
-    def map_local_parame_name_to_global(self):
+    def map_local_param_name_to_global(self):
         """generate a global name for each parameter in the model
         (just name of PP1EP1). For vLLM module (currently w/o EP),
         simply return all keys
         """
-        return list(self.model.state_dict.keys())
+        names = list(self.model.state_dict().keys())
+        self.local_name_to_global_name = {n: n for n in names}
+        self.global_name_to_local_name = {n: n for n in names}
+        return names
 
     @torch.no_grad()
     def get_parameter_metadata(self) -> Dict[str, ShardedTensorInfo]:

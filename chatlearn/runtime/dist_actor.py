@@ -381,6 +381,20 @@ class DistModel:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 
+    def call_func_on_all_workers(self, func_name: str, *args, **kwargs):
+        """Call some worker function on all workers of this 
+        DistModel.
+
+        NOTE: engine of vLLM is never called by this function.
+
+        Args:
+            func_name (str): the function name to be called
+        """
+        refs = []
+        for dist_actor in self.replicas:
+            refs.extend(dist_actor.call_remote_funcs(func_name, *args, **kwargs))
+        return refs      
+
     def call_replica_func(self, func, *args, **kwargs):
         refs = []
         for dist_actor in self.replicas:
