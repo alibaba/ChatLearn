@@ -24,6 +24,7 @@ import ray
 import numpy as np
 import torch
 import torch.distributed as dist
+from torch.distributed.tensor import DTensor
 from torch import optim, nn
 
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard, FSDPModule as TorchFSDPModule

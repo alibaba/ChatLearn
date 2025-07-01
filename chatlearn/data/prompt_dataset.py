@@ -37,8 +37,7 @@ class VLLMPromptPipeline(Dataset):
         data_list: List[Dict],
         seq_length: int,
         tokenizer: AutoTokenizer = None,
-        num_inference_per_prompt: int = 1,
-        enable_thinking=False,
+        enable_thinking=False
     ):  # pylint: disable=super-init-not-called
         super().__init__()
 
@@ -64,7 +63,7 @@ class VLLMPromptPipeline(Dataset):
                 "ground_truth": ground_truth,
             }
             if seq_length > len(input_ids):
-                self.data.extend([processed_data] * num_inference_per_prompt)
+                self.data.append(processed_data)
 
     def __getitem__(self, ix: int):
         return self.data[ix]

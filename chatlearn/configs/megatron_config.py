@@ -116,6 +116,45 @@ class MegatronModelArchitectureConfig(BaseConfig):
     moe_aux_loss_coeff: float = field(
         default=0.0, metadata={"help": "Scaling coefficient for the aux loss: a starting value of 1e-2 is recommended."}
     )
+    kv_lora_rank: int = field(
+        default=32,
+        metadata={"help": "Rank of Key and Value tensors' low rank representation."},
+    )
+    moe_router_num_groups: int = field(
+        default=None,
+        metadata={"help": "Number of groups to divide experts into for group-limited routing"},
+    )
+    moe_router_group_topk: int = field(
+        default=None,
+        metadata={"help": "Number of selected groups for group-limited routing."},
+    )
+    moe_shared_expert_intermediate_size: int = field(
+        default=None,
+        metadata={"help": "Shared expert total ffn hidden size. "},
+    )
+    moe_router_score_function: str = field(
+        default="softmax",
+        metadata={"help": "Score function for MoE TopK routing. Can be softmax or sigmoid."},
+    )
+    moe_router_enable_expert_bias: bool = field(
+        default=False, metadata={"help": "TopK routing with dynamic expert bias in the aux-loss-free load balancing strategy."}
+    )
+    multi_latent_attention: bool = field(
+        default=False, metadata={"help": "Use multi-latent attention for model."}
+    )
+    v_head_dim: int = field(
+        default=None,
+        metadata={"help": "v_head_dim "},
+    )
+    moe_router_topk_scaling_factor: float = field(
+        default=0.0, metadata={"help": "Scaling factor for routing score in top-k selection, only works when --moe-router-pre-softmax enabled. "}
+    )
+    moe_router_pre_softmax: bool = field(
+        default=False, metadata={"help": "Use multi-latent attention for model."}
+    )
+    apply_rope_fusion: bool = field(
+        default=True, metadata={"help": "Disable rope fusion, the fusion is available"}
+    )
 
 
 
