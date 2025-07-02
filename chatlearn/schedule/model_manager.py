@@ -148,7 +148,7 @@ class ModelManager:
                     self.error_signal
                 )
             elif self.runtime_args.use_parameter_sync_v2:
-                from chatlearn.synchronizer.v2 import parameter_sync_group as V2 # pylint: disable=import-outside-toplevel
+                from chatlearn.synchronizer.v2 import ParameterSyncGroup as V2 # pylint: disable=import-outside-toplevel
                 sync_group = V2(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],

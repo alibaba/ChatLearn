@@ -19,7 +19,7 @@ def _test_func(path, case_name):
     test_cases = []
     for module_name in test_modules:
         try:
-            module = importlib.import_module(f"{path}.{module_name}")
+            module = importlib.import_module(f"{path.replace('/', '.')}.{module_name}")
             test_case = getattr(module, "TEST_CASE")
             test_cases.extend(test_case)
         except (ModuleNotFoundError, AttributeError) as e:

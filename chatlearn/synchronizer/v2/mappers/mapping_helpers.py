@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """helper function to map layout between MCore and vLLM"""
-from typing import List
+from typing import List, Tuple, Optional
 from itertools import chain
 
 from chatlearn.utils.mappings import ShardedTensorInfo
@@ -53,11 +53,12 @@ def process_gate_up_tensor(
     """The weight/bias of gate_up_proj is represent
 
     Args:
-        sharded_info (ShardedTensorInfo): _description_
-        dst_tp_size (int): _description_
+        sharded_info (ShardedTensorInfo): The ShardedTensorInfo of the 
+        input tensor from gate up proj layer
+        dst_tp_size (int): the vLLM tp_size
 
-    Yields:
-        Generator[Tuple[int, ShardedTensorInfo, ShardedTensorInfo]]: _description_
+    Returns:
+        List[Tuple[ShardedTensorInfo, ...]]: The layout mapping.
     """
     src_tp_rank = sharded_info.global_offset[0]
     src_tp_size = sharded_info.axis_fragmentations[0]

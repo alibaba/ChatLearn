@@ -76,7 +76,7 @@ class MegatronVLLMMapper:
         # NOTE: the model in one megatron rank is always a list of GPTModel
         # (length > 1 when VPP is enabled).
         self.model: List['GPTModel'] = [unwrap_model(model.megatron_model())]
-        if len(self.model) != 1 or getattr(self.model[0], 'vp_stage', FULL) is not FULL:
+        if len(self.model) != 1 or getattr(self.model[0], 'vp_stage', None) is not None:
             raise NotImplementedError("Currently, the mapper does not support VPP")
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args
         self._dst_model_config = dst_model_config
@@ -153,7 +153,7 @@ class MegatronVLLMMapper:
                 ))
 
             if len(self.model) > 1:
-                mpu.set_virtual_pipeline_model_parallel_rank(FULL)
+                mpu.set_virtual_pipeline_model_parallel_rank(None)
         return mapping
 
     def _map_norm_layer(self, module: nn.Module, src_prefix: str='', dst_prefix: str='', *, is_norm_layer: bool=True):
@@ -171,7 +171,7 @@ class MegatronVLLMMapper:
         if is_norm_layer:
             possible_keys += ['weight', 'bias']
         for item in possible_keys:
-            if getattr(module, item, FULL) is FULL or getattr(module, item).numel() == 0:
+            if getattr(module, item, None) is None or getattr(module, item).numel() == 0:
                 continue
             mapping.update(self._inner_map_for_full_shape(
                 f"{src_prefix}{item}",
@@ -232,7 +232,7 @@ class MegatronVLLMMapper:
         ))
 
         # shared experts
-        if module.shared_experts is not FULL:
+        if module.shared_experts is not None:
             if module.shared_experts.use_shared_expert_gate:
                 mapping.update(self._inner_map_for_full_shape(f"{src_prefix}shared_experts.gate_weight", f"{dst_prefix}shared_expert_gate.weight"))
             mapping.update(self._map_mlp(
@@ -283,7 +283,7 @@ class MegatronVLLMMapper:
 
     def _map_mla_selfattn(self, module: 'MLASelfAttention', src_prefix: str='', dst_prefix: str=''):
         mapping = {}
-        if self._src_arch.q_lora_rank is FULL:
+        if self._src_arch.q_lora_rank is None:
             mapping.update(self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_proj.weight",
                 f"{dst_prefix}q_proj.weight",
@@ -378,8 +378,8 @@ class MegatronVLLMMapper:
         src_key: str,
         dst_key: str,
         *,
-        global_expert_id: int=FULL,
-        num_experts: int=FULL,
+        global_expert_id: int=None,
+        num_experts: int=None,
         mapping_type: MappingType=MappingType.FULL
     ):
         AXES = {
@@ -396,7 +396,7 @@ class MegatronVLLMMapper:
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
-            if global_expert_id is not FULL:
+            if global_expert_id is not None:
                 dst_meta = dst_meta.unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
             mapping[src_meta] = (dst_meta, mapping_type)
         return mapping
@@ -412,7 +412,7 @@ class MegatronVLLMMapper:
             src_info.copy(): (dst_info.copy(), MappingType.FULL)
         }
 
-    def _inner_map_for_gate_up_proj(self, src_key: str, dst_key: str, *, global_expert_id: int=FULL, num_experts: int=FULL):
+    def _inner_map_for_gate_up_proj(self, src_key: str, dst_key: str, *, global_expert_id: int=None, num_experts: int=None):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = {}
@@ -422,7 +422,7 @@ class MegatronVLLMMapper:
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
-            if global_expert_id is not FULL:
+            if global_expert_id is not None:
                 dst_meta = dst_meta.unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
             mapping[src_meta] = (dst_meta, MappingType.GATE_UP)
         return mapping

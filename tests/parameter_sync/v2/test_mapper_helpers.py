@@ -13,6 +13,8 @@
 # limitations under the License.
 # ==============================================================================
 from typing import Tuple, List, Any
+
+import chatlearn
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.v2.mappers.mapping_helpers import (
     process_normal_tensor,
@@ -64,21 +66,13 @@ def test_process_normal_tensor():
         4
     ), key=lambda x: x[0].local_offset[0]) == [
         (
-            ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(2, ), local_offset=(0, )), 
-            ShardedTensorInfo(axis_fragmentations=(4, ), global_shape=(16, ), global_offset=(2, ), local_shape=(2, ), local_offset=(0, ))
+            ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(4, ), local_offset=(0, )), 
+            ShardedTensorInfo(axis_fragmentations=(4, ), global_shape=(16, ), global_offset=(2, ))
         ),
         (
-            ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(2, ), local_offset=(1, )), 
-            ShardedTensorInfo(axis_fragmentations=(4, ), global_shape=(16, ), global_offset=(3, ), local_shape=(2, ), local_offset=(0, ))
-        ),
-        (
-            ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(2, ), local_offset=(2, )), 
-            ShardedTensorInfo(axis_fragmentations=(4, ), global_shape=(16, ), global_offset=(2, ), local_shape=(2, ), local_offset=(1, ))
-        ),
-        (
-            ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(2, ), local_offset=(3, )), 
-            ShardedTensorInfo(axis_fragmentations=(4, ), global_shape=(16, ), global_offset=(3, ), local_shape=(2, ), local_offset=(1, ))
-        ), 
+            ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(4, ), local_offset=(4, )), 
+            ShardedTensorInfo(axis_fragmentations=(4, ), global_shape=(16, ), global_offset=(3, ))
+        )
     ], "Case 2: src tp < dst tp failed"
 
     # Case 3: src tp > dst tp
@@ -407,3 +401,13 @@ def test_process_qkv_tensor_no_gqa():
         [[3, 1, 1, 11], [4, 2, 1, 7]],
     ]
     assert calculated == build_answer((36, ), expected), "Case 5: src tp = 3 and dst tp = 4 failed"
+
+TEST_CASE = [
+    test_process_normal_tensor,
+    test_process_gate_up_tensor,
+    test_process_qkv_tensor_no_gqa
+]
+
+if __name__ == "__main__":
+    for case in TEST_CASE:
+        case()
