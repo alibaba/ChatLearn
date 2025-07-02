@@ -1,3 +1,4 @@
+"""helper function to map layout between MCore and vLLM"""
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,9 +13,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import torch
-from copy import deepcopy
-from typing import *
+from typing import List
 from itertools import chain
 
 from chatlearn.utils.mappings import ShardedTensorInfo
@@ -24,25 +23,25 @@ def process_normal_tensor(
     dst_tp_size: int,
     axis: int=0
 ) -> List[Tuple[ShardedTensorInfo, ...]]:
-    """For normal parameters which have the consistent layout, 
+    """For normal parameters which have the consistent layout,
     only resharding is required.
 
     Example: Assume a normal ColumnLinear with shape [16, 8] in MCore,
-    When TP=2, each rank will get ShardedTensorInfo(local_shape=[8, 8], 
+    When TP=2, each rank will get ShardedTensorInfo(local_shape=[8, 8],
     global_shape=[16, 8], global_offset=...). If we want to copy part
     of weight to the vLLM ColumnLinear of TP=4, reshard with TP=4 will
     further split weight of this rank and then we can apply the copy
     with the returned sharded_info.
-    
+
     Args:
         sharded_info (ShardedTensorInfo): The sharded_info of the input tensor
         dst_tp_size (int): The target tp_size
         axis (int, optional): The axis to be resharded.
-    
+
     """
     return [
         (
-            tensor_part_info.refragment(sharded_info.axis_fragmentations[axis], axis), 
+            tensor_part_info.refragment(sharded_info.axis_fragmentations[axis], axis),
             tensor_part_info
         ) for tensor_part_info in sharded_info.fragment(dst_tp_size, axis)
     ]
@@ -80,7 +79,7 @@ def process_gate_up_tensor(
                 gate_part
                 .map_to_frag_id(dst_tp_rank * 2)
                 .refragment(dst_tp_size)
-            ),            
+            ),
         ))
     for up_part in intermediates[src_tp_size + src_tp_rank].fragment(dst_tp_size * 2):
         dst_tp_rank = up_part.global_offset[0] - dst_tp_size
@@ -95,21 +94,20 @@ def process_gate_up_tensor(
                 up_part
                 .map_to_frag_id(dst_tp_rank * 2 + 1)
                 .refragment(dst_tp_size)
-            ),            
+            ),
         ))
     return __maybe_merge(gate_mappings + up_mappings)
 
 def _build_frag_mapping(
     num_heads: int,
-    num_query_group: int, 
-    src_tp_size: int, 
+    num_query_group: int,
     dst_tp_size: int
 ):
     """Generate a mapping between mcore qkv heads
     and vllm qkv heads.
 
-    Mcore layout of first dim per tp rank when 
-    nh=24, ng=8, tp=4, nq=3: [q q q k v q q q k v], 
+    Mcore layout of first dim per tp rank when
+    nh=24, ng=8, tp=4, nq=3: [q q q k v q q q k v],
     while vLLM: [q q q q q q k k v v]
 
     Args:
@@ -118,25 +116,25 @@ def _build_frag_mapping(
         src_tp_size (int): _description_
         dst_tp_size (int): _description_
     """
-    flatten = lambda x: list(chain.from_iterable(x))
+    flatten = lambda x: list(chain.from_iterable(x)) # pylint: disable=unnecessary-lambda-assignment
     nq = num_heads // num_query_group
     mcore_layout = []
     vllm_layout = []
     mcore_layout = flatten([
-        [ f"q{g_id * nq + q_id}" for q_id in range(nq)] + [f"k{g_id}", f"v{g_id}"] 
+        [ f"q{g_id * nq + q_id}" for q_id in range(nq)] + [f"k{g_id}", f"v{g_id}"]
         for g_id in range(num_query_group)
     ])
     vllm_nq = num_heads // dst_tp_size
     if dst_tp_size < num_query_group:
         vllm_layout = flatten([
-            [f"q{r_id * vllm_nq + q_id}" for q_id in range(num_heads // dst_tp_size)] + 
+            [f"q{r_id * vllm_nq + q_id}" for q_id in range(num_heads // dst_tp_size)] +
             [f"k{g_id + r_id * (num_query_group // dst_tp_size)}" for g_id in range(num_query_group // dst_tp_size)] +
             [f"v{g_id + r_id * (num_query_group // dst_tp_size)}" for g_id in range(num_query_group // dst_tp_size)]
             for r_id in range(dst_tp_size)
         ])
     else:
         vllm_layout = flatten([
-            [f"q{r_id * vllm_nq + q_id}" for q_id in range(num_heads // dst_tp_size)] + 
+            [f"q{r_id * vllm_nq + q_id}" for q_id in range(num_heads // dst_tp_size)] +
             [f"k{r_id * num_query_group // dst_tp_size}", f"v{r_id * num_query_group // dst_tp_size}"]
             for r_id in range(dst_tp_size)
         ])
@@ -168,7 +166,6 @@ def process_qkv_tensor(
     vllm_id_to_mcore_id = _build_frag_mapping(
         num_heads,
         num_query_groups,
-        src_tp_size,
         dst_tp_size
     )
 
@@ -192,6 +189,7 @@ def process_qkv_tensor(
             dst_part.refragment(dst_tp_size)
         ))
     return __maybe_merge(results)
+
 def __maybe_merge(mappings: List[Tuple[ShardedTensorInfo, ShardedTensorInfo]], axis: int=0):
     """Try to merge adjacent shards to reduce the number of shards."""
 
@@ -202,9 +200,9 @@ def __maybe_merge(mappings: List[Tuple[ShardedTensorInfo, ShardedTensorInfo]], a
         if len(to_be_merged) == 0:
             to_be_merged.append((src_part, dst_part))
             continue
-        
+
         if (
-            to_be_merged[-1][0].local_offset[axis] + to_be_merged[-1][0].local_shape[axis] == src_part.local_offset[axis] and 
+            to_be_merged[-1][0].local_offset[axis] + to_be_merged[-1][0].local_shape[axis] == src_part.local_offset[axis] and
             to_be_merged[-1][1].local_offset[axis] + to_be_merged[-1][1].local_shape[axis] == dst_part.local_offset[axis] and
             to_be_merged[-1][0].global_offset[axis] == src_part.global_offset[axis] and
             to_be_merged[-1][1].global_offset[axis] == dst_part.global_offset[axis]

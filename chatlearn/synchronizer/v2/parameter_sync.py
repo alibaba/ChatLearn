@@ -13,18 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 """Sync parameters"""
-import numpy as np
-import time
 import itertools
-import torch
-
-from typing import *
+from typing import List, Dict
 
 from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
-from chatlearn.utils.timer import Timers
 
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.v2.mappers import get_mapper_name
@@ -33,7 +28,7 @@ patch_ray()
 
 
 class ParameterSyncGroup:
-
+    """The core implementation of parameter synchronization."""
     def __init__(self, src_model: DistModel, dst_model: DistModel, group_name: str, frequency, error_signal):
         """Manage Parameter Synchronization between source and destination models.
 
@@ -46,15 +41,16 @@ class ParameterSyncGroup:
         self.src_model, self.dst_model = src_model, dst_model
         self._initialized = False
         # NOTE: for compatability, CURRENTLY NOT USED
+        self.group_name = group_name
         self.frequency = frequency
         self.error_signal = error_signal
 
     def initialize(self):
         """Intialize the synchronizer. The sync plan is built and validated.
-        We assume that the model is static during training process, i.e. no 
-        parameter is added or removed, and the datatype or shape of parameters 
-        is unchanged. Therefore, the validation is performed only once. 
-        Regardless of the above assumption, the initialization can be called 
+        We assume that the model is static during training process, i.e. no
+        parameter is added or removed, and the datatype or shape of parameters
+        is unchanged. Therefore, the validation is performed only once.
+        Regardless of the above assumption, the initialization can be called
         multiple times if needed.
         """
         def _initialize_impl(model):
@@ -77,9 +73,9 @@ class ParameterSyncGroup:
         self.dst_param_ids, self.dst_metadatas = _initialize_impl(self.dst_model)
         dst_name_to_metadata = {}
         for name, param_id in self.dst_param_ids.items():
-            for rank, metadata_per_rank in self.dst_metadatas.items():
+            for _, metadata_per_rank in self.dst_metadatas.items():
                 if param_id in metadata_per_rank:
-                    # select one of the TensorMeta for mapper, as mapper don't 
+                    # select one of the TensorMeta for mapper, as mapper don't
                     # care the shape info of this metadata
                     dst_name_to_metadata[name] = metadata_per_rank[param_id]
                     break
@@ -87,17 +83,16 @@ class ParameterSyncGroup:
         future.wait(
             self.src_model.call_func_on_all_workers(
                 'set_mapper',
-                get_mapper_name(self.src_model, self.dst_model), 
+                get_mapper_name(self.src_model, self.dst_model),
                 self.dst_model.module_args
-            ), 
+            ),
             return_output=True
         )
         results = future.wait(self.src_model.call_func_on_all_workers(
             'generate_sync_mapping',
             dst_name_to_metadata,
         ), return_output=True)
-        global_sync_mapping = self.validate_and_merge_sync_mapping(results)
-        breakpoint()
+        global_sync_mapping = self.validate_and_merge_sync_mapping(results) # pylint: disable=unused-variable
         # planner = get_planner(global_sync_mapping, ...)
         # sync_plan = planner.make_plan()
         # # TODO: Can we find a way to validate plan before actual comm starts?
@@ -109,16 +104,16 @@ class ParameterSyncGroup:
         self._initialized = True
 
     def collect_parameter_metadata(
-        self, 
+        self,
         model: DistModel
     ) -> Dict[int, Dict[int, ShardedTensorInfo]]:
-        """Collect parameter metadata from model. 
+        """Collect parameter metadata from model.
 
         Args:
             model (DistModel): The model to collect parameter metadata.
-        
+
         Returns:
-            Dict[int, Dict[int, ShardedTensorInfo]]: The parameter metadata with 
+            Dict[int, Dict[int, ShardedTensorInfo]]: The parameter metadata with
             the following format:
             {
                 rank: {
@@ -127,19 +122,16 @@ class ParameterSyncGroup:
             }
         """
         results = future.wait(
-            model.call_func_on_all_workers('get_parameter_metadata'), 
+            model.call_func_on_all_workers('get_parameter_metadata'),
             return_output=True
         )
-        return {
-            rank: res 
-            for rank, res in zip(itertools.chain.from_iterable(model.all_ranks), results)
-        }
+        return dict(zip(itertools.chain.from_iterable(model.all_ranks), results))
 
     def generate_global_param_ids(self, model: DistModel) -> Dict[str, int]:
-        """This function will generate a global parameter id for each Tensor 
-        in the state dict of the model, even if the Tensor will not be synchronized. 
-        we also generate a global weight name for each tensor, i.e., weight 
-        name w/o model parallel (on elsewhere). Note that model in the same tp group 
+        """This function will generate a global parameter id for each Tensor
+        in the state dict of the model, even if the Tensor will not be synchronized.
+        we also generate a global weight name for each tensor, i.e., weight
+        name w/o model parallel (on elsewhere). Note that model in the same tp group
         will share the same global weight name/param id.
 
         Args:
@@ -148,26 +140,27 @@ class ParameterSyncGroup:
         # Megatron: Dense (TP-CP-DP-PP)  MoE (ETP-EP-EDP-PP)
         # vLLM: Dense (DP-PP-TP), EP group is DP-TP group, i.e., ETP=EDP=1
         results = future.wait(
-            model.call_func_on_all_workers('map_local_param_name_to_global'), 
+            model.call_func_on_all_workers('map_local_param_name_to_global'),
             return_output=True
         )
         param_names = set()
         for res in results:
             param_names.update(res)
         return {name: idx for idx, name in enumerate(param_names)}
-    
+
     def validate_and_merge_sync_mapping(self, sync_mappings: List[Dict]):
         """
             Check whether the merged sync mapping from all source actors meets the metadata
             collected by `collect_parameter_metadata`.
-        
+
         Args:
             sync_mappings (List[Dict]): The sync mappings from all source actors.
         """
-        ...
-    
+        return sync_mappings # Not Implemented
+
     def sync(self, *args, dryrun: bool = False, **kwargs):
-        """Intialize and call parameter synchronization on all actors 
+        # pylint: disable=unused-argument
+        """Intialize and call parameter synchronization on all actors
         of src and dst models.
         """
         if not self._initialized:

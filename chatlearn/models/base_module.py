@@ -1250,7 +1250,7 @@ class BaseModule:
 
     # NOTE: the following APIs are for updated parameter synchronization.
     def set_mapper(self, mapper_name: str, dst_model_config: BaseModelConfig):
-        from chatlearn.synchronizer.v2.mappers import name_to_mapper_cls
+        from chatlearn.synchronizer.v2.mappers import name_to_mapper_cls # pylint: disable=import-outside-toplevel
         self.mapper = name_to_mapper_cls(mapper_name)(
             dst_model_config,
             self
@@ -1261,6 +1261,6 @@ class BaseModule:
 
     def set_param_ids(self, global_name_to_param_id: Dict[str, int]):
         self.local_name_to_param_id = {
-            v: global_name_to_param_id[k] 
+            v: global_name_to_param_id[k]
             for k, v in self.global_name_to_local_name.items()
         }

@@ -1,3 +1,4 @@
+"""The mappers between architectures"""
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,13 +13,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-from chatlearn.runtime.dist_actor import DistModel
+from typing import TYPE_CHECKING
 
-def get_mapper_name(src_model: DistModel, dst_model: DistModel):
+if TYPE_CHECKING:
+    from chatlearn.runtime.dist_actor import DistModel
+
+def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
+    # pylint: disable=unused-argument
     return "MegatronVLLMMapper"
 
 def name_to_mapper_cls(mapper_name: str):
     if mapper_name == "MegatronVLLMMapper":
+        # pylint: disable=import-outside-toplevel
         from chatlearn.synchronizer.v2.mappers.mapper import MegatronVLLMMapper
         return MegatronVLLMMapper
     else:

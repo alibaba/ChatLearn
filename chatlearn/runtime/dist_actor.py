@@ -393,7 +393,7 @@ class DistModel:
         refs = []
         for dist_actor in self.replicas:
             refs.extend(dist_actor.call_remote_funcs(func_name, *args, **kwargs))
-        return refs      
+        return refs
 
     def call_replica_func(self, func, *args, **kwargs):
         refs = []
