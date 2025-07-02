@@ -1,4 +1,3 @@
-"""Mapper for Megatron to vLLM"""
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""Mapper for Megatron to vLLM"""
 from enum import Enum
 from typing import List, Dict, Tuple, TYPE_CHECKING
 
