@@ -73,6 +73,7 @@ models:
     generation_batch_size: 256
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
+    enforce_eager: False
     tensor_model_parallel_size: 1
     trainable: False
     load: ${models.policy_trainer.load}
