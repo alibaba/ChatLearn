@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """implementation of ShardedTensorInfo"""
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from dataclasses import dataclass, field
 from copy import deepcopy
 
@@ -89,7 +89,8 @@ class ShardedTensorInfo:
                 local_shape=self.local_shape[:axis] + (right - left, ) + self.local_shape[axis + 1:],
                 global_shape=self.global_shape,
                 axis_fragmentations=self.axis_fragmentations[:axis] + (num_frags, ) + self.axis_fragmentations[axis + 1:],
-                local_offset=self.local_offset[:axis] + (left - cur, ) + self.local_offset[axis + 1:]
+                local_offset=self.local_offset[:axis] + (left - cur, ) + self.local_offset[axis + 1:],
+                global_offset=self.global_offset[:axis] + (frag_idx, ) + self.global_offset[axis + 1:]
             ))
         return new_shards
 
@@ -131,12 +132,21 @@ class ShardedTensorInfo:
         return copied
 
     def unsqueeze(self, offset:int, length: int, axis: int=0) -> 'ShardedTensorInfo':
-        # NOTE: make the unsqueezed info available to index the src tensor
+        """Unsqueeze the sharded info on the given axis
+
+        Args:
+            offset (int): The new offset on the given axis
+            length (int): The length of the new axis
+            axis (int, optional): The axis to be unsqueezed. Defaults to 0.
+
+        Returns:
+            ShardedTensorInfo: The unsqueezed shard
+        """
         return ShardedTensorInfo(
             param_id=self.param_id,
             dtype=self.dtype,
             local_shape=self.local_shape[:axis] + (1, ) + self.local_shape[axis:],
-            global_shape=self.global_shape[:axis] + (1, ) + self.global_shape[axis:],
+            global_shape=self.global_shape[:axis] + (length, ) + self.global_shape[axis:],
             axis_fragmentations=self.axis_fragmentations[:axis] + (length, ) + self.axis_fragmentations[axis:],
             global_offset=self.global_offset[:axis] + (offset, ) + self.global_offset[axis:],
             local_offset=self.local_offset[:axis] + (0, ) + self.local_offset[axis:]
@@ -160,6 +170,17 @@ class ShardedTensorInfo:
     @property
     def ndim(self):
         return len(self.global_shape)
+
+    def __hash__(self):
+        return hash((
+            self.param_id,
+            self.dtype,
+            *self.local_shape,
+            *self.global_shape,
+            *self.axis_fragmentations,
+            *self.local_offset,
+            *self.global_offset
+        ))
 
     def __post_init__(self):
         assert self.axis_fragmentations is not None
@@ -190,3 +211,57 @@ class ShardedTensorInfo:
         else:
             assert all(self.local_offset) == 0
             self.local_shape = grid_shape
+
+    @staticmethod
+    def concat(shards: List['ShardedTensorInfo'], axis: int=0) -> Optional['ShardedTensorInfo']:
+        """Merge some continuous shards into one on the given axis.
+
+
+        Returns:
+            ShardedTensorInfo: The concatenated shard. If the input list is empty, 
+            returns None.
+        """
+        if len(shards) == 0:
+            return None
+
+        if len(shards) == 1:
+            return shards[0].copy()
+        def get_values(shards: List['ShardedTensorInfo'], key: str):
+            return [getattr(shard, key) for shard in shards]
+
+        def all_equal(shards: List['ShardedTensorInfo'], key: str):
+            return all(getattr(shard, key) == getattr(shards[0], key) for shard in shards)
+
+        def all_equal_except_axis(shards: List['ShardedTensorInfo'], key: str, axis: int):
+            return all(
+                getattr(shard, key)[:axis] == getattr(shards[0], key)[:axis] and
+                getattr(shard, key)[axis+1:] == getattr(shards[0], key)[axis+1:]
+                for shard in shards
+            )
+
+        for key in ['global_shape', 'param_id', 'global_offset', 'dtype']:
+            if not all_equal(shards, key):
+                raise ValueError(
+                    f"Concat on shards with inconsistent {key} is "
+                    f"invalid, got: {get_values(shards, key)}."
+                )
+
+        for key in ['local_shape', 'local_offset']:
+            if not all_equal_except_axis(shards, key, axis):
+                raise ValueError(
+                    f"Concat on shards with inconsistent {key} on non-target axis is "
+                    f"invalid, got: {get_values(shards, key)}."
+                )
+
+        shards = sorted(shards, key=lambda x: x.local_offset[axis])
+        left = shards[0].local_offset[axis]
+        right = shards[-1].local_offset[axis] + shards[-1].local_shape[axis]
+        return ShardedTensorInfo(
+            param_id=shards[0].param_id,
+            dtype=shards[0].dtype,
+            local_shape=shards[0].local_shape[:axis] + (right - left,) + shards[0].local_shape[axis + 1:],
+            global_shape=shards[0].global_shape,
+            axis_fragmentations=shards[0].axis_fragmentations,
+            local_offset=shards[0].local_offset,
+            global_offset=shards[0].global_offset
+        )

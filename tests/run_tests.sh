@@ -57,5 +57,5 @@ done
 
 # Usage: Run A Specified TestCase with case name
 #run_test python test_main.py -t "rlhf.test_rlhf_ckpt" -c "configs/rlhf.yaml"
-
+run_test python test_main.py -t "parameter_sync/v2" -c "configs/parameter_sync.yaml"
 ray stop --force
