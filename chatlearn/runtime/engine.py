@@ -487,13 +487,16 @@ class Engine(BaseEngine):
                     self.trainer.set_timers(self.timers)
                 self.trainer.train(episode_id)
                 logger.info(get_full_proc_memory_info(f"{LOG_START} After train {episode_id}"))
+                self.timers("save ckpts").start()
+                self.save_checkpoint(episode_id)
+                self.timers("save ckpts").stop()
+                logger.info(f"{LOG_START} save episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
                 self.model_manager.sync_parameters(episode_id + 1, validate=validate)
                 self.timers("sync_parameters").stop()
                 logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
             self.timers("episode").stop()
-            self.save_checkpoint(episode_id)
             self.evaluate(episode_id)
             self.after_episode()
             self.logging_summary(episode_id)
@@ -530,11 +533,11 @@ class Engine(BaseEngine):
             self.timers("save_checkpoint").start()
             for model in self.trainer.models:
                 refs = model.replicas[0].onload(to_onload_optimizer_states=False)
-                future.wait(refs)
+                future.wait(refs, return_output=True)
                 refs = model.replicas[0].save_checkpoint(self.trainer.iteration)
-                future.wait(refs)
+                future.wait(refs, return_output=True)
                 refs = model.replicas[0].offload()
-                future.wait(refs)
+                future.wait(refs, return_output=True)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
                 if isinstance(model, DistVLLMActor):

@@ -14,7 +14,7 @@
 # ==============================================================================
 """Apply patches for different model architectures"""
 def apply_sp_monkey_patch(model_config):
-    print(f"apply sequence parallel patches for {model_config.architectures}")
+    print(f"applying sequence parallel patches for {model_config.architectures}")
     if model_config.architectures[0] == "Qwen2ForCausalLM":
         from chatlearn.models.patches.transformers.qwen2_patch import register_sp_attention_forward \
             # pylint: disable=import-outside-toplevel
@@ -27,6 +27,7 @@ def apply_sp_monkey_patch(model_config):
         raise ValueError(f"Unsupported model architecture: {model_config.architectures}")
 
 def apply_group_gemm(model):
+    print(f"applying groupgemm patches for {model.config.architectures[0]}")
     if model.config.architectures[0] == "Qwen3MoeForCausalLM":
         from chatlearn.models.patches.transformers.qwen3_moe_patch import apply_group_gemm_patch \
             # pylint: disable=import-outside-toplevel
