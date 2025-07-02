@@ -39,24 +39,6 @@ modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 bash scripts/train_fsdp_vllm_qwen3_30b_a3b_grpo.sh
 ```
 
-### Qwen3-30B-A3B
-Run this command on server with 8 GPUs
-```bash
-# download model weight
-modelscope download --model Qwen/Qwen3-30B-A3B --local_dir Qwen3-30B-A3B
-bash scripts/train_fsdp_vllm_qwen3_30b_a3b_grpo.sh
-```
-
-### Qwen3-235B-A22B
-Run this command on 8 server with 8 GPUs each and 64
- gpus total
-```bash
-# 下载模型权重
-modelscope download --model Qwen/Qwen3-235B-A22B --local_dir Qwen3-235B-A22B
-bash scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh
-```
-
-
 ## Using Wandb
 If you want to use Wandb to log the training process, you need to modify the configuration with: 
 ```bash

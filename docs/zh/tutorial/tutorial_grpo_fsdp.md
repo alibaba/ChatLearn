@@ -38,22 +38,6 @@ modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
-### Qwen3-30B-A3B
-8卡机器运行如下命令
-```bash
-# 下载模型权重
-modelscope download --model Qwen/Qwen3-30B-A3B --local_dir Qwen3-30B-A3B
-bash scripts/train_fsdp_vllm_qwen3_30b_a3b_grpo.sh
-```
-
-### Qwen3-235B-A22B
-8机64卡，DLC命令行脚本填写如下命令
-```bash
-# 下载模型权重
-modelscope download --model Qwen/Qwen3-235B-A22B --local_dir Qwen3-235B-A22B
-bash scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh
-```
-
 ## 使用 Wandb 监控
 如需使用 Wandb 记录训练过程，请修改对应脚本中的配置：
 
