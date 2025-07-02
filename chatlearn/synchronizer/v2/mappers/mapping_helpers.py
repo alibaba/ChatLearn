@@ -66,8 +66,6 @@ def process_gate_up_tensor(
         sharded_info.global_shape
     ).fragment(src_tp_size * 2)
 
-    # TODO: Here we may generate more fragments than expected, which could 
-    # TODO: reduce the comm efficiency, fix later
     gate_mappings, up_mappings = [], []
     for gate_part in intermediates[src_tp_rank].fragment(dst_tp_size * 2):
         dst_tp_rank = gate_part.global_offset[0]
@@ -99,7 +97,7 @@ def process_gate_up_tensor(
                 .refragment(dst_tp_size)
             ),            
         ))
-    return gate_mappings + up_mappings
+    return __maybe_merge(gate_mappings + up_mappings)
 
 def _build_frag_mapping(
     num_heads: int,
@@ -132,14 +130,14 @@ def _build_frag_mapping(
     if dst_tp_size < num_query_group:
         vllm_layout = flatten([
             [f"q{r_id * vllm_nq + q_id}" for q_id in range(num_heads // dst_tp_size)] + 
-            [f"k{g_id}" for g_id in range(num_query_group // dst_tp_size)] +
-            [f"v{g_id}" for g_id in range(num_query_group // dst_tp_size)]
+            [f"k{g_id + r_id * (num_query_group // dst_tp_size)}" for g_id in range(num_query_group // dst_tp_size)] +
+            [f"v{g_id + r_id * (num_query_group // dst_tp_size)}" for g_id in range(num_query_group // dst_tp_size)]
             for r_id in range(dst_tp_size)
         ])
     else:
         vllm_layout = flatten([
             [f"q{r_id * vllm_nq + q_id}" for q_id in range(num_heads // dst_tp_size)] + 
-            [f"k{r_id // num_query_group}", f"v{r_id // num_query_group}"]
+            [f"k{r_id * num_query_group // dst_tp_size}", f"v{r_id * num_query_group // dst_tp_size}"]
             for r_id in range(dst_tp_size)
         ])
     return {
@@ -193,4 +191,34 @@ def process_qkv_tensor(
             mcore_id_to_frags[mcore_idx],
             dst_part.refragment(dst_tp_size)
         ))
+    return __maybe_merge(results)
+def __maybe_merge(mappings: List[Tuple[ShardedTensorInfo, ShardedTensorInfo]], axis: int=0):
+    """Try to merge adjacent shards to reduce the number of shards."""
+
+    mappings = sorted(mappings, key=lambda x: (x[0].global_offset[axis], x[0].local_offset[axis]))
+    results = []
+    to_be_merged = []
+    for src_part, dst_part in mappings:
+        if len(to_be_merged) == 0:
+            to_be_merged.append((src_part, dst_part))
+            continue
+        
+        if (
+            to_be_merged[-1][0].local_offset[axis] + to_be_merged[-1][0].local_shape[axis] == src_part.local_offset[axis] and 
+            to_be_merged[-1][1].local_offset[axis] + to_be_merged[-1][1].local_shape[axis] == dst_part.local_offset[axis] and
+            to_be_merged[-1][0].global_offset[axis] == src_part.global_offset[axis] and
+            to_be_merged[-1][1].global_offset[axis] == dst_part.global_offset[axis]
+        ):
+            to_be_merged.append((src_part, dst_part))
+        else:
+            results.append((
+                ShardedTensorInfo.concat([item[0] for item in to_be_merged], axis),
+                ShardedTensorInfo.concat([item[1] for item in to_be_merged], axis)
+            ))
+            to_be_merged = [(src_part, dst_part)]
+
+    results.append((
+        ShardedTensorInfo.concat([item[0] for item in to_be_merged], axis),
+        ShardedTensorInfo.concat([item[1] for item in to_be_merged], axis)
+    ))
     return results

@@ -75,13 +75,11 @@ class ParameterSyncGroup:
 
         self.src_param_ids, self.src_metadatas = _initialize_impl(self.src_model)
         self.dst_param_ids, self.dst_metadatas = _initialize_impl(self.dst_model)
-        # NOTE: prepare a dict (dst_global_name) --> (param_id, dtype) required 
-        # for generate_sync_mapping
         dst_name_to_metadata = {}
         for name, param_id in self.dst_param_ids.items():
             for rank, metadata_per_rank in self.dst_metadatas.items():
                 if param_id in metadata_per_rank:
-                    # select one of the TensorMeta for mapper, though we don't 
+                    # select one of the TensorMeta for mapper, as mapper don't 
                     # care the shape info of this metadata
                     dst_name_to_metadata[name] = metadata_per_rank[param_id]
                     break
@@ -99,6 +97,7 @@ class ParameterSyncGroup:
             dst_name_to_metadata,
         ), return_output=True)
         global_sync_mapping = self.validate_and_merge_sync_mapping(results)
+        breakpoint()
         # planner = get_planner(global_sync_mapping, ...)
         # sync_plan = planner.make_plan()
         # # TODO: Can we find a way to validate plan before actual comm starts?
@@ -165,11 +164,13 @@ class ParameterSyncGroup:
         Args:
             sync_mappings (List[Dict]): The sync mappings from all source actors.
         """
-        breakpoint()
+        ...
     
-    def sync(self, *args, **kwargs):
+    def sync(self, *args, dryrun: bool = False, **kwargs):
         """Intialize and call parameter synchronization on all actors 
         of src and dst models.
         """
         if not self._initialized:
             self.initialize()
+        if not dryrun:
+            raise NotImplementedError("Currently we only support dryrun in parameter synchronization")

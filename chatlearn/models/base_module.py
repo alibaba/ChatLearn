@@ -1260,8 +1260,7 @@ class BaseModule:
         return self.mapper.generate_sync_mapping(dst_name_to_metadata)
 
     def set_param_ids(self, global_name_to_param_id: Dict[str, int]):
-        self.local_name_to_param_id = dict()
-        for k, v in global_name_to_param_id.items():
-            self.local_name_to_param_id[
-                self.global_name_to_local_name[k]
-            ] = v
+        self.local_name_to_param_id = {
+            v: global_name_to_param_id[k] 
+            for k, v in self.global_name_to_local_name.items()
+        }
