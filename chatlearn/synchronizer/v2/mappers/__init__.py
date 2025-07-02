@@ -1,4 +1,3 @@
-"""The mappers between architectures"""
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""The mappers between architectures"""
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
