@@ -14,6 +14,7 @@
 # ==============================================================================
 """grpo algorithm"""
 
+from collections import defaultdict
 from dataclasses import dataclass, field, fields
 from typing import Any
 import traceback
@@ -129,13 +130,11 @@ class GRPOEvaluator(Evaluator):
         rule_rewards = results.get("rule_rewards", [])
         data_source = results.get("eval_source", [])
         rule_rewards_flatten = torch.cat(rule_rewards).squeeze().tolist()
-        #eval_reward_stats = {"eval_reward_score": reward_score}
-        data_source_to_id_map = {}
+
+        data_source_to_id_map = defaultdict(list)
         for i, source in enumerate(data_source):
-            if source in data_source_to_id_map:
-                data_source_to_id_map[source].append(i)
-            else:
-                data_source_to_id_map[source] = [i]
+            data_source_to_id_map[source].append(i)
+ 
         eval_reward_stats = {}
         for key, ids in data_source_to_id_map.items():
             selected = [rule_rewards_flatten[i] for i in ids]
@@ -160,7 +159,8 @@ class GRPOEngine(Engine):
             old_logprobs_out = policy_trainer.forward_step(policy_out)
             ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
-            return ref_logprobs_out, reward_out
+            # return ref_logprobs_out, reward_out
+            return reward_out
 
         def trainer_compute_flow(batch):
             policy_trainer.train_step(batch)

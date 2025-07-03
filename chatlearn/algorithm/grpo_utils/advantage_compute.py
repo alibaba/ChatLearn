@@ -9,7 +9,9 @@ def compute_grpo_adv(episode_replay_buffers):
     queryids2samples = defaultdict(list)
     for s in buffers:
         queryids2samples[hash(",".join(map(str, s["prompt_token_ids"])))].append(s)
-
+    for item in buffers:
+        assert item["str_outputs"] == item["ori_str_output"], \
+            "str_outputs and ori_str_outputs should be equal"
     res_buffers = []
     for _, l in queryids2samples.items():
         rewards = [each["rule_rewards"] for each in l]

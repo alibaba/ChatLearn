@@ -29,6 +29,10 @@ class PolicyTrainer(FSDPModule):
         self._metric_prefix = "policy_trainer"
 
     def preprocess_data_list(self, data_list, training:bool):
+        # compute response length sum in train global batch size for token-wise pg loss
+        response_token_length_total = torch.tensor(sum(sum(data["response_token_length"]) for data in data_list)).cuda() / self.sp_size
+        dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
+
         minibatch_size_per_rank = len(data_list) * data_list[0]["all_tokens"].size(0)
         if self.packing:
             # When packing is enabled, data_list will only contain one microbatch
@@ -160,7 +164,7 @@ class PolicyTrainer(FSDPModule):
                             "advantages": data_b["advantages"],
                         }
                     )
-        return minibatch_size_per_rank, data_after_process
+        return minibatch_size_per_rank, response_token_length_total, data_after_process
 
     def train_step(self, data_list):
         """
@@ -173,7 +177,7 @@ class PolicyTrainer(FSDPModule):
         kl_loss_list = []
         micro_bs_num = len(data_list)
         sp_group = get_sp_parallel_group()
-        minibatch_size_per_rank, data_list = self.preprocess_data_list(data_list=data_list, training=True)
+        minibatch_size_per_rank, response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -208,12 +212,16 @@ class PolicyTrainer(FSDPModule):
                 final_clip_ratio=self.module_args.get("final_clip_ratio", 3),
             )
 
-            pg_loss = torch.sum(loss * inputs["loss_mask"], dim=1) / torch.sum(inputs["loss_mask"], dim=1)
+            # pg_loss = torch.sum(loss * inputs["loss_mask"], dim=1) / torch.sum(inputs["loss_mask"], dim=1) # average on sample dimension
+            pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
             # Reference: https://github.com/pytorch/pytorch/blob/ \
             # c45515c2eda19b1a1ff5762f1571c6fe63773c8a/torch/distributed/fsdp/_runtime_utils.py#L848
             # Since grad will be divided by fsdp world size in backward hook
             # We need to multiple pg_loss_mean by sp_size to avoid mean calculate of grad within dp rank
-            pg_loss_mean = torch.sum(pg_loss) / minibatch_size_per_rank * self.sp_size
+            # pg_loss_mean = torch.sum(pg_loss) / minibatch_size_per_rank * self.sp_size
+            # pg_loss_mean = torch.mean(pg_loss) / micro_bs_num * self.sp_size
+            print("debughh", self.fsdp_size)
+            pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
             pg_loss_mean.backward()
             pg_loss_list.append(pg_loss)
 
@@ -235,7 +243,8 @@ class PolicyTrainer(FSDPModule):
         self.optimizer.zero_grad()
 
         # collect metric
-        pg_loss = torch.mean(torch.cat(pg_loss_list)).detach().item()
+        # pg_loss = torch.mean(torch.cat(pg_loss_list)).detach().item()
+        pg_loss = (torch.sum(torch.cat(pg_loss_list)) / response_token_length_total * self.fsdp_size).detach().item()
         kl_loss = torch.mean(torch.cat(kl_loss_list)).detach().item()
         entropy_loss = torch.mean(torch.cat(entropy_loss_list)).detach().item()
 
@@ -251,7 +260,7 @@ class PolicyTrainer(FSDPModule):
         total_size = data['all_tokens'].shape[0]
         ori_seq_len = data['all_tokens'].shape[1]
 
-        _, data_list = self.preprocess_data_list(data_list=[data], training=False)
+        _, _, data_list = self.preprocess_data_list(data_list=[data], training=False)
         # Logprobs holder
         output_logprobs = torch.empty(total_size, ori_seq_len, dtype=torch.bfloat16)
         token_in_seq = []
