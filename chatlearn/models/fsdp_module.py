@@ -278,7 +278,15 @@ class FSDPModule(TorchModule):
 
             # load real state dict
             options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
-            set_model_state_dict(model, full_state, options=options)
+            for name, module in model.named_modules():
+                has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and not list(module.children())
+                if has_weights:
+                    set_model_state_dict(
+                        module,
+                        {k.replace(name + ".", ""): v for k, v in full_state.items() if k.startswith(name + ".")},
+                        options=options
+                    )
+            # set_model_state_dict(model, full_state, options=options)
 
             # load buffer data
             if dist.get_rank()==0:
