@@ -44,8 +44,10 @@ class RuleReward(BaseModule):
             compute_score_fn = self.select_rule_reward_score_fn(data_source)
             reward_tensor[i] = compute_score_fn(str_output, ground_truth)
             eval_source.append(data_source)
-        res_dict = {"rule_rewards": reward_tensor, "eval_source": eval_source}
-        return res_dict
+        data["rule_rewards"] = reward_tensor
+        data["eval_source"] = eval_source
+        data["ori_str_output"] = str_outputs_list
+        return data
 
     def forward_step(self, data: Dict, iteration=0) -> Dict:
 

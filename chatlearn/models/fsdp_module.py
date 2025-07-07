@@ -74,6 +74,27 @@ class FSDPModule(TorchModule):
             torch.cuda.empty_cache()
         return x
 
+    def fsdp2_clip_grad_norm_(self, parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
+        # TODO: support partial parameters FSDP2 warp
+        assert norm_type==2.0, "only support l2 grad norm"
+        from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
+
+        if isinstance(parameters, torch.Tensor):
+            parameters = [parameters]
+        else:
+            # prevent generators from being exhausted
+            parameters = list(parameters)
+        grads = [p.grad for p in parameters if p.grad is not None]
+        total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+        # manual reduce grad norm
+        total_norm = total_norm.to_local()
+        total_norm = total_norm ** norm_type
+        dist.all_reduce(total_norm, group=self.device_mesh.get_group("fsdp"), op=torch.distributed.ReduceOp.SUM)
+        total_norm = total_norm ** (1.0 / norm_type)
+        _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
+
+        return total_norm
+
     def create_device_mesh(self, world_size, fsdp_size):
         if not self.device_mesh:
             if world_size == fsdp_size:

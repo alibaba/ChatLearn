@@ -220,7 +220,6 @@ class PolicyTrainer(FSDPModule):
             # We need to multiple pg_loss_mean by sp_size to avoid mean calculate of grad within dp rank
             # pg_loss_mean = torch.sum(pg_loss) / minibatch_size_per_rank * self.sp_size
             # pg_loss_mean = torch.mean(pg_loss) / micro_bs_num * self.sp_size
-            print("debughh", self.fsdp_size)
             pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
             pg_loss_mean.backward()
             pg_loss_list.append(pg_loss)
@@ -238,7 +237,11 @@ class PolicyTrainer(FSDPModule):
             # entropy loss
             entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
             entropy_loss_list.append(entropy_loss)
-        grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
+        # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor 
+        # but results seems not right in torch 2.6.0+cu124
+        # grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
+        grad_norm = self.fsdp2_clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
+        
         self.optimizer.step()
         self.optimizer.zero_grad()
 
