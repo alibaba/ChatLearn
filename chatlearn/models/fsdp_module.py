@@ -278,6 +278,7 @@ class FSDPModule(TorchModule):
 
             # load real state dict
             options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
+            # module-wise sync avoid OOM wihle run model like qwen3-moe-235B
             for name, module in model.named_modules():
                 has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and not list(module.children())
                 if has_weights:
