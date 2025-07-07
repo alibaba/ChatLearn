@@ -253,22 +253,39 @@ def get_batch(batch_data):
     return inputs
 
 
-def loss_func(inputs, losses):
-    ppo_losses, kl_losses, entropy_losses = losses
-    loss_mask = inputs["all_token_loss_mask"]
-    ppo_loss = torch.mean(ppo_losses)
-    with torch.no_grad():
-        num_tokens = loss_mask.sum().float()
-        # reduced all losses in this microbatch
-        data = average_losses_across_data_parallel_group(
-            [ppo_losses.sum(), entropy_losses.sum(), kl_losses.sum(), num_tokens]
-        )
-        reduced_data = {
-            "pg_loss": (data[0], data[-1]),
-            "entropy_loss": (data[1], data[-1]),
-            "kl_loss": (data[2], data[-1]),
-        }
-    return ppo_loss, reduced_data
+def loss_func(
+    inputs: Dict,
+    losses: Dict[str, torch.Tensor]
+):
+    """Loss function.
+
+    Args:
+        inputs (Dict): The full inputs of this micro-batch.
+        losses (Dict[str, torch.Tensor]): The tensor with the losses
+
+    Returns:
+        the loss scalar for this micro-batch
+        the number of non-padded tokens in this microbatch
+        a dict containing reporting metrics on the loss and number of tokens across
+            the data parallel ranks
+    """
+    require_bp_keys = ['pg_loss']
+
+    loss_mask = inputs["all_token_loss_mask"].float()
+    total_loss_for_bp = 0
+    reporting_losses = {}
+    for key, loss in losses.items():
+        if key not in require_bp_keys:
+            loss = loss.detach()
+        final_loss = (loss.float() * loss_mask).sum()
+        if key in require_bp_keys:
+            total_loss_for_bp = total_loss_for_bp + final_loss
+
+        reporting_losses[key] = final_loss.detach().clone().to(torch.float)
+
+    num_tokens = loss_mask.sum().clone().detach().to(torch.int)
+    reproting_losses["num_tokens"] = num_tokens
+    return total_loss_for_bp, num_tokens, reporting_losses
 
 
 def forward_step(data_iterator, model):
