@@ -469,7 +469,9 @@ class RuntimeConfig(BaseConfig):
             "help": "[optional] log time and memory per `log_interval` iterations."
         },
     )
-
+    use_parameter_sync_v2: bool = field(
+        default=False, metadata={"help": "debug option for v2, will be removed in future when v2 is stable."}
+    )
 def _config_validate(cfg):
     # Check batchsize compatibility
     sample_per_episode = cfg.runtime_args.sample_per_episode

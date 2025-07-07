@@ -23,7 +23,7 @@ import ray
 import ray.experimental.state.api
 
 from chatlearn.launcher import dlc_utils
-from chatlearn import FSDPModule
+from chatlearn.models.fsdp_module import FSDPModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.decorator import decorate_class_func
@@ -141,6 +141,15 @@ class ModelManager:
 
             if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
                 sync_group = FSDP2VllmParameterSyncGroup(
+                    self._name2distmodel[src_model.name],
+                    self._name2distmodel[dst_model.name],
+                    group_name,
+                    sync_frequency,
+                    self.error_signal
+                )
+            elif self.runtime_args.use_parameter_sync_v2:
+                from chatlearn.synchronizer.v2 import ParameterSyncGroup as V2 # pylint: disable=import-outside-toplevel
+                sync_group = V2(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
                     group_name,
