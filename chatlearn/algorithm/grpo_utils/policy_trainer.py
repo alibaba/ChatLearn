@@ -36,7 +36,7 @@ class PolicyTrainer(FSDPModule):
             if not training:
                 regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length"]
             else:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG]
+                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG, "dp_rank"]
             data_list = regroup_data_packing(data_list, regroup_keywords, self.max_token_in_seq)
 
         data_after_process = []
@@ -109,6 +109,7 @@ class PolicyTrainer(FSDPModule):
                             "old_logprobs": data_b[OLD_TAG],
                             "ref_logprobs": data_b[REF_TAG],
                             "advantages": data_b["advantages"],
+                            "dp_rank": data_b["dp_rank"],
                         }
                     )
             else:
@@ -173,10 +174,15 @@ class PolicyTrainer(FSDPModule):
         kl_loss_list = []
         micro_bs_num = len(data_list)
         sp_group = get_sp_parallel_group()
+        #print(f"debugyy all keys: {data_list[0].keys()}")
         minibatch_size_per_rank, data_list = self.preprocess_data_list(data_list=data_list, training=True)
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
+            #print(f"current dp rank: {self.data_parallel_rank}, inputs rank: {inputs['dp_rank']}")
+            for dp_rank_ in inputs['dp_rank']:
+               # print(inputs)
+                assert dp_rank_ == self.data_parallel_rank
             output = self.model(
                 input_ids=inputs["all_tokens"],
                 attention_mask=None,
@@ -293,6 +299,9 @@ class PolicyTrainer(FSDPModule):
                 output_logprobs = logprobs.cpu()
         rank_caculate = torch.distributed.get_rank()
         tag = OLD_TAG
+        if "dp_rank" not in data.keys():
+            dp_rank_list = [self.data_parallel_rank] * output_logprobs.shape[0]
+            data.update({"dp_rank": dp_rank_list})
         if OLD_TAG in data.keys():
             tag = REF_TAG
         data.update({tag: output_logprobs})

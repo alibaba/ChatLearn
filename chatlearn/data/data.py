@@ -19,7 +19,7 @@ import random
 import copy
 import os
 import json
-from typing import List, Dict
+from typing import defaultdict, List, Dict
 
 import ray
 import torch
@@ -115,7 +115,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_replay_episode=0, replay_episode_offset=0, dp_rank_consistency=True):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -136,6 +136,7 @@ class StreamDataset:
         self._replay_episode_offset = replay_episode_offset
         self._episode_replay_buffers = []
         self.replay_sample_manager = None
+        self.dp_rank_consistency = dp_rank_consistency
 
     def shuffle(self):
         """
@@ -151,6 +152,8 @@ class StreamDataset:
         """
         if self._dynamic_dataset and not self._read_data_complete:
             return self.iter_dynamic()
+        if self.dp_rank_consistency:
+            return self.iter_dprank_consistency()
         return self.iter_fixed()
 
     def _get_batch(self, start_index: int):
@@ -160,6 +163,25 @@ class StreamDataset:
             data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
         batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
         return batched_data
+
+    def _get_batch_dprank_consistency(self, start_index: int, dp_rank):
+        end_index = min(start_index + self.batch_size, len(self.replay_buffer._grouped_buffer[dp_rank]))
+        data_to_batch = self.replay_buffer.get_sample_dp_consistency(dp_rank, start_index, end_index)
+        batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
+        return batched_data
+
+    def iter_dprank_consistency(self):
+        num_dp_rank = self.replay_buffer.num_dp_rank
+        dp_rank = 0
+        batch_count = 0
+        train_sample_cnt = 0
+        while train_sample_cnt < self._total_samples:
+            batched_data = self._get_batch_dprank_consistency(batch_count * self.batch_size, dp_rank)
+            if dp_rank == num_dp_rank - 1:
+                batch_count += 1
+            yield batched_data
+            dp_rank = (dp_rank + 1) % num_dp_rank
+            train_sample_cnt += self.batch_size
 
     def iter_fixed(self):
         """
@@ -240,6 +262,8 @@ class StreamDataset:
             self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
             self._total_samples = len(self.replay_buffer)
             self._read_data_complete = True
+            if self.dp_rank_consistency:
+                self.replay_buffer.group_by_keys("dp_rank")
         else:
             num_rollout_batches = queue.qsize()
             self.replay_buffer = replay_buffer
@@ -247,6 +271,8 @@ class StreamDataset:
             assert sample_per_episode != -1, "In fixed batch size, you must set sample_per_episode for StreamDataset."
             self._total_samples = sample_per_episode
             self._read_data_complete = num_rollout_batches <= 1
+            if self.dp_rank_consistency:
+                self.replay_buffer.group_by_keys("dp_rank")
         self.iter = iter(self)
         self._has_next = True
 
@@ -297,6 +323,13 @@ class EpisodeReplayBuffer:
             self._rollout_batch_size = len(samples)
         self._buffer += samples
         return samples
+    
+    def group_by_keys(self, key):
+        #print(f"debugyy: run group_by_keys")
+        self._grouped_buffer = defaultdict(list)
+        for sample in self._buffer:
+            self._grouped_buffer[sample[key]].append(sample)
+        self.num_dp_rank = len(self._grouped_buffer)
 
     def queue_not_empty(self):
         return self.queue.qsize() > 0
@@ -306,6 +339,9 @@ class EpisodeReplayBuffer:
 
     def get_samples(self, start_index, end_index):
         return self._buffer[start_index: end_index]
+
+    def get_sample_dp_consistency(self, dp_rank, start_index, end_index):
+        return self._grouped_buffer[dp_rank][start_index: end_index]
 
     def __len__(self):
         return len(self._buffer)
