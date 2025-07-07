@@ -212,14 +212,7 @@ class PolicyTrainer(FSDPModule):
                 final_clip_ratio=self.module_args.get("final_clip_ratio", 3),
             )
 
-            # pg_loss = torch.sum(loss * inputs["loss_mask"], dim=1) / torch.sum(inputs["loss_mask"], dim=1) # average on sample dimension
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-            # Reference: https://github.com/pytorch/pytorch/blob/ \
-            # c45515c2eda19b1a1ff5762f1571c6fe63773c8a/torch/distributed/fsdp/_runtime_utils.py#L848
-            # Since grad will be divided by fsdp world size in backward hook
-            # We need to multiple pg_loss_mean by sp_size to avoid mean calculate of grad within dp rank
-            # pg_loss_mean = torch.sum(pg_loss) / minibatch_size_per_rank * self.sp_size
-            # pg_loss_mean = torch.mean(pg_loss) / micro_bs_num * self.sp_size
             pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
             pg_loss_mean.backward()
             pg_loss_list.append(pg_loss)
@@ -241,12 +234,11 @@ class PolicyTrainer(FSDPModule):
         # but results seems not right in torch 2.6.0+cu124
         # grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
         grad_norm = self.fsdp2_clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
-        
+
         self.optimizer.step()
         self.optimizer.zero_grad()
 
         # collect metric
-        # pg_loss = torch.mean(torch.cat(pg_loss_list)).detach().item()
         pg_loss = (torch.sum(torch.cat(pg_loss_list)) / response_token_length_total * self.fsdp_size).detach().item()
         kl_loss = torch.mean(torch.cat(kl_loss_list)).detach().item()
         entropy_loss = torch.mean(torch.cat(entropy_loss_list)).detach().item()
