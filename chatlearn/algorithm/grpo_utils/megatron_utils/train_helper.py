@@ -15,6 +15,7 @@
 # ==============================================================================
 
 import copy
+from typing import Dict
 from functools import partial
 
 import torch
@@ -284,7 +285,7 @@ def loss_func(
         reporting_losses[key] = final_loss.detach().clone().to(torch.float)
 
     num_tokens = loss_mask.sum().clone().detach().to(torch.int)
-    reproting_losses["num_tokens"] = num_tokens
+    reporting_losses["num_tokens"] = num_tokens
     return total_loss_for_bp, num_tokens, reporting_losses
 
 
