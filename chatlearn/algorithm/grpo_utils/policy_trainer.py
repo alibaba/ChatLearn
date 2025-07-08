@@ -213,10 +213,11 @@ class PolicyTrainer(FSDPModule):
             )
 
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-            pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
-            pg_loss_mean.backward()
             pg_loss_list.append(pg_loss)
-
+            # entropy loss
+            entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
+            entropy_loss_mean = torch.sum(entropy_loss) / response_token_length_total * self.fsdp_size
+            entropy_loss_list.append(entropy_loss)
             # kl loss
             kl = inputs["ref_logprobs"] - logprobs
             ratio = torch.exp(kl)
@@ -225,11 +226,18 @@ class PolicyTrainer(FSDPModule):
             kld = (ratio - kl - 1).contiguous()
             kl_loss = torch.clamp(kld, min=-10, max=10)
             kl_loss = torch.masked_select(kl_loss, inputs["loss_mask"].bool())
+            kl_loss_mean = torch.sum(kl_loss) / response_token_length_total * self.fsdp_size
             kl_loss_list.append(kl_loss)
 
-            # entropy loss
-            entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
-            entropy_loss_list.append(entropy_loss)
+            # compute backward loss
+            pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
+            if self.module_args.entropy_coef > 0:
+                pg_loss_mean += self.module_args.entropy_coef * entropy_loss_mean
+            if self.module_args.kl_coef > 0:
+                pg_loss_mean += self.module_args.kl_coef * kl_loss_mean
+            pg_loss_mean.backward()
+
+
         # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor 
         # but results seems not right in torch 2.6.0+cu124
         # grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()

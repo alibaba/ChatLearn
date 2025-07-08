@@ -54,6 +54,8 @@ models:
     gradient_checkpointing: True
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
+    entropy_coef: 0.0
+    kl_coef: 0.0
     save_hf: True
   ref_policy:
     use_expandable_segments: ${models.policy_trainer.use_expandable_segments}
@@ -70,6 +72,7 @@ models:
     packing: ${models.policy_trainer.packing}
     max_token_in_packing: ${models.policy_trainer.max_token_in_packing}
   policy:
+    enforce_eager: False
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 256

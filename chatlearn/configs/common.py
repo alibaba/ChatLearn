@@ -290,6 +290,12 @@ class PolicyTrainerConfig(BaseModelConfig, FSDPConfig):
     gradient_checkpointing: bool = field(
         default=True, metadata={"help": "whether gradient checkpointing"}
     )
+    entropy_coef: float = field(
+        default=0.0, metadata={"help": "entropy regularization"}
+    )
+    kl_coef: float = field(
+        default=0.0, metadata={"help": "kl regularization"}
+    )
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     save_hf: bool = field(default=True)
