@@ -514,7 +514,7 @@ def _config_validate(cfg):
                 warning_message = f"In order to maximum packing capacity, runtime_args.train_micro_batch_size should be set to \
                     runtime_args.train_global_batch_size / (models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size) = \
                     {train_global_batch_size // train_fsdp_dp_size}"
-                warnings.warn(message)
+                warnings.warn(warning_message)
             if sample_per_episode != train_fsdp_dp_size * train_generation_batch_size:
                 warning_message = f"In order to maximum packing capacity, models.policy_trainer.generation_batch_size should be set to \
                     runtime_args.sample_per_episode / (models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size) = \

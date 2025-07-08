@@ -50,10 +50,14 @@ class Trainer(Executor):
     def set_data_loader(self, data_loader: ActorHandle):
         self._data_loader = data_loader
 
-    def next_batch(self):
+    def next_batch(self, dp_rank=None):
 
         batches = []
-        for _ in range(self.num_micro_batch_per_dp):
+        for mbs in range(self.num_micro_batch_per_dp):
+            if dp_rank is not None:
+                data = self._data_loader.next.remote(dp_rank, mbs)
+            else:
+                data = self._data_loader.next.remote()
             data = self._data_loader.next.remote()
             if future.get(self._data_loader.has_next.remote()):
                 batches.append(data)
@@ -88,6 +92,7 @@ class Trainer(Executor):
         num_micro_batch_per_dp(int): The number of iterations required for each micro-batch in data parallelism (DP)
         _num_training_iteration(int): The number of times the model is updated per episode
         """
+        dp_consistency = True
         self.num_micro_batch_per_dp = self.args.train_global_batch_size // self.args.train_micro_batch_size // self.data_parallel_size
         _num_training_iteration = self.num_iteration()
         self._batch_per_episode = _num_training_iteration
@@ -97,10 +102,17 @@ class Trainer(Executor):
                 future.wait(self._data_loader.shuffle.remote())
 
             data_queues, out_queue = self.setup_queues()
-            for mb in range(_num_training_iteration * self.data_parallel_size):
-                batch = encode_data(mb, self.next_batch())
-                for data_queue in data_queues:
-                    data_queue.put(batch)
+            for train_iter in range(_num_training_iteration):
+               # self.generate_step_one_model(self.first_model, train_iter, data_queues, is_eval=False)
+               for dp_rank in range(self.data_parallel_size):
+                #self.generate_step_one_model(self.first_model, train_iter, data_queues, is_eval=False, micro_batch_index=dp_rank)
+            #for mb in range(_num_training_iteration * self.data_parallel_size):
+                    if dp_consistency:
+                        batch = encode_data(train_iter * self.data_parallel_size + dp_rank, self.next_batch(dp_rank))
+                    else:
+                        batch = encode_data(train_iter * self.data_parallel_size + dp_rank, self.next_batch())
+                    for data_queue in data_queues:
+                        data_queue.put(batch)
             self.compute_loop(out_queue, _num_training_iteration)
             self.iteration = self.iteration + _num_training_iteration
             logger.info(f"train episode: {episode+1}, epoch {epoch} num_step {_num_training_iteration} done")

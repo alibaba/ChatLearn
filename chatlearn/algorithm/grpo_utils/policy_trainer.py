@@ -20,6 +20,11 @@ from .packing_utils import regroup_data_packing
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"
 
+def entropy_from_logits(logits: torch.Tensor):
+    """Calculate entropy from logits."""
+    pd = torch.nn.functional.softmax(logits, dim=-1)
+    entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
+    return entropy
 
 class PolicyTrainer(FSDPModule):
     """policy trainer"""
@@ -265,6 +270,9 @@ class PolicyTrainer(FSDPModule):
         # Logprobs holder
         output_logprobs = torch.empty(total_size, ori_seq_len, dtype=torch.bfloat16)
         token_in_seq = []
+        mbs_id = 0
+        mbs_id_record = []
+        mbs_id_placement = []
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -297,11 +305,14 @@ class PolicyTrainer(FSDPModule):
                 token_in_seq.append(sum(inputs["bin_seqlen"]))
             else:
                 output_logprobs = logprobs.cpu()
+            mbs_id_record.extend([mbs_id] * logprobs.shape[0])
+            mbs_id_placement.extend(list(range(logprobs.shape[0])))
+            mbs_id += 1
         rank_caculate = torch.distributed.get_rank()
         tag = OLD_TAG
         if "dp_rank" not in data.keys():
             dp_rank_list = [self.data_parallel_rank] * output_logprobs.shape[0]
-            data.update({"dp_rank": dp_rank_list})
+            data.update({"dp_rank": dp_rank_list, "mbs_id": mbs_id_record, "mbs_id_placement": mbs_id_placement})
         if OLD_TAG in data.keys():
             tag = REF_TAG
         data.update({tag: output_logprobs})
