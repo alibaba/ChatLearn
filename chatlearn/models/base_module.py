@@ -474,11 +474,9 @@ class BaseModule:
             all_datasets,
             batch_sampler,
             collate_fn=collate_fn,
-            add_uid=True,
             data_parallel_rank=self.replica_id,
             data_parallel_size=self._num_replica,
-            num_inference_per_prompt=num_inference_per_prompt,
-            vllm_prompt_key=vllm_prompt_key
+            num_inference_per_prompt=num_inference_per_prompt
         )
 
     def reset_eval_data_iter(self):

@@ -354,47 +354,31 @@ class RLHFDataLoader:
         datasets,
         sampler,
         collate_fn=None,
-        add_uid=False,
-        data_parallel_rank=0,
-        data_parallel_size=1,
-        num_inference_per_prompt=1,
-        vllm_prompt_key="prompt"):
+        data_parallel_rank: int=0,
+        data_parallel_size: int=1,
+        num_inference_per_prompt: int=1,
+    ):
         """generate prompts data loader"""
 
         self.datasets = datasets
-        self.dataset_num = len(self.datasets)
         self.sampler = sampler
-        self.collate_fn = collate_fn
-        self.add_uid = add_uid
+        self.collate_fn = collate_fn if collate_fn is not None else default_collate
         self.data_parallel_rank = data_parallel_rank
         self.data_parallel_size = data_parallel_size
+        self.uid = 0
         self.num_inference_per_prompt = num_inference_per_prompt
-        self.vllm_prompt_key = vllm_prompt_key
 
     def __iter__(self):
         self.sampler_iter = iter(self.sampler)
         while True:
             try:
                 batch_idxes = next(self.sampler_iter)
-                batch = [self.datasets[dataset_idx][data_idx] for dataset_idx, data_idx, _ in batch_idxes]
-                id_in_episode = [id for _, _, id in batch_idxes]
-                if self.add_uid:
-                    batch = self.update_data_uid(batch, id_in_episode)
-                if self.collate_fn is not None:
-                    yield self.collate_fn(batch)
-                else:
-                    yield default_collate(batch)
+                batch = []
+                for dataset_idx, data_idx, _ in batch_idxes:
+                    data = copy.deepcopy(self.datasets[dataset_idx][data_idx])
+                    data['uid'] = self.uid * self.data_parallel_size + self.data_parallel_rank
+                    self.uid += 1
+                    batch.append(data)
+                yield self.collate_fn(batch)
             except StopIteration:
                 self.sampler_iter = iter(self.sampler)
-
-    def update_data_uid(self, batch, id_in_episode):
-        updated_batch = []
-        for i, data in enumerate(batch):
-            if isinstance(data, dict) and self.vllm_prompt_key in data \
-                and isinstance(data[self.vllm_prompt_key], dict):
-                copy_data = copy.deepcopy(data)
-                copy_data[self.vllm_prompt_key]['uid'] = str(id_in_episode[i])
-                updated_batch.append(copy_data)
-            else:
-                updated_batch.append(data)
-        return updated_batch
