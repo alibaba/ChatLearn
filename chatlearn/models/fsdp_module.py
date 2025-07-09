@@ -19,6 +19,7 @@ import functools
 import gc
 from contextlib import contextmanager, nullcontext
 import copy
+from typing import List
 
 import ray
 import numpy as np
@@ -280,7 +281,7 @@ class FSDPModule(TorchModule):
             options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
             # module-wise sync avoid OOM while run model like qwen3-moe-235B
             for name, module in model.named_modules():
-                has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and not list(module.children())
+                has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
                 if has_weights:
                     set_model_state_dict(
                         module,
@@ -317,7 +318,7 @@ class FSDPModule(TorchModule):
         del full_state
         self.offload()
 
-    def get_fsdp_param_name(self, block_size=3_000_000_000) -> list[list]:
+    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
         name_list = []
         param_cnt = 0
         current_group = []
