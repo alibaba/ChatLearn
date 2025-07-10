@@ -234,6 +234,7 @@ class FSDPModule(TorchModule):
         if self.module_args.groupgemm:
             apply_group_gemm(model)
             dist.barrier()
+        print("debughh apply group gemm")
         # Setup device mesh and apply patch for sequence parallel
         # Sequence_parallel should only be used during training
         if self.sp_size > 1:
@@ -269,7 +270,7 @@ class FSDPModule(TorchModule):
         for idx, module in enumerate(modules):
             fully_shard(module, **fsdp_kwargs)
         fully_shard(model, **fsdp_kwargs)
-
+        print("debughh fully_shard")
         if self.module_args.meta_init:
             # save buffer data
             buffer_dict = {}
@@ -280,6 +281,7 @@ class FSDPModule(TorchModule):
             # load real state dict
             options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
             # module-wise sync avoid OOM while run model like qwen3-moe-235B
+
             for name, module in model.named_modules():
                 has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
                 if has_weights:
@@ -297,7 +299,7 @@ class FSDPModule(TorchModule):
             torch.cuda.synchronize()
             for name, buf in model.named_buffers():
                 dist.broadcast(buf, src=0)
-
+        print("debughh sync parameter")
         self.model = model
         self.model.to(torch.float32)
 
@@ -333,7 +335,7 @@ class FSDPModule(TorchModule):
             name_list.append(copy.deepcopy(current_group))
         return name_list
 
-    def get_weight_ipc_handles_by_name(self, block_name: list[str]):
+    def get_weight_ipc_handles_by_name(self, block_name: List[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict

@@ -12,6 +12,7 @@ from chatlearn.utils import to_device
 from chatlearn.utils.communication_op import gather, get_sp_parallel_group
 from .loss_gallery import calculate_grpo_loss
 from .trainer_utils import (logprobs_from_logits,
+                            entropy_from_logits_with_chunking,
                             sp_split,
                             generate_loss_mask_position_ids)
 from .packing_utils import regroup_data_packing
@@ -188,9 +189,14 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
+            entropy = entropy_from_logits_with_chunking(output.logits)
+
             if sp_group is not None:
                 logprobs = gather(
                     input_tensor=logprobs, sp_group=sp_group, gather_dim=1
+                )
+                entropy = gather(
+                    input_tensor=entropy, sp_group=sp_group, gather_dim=1
                 )
             if self.packing:
                 # Recover packing sequence
@@ -199,9 +205,15 @@ class PolicyTrainer(FSDPModule):
                     inputs['indices'], 
                     inputs['ori_batch_size'], 
                     inputs['ori_seq_len']).squeeze(-1)
+                entropy = pad_input(
+                    entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1), 
+                    inputs['indices'], 
+                    inputs['ori_batch_size'], 
+                    inputs['ori_seq_len']).squeeze(-1)
             else:
                 logprobs_len = logprobs.shape[1]
                 logprobs = F.pad(logprobs, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
+                entropy = F.pad(entropy, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
             loss = calculate_grpo_loss(
                 log_probs=logprobs,
                 old_log_probs=inputs["old_logprobs"],
@@ -214,8 +226,9 @@ class PolicyTrainer(FSDPModule):
 
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
             pg_loss_list.append(pg_loss)
+
             # entropy loss
-            entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
+            entropy_loss = torch.masked_select(entropy, inputs["loss_mask"].bool())
             entropy_loss_mean = torch.sum(entropy_loss) / response_token_length_total * self.fsdp_size
             entropy_loss_list.append(entropy_loss)
             # kl loss
@@ -232,9 +245,10 @@ class PolicyTrainer(FSDPModule):
             # compute backward loss
             pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
             if self.module_args.entropy_coef > 0:
-                pg_loss_mean -= self.module_args.entropy_coef * entropy_loss_mean
+                pg_loss_mean = pg_loss_mean - self.module_args.entropy_coef * entropy_loss_mean
+                # pg_loss_mean = -1*self.module_args.entropy_coef * entropy_loss_mean
             if self.module_args.kl_coef > 0:
-                pg_loss_mean += self.module_args.kl_coef * kl_loss_mean
+                pg_loss_mean = pg_loss_mean + self.module_args.kl_coef * kl_loss_mean
             pg_loss_mean.backward()
 
 

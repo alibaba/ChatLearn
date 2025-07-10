@@ -46,7 +46,6 @@ class RuleReward(BaseModule):
             eval_source.append(data_source)
         data["rule_rewards"] = reward_tensor
         data["eval_source"] = eval_source
-        data["ori_str_output"] = str_outputs_list
         return data
 
     def forward_step(self, data: Dict, iteration=0) -> Dict:
