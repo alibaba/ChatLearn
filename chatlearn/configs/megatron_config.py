@@ -1,12 +1,14 @@
 # pylint: disable=missing-module-docstring
 # pylint: disable=missing-class-docstring
 from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
 
 from omegaconf import MISSING
 
-from megatron.training.arguments import moe_freq_type
-
 from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
+
+if TYPE_CHECKING:
+    from megatron.training.arguments import moe_freq_type
 
 
 @dataclass
@@ -103,7 +105,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     moe_router_pre_softmax: bool = field(
         default=False, metadata={"help": "moe_router_pre_softmax"}
     )
-    moe_layer_freq: moe_freq_type = field(
+    moe_layer_freq: "moe_freq_type" = field(
         default=1,
         metadata={"help": "Frequency between MoE layers and Dense layers."},
     )
