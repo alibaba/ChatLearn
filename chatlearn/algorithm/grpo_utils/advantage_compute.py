@@ -26,5 +26,6 @@ def compute_grpo_adv(episode_replay_buffers):
 
     # Sort samples by original order in buffer
     res_buffers.sort(key=lambda x: x["sample_id"])
-
+    for data in res_buffers:
+        data.pop("sample_id")
     return res_buffers
