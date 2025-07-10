@@ -116,6 +116,10 @@ class MegatronModelArchitectureConfig(BaseConfig):
     moe_aux_loss_coeff: float = field(
         default=0.0, metadata={"help": "Scaling coefficient for the aux loss: a starting value of 1e-2 is recommended."}
     )
+    q_lora_rank: int = field(
+        default=None,
+        metadata={"help": "Rank of Query tensor's low rank representation."},
+    )
     kv_lora_rank: int = field(
         default=32,
         metadata={"help": "Rank of Key and Value tensors' low rank representation."},

@@ -26,20 +26,21 @@ mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # preprocess dataset
 python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
-# download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
 ```
 
 ## Training
 You can run the following command to start training:
 
+### Qwen3-8B
+Run this command on server with 8 GPUs
 ```bash
-bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
+# download model weight
+modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+bash scripts/train_fsdp_vllm_qwen3_30b_a3b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_fsdp_vllm_qwen3_8b_grpo.sh](../../../scripts/train_fsdp_vllm_qwen3_8b_grpo.sh):
-
+If you want to use Wandb to log the training process, you need to modify the configuration with: 
 ```bash
 export WANDB_API_KEY="Your-Wandb-api-key"
 ```
@@ -48,3 +49,32 @@ Change the configuration to:
 runtime_args.log_args_dict.enable_wandb=True
 runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```
+
+## FAQ
+### How to Speed Up PolicyTrainer Training?
+1. Set models.policy_trainer.packing=True and configure models.policy_trainer.max_token_in_packing to the maximum token count that fits GPU memory.
+
+2. For the Qwen3-MoE model, enable models.policy_trainer.groupgemm=True to activate the GroupGEMM patch, improving MoE layer training speed.
+
+### Why Does FSDP Initialization Cause Ray OOM Errors When Load Weights in Transformers?
+Enable models.policy_trainer.meta_init=True to mitigate this issue. This may cause extra time cost for initialization.
+
+### Why Does This Error Occur During Inference?
+```bash
+ray.exceptions.RayChannelTimeoutError: System error: If the execution is expected to take a long time, increase RAY_CGRAPH_get_timeout which is currently 10 seconds. Otherwise, this may indicate that the execution is hanging.
+```
+Check the model input parameter: If models.policy.tensor_model_parallel_size is not 1, set models.policy.enforce_eager=True.
+
+### Why Does torch.OutOfMemoryError: CUDA Out of Memory Occur During Training?
+1. If models.policy_trainer.packing=True, try reducing models.policy_trainer.max_token_in_packing.
+
+2. If models.policy_trainer.packing=False, decrease runtime_args.train_micro_batch_size.
+
+3. If OOM persists even with runtime_args.train_micro_batch_size=1 or when models.policy_trainer.max_token_in_packing is smaller than the generation length, increase models.policy_trainer.ulysses_sequence_parallel_size (recommended: a power of 2, not exceeding the number of GPUs per node).
+
+
+### Why Does CUDA OOM Still Occur After These Adjustments?
+Consider scaling up the number of GPUs—FSDP memory consumption scales roughly linearly with the total GPU count.
+
+### Why Does vLLM Initialization Cause CUDA OOM?
+Increase models.policy.gpu_memory_utilization (recommended: no higher than 0.95).

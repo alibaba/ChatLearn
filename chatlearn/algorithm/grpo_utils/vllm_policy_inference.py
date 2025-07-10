@@ -58,6 +58,7 @@ class VLLMPolicyInference(VLLMModule):
 
     def forward_step(self, data, iteration=0):
         rets = self._forward_step(data, iteration, False)
+        rets["uid"] = data["uid"]
         # collect metric
         response_token_length = rets["response_token_length"]
         prompt_token_length = rets["prompt_token_length"]

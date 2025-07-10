@@ -435,6 +435,7 @@ class FSDPModule(TorchModule):
                     save_model = AutoModelForCausalLM.from_config(model_config, torch_dtype=torch.bfloat16)
                 save_model.to_empty(device="cpu")
                 save_model.save_pretrained(hf_path, state_dict=model_state_dict)
+            torch.distributed.barrier()
             self._logger.info(f"save checkpoint to {save_dir}")
 
     def load_checkpoint(self, iteration):

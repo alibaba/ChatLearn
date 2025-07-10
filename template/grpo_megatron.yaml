@@ -31,6 +31,7 @@ runtime_args:
     wandb_name: ${runtime_args.exp_name}
     wandb_id: ${runtime_args.exp_name}
     wandb_resume: allow
+  use_parameter_sync_v2: False
 models:
   policy_trainer: 
     free_gpu_memory:

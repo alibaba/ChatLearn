@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """base module"""
-
+from typing import Dict
 from collections import defaultdict
 from itertools import cycle
 from pathlib import Path
@@ -43,7 +43,7 @@ from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
-
+from chatlearn.configs.common import BaseModelConfig
 
 class BaseModule:
     """BaseModule is the base class for Base models.
@@ -444,8 +444,6 @@ class BaseModule:
             num_inference_per_prompt = self.module_args["num_inference_per_prompt"]
         else:
             num_inference_per_prompt = 1
-        vllm_prompt_key = self.module_args["vllm_prompt_key"] \
-            if "vllm_prompt_key" in self.module_args else "prompt"
         self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
@@ -474,11 +472,9 @@ class BaseModule:
             all_datasets,
             batch_sampler,
             collate_fn=collate_fn,
-            add_uid=True,
             data_parallel_rank=self.replica_id,
             data_parallel_size=self._num_replica,
-            num_inference_per_prompt=num_inference_per_prompt,
-            vllm_prompt_key=vllm_prompt_key
+            num_inference_per_prompt=num_inference_per_prompt
         )
 
     def reset_eval_data_iter(self):
@@ -1247,3 +1243,20 @@ class BaseModule:
         self._parameters_to_send = defaultdict(list)
         self._parameters_to_recv = defaultdict(list)
         self._sync_buffer = defaultdict(list)
+
+    # NOTE: the following APIs are for updated parameter synchronization.
+    def set_mapper(self, mapper_name: str, dst_model_config: BaseModelConfig):
+        from chatlearn.synchronizer.v2.mappers import name_to_mapper_cls # pylint: disable=import-outside-toplevel
+        self.mapper = name_to_mapper_cls(mapper_name)(
+            dst_model_config,
+            self
+        )
+
+    def generate_sync_mapping(self, dst_name_to_metadata):
+        return self.mapper.generate_sync_mapping(dst_name_to_metadata)
+
+    def set_param_ids(self, global_name_to_param_id: Dict[str, int]):
+        self.local_name_to_param_id = {
+            v: global_name_to_param_id[k]
+            for k, v in self.global_name_to_local_name.items()
+        }
