@@ -304,19 +304,13 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     def update_weights_from_ipc_handles_qwen3_moe(self, reduce_data):
         n_expert = self.model_config.num_experts
-        mapping = {
-            'gate_weight': 'gate_proj.weight',
-            'up_weight': 'up_proj.weight',
-            'down_weight': 'down_proj.weight'}
         for name, reduced in reduce_data.items():
             rebuild_func, rebuild_args = reduced
             reconstructed_tensor = rebuild_func(*rebuild_args)
-           # print(f"{name}: {reconstructed_tensor.shape}")
-            if name.split('.')[-1] in mapping:
+            if "group_mlp" in name:
                 reconstructed_tensor = torch.chunk(reconstructed_tensor, n_expert, dim=0)
                 for i in range(n_expert):
-                    part = name.split('.')[-1]
-                    local_name = name.replace('group_mlp', f"experts.{i}").replace(part, mapping[part])
+                    local_name = name.replace('group_mlp', f"experts.{i}")
                     self.model.load_weights([(local_name, reconstructed_tensor[i])])
             else:
                 self.model.load_weights([(name, reconstructed_tensor)])

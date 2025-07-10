@@ -136,15 +136,41 @@ def grouped_linear(inp, m_splits, use_bias, is_grad_enabled, activation_dtype, w
     )
     return output
 
+
+class Linear(nn.Module):
+    """used for empty init gate_proj,up_proj,down_proj"""
+    def __init__(
+        self,
+        in_features: int,
+        out_features: int,
+        bias: bool = True,
+        device=None,
+        dtype=None,
+    ) -> None:
+        factory_kwargs = {"device": device, "dtype": dtype}
+        super().__init__()
+        self.in_features = in_features
+        self.out_features = out_features
+        self.weight = nn.Parameter(
+            torch.empty((out_features, in_features), **factory_kwargs)
+        )
+        if bias:
+            self.bias = Parameter(torch.empty(out_features, **factory_kwargs))
+        else:
+            self.register_parameter("bias", None)
+
+
 class MoeGroupMLP(nn.Module):
     """ Group MLP Layer """
     def __init__(self, config, intermediate_size):
         super().__init__()
         self.num_experts = config.num_experts
         hidden_size = config.hidden_size
-        self.gate_weight = nn.Parameter(torch.empty(intermediate_size * self.num_experts, hidden_size))
-        self.up_weight = torch.nn.Parameter(torch.empty(intermediate_size * self.num_experts, hidden_size))
-        self.down_weight = torch.nn.Parameter(torch.empty(hidden_size * self.num_experts, intermediate_size))
+
+        self.gate_proj = Linear(hidden_size, intermediate_size * self.num_experts, bias=False)
+        self.up_proj = Linear(hidden_size, intermediate_size * self.num_experts, bias=False)
+        self.down_proj = Linear(intermediate_size, hidden_size * self.num_experts, bias=False)
+
         self.act_fn = ACT2FN[config.hidden_act]
 
     def forward(self, hidden_states, router_weights, selected_experts, token_per_expert) -> torch.Tensor:
@@ -161,7 +187,7 @@ class MoeGroupMLP(nn.Module):
             use_bias = False,
             is_grad_enabled = self.training,
             activation_dtype = hidden_states.dtype,
-            weights_bias = self.gate_weight,
+            weights_bias = self.gate_proj.weight,
             num_experts=self.num_experts
         ))
         up_output = grouped_linear(
@@ -170,7 +196,7 @@ class MoeGroupMLP(nn.Module):
             use_bias = False,
             is_grad_enabled = self.training,
             activation_dtype = hidden_states.dtype,
-            weights_bias = self.up_weight,
+            weights_bias = self.up_proj.weight,
             num_experts=self.num_experts
         ) * gate_output
         down_output = grouped_linear(
@@ -179,7 +205,7 @@ class MoeGroupMLP(nn.Module):
             use_bias = False,
             is_grad_enabled = self.training,
             activation_dtype = hidden_states.dtype,
-            weights_bias = self.down_weight,
+            weights_bias = self.down_proj.weight,
             num_experts=self.num_experts
         )
         final_hidden_states = moe_unpermute(down_output, row_id_map, probs)
@@ -230,8 +256,8 @@ def apply_group_gemm_patch(model):
     with torch.device('meta'):
         dummy_moe_layer = Qwen3MoeSparseMoeBlock_Grouped(model.config)
     num_experts = model.config.num_experts
-    size_0 = dummy_moe_layer.group_mlp.gate_weight.shape[0] // num_experts
-    size_1 = dummy_moe_layer.group_mlp.down_weight.shape[0] // num_experts
+    size_0 = dummy_moe_layer.group_mlp.gate_proj.weight.shape[0] // num_experts
+    size_1 = dummy_moe_layer.group_mlp.down_proj.weight.shape[0] // num_experts
 
     def copy_expert_weights(i, moe_group_layer, layer, size_0, size_1):
         start_idx_0 = i * size_0
@@ -239,13 +265,13 @@ def apply_group_gemm_patch(model):
         start_idx_1 = i * size_1
         end_idx_1 = (i + 1) * size_1
 
-        moe_group_layer.group_mlp.gate_weight.data[start_idx_0:end_idx_0].copy_(
+        moe_group_layer.group_mlp.gate_proj.weight.data[start_idx_0:end_idx_0].copy_(
             layer.mlp.experts[i].gate_proj.weight.data
         )
-        moe_group_layer.group_mlp.up_weight.data[start_idx_0:end_idx_0].copy_(
+        moe_group_layer.group_mlp.up_proj.weight.data[start_idx_0:end_idx_0].copy_(
             layer.mlp.experts[i].up_proj.weight.data
         )
-        moe_group_layer.group_mlp.down_weight.data[start_idx_1:end_idx_1].copy_(
+        moe_group_layer.group_mlp.down_proj.weight.data[start_idx_1:end_idx_1].copy_(
             layer.mlp.experts[i].down_proj.weight.data
         )
 

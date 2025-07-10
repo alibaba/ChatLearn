@@ -12,11 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""FSDP  module"""
+"""FSDP module"""
 import os
 import random
-import functools
 import gc
+import copy
+from typing import List
 
 import ray
 import numpy as np
@@ -24,22 +25,18 @@ import torch
 import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch import optim, nn
-from torch.distributed.fsdp import (MixedPrecision, ShardingStrategy, ShardedOptimStateDictConfig, ShardedStateDictConfig,
-                                    FullStateDictConfig, StateDictType, FullyShardedDataParallel as FSDP)
-from torch.distributed.fsdp.wrap import (size_based_auto_wrap_policy, transformer_auto_wrap_policy, lambda_auto_wrap_policy,
-                                        _or_policy)
-from torch.distributed.fsdp._runtime_utils import _lazy_init
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict, get_model_state_dict
 from torch.multiprocessing.reductions import reduce_tensor
+from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.trainer_pt_utils import get_module_class_from_name
 
 from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from .torch_module import TorchModule
-
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -67,7 +64,6 @@ class FSDPModule(TorchModule):
         """
         return ray.get_gpu_ids()
 
-
     @staticmethod
     def init_fn(x: torch.nn.Module):
         if torch.distributed.get_rank() != 0:
@@ -75,50 +71,26 @@ class FSDPModule(TorchModule):
             torch.cuda.empty_cache()
         return x
 
-    @staticmethod
-    def get_fsdp_wrap_policy(module:torch.nn.Module, min_num_params:int=0):
-        """Get FSDP wrap policy for the module.
+    def fsdp2_clip_grad_norm_(self, parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
+        # TODO: support partial parameters FSDP2 warp
+        assert norm_type==2.0, "only support l2 grad norm"
 
-        Args:
-            module: The module to get wrap policy for
-            min_num_params: size based wrap policy min num params
-        """
+        if isinstance(parameters, torch.Tensor):
+            parameters = [parameters]
+        else:
+            # prevent generators from being exhausted
+            parameters = list(parameters)
+        grads = [p.grad for p in parameters if p.grad is not None]
+        total_norm = _get_total_norm(grads, norm_type, error_if_nonfinite, foreach)
+        # manual reduce grad norm
+        total_norm = total_norm.to_local()
+        total_norm = total_norm ** norm_type
+        dist.all_reduce(total_norm, group=self.device_mesh.get_group("fsdp"), op=torch.distributed.ReduceOp.SUM)
+        total_norm = total_norm ** (1.0 / norm_type)
+        _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
 
-        default_transformer_cls_names_to_wrap = getattr(module, "_no_split_modules", None)
-        fsdp_transformer_layer_cls_to_wrap = default_transformer_cls_names_to_wrap
-        auto_wrap_policy = None
+        return total_norm
 
-        policies = []
-
-        # min_num_params must be 0 to use transformer_auto_wrap_policy
-        if min_num_params > 0:
-            size_policy = functools.partial(size_based_auto_wrap_policy, min_num_params=min_num_params)
-            policies.append(size_policy)
-        elif fsdp_transformer_layer_cls_to_wrap is not None:
-            transformer_cls_to_wrap = set()
-            for layer_class in fsdp_transformer_layer_cls_to_wrap:
-                transformer_cls = get_module_class_from_name(module, layer_class)
-                assert transformer_cls is not None, "Could not find the transformer layer class to wrap in the model."
-                transformer_cls_to_wrap.add(transformer_cls)
-
-            transformer_policy = functools.partial(
-                transformer_auto_wrap_policy,
-                transformer_layer_cls=transformer_cls_to_wrap,
-            )
-            policies.append(transformer_policy)
-        ### hardcode for qwen2.5, fsdp warp for get submodule state dict ###
-        def lambda_fn(sub_module: nn.Module):
-            if sub_module in [module.model.embed_tokens, module.model.norm, module.lm_head]:
-                return True
-            return False
-        lambda_policy = functools.partial(lambda_auto_wrap_policy, lambda_fn=lambda_fn)
-        policies.append(lambda_policy)
-        ## hardcode for qwen2.5, fsdp warp for get submodule state dict ##
-
-        if len(policies) > 0:
-            auto_wrap_policy = functools.partial(_or_policy, policies=policies)
-
-        return auto_wrap_policy
     def create_device_mesh(self, world_size, fsdp_size):
         if not self.device_mesh:
             if world_size == fsdp_size:
@@ -181,7 +153,7 @@ class FSDPModule(TorchModule):
         )
         self.timers("empty_cache").stop()
 
-    def create_model(self, model_path, torch_dtype, meta_init):
+    def create_model(self, model_path: str , torch_dtype: torch.dtype, meta_init: bool) -> nn.Module:
         if not meta_init:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model_name_or_path=model_path,
@@ -243,6 +215,8 @@ class FSDPModule(TorchModule):
         """
         :meta private:
         """
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         super().model_setup()
         self.setup_distributed()
         args = dict_to_simplenamespace(self.module_args)
@@ -265,36 +239,70 @@ class FSDPModule(TorchModule):
             args.load, trust_remote_code=True, use_fast=True
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
-        mix_precision_config = MixedPrecision(
-            param_dtype=torch.bfloat16,
-            reduce_dtype=torch.float32,
-            buffer_dtype=torch.float32,
-        )
-        sharding_strategy = ShardingStrategy.FULL_SHARD
-        auto_wrap_policy = self.get_fsdp_wrap_policy(module = model)
-        # If meta_init is True, other rank need to sync params from rank 0
-        sync_module_states = self.module_args.meta_init
-        self.model = FSDP(
-            model,
-            cpu_offload=None,
-            auto_wrap_policy=auto_wrap_policy,
-            device_id=torch.cuda.current_device(),
-            sharding_strategy=sharding_strategy,  # zero3
-            mixed_precision=mix_precision_config,
-            sync_module_states=sync_module_states,
-            param_init_fn=FSDPModule.init_fn,
-            device_mesh=self.device_mesh,
-            forward_prefetch=False,
-        )
+
+        # get state_dict to init model for meta init
+        full_state = None
+        if self.module_args.meta_init:
+            full_state = model.state_dict()
+
+        # fsdp2 warp
+        mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        fsdp_kwargs = {
+            "mesh": self.device_mesh,
+            "mp_policy": mix_precision_config,
+            "reshard_after_forward": True,
+        }
+        default_transformer_cls_names_to_wrap = getattr(model, "_no_split_modules", None)
+        fsdp_transformer_layer_cls_to_wrap = default_transformer_cls_names_to_wrap
+        if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
+            fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
+        modules = []
+        for name, module in model.named_modules():
+            if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
+                (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
+                modules.append(module)
+
+        for module in modules:
+            fully_shard(module, **fsdp_kwargs)
+        fully_shard(model, **fsdp_kwargs)
+        if self.module_args.meta_init:
+            # save buffer data
+            buffer_dict = {}
+            for name, buf in model.named_buffers():
+                buffer_dict[name] = buf
+            model.to_empty(device="cuda")
+
+            # load real state dict
+            options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
+
+            # module-wise sync avoid OOM while run model like qwen3-moe-235B
+            for name, module in model.named_modules():
+                has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
+                if has_weights:
+                    set_model_state_dict(
+                        module,
+                        {k.replace(name + ".", ""): v for k, v in full_state.items() if k.startswith(name + ".")},
+                        options=options
+                    )
+            # set_model_state_dict(model, full_state, options=options)
+
+            # load buffer data
+            if dist.get_rank()==0:
+                for name, buf in model.named_buffers():
+                    buf.data.copy_(buffer_dict[name])
+            torch.cuda.synchronize()
+            for name, buf in model.named_buffers():
+                dist.broadcast(buf, src=0)
+
+        self.model = model
         self.model.to(torch.float32)
-        FSDP.set_state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT)
+
         if not self.trainable:
             self.optimizer = None
             self.model.eval()
         else:
             self.optimizer = optim.AdamW(
                 self.model.parameters(),
-
                 lr=self.module_args.optimizer.lr,
                 betas=(self.module_args.optimizer.adam_beta1, self.module_args.optimizer.adam_beta2),
                 weight_decay=self.module_args.optimizer.weight_decay
@@ -303,79 +311,53 @@ class FSDPModule(TorchModule):
         # resume model weights
         if self.resume_training:
             self.load_checkpoint(self._episode_id)
-
+        del full_state
         self.offload()
 
-    def get_fsdp_param_name(self):
+    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
         name_list = []
-        for name, _ in self.model.named_parameters():
-            parts = name.split('.')
-            filtered_parts = [
-                part for part in parts
-                if part not in {"_fsdp_wrapped_module", "_flat_param"}
-            ]
-            cleaned_name = '.'.join(filtered_parts)
-            name_list.append(cleaned_name)
+        param_cnt = 0
+        current_group = []
+        for name, param in self.model.named_parameters():
+            param_cnt += param.numel()
+            current_group.append(name)
+            if param_cnt >= block_size:
+                name_list.append(copy.deepcopy(current_group))
+                current_group = []
+                param_cnt = 0
+        if len(current_group) > 0:
+            name_list.append(copy.deepcopy(current_group))
         return name_list
 
-    def get_weight_ipc_handles_by_name(self, block_name: str):
+    def get_weight_ipc_handles_by_name(self, block_name: List[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
-        torch.cuda.empty_cache()
-        for prefix_name, module in self.model.named_modules():
-            prefix_name = prefix_name.replace('_fsdp_wrapped_module.', '')
-            if isinstance(module, FSDP) and prefix_name==block_name:
-                state_dict = module.state_dict()
-                reduce_tensor_dict = {}
-                for name, param in state_dict.items():
-                    if isinstance(param, DTensor):
-                        reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param.full_tensor())
-                    else:
-                        reduce_tensor_dict['.'.join([prefix_name, name])] = reduce_tensor(param)
-                return reduce_tensor_dict
-
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        reduce_tensor_dict = {}
+        for name, param in self.model.named_parameters():
+            if name in block_name:
+                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach() \
+                                            if isinstance(param, DTensor) else param.detach())
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:True")
+        return reduce_tensor_dict
     @torch.no_grad()
-    def onload_weights(self,empty_cache=True):
-        _lazy_init(self.model, self.model)
-        assert self.model._is_root
+    def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()
-        for handle in self.model._all_handles:
-            if handle._offload_params:
-                continue
-            flat_param = handle.flat_param
-            handle.flat_param_to(torch.device(f"cuda:{device_id}"), non_blocking=True)
-            # the following still keeps id(._local_shard) != id(.data)
-            flat_param._local_shard = flat_param.data
+        self.model.to(torch.device(f"cuda:{device_id}"))
         if empty_cache:
+            gc.collect()
             torch.cuda.empty_cache()
 
     @torch.no_grad()
     def offload_weights(self, empty_cache=True):
-        assert isinstance(self.model, FSDP)
-        # lazy init FSDP model
-        _lazy_init(self.model, self.model)
-        assert self.model._is_root, "Only support root model offloading to CPU"
-        for handle in self.model._all_handles:
-            if handle._offload_params:
-                continue
-            flat_param = handle.flat_param
-            assert (
-                flat_param.data.data_ptr() == flat_param._local_shard.data_ptr()
-                and id(flat_param.data) != id(flat_param._local_shard)
-                and flat_param.data.size() == flat_param._local_shard.size()
-            )
-            handle.flat_param_to(torch.device("cpu"), non_blocking=True)
-            # Explicit call to free unshard flat param
-            handle._free_unsharded_flat_param()
-            # the following still keeps id(._local_shard) != id(.data)
-            flat_param._local_shard = flat_param.data
-            assert id(flat_param._local_shard) != id(flat_param.data)
-
-        # Explicit releas ipc handles
+        self.model.cpu()
         torch.cuda.ipc_collect()
         if empty_cache:
+            gc.collect()
             torch.cuda.empty_cache()
 
     @torch.no_grad()
@@ -388,7 +370,7 @@ class FSDPModule(TorchModule):
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to("cpu", non_blocking=True)
-
+        torch.cuda.synchronize()
         if empty_cache:
             torch.cuda.empty_cache()
 
@@ -396,13 +378,13 @@ class FSDPModule(TorchModule):
     def onload_optimizer_states(self, empty_cache=True):
         if not self.optimizer.state:
             return
-        device = torch.cuda.current_device()
+        device_id = torch.cuda.current_device()
         for param_group in self.optimizer.param_groups:
             for param in param_group["params"]:
                 state = self.optimizer.state[param]
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
-                        state[key] = value.to(device, non_blocking=True)
+                        state[key] = value.to(torch.device(f"cuda:{device_id}"), non_blocking=True)
 
         if empty_cache:
             torch.cuda.empty_cache()
@@ -414,40 +396,38 @@ class FSDPModule(TorchModule):
         # Make sure directory exists before writing
         dist.barrier()
 
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
-        with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
-            model_state_dict = self.model.state_dict()
-            optimizer_state_dict = self.optimizer.state_dict() if self.optimizer is not None else None
-            # lr_scheduler_state_dict = self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None
-            extra_state_dict = {
-                # "lr_scheduler": lr_scheduler_state_dict,
-                "rng": self.get_rng_state(),
-            }
-            model_path = os.path.join(save_dir, f"model_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
-            optim_path = os.path.join(save_dir, f"optim_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
-            extra_path = os.path.join(save_dir, f"extra_state_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
-            torch.save(model_state_dict, model_path)
-            torch.save(optimizer_state_dict, optim_path)
-            torch.save(extra_state_dict, extra_path)
+        model_state_dict = self.model.state_dict()
+        optimizer_state_dict = self.optimizer.state_dict() if self.optimizer is not None else None
+        # lr_scheduler_state_dict = self.lr_scheduler.state_dict() if self.lr_scheduler is not None else None
+        extra_state_dict = {
+            # "lr_scheduler": lr_scheduler_state_dict,
+            "rng": self.get_rng_state(),
+        }
+        model_path = os.path.join(save_dir, f"model_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+        optim_path = os.path.join(save_dir, f"optim_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+        extra_path = os.path.join(save_dir, f"extra_state_world_size_{dist.get_world_size()}_rank_{dist.get_rank()}.pt")
+        torch.save(model_state_dict, model_path)
+        torch.save(optimizer_state_dict, optim_path)
+        torch.save(extra_state_dict, extra_path)
+
         torch.distributed.barrier()
 
         # save for hf format
         if self.module_args.get("save_hf", True):
-            state_dict_cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
-            with FSDP.state_dict_type(self.model, StateDictType.FULL_STATE_DICT, state_dict_cfg, None):
-                model_state_dict = self.model.state_dict()
-                if dist.get_rank() == 0:
-                    hf_path = os.path.join(save_dir, "huggingface")
-                    os.makedirs(hf_path, exist_ok=True)
-                    model_config = self.model._fsdp_wrapped_module.config
-                    model_config.save_pretrained(hf_path)
-                    self.tokenizer.save_pretrained(hf_path)
 
-                    with torch.device("meta"):
-                        save_model = AutoModelForCausalLM.from_config(model_config, torch_dtype=torch.bfloat16)
-                    save_model.to_empty(device="cpu")
-                    save_model.save_pretrained(hf_path, state_dict=model_state_dict)
+            state_dict_config = StateDictOptions(full_state_dict=True, cpu_offload=True, broadcast_from_rank0=False)
+            model_state_dict = get_model_state_dict(self.model, options=state_dict_config)
+            if dist.get_rank() == 0:
+                hf_path = os.path.join(save_dir, "huggingface")
+                os.makedirs(hf_path, exist_ok=True)
+                model_config = self.model.config
+                model_config.save_pretrained(hf_path)
+                self.tokenizer.save_pretrained(hf_path)
+
+                with torch.device("meta"):
+                    save_model = AutoModelForCausalLM.from_config(model_config, torch_dtype=torch.bfloat16)
+                save_model.to_empty(device="cpu")
+                save_model.save_pretrained(hf_path, state_dict=model_state_dict)
             torch.distributed.barrier()
             self._logger.info(f"save checkpoint to {save_dir}")
 
@@ -464,18 +444,14 @@ class FSDPModule(TorchModule):
         optimizer_state_dict = torch.load(optim_path, weights_only=False)
         extra_state_dict = torch.load(extra_state_path, weights_only=False)
 
-        state_dict_cfg = ShardedStateDictConfig(offload_to_cpu=True)
-        optim_cfg = ShardedOptimStateDictConfig(offload_to_cpu=True)
-        with FSDP.state_dict_type(self.model, StateDictType.SHARDED_STATE_DICT, state_dict_cfg, optim_cfg):
-            self.model.load_state_dict(model_state_dict)
-            if self.optimizer is not None:
-                self.optimizer.load_state_dict(optimizer_state_dict)
+        self.model.load_state_dict(model_state_dict)
+        if self.optimizer is not None:
+            self.optimizer.load_state_dict(optimizer_state_dict)
         # recover random state
         if "rng" in extra_state_dict:
             # 'rng' may not exist for backward compatibility
             self.load_rng_state(extra_state_dict["rng"])
         torch.distributed.barrier()
-
 
     @staticmethod
     def get_rng_state():

@@ -444,8 +444,6 @@ class BaseModule:
             num_inference_per_prompt = self.module_args["num_inference_per_prompt"]
         else:
             num_inference_per_prompt = 1
-        vllm_prompt_key = self.module_args["vllm_prompt_key"] \
-            if "vllm_prompt_key" in self.module_args else "prompt"
         self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
@@ -474,11 +472,9 @@ class BaseModule:
             all_datasets,
             batch_sampler,
             collate_fn=collate_fn,
-            add_uid=True,
             data_parallel_rank=self.replica_id,
             data_parallel_size=self._num_replica,
-            num_inference_per_prompt=num_inference_per_prompt,
-            vllm_prompt_key=vllm_prompt_key
+            num_inference_per_prompt=num_inference_per_prompt
         )
 
     def reset_eval_data_iter(self):
