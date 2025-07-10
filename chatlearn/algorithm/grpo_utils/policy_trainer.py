@@ -244,10 +244,11 @@ class PolicyTrainer(FSDPModule):
 
             # compute backward loss
             pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
+            total_loss = pg_loss_mean
             if self.module_args.entropy_coef > 0:
-                pg_loss_mean = pg_loss_mean - self.module_args.entropy_coef * entropy_loss_mean
+                total_loss = total_loss - self.module_args.entropy_coef * entropy_loss_mean
             if self.module_args.kl_coef > 0:
-                pg_loss_mean = pg_loss_mean + self.module_args.kl_coef * kl_loss_mean
+                total_loss = total_loss + self.module_args.kl_coef * kl_loss_mean
             pg_loss_mean.backward()
 
 
