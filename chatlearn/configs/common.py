@@ -194,7 +194,6 @@ class BaseModelConfig(BaseConfig):
     )
 
 
-
 @dataclass
 class PolicyConfig(BaseModelConfig):
     """PolicyConfig"""
@@ -262,7 +261,15 @@ class PolicyConfig(BaseModelConfig):
 
 
 @dataclass
-class RefPolicyConfig(BaseModelConfig):
+class FSDPConfig(BaseConfig):
+    use_expandable_segments: bool = field(
+        default=False, metadata={"help": "Whether to use expandable_segments in PYTORCH_CUDA_ALLOC_CONF, \
+            avoid big reseverd memory in ref and policy trainer worker, expandable_segments should be False \
+            while in parameter sync for efficiency"}
+    )
+
+@dataclass
+class RefPolicyConfig(BaseModelConfig, FSDPConfig):
     """RefPolicyConfig"""
 
     load: str = field(
@@ -271,23 +278,23 @@ class RefPolicyConfig(BaseModelConfig):
 
 
 @dataclass
-class PolicyTrainerConfig(BaseModelConfig):
+class PolicyTrainerConfig(BaseModelConfig, FSDPConfig):
     """PolicyTrainerConfig"""
 
     load: str = field(
         default=MISSING, metadata={"help": "path to policy model"}
     )
-    # learning_rate: float = field(
-    #     default=2e-06, metadata={"help": "learning rate for policy model"}
-    # )
-    # grad_clip: float = field(
-    #     default=1.0, metadata={"help": "grad clips for policy model"}
-    # )
     optimizer: OptimizerConfig = field(
         default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
     gradient_checkpointing: bool = field(
         default=True, metadata={"help": "whether gradient checkpointing"}
+    )
+    entropy_coef: float = field(
+        default=0.0, metadata={"help": "entropy regularization"}
+    )
+    kl_coef: float = field(
+        default=0.0, metadata={"help": "kl regularization"}
     )
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
@@ -514,7 +521,7 @@ def _config_validate(cfg):
                 warning_message = f"In order to maximum packing capacity, runtime_args.train_micro_batch_size should be set to \
                     runtime_args.train_global_batch_size / (models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size) = \
                     {train_global_batch_size // train_fsdp_dp_size}"
-                warnings.warn(message)
+                warnings.warn(warning_message)
             if sample_per_episode != train_fsdp_dp_size * train_generation_batch_size:
                 warning_message = f"In order to maximum packing capacity, models.policy_trainer.generation_batch_size should be set to \
                     runtime_args.sample_per_episode / (models.policy_trainer.num_gpu // models.policy_trainer.ulysses_sequence_parallel_size) = \
