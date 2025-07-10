@@ -310,7 +310,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             if "group_mlp" in name:
                 reconstructed_tensor = torch.chunk(reconstructed_tensor, n_expert, dim=0)
                 for i in range(n_expert):
-                    local_name = name.replace('group_mlp', f"experts.{i}") 
+                    local_name = name.replace('group_mlp', f"experts.{i}")
                     self.model.load_weights([(local_name, reconstructed_tensor[i])])
             else:
                 self.model.load_weights([(name, reconstructed_tensor)])

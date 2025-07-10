@@ -15,9 +15,7 @@
 """FSDP module"""
 import os
 import random
-import functools
 import gc
-from contextlib import contextmanager, nullcontext
 import copy
 from typing import List
 
@@ -27,14 +25,12 @@ import torch
 import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch import optim, nn
-
-from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard, FSDPModule as TorchFSDPModule
-from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict
+from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
+from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict, get_model_state_dict
 from torch.multiprocessing.reductions import reduce_tensor
-from torch.distributed.tensor import DTensor
+from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
-from transformers.trainer_pt_utils import get_module_class_from_name
 
 from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
@@ -78,7 +74,6 @@ class FSDPModule(TorchModule):
     def fsdp2_clip_grad_norm_(self, parameters, max_norm, norm_type=2.0, error_if_nonfinite=False, foreach=None):
         # TODO: support partial parameters FSDP2 warp
         assert norm_type==2.0, "only support l2 grad norm"
-        from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
         if isinstance(parameters, torch.Tensor):
             parameters = [parameters]
@@ -234,7 +229,6 @@ class FSDPModule(TorchModule):
         if self.module_args.groupgemm:
             apply_group_gemm(model)
             dist.barrier()
-        print("debughh apply group gemm")
         # Setup device mesh and apply patch for sequence parallel
         # Sequence_parallel should only be used during training
         if self.sp_size > 1:
@@ -264,13 +258,13 @@ class FSDPModule(TorchModule):
             fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
         modules = []
         for name, module in model.named_modules():
-            if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
+            if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
+                (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
                 modules.append(module)
 
-        for idx, module in enumerate(modules):
+        for module in modules:
             fully_shard(module, **fsdp_kwargs)
         fully_shard(model, **fsdp_kwargs)
-        print("debughh fully_shard")
         if self.module_args.meta_init:
             # save buffer data
             buffer_dict = {}
@@ -280,8 +274,8 @@ class FSDPModule(TorchModule):
 
             # load real state dict
             options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
-            # module-wise sync avoid OOM while run model like qwen3-moe-235B
 
+            # module-wise sync avoid OOM while run model like qwen3-moe-235B
             for name, module in model.named_modules():
                 has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
                 if has_weights:
@@ -299,7 +293,7 @@ class FSDPModule(TorchModule):
             torch.cuda.synchronize()
             for name, buf in model.named_buffers():
                 dist.broadcast(buf, src=0)
-        print("debughh sync parameter")
+
         self.model = model
         self.model.to(torch.float32)
 
@@ -420,7 +414,6 @@ class FSDPModule(TorchModule):
 
         # save for hf format
         if self.module_args.get("save_hf", True):
-            from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 
             state_dict_config = StateDictOptions(full_state_dict=True, cpu_offload=True, broadcast_from_rank0=False)
             model_state_dict = get_model_state_dict(self.model, options=state_dict_config)

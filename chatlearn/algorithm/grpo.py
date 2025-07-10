@@ -134,7 +134,7 @@ class GRPOEvaluator(Evaluator):
         data_source_to_id_map = defaultdict(list)
         for i, source in enumerate(data_source):
             data_source_to_id_map[source].append(i)
- 
+
         eval_reward_stats = {}
         for key, ids in data_source_to_id_map.items():
             selected = [rule_rewards_flatten[i] for i in ids]
