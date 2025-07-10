@@ -249,7 +249,7 @@ class PolicyTrainer(FSDPModule):
                 total_loss = total_loss - self.module_args.entropy_coef * entropy_loss_mean
             if self.module_args.kl_coef > 0:
                 total_loss = total_loss + self.module_args.kl_coef * kl_loss_mean
-            pg_loss_mean.backward()
+            total_loss.backward()
 
 
         # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor 
