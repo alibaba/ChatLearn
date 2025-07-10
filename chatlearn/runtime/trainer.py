@@ -100,13 +100,14 @@ class Trainer(Executor):
 
             data_queues, out_queue = self.setup_queues()
             batch_list = []
-            # get batch by iterate over dp first, iteration second
+            # Data will merge by dp_rank order after environment.make_experiences()
+            # For off-policy, we need to get batch by iterate over dp first, iteration second
             for dp_rank in range(self.data_parallel_size):
                 for iter_ in range(_num_training_iteration):
                     batch = encode_data(iter_ * self.data_parallel_size + dp_rank, self.next_batch())
                     batch_list.append(batch)
-            
-            # put batch by iterate over iteration first, dp second
+
+            # After get all batches, put batch into trainer's input queue by iterate over iteration first, dp second
             for iter_ in range(_num_training_iteration):
                 for dp_rank in range(self.data_parallel_size):
                     for data_queue in data_queues:

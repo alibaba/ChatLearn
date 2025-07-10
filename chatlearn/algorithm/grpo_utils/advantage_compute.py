@@ -1,6 +1,5 @@
 """compute advantage for grpo"""
 from collections import defaultdict
-import random
 
 import torch
 
