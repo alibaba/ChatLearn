@@ -72,7 +72,6 @@ models:
     packing: ${models.policy_trainer.packing}
     max_token_in_packing: ${models.policy_trainer.max_token_in_packing}
   policy:
-    enforce_eager: False
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: 256
