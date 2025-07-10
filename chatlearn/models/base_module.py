@@ -1264,3 +1264,31 @@ class BaseModule:
             v: global_name_to_param_id[k]
             for k, v in self.global_name_to_local_name.items()
         }
+
+    def parameter_sync(self):
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
+        return self.synchronizer.parameter_sync()
+
+    def get_gpu_info(self):
+        """return a unique string to identify the GPU"""
+        node_id = ray.get_runtime_context().node_id.hex()
+        gpu_ids = ray.get_gpu_ids()
+        assert len(gpu_ids) == 1, "Not Supported"
+        return f"{node_id}-{gpu_ids[0]}"
+
+    def get_param_id_to_parameters(self):
+        raise NotImplementedError("mapping param id to parameters is not implemented")
+
+    def set_synchronizer(self, synchronizer_name: str='general', return_handles: bool=False, **kwargs):
+        from chatlearn.synchronizer.v2.comm import GeneralSynchronizer
+        if synchronizer_name != "general":
+            raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")
+        
+        self.synchronizer = GeneralSynchronizer(model=self, **kwargs)
+        if return_handles:
+            return (
+                self.synchronizer.all2all_sync_step,
+                self.synchronizer.release_ipc_resources
+            )
+        return tuple()

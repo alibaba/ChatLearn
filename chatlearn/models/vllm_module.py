@@ -475,3 +475,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             sharded_info.param_id = param_id
             infos[param_id] = sharded_info
         return infos
+
+    def get_param_id_to_parameters(self):
+        param_id_to_parameters = {}
+        for name, weight in self.model.state_dict().items():
+            param_id_to_parameters[self.local_name_to_param_id[name]] = weight
+        return param_id_to_parameters

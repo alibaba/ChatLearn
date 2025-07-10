@@ -499,6 +499,17 @@ if IS_MEGATRON_SUPPORTED:
                 else:
                     raise ValueError(f"Unsupport key_type: {key_type}")
             return infos
+
+        def get_param_id_to_parameters(self):
+            param_id_to_parameters = {}
+            for name, weight in (
+                unwrap_model(self.megatron_model())
+                .state_dict_for_save_checkpoint()
+                .items()
+            ):
+                param_id_to_parameters[self.local_name_to_param_id[name]] = weight
+            return param_id_to_parameters
+
 else:
     class MegatronModule(TorchModule):
         """Module Placeholder for Megatron Backend"""

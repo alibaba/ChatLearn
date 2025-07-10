@@ -14,6 +14,7 @@
 # ==============================================================================
 """Mapper for Megatron to vLLM"""
 from enum import Enum
+from collections import defaultdict
 from typing import List, Dict, Tuple, TYPE_CHECKING
 
 import torch
@@ -45,14 +46,6 @@ if TYPE_CHECKING:
 
     from chatlearn.models.megatron_module import MegatronModule
 
-class MappingType(Enum):
-    """Mapping type, may removed in future"""
-    FULL = 0 # full --> full
-    COLUMN = 1 # col --> col
-    ROW = 2 # row --> row
-    COLUMN_TO_REP = 3 # col --> full
-    GATE_UP = 4 # gate_up --> gate_up
-    QKV = 5
 
 class MegatronVLLMMapper:
     """MegatronVLLMMapper"""
@@ -87,7 +80,7 @@ class MegatronVLLMMapper:
     def generate_sync_mapping(
         self,
         dst_name_to_metadata: Dict[str, Tuple[int, torch.dtype]]
-    ) -> Dict[MappingType, Dict[ShardedTensorInfo, ShardedTensorInfo]]:
+    ) -> Dict[ShardedTensorInfo, List[ShardedTensorInfo]]:
         """ Generate the synchronization mapping of this local rank.
 
         Args:
@@ -95,14 +88,15 @@ class MegatronVLLMMapper:
                 parameter name to its param_id and datatype
 
         Returns:
-            Dict[MappingType, Dict[ShardedTensorInfo, ShardedTensorInfo]]: The return
+            Dict[ShardedTensorInfo, List[ShardedTensorInfo]]: The return
             dict is the plan including all local parameters to be synchronized. The
             mapper will ensure that the key of mapping for each mapping type is
             non-overlapping and can merge into the full state dict of this rank.
+            For most cases, the length of dst shards list is 1, except for GQA with 
+            large vLLM TP.
         """
         self._dst_name_to_metadata = dst_name_to_metadata
-        return self._format_sync_mapping(self._map_model())
-
+        return self._map_model()
 
     def dump_sync_mapping(self, folder_path: str, sync_mapping: Dict):
         """dump the generayed sync mapping to the given folder path in JSON format.
@@ -112,12 +106,6 @@ class MegatronVLLMMapper:
             sync_mapping (Dict): The sync mapping to be saved.
         """
         raise NotImplementedError()
-
-    @staticmethod
-    def _format_sync_mapping(mapping):
-        """format the collected mapping, currently do nothing.
-        """
-        return mapping
 
     # NOTE: the following function implements the module-wise sync mapping
     def _map_model(self):
@@ -253,7 +241,7 @@ class MegatronVLLMMapper:
         mapping.update(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_fc2.weight",
             f"{dst_prefix}down_proj.weight",
-            mapping_type=MappingType.ROW
+            mapping_type='row'
         ))
         return mapping
 
@@ -277,7 +265,7 @@ class MegatronVLLMMapper:
                 f"{dst_prefix}w2_weight",
                 global_expert_id=global_expert_id,
                 num_experts=num_experts,
-                mapping_type=MappingType.ROW
+                mapping_type='row'
             ))
         return mapping
 
@@ -287,7 +275,7 @@ class MegatronVLLMMapper:
             mapping.update(self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_proj.weight",
                 f"{dst_prefix}q_proj.weight",
-                mapping_type=MappingType.COLUMN
+                mapping_type='column'
             ))
         else:
             mapping.update(self._inner_map_for_mla_down_proj(
@@ -297,7 +285,7 @@ class MegatronVLLMMapper:
             mapping.update(self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_up_proj.weight",
                 f"{dst_prefix}q_b_proj.weight",
-                mapping_type=MappingType.COLUMN
+                mapping_type='column'
             ))
             if self._src_arch.qk_layernorm:
                 mapping.update(
@@ -315,7 +303,7 @@ class MegatronVLLMMapper:
         mapping.update(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_kv_up_proj.weight",
             f"{dst_prefix}kv_b_proj.weight",
-            mapping_type=MappingType.COLUMN
+            mapping_type='column'
         ))
         if self._src_arch.qk_layernorm:
             mapping.update(
@@ -329,7 +317,7 @@ class MegatronVLLMMapper:
         mapping.update(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_proj.weight",
             f"{dst_prefix}o_proj.weight",
-            mapping_type=MappingType.ROW
+            mapping_type='row'
         ))
         return mapping
 
@@ -351,7 +339,7 @@ class MegatronVLLMMapper:
         mapping.update(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_proj.weight",
             f"{dst_prefix}o_proj.weight",
-            mapping_type=MappingType.ROW
+            mapping_type='row'
         ))
         return mapping
 
@@ -361,7 +349,7 @@ class MegatronVLLMMapper:
         return self._inner_map_for_tensor_parallel(
             f"{src_prefix}word_embeddings.weight",
             f"{dst_prefix}embed_tokens.weight",
-            mapping_type=MappingType.COLUMN
+            mapping_type='column'
         )
 
     def _map_postprocess_layer(self, module: 'ColumnParallelLinear', src_prefix='', dst_prefix=''):
@@ -369,7 +357,7 @@ class MegatronVLLMMapper:
         return self._inner_map_for_tensor_parallel(
             f"{src_prefix}weight",
             f"{dst_prefix}lm_head.weight",
-            mapping_type=MappingType.COLUMN
+            mapping_type='column'
         )
 
     # NOTE: the following function implements the tensor-wise sync mapping
@@ -380,12 +368,9 @@ class MegatronVLLMMapper:
         *,
         global_expert_id: int=None,
         num_experts: int=None,
-        mapping_type: MappingType=MappingType.FULL
+        mapping_type: str='column'
     ):
-        AXES = {
-            MappingType.COLUMN: 0,
-            MappingType.ROW: 1
-        }
+        AXES = {'column': 0, 'row': 1}
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = {}
@@ -398,7 +383,7 @@ class MegatronVLLMMapper:
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
             if global_expert_id is not None:
                 dst_meta = dst_meta.unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
-            mapping[src_meta] = (dst_meta, mapping_type)
+            mapping[src_meta] = [dst_meta]
         return mapping
 
     def _inner_map_for_full_shape(
@@ -409,7 +394,7 @@ class MegatronVLLMMapper:
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         return {
-            src_info.copy(): (dst_info.copy(), MappingType.FULL)
+            src_info.copy(): [dst_info.copy()]
         }
 
     def _inner_map_for_gate_up_proj(self, src_key: str, dst_key: str, *, global_expert_id: int=None, num_experts: int=None):
@@ -424,13 +409,13 @@ class MegatronVLLMMapper:
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
             if global_expert_id is not None:
                 dst_meta = dst_meta.unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
-            mapping[src_meta] = (dst_meta, MappingType.GATE_UP)
+            mapping[src_meta] = [dst_meta]
         return mapping
 
     def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
-        mapping = {}
+        mapping = defaultdict(list)
         for src_meta, dst_meta in process_qkv_tensor(
             src_info,
             self._src_arch.num_attention_heads,
@@ -439,7 +424,7 @@ class MegatronVLLMMapper:
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
-            mapping[src_meta] = (dst_meta, MappingType.QKV)
+            mapping[src_meta].append(dst_meta)
         return mapping
 
     def _inner_map_for_mla_down_proj(self, src_key: str, dst_key: str):
@@ -449,7 +434,7 @@ class MegatronVLLMMapper:
         dst_meta.param_id = dst_info.param_id
         dst_meta.dtype = dst_info.dtype
         return {
-            src_info.copy(): (dst_meta, MappingType.COLUMN_TO_REP)
+            src_info.copy(): [dst_meta]
         }
 
     @property

@@ -18,6 +18,7 @@ from dataclasses import dataclass, field
 from copy import deepcopy
 
 import torch
+import numpy as np
 
 @dataclass
 class ShardedTensorInfo:
@@ -153,7 +154,28 @@ class ShardedTensorInfo:
         )
 
     def index(self, tensor: torch.Tensor) -> torch.Tensor:
-        raise NotImplementedError()
+        """Indexing tensor with this ShardedTensorInfo.
+        will check the shape-related information and ignore 
+        inconsistent datatype.
+        
+        Args:
+            tensor (torch.Tensor): tensor to be indexed.
+        
+
+        """
+        tensor_shape = tensor.shape
+        local_tensor_shape = tuple(g // a for g, a in zip(self.global_shape, self.axis_fragmentations))
+        if len(tensor.shape) != self.ndim or tensor_shape != local_tensor_shape:
+            raise ValueError(
+                f"Try to index a tensor with shape {tensor_shape} with a ShardedTensorInfo with shape {local_tensor_shape}."
+            )
+        indices = [slice(offset, offset + length) for offset, length in zip(self.offsets, self.lengths)]
+        view = tensor[indices]
+        if view.data_ptr() != tensor.data_ptr():
+            # NOTE: Ensure that we return the view
+            raise SystemError("Unexpected copy operation encountered!")
+        return view
+
 
     @classmethod
     def from_global_shape(cls, global_shape: Tuple[int, ...], param_id: int=None, dtype: torch.dtype=None):
@@ -170,6 +192,11 @@ class ShardedTensorInfo:
     @property
     def ndim(self):
         return len(self.global_shape)
+
+    @property
+    def size(self):
+        assert self.dtype is not None, "Only support shard_info with dtype"
+        return np.prod(self.local_shape) * self.dtype.itemsize
 
     def __hash__(self):
         return hash((
@@ -265,3 +292,37 @@ class ShardedTensorInfo:
             local_offset=shards[0].local_offset,
             global_offset=shards[0].global_offset
         )
+
+    def __contains__(self, other: 'ShardedTensorInfo'):
+        """Check if the other sharded_info is in this sharded_info.
+        Sharded_info A is in B only if B has the same global metadata as A,
+        and the local shard of B is a sub-shard of A.
+
+        Args:
+            other (ShardedTensorInfo): _description_
+
+        Returns:
+            _type_: _description_
+        """
+        if other.param_id is not None and other.param_id != self.param_id:
+            return False
+        
+        if other.dtype is not None and other.dtype != self.dtype:
+            return False
+
+        if (
+            other.global_shape != self.global_shape or
+            other.axis_fragmentations != self.axis_fragmentations or
+            other.global_offset != self.global_offset
+        ):
+            return False
+        
+        for si, oi, sj, oj in zip(
+            self.local_offset, 
+            other.local_offset, 
+            self.local_shape, 
+            other.local_shape
+        ):
+            if si > oi or si + sj < oi + oj:
+                return False
+        return True

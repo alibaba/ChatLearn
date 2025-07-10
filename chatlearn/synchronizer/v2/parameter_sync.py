@@ -14,6 +14,7 @@
 # ==============================================================================
 """Sync parameters"""
 import itertools
+from collections import Counter, defaultdict
 from typing import List, Dict
 
 from chatlearn.runtime.dist_actor import DistModel
@@ -23,6 +24,7 @@ from chatlearn.utils.global_vars import get_args
 
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.v2.mappers import get_mapper_name
+from chatlearn.synchronizer.v2.planners import get_planner_cls
 
 patch_ray()
 
@@ -40,6 +42,12 @@ class ParameterSyncGroup:
         self.config = get_args()
         self.src_model, self.dst_model = src_model, dst_model
         self._initialized = False
+        # type: Dict[str, int], mapping a global weight name to unique id
+        self.src_param_ids, self.dst_param_ids = None, None
+        # type: Dict[int, List[ShardedTensorInfo]], contains the metadata of each rank
+        self.src_metadatas, self.dst_metadatas = None, None
+        self.sync_plan: List[SyncIteration] = None
+
         # NOTE: for compatability, CURRENTLY NOT USED
         self.group_name = group_name
         self.frequency = frequency
@@ -54,16 +62,8 @@ class ParameterSyncGroup:
         multiple times if needed.
         """
         def _initialize_impl(model):
-            # TODO: move this code snippset to DistModel
-            # NOTE: we define `rank` of each actor as arbitrary unique id.
-            actor_id = 0
-            for replica in model.replicas:
-                replica.all_ranks = []
-                for actor in replica.all_actors:
-                    replica.rank_to_actors[actor_id] = actor
-                    replica.all_ranks.append(actor_id)
-                    actor_id += 1
-            # TODO: move this code snippset to DistModel
+            # TODO: should be called by model instead of here.
+            model.assign_ranks()
             param_ids = self.generate_global_param_ids(model)
             future.wait(model.call_func_on_all_workers('set_param_ids', param_ids), return_output=True)
             metadata = self.collect_parameter_metadata(model)
@@ -72,10 +72,13 @@ class ParameterSyncGroup:
         self.src_param_ids, self.src_metadatas = _initialize_impl(self.src_model)
         self.dst_param_ids, self.dst_metadatas = _initialize_impl(self.dst_model)
         dst_name_to_metadata = {}
+        dst_metadatas = {
+            rank: {m.param_id: m for m in metadatas} for rank, metadatas in self.dst_metadatas.items()
+        }
         for name, param_id in self.dst_param_ids.items():
-            for _, metadata_per_rank in self.dst_metadatas.items():
+            for _, metadata_per_rank in dst_metadatas.items():
                 if param_id in metadata_per_rank:
-                    # select one of the TensorMeta for mapper, as mapper don't
+                    # select one of the ShardedTensorInfo for mapper, as mapper don't
                     # care the shape info of this metadata
                     dst_name_to_metadata[name] = metadata_per_rank[param_id]
                     break
@@ -88,43 +91,44 @@ class ParameterSyncGroup:
             ),
             return_output=True
         )
-        results = future.wait(self.src_model.call_func_on_all_workers(
-            'generate_sync_mapping',
-            dst_name_to_metadata,
-        ), return_output=True)
-        global_sync_mapping = self.validate_and_merge_sync_mapping(results) # pylint: disable=unused-variable
-        # planner = get_planner(global_sync_mapping, ...)
-        # sync_plan = planner.make_plan()
+        results: List[Dict[ShardedTensorInfo, List[ShardedTensorInfo]]] = future.wait(
+            self.src_model.call_func_on_all_workers(
+                'generate_sync_mapping',
+                dst_name_to_metadata,
+            ), 
+            return_output=True
+        )
+        self.validate_sync_mapping(results) # pylint: disable=unused-variable
+        planner = get_planner_cls()(
+            dict(zip(itertools.chain.from_iterable(self.src_model.all_ranks), results)), 
+            self.dst_metadatas,
+        )
+        self.sync_plan = planner.make_plan()
         # # TODO: Can we find a way to validate plan before actual comm starts?
         # if self.config.parameter_sync.dump_metadata:
         #     # save metadata, sync mapping and plan in readable format
         #     ...
-        # # Finally planner will setup synchronizer for src_model and dst_model
-        # wait([planner.setup_synchronizer(actor) for actor in ...])
+        planner.setup_synchronizer(self.src_model, self.dst_model, *self.sync_plan)
         self._initialized = True
 
     def collect_parameter_metadata(
         self,
         model: DistModel
-    ) -> Dict[int, Dict[int, ShardedTensorInfo]]:
+    ) -> Dict[int, List[ShardedTensorInfo]]:
         """Collect parameter metadata from model.
 
         Args:
             model (DistModel): The model to collect parameter metadata.
 
         Returns:
-            Dict[int, Dict[int, ShardedTensorInfo]]: The parameter metadata with
-            the following format:
-            {
-                rank: {
-                    param_id: ShardedTensorInfo
-                }
-            }
+            Dict[int, List[ShardedTensorInfo]]: The parameter metadata from 
+            each rank.
         """
         results = future.wait(
             model.call_func_on_all_workers('get_parameter_metadata'),
             return_output=True
         )
+        results = [list(r.values()) for r in results ]
         return dict(zip(itertools.chain.from_iterable(model.all_ranks), results))
 
     def generate_global_param_ids(self, model: DistModel) -> Dict[str, int]:
@@ -148,15 +152,55 @@ class ParameterSyncGroup:
             param_names.update(res)
         return {name: idx for idx, name in enumerate(param_names)}
 
-    def validate_and_merge_sync_mapping(self, sync_mappings: List[Dict]):
+    def validate_sync_mapping(
+        self, 
+        sync_mappings: List[Dict[ShardedTensorInfo, List[ShardedTensorInfo]]]
+    ):
         """
-            Check whether the merged sync mapping from all source actors meets the metadata
-            collected by `collect_parameter_metadata`.
+            Check whether the sync mapping from all source actors 
+            meets the dst metadata. Note that the integrity of the mapping
+            keys should be checked by mapper as SyncGroup doesn't know the
+            detail of the mapping construction, e.g., for GQA mapping 
+            between MCore and vLLM, if vLLM TP is larger than `num_query_groups`, 
+            KV heads of MCore will have more replicas than Q heads.
 
         Args:
-            sync_mappings (List[Dict]): The sync mappings from all source actors.
+            sync_mappings (List[Dict[ShardedTensorInfo, ShardedTensorInfo]]): The sync 
+            mappings from all source actors.
+        
         """
-        return sync_mappings # Not Implemented
+        # 1. each parameter should has K replicas
+        counter = Counter()
+        for sync_mapping in sync_mappings:
+            for infos in sync_mapping.values():
+                counter.update(infos)
+        param_counter = defaultdict(list)
+        for k, v in counter.items():
+            param_counter[k.param_id].append(v)
+
+        assert all(max(l) == min(l) for _, l in param_counter.items()), (
+            "Each dst parameter should have the same number of replicas"
+        )
+
+        # 2. each dst shard should belongs to one actual rank
+        metadata_group_by_param_id = defaultdict(set)
+        for metadata_per_rank in self.dst_metadatas.values():
+            for info in metadata_per_rank:
+                metadata_group_by_param_id[info.param_id].add(info)
+
+        for shard in counter:
+            flag = False
+            target_shards = metadata_group_by_param_id[shard.param_id]
+            for info in target_shards:
+                flag |= shard in info
+                if flag:
+                    break
+            if not flag:
+                raise ValueError(
+                    f"{shard} does not belong to any dst metadata, target: {target_shards}"
+                )
+        
+        # 3. all unique parameter shards should compose an entire model
 
     def sync(self, *args, dryrun: bool = False, **kwargs):
         # pylint: disable=unused-argument
@@ -165,5 +209,10 @@ class ParameterSyncGroup:
         """
         if not self._initialized:
             self.initialize()
-        if not dryrun:
-            raise NotImplementedError("Currently we only support dryrun in parameter synchronization")
+        if dryrun:
+            return
+        refs = (
+            self.src_model.call_func_on_all_workers('parameter_sync') + 
+            self.dst_model.call_func_on_all_workers('parameter_sync')
+        )
+        results = future.wait(refs, return_output=True)

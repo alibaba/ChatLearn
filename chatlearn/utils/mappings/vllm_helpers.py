@@ -56,7 +56,7 @@ def _prepare_metadata(module: nn.Module):
             axis_fragmentations=(1, tp_size)
             global_offset=(0, tp_rank)
         elif isinstance(module, (
-            ColumnParallelLinear, ParallelLMHead, ParallelLMHead)):
+            ColumnParallelLinear, ParallelLMHead, ParallelLMHead, VocabParallelEmbedding)):
             axis_fragmentations=(tp_size, 1)
             global_offset=(tp_rank, 0)
             global_shape=(w * tp_size, h)

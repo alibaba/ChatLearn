@@ -136,6 +136,9 @@ class TorchModule(BaseModule):
     def world_size(self):
         return dist.get_world_size()
 
+    def get_torchdist_rank(self):
+        return dist.get_rank()
+
     def _get_if_not_none(self, to_set: Optional[bool], default: bool) -> bool:
         if not default:
             return False
