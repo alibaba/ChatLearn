@@ -99,10 +99,19 @@ class Trainer(Executor):
                 future.wait(self._data_loader.shuffle.remote())
 
             data_queues, out_queue = self.setup_queues()
-            for mb in range(_num_training_iteration * self.data_parallel_size):
-                batch = encode_data(mb, self.next_batch())
-                for data_queue in data_queues:
-                    data_queue.put(batch)
+            batch_list = []
+            # get batch by iterate over dp first, iteration second
+            for dp_rank in range(self.data_parallel_size):
+                for iter_ in range(_num_training_iteration):
+                    batch = encode_data(iter_ * self.data_parallel_size + dp_rank, self.next_batch())
+                    batch_list.append(batch)
+            
+            # put batch by iterate over iteration first, dp second
+            for iter_ in range(_num_training_iteration):
+                for dp_rank in range(self.data_parallel_size):
+                    for data_queue in data_queues:
+                        data_queue.put(batch_list[dp_rank * _num_training_iteration + iter_])
+
             self.compute_loop(out_queue, _num_training_iteration)
             self.iteration = self.iteration + _num_training_iteration
             logger.info(f"train episode: {episode+1}, epoch {epoch} num_step {_num_training_iteration} done")
