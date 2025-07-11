@@ -169,9 +169,9 @@ class ShardedTensorInfo:
             raise ValueError(
                 f"Try to index a tensor with shape {tensor_shape} with a ShardedTensorInfo with shape {local_tensor_shape}."
             )
-        indices = [slice(offset, offset + length) for offset, length in zip(self.offsets, self.lengths)]
+        indices = [slice(offset, offset + length) for offset, length in zip(self.local_offset, self.local_shape)]
         view = tensor[indices]
-        if view.data_ptr() != tensor.data_ptr():
+        if view.untyped_storage().data_ptr() != tensor.untyped_storage().data_ptr():
             # NOTE: Ensure that we return the view
             raise SystemError("Unexpected copy operation encountered!")
         return view

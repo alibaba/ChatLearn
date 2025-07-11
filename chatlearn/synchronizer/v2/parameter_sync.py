@@ -103,12 +103,12 @@ class ParameterSyncGroup:
             dict(zip(itertools.chain.from_iterable(self.src_model.all_ranks), results)), 
             self.dst_metadatas,
         )
-        self.sync_plan = planner.make_plan()
+        self.sender_plan, self.recver_plan = planner.make_plan()
         # # TODO: Can we find a way to validate plan before actual comm starts?
         # if self.config.parameter_sync.dump_metadata:
         #     # save metadata, sync mapping and plan in readable format
         #     ...
-        planner.setup_synchronizer(self.src_model, self.dst_model, *self.sync_plan)
+        planner.setup_synchronizer(self.src_model, self.dst_model, self.sender_plan, self.recver_plan)
         self._initialized = True
 
     def collect_parameter_metadata(

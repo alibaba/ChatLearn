@@ -20,13 +20,14 @@ import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from itertools import cycle
-from typing import List, Choice
+from typing import List
 from queue import PriorityQueue
 
 from enum import Enum
 import torch
 from tqdm import tqdm
 
+from chatlearn.models.base_module import BaseModule
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils import utils
@@ -39,18 +40,17 @@ from chatlearn.utils.timer import Timers
 
 from torch import distributed as dist
 
-from chatlearn.synchronizer.v2.planners.planner import SyncIteration, BucketInfo
-
+from chatlearn.synchronizer.v2.structs import (
+    SynchronizerType,
+    Ranks,
+    BucketInfo,
+    SyncIteration
+)
 
 patch_ray()
 
 from typing import *
-
-class SynchronizerType(Enum):
-    SEND = 0
-    RECV = 1
-    FORWARD = 2
-
+from torch.multiprocessing.reductions import reduce_tensor
 
 class GeneralSynchronizer:
     """
@@ -78,8 +78,7 @@ class GeneralSynchronizer:
         in_process_group: bool = False,
         *,
         bucket_size: int = 4 * 1024 ** 3,
-        sync_step_handle = None,
-        release_ipc_handle = None,
+        colocate_handle = None
     ):
         self.model = model
         self.plan: List[SyncIteration] = local_plan
@@ -94,9 +93,10 @@ class GeneralSynchronizer:
         self.rank, self.world_size = None, None
         if in_process_group:
             self.rank, self.world_size = dist.get_rank(), dist.get_world_size()
-        self.all2all_sync_step_handle = sync_step_handle
-        self.release_ipc_handle = release_ipc_handle
+        self.colocate_handle = colocate_handle
         self.bucket_size = bucket_size
+
+        self._debug = True
 
     def prepare_send_buckets(
         self, 
@@ -112,14 +112,14 @@ class GeneralSynchronizer:
         for bucket_info, ranks in send_plan.items():
             bucket_info.buffer = torch.empty(
                 self.bucket_size,
-                dtype=torch.byte,
+                dtype=torch.uint8,
                 device=torch.cuda.current_device(),
             )
             for offset, shard_info in bucket_info.send_layout:
                 bucket_info.buffer[offset:offset + shard_info.size] = shard_info.index(
                     self.param_id_to_param[shard_info.param_id]
-                ).view(torch.byte)
-            for rank in ranks:
+                ).view(dtype=torch.uint8).view(-1)
+            for rank in ranks.values:
                 if send_buckets[rank] is not None:
                     raise ValueError(f"Rank {rank} has multiple buckets")
                 send_buckets[rank] = bucket_info
@@ -127,9 +127,9 @@ class GeneralSynchronizer:
         send_buckets[self.rank] = None
         return send_buckets, this_rank_bucket
 
-    def prepare_recv_buckets(self, iter_idx: int, alloc_buffer: bool=True):
+    def prepare_recv_buckets(self, iter_idx: int, world_size: int, alloc_buffer: bool=True):
         recv_plan = self.plan[iter_idx].recv_buckets
-        recv_buckets = [None] * self.world_size
+        recv_buckets = [None] * world_size
         for recv_bucket, src_rank in recv_plan.items():
             if src_rank == self.rank:
                 # NOTE: noneed to prepare recv bucket from colocated sender
@@ -140,35 +140,39 @@ class GeneralSynchronizer:
             if alloc_buffer:
                 recv_buckets[src_rank].buffer = torch.empty(
                     self.bucket_size,
-                    dtype=torch.byte,
+                    dtype=torch.uint8,
                     device=torch.cuda.current_device(),
                 )
         return recv_buckets
 
+    @torch.no_grad()
     def all2all_sync_step(self, iter_idx):
         """Core communication for parameter synchronization."""
         # NOTE: if a receiver is not in PG, it should get handles by calling 
         # `all2all_sync_step` of colocated model
         if self.type == SynchronizerType.RECV and self.rank is None:
-            handles = future.wait(self.all2all_sync_step_handle, return_output=True)
-            recv_buckets = self.prepare_recv_buckets(iter_idx, alloc_buffer=False)
+            handles = future.wait(
+                self.colocate_handle.remote('all2all_sync_step', iter_idx=iter_idx), 
+                return_output=True
+            )
+            recv_buckets = self.prepare_recv_buckets(iter_idx, alloc_buffer=False, world_size=len(handles))
             # rebuild bucket from IPC handles
-            for dst_rank, handle in enumerate(handles):
+            for src_rank, handle in enumerate(handles):
                 if handle is None:
                     continue
                 rebuild_func, rebuild_args = handle
-                recv_buckets[dst_rank].buffer = rebuild_func(*rebuild_args)
+                recv_buckets[src_rank].buffer = rebuild_func(*rebuild_args)
             return recv_buckets
         
         # NOTE: otherwise, do All2all on the current actor
         send_buckets, this_rank_bucket = self.prepare_send_buckets(iter_idx)
-        recv_buckets = self.prepare_recv_buckets(iter_idx)
+        recv_buckets = self.prepare_recv_buckets(iter_idx, world_size=self.world_size)
         ops = self._build_p2p_ops(send_buckets, recv_buckets)
         if len(ops) > 0:
             reqs = dist.batch_isend_irecv(ops)
             for req in reqs:
                 req.wait()
-        recv_bukcets[self.rank] = this_rank_bucket
+        recv_buckets[self.rank] = this_rank_bucket
         if self.type == SynchronizerType.RECV:
             # receiver only need to update on the local actor, thus
             # we do need convert to recv buckets to handles.
@@ -180,6 +184,7 @@ class GeneralSynchronizer:
                 handles[i] = reduce_tensor(bucket.buffer)
         return handles
 
+    @torch.no_grad()
     def parameter_sync(self):
         """Perform parameter synchronization on each actor. 
         
@@ -201,27 +206,37 @@ class GeneralSynchronizer:
 
         for iter_idx in range(len(self.plan)):
             recv_buckets = self.all2all_sync_step(iter_idx)
-            for bucket in buckets:
+            for bucket in recv_buckets:
                 if bucket is not None:
                     self._load_from_bucket(bucket)
+                    bucket.buffer = None
             self.release_ipc_resources()
 
+    @torch.no_grad()
     def release_ipc_resources(self):
         """Release the IPC handles in the reverse order"""
-        if self.release_ipc_handle is not None:
-            future.wait(self.release_ipc_handle, return_output=True)
+        if self.colocate_handle:
+            future.wait(
+                self.colocate_handle.remote('release_ipc_resources'), 
+                return_output=True
+            )
+        else:
+            torch.cuda.ipc_collect()
 
     def _load_from_bucket(self, bucket: BucketInfo):
         offset = 0
         if bucket.buffer is None:
             raise ValueError("Bucket buffer is None")
-        for sharded_tensor_info in bucket.recv_layout:
+        for offset, sharded_tensor_info in bucket.recv_layout:
             shard = sharded_tensor_info.index(self.param_id_to_param[sharded_tensor_info.param_id])
             comm_dtype = sharded_tensor_info.dtype
             numel = shard.numel()
             byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
             # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
-            shard.copy_(byte_data.view(comm_dtype))
+            shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+            if self._debug:
+                shard = sharded_tensor_info.index(self.param_id_to_param[sharded_tensor_info.param_id])
+                assert torch.allclose(shard, byte_data.view(comm_dtype).view(shard.shape)), "Copy failed, maybe a new shard is created."
             offset += numel * comm_dtype.itemsize
 
     def _build_p2p_ops(
@@ -236,6 +251,7 @@ class GeneralSynchronizer:
                 send_ops.append(
                     dist.P2POp(
                         dist.isend,
+                        tensor=send_bucket.buffer,
                         peer=recv_rank
                     )
                 )
@@ -244,6 +260,7 @@ class GeneralSynchronizer:
                 recv_ops.append(
                     dist.P2POp(
                         dist.irecv,
+                        tensor=recv_bucket.buffer,
                         peer=send_rank
                     )
                 )

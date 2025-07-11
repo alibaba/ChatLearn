@@ -1268,7 +1268,7 @@ class BaseModule:
 
     def get_gpu_info(self):
         """return a unique string to identify the GPU"""
-        node_id = ray.get_runtime_context().node_id.hex()
+        node_id = ray.get_runtime_context().get_node_id()
         gpu_ids = ray.get_gpu_ids()
         assert len(gpu_ids) == 1, "Not Supported"
         return f"{node_id}-{gpu_ids[0]}"
@@ -1276,15 +1276,15 @@ class BaseModule:
     def get_param_id_to_parameters(self):
         raise NotImplementedError("mapping param id to parameters is not implemented")
 
-    def set_synchronizer(self, synchronizer_name: str='general', return_handles: bool=False, **kwargs):
+    def set_synchronizer(
+        self, 
+        synchronizer_name: str='general', 
+        **kwargs
+    ):
         from chatlearn.synchronizer.v2.comm import GeneralSynchronizer
         if synchronizer_name != "general":
             raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")
-        
         self.synchronizer = GeneralSynchronizer(model=self, **kwargs)
-        if return_handles:
-            return (
-                self.synchronizer.all2all_sync_step,
-                self.synchronizer.release_ipc_resources
-            )
-        return tuple()
+
+    def call_synchronizer_func(self, func_name, *args, **kwargs):
+        return getattr(self.synchronizer, func_name)(*args, **kwargs)

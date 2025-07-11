@@ -473,5 +473,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def get_param_id_to_parameters(self):
         param_id_to_parameters = {}
         for name, weight in self.model.state_dict().items():
+            if name not in self.local_name_to_param_id:
+                continue
             param_id_to_parameters[self.local_name_to_param_id[name]] = weight
         return param_id_to_parameters
