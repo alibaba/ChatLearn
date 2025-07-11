@@ -52,8 +52,8 @@ def wait(refs, desc=None, return_output=False):
     wait until all computation finish
     """
     if isinstance(refs, ray.ObjectRef):
-        ray.get(refs)
-        return
+        ret = ray.get(refs)
+        return ret if return_output else None
     if len(refs) == 0:
         return
     nested2, sublist_lens = check_nested_2_level_list(refs)
