@@ -84,10 +84,6 @@ class GeneralSynchronizer:
         self.plan: List[SyncIteration] = local_plan
         self.param_id_to_param = None
         self.type = synchronizer_type
-        if self.type in [SynchronizerType.SEND, SynchronizerType.RECV]:
-            self.param_id_to_param = self.model.get_param_id_to_parameters()
-        else:
-            raise NotImplementedError("Forwarder is not supported yet")
 
         # NOTE: rank represents the rank of the colocated actor in the PG
         self.rank, self.world_size = None, None
@@ -95,8 +91,6 @@ class GeneralSynchronizer:
             self.rank, self.world_size = dist.get_rank(), dist.get_world_size()
         self.colocate_handle = colocate_handle
         self.bucket_size = bucket_size
-
-        self._debug = True
 
     def prepare_send_buckets(
         self, 
@@ -110,8 +104,10 @@ class GeneralSynchronizer:
         # NOTE: sender prepare local send buckets
         send_plan = self.plan[iter_idx].send_buckets
         for bucket_info, ranks in send_plan.items():
+            assert bucket_info.buffer is None, "Double allocation of send buffer."
+            bucket_info = bucket_info.copy()
             bucket_info.buffer = torch.empty(
-                self.bucket_size,
+                bucket_info.size,
                 dtype=torch.uint8,
                 device=torch.cuda.current_device(),
             )
@@ -139,7 +135,7 @@ class GeneralSynchronizer:
             recv_buckets[src_rank] = recv_bucket.copy()
             if alloc_buffer:
                 recv_buckets[src_rank].buffer = torch.empty(
-                    self.bucket_size,
+                    recv_buckets[src_rank].size,
                     dtype=torch.uint8,
                     device=torch.cuda.current_device(),
                 )
@@ -201,6 +197,11 @@ class GeneralSynchronizer:
         parameter buckets from sender, then update its parameters with
         the payloads in the buckets.
         """
+        if self.type in [SynchronizerType.SEND, SynchronizerType.RECV]:
+            self.param_id_to_param = self.model.get_param_id_to_parameters()
+        else:
+            raise NotImplementedError("Forwarder is not supported yet")
+
         if self.type != SynchronizerType.RECV:
             return
 
@@ -223,6 +224,11 @@ class GeneralSynchronizer:
         else:
             torch.cuda.ipc_collect()
 
+    @torch.no_grad()
+    def release_resources(self):
+        """Release all local resources"""
+        self.param_id_to_param = None
+
     def _load_from_bucket(self, bucket: BucketInfo):
         offset = 0
         if bucket.buffer is None:
@@ -234,9 +240,6 @@ class GeneralSynchronizer:
             byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
             # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
             shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
-            if self._debug:
-                shard = sharded_tensor_info.index(self.param_id_to_param[sharded_tensor_info.param_id])
-                assert torch.allclose(shard, byte_data.view(comm_dtype).view(shard.shape)), "Copy failed, maybe a new shard is created."
             offset += numel * comm_dtype.itemsize
 
     def _build_p2p_ops(

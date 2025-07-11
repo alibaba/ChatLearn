@@ -211,8 +211,21 @@ class ParameterSyncGroup:
             self.initialize()
         if dryrun:
             return
+
         refs = (
             self.src_model.call_func_on_all_workers('parameter_sync') + 
             self.dst_model.call_func_on_all_workers('parameter_sync')
+        )
+        results = future.wait(refs, return_output=True)
+
+        refs = (
+            self.src_model.call_func_on_all_workers(
+                'call_synchronizer_func', 
+                'release_resources'
+            ) + 
+            self.dst_model.call_func_on_all_workers(
+                'call_synchronizer_func', 
+                'release_resources'
+            )
         )
         results = future.wait(refs, return_output=True)

@@ -134,6 +134,11 @@ class MegatronVLLMMapper:
                     dst_prefix=f"model.layers.{global_layer_id}.",
                 ))
             if model.post_process:
+                mapping.update(self._map_norm_layer(
+                    model.decoder.final_layernorm,
+                    src_prefix="decoder.final_layernorm.",
+                    dst_prefix="model.norm.",
+                ))
                 mapping.update(self._map_postprocess_layer(
                     model.output_layer,
                     src_prefix="output_layer.",
