@@ -240,6 +240,13 @@ class MegatronTrainConfig(BaseConfig):
     optimizer: OptimizerConfig = field(
         default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
+    calculate_per_token_loss: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether cross entropy loss is calculated over the actual number of non-padded tokens in the \
+             global batch, versus the default behavior of assuming all tokens are non-padded. Should be True for RL training."
+        },
+    )
 
 
 @dataclass

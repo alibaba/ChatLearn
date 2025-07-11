@@ -145,9 +145,6 @@ class PolicyModel(GPTModel):
         pg_loss_upperbound = torch.ones_like(pg_loss) * self.module_args.final_clip_ratio
         pg_loss = torch.min(pg_loss_clip, pg_loss_upperbound)
         assert not torch.isnan(pg_loss).any(), "pg loss is nan"
-        pg_loss = torch.masked_select(
-            pg_loss, training_inputs["all_token_loss_mask"].bool()
-        )
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
@@ -155,12 +152,9 @@ class PolicyModel(GPTModel):
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()
         kl_loss = torch.clamp(kld, min=-10, max=10)
-        kl_loss = torch.masked_select(
-            kl_loss, training_inputs["all_token_loss_mask"].bool()
-        )
 
-        entropy_loss = torch.masked_select(
-            -forward_logprob, training_inputs["all_token_loss_mask"].bool()
-        )
-
-        return pg_loss.contiguous(), kl_loss.contiguous(), entropy_loss.contiguous()
+        return {
+            'pg_loss': pg_loss,
+            'entropy_loss': -forward_logprob,
+            'kl_loss': kl_loss,
+        }
