@@ -125,6 +125,7 @@ def _prepare_metadata(module: nn.Module):
                 axis_fragmentations=(1, tp_size, 1),
                 global_offset=(0, tp_rank, 0),
             )
+            l, w, h = module.w2_weight.shape
             results['w2_weight'] = ShardedTensorInfo(
                 dtype=module.w2_weight.dtype,
                 global_shape=(l, w, h * tp_size),

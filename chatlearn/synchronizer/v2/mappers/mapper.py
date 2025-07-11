@@ -387,7 +387,11 @@ class MegatronVLLMMapper:
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
             if global_expert_id is not None:
-                dst_meta = dst_meta.unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
+                dst_meta = (
+                    dst_meta
+                    .unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
+                    .refragment(1, axis=0) # 1 is dst EP
+                )
             mapping[src_meta] = [dst_meta]
         return mapping
 
@@ -413,7 +417,11 @@ class MegatronVLLMMapper:
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
             if global_expert_id is not None:
-                dst_meta = dst_meta.unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
+                dst_meta = (
+                    dst_meta
+                    .unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
+                    .refragment(1, axis=0) # 1 is dst EP
+                )
             mapping[src_meta] = [dst_meta]
         return mapping
 

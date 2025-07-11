@@ -112,9 +112,8 @@ class GeneralSynchronizer:
                 device=torch.cuda.current_device(),
             )
             for offset, shard_info in bucket_info.send_layout:
-                bucket_info.buffer[offset:offset + shard_info.size] = shard_info.index(
-                    self.param_id_to_param[shard_info.param_id]
-                ).view(dtype=torch.uint8).view(-1)
+                shard = shard_info.index(self.param_id_to_param[shard_info.param_id]).view(dtype=torch.uint8)
+                bucket_info.buffer[offset:offset + shard_info.size].view(shard.shape).copy_(shard)
             for rank in ranks.values:
                 if send_buckets[rank] is not None:
                     raise ValueError(f"Rank {rank} has multiple buckets")
