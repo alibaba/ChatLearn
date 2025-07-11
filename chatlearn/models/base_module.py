@@ -1276,7 +1276,9 @@ class BaseModule:
     def get_param_id_to_parameters(self):
         raise NotImplementedError("mapping param id to parameters is not implemented")
 
-    def set_synchronizer(
+    # TODO: currently we have two version of ParameterSync in the codebase
+    # TODO: rename to `set_synchronizer` when we remove the old code
+    def set_synchronizer_v2(
         self, 
         synchronizer_name: str='general', 
         **kwargs
