@@ -1,16 +1,26 @@
+# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""Offline FSDP checkpoint merge"""
+
 import os
 import json
 import glob
-import os
 import shutil
 import argparse
-from typing import defaultdict, List
 
 import torch
-import torch.distributed as dist
-import torch.distributed.tensor
-from concurrent.futures import ProcessPoolExecutor
-
 
 from safetensors.torch import save_file
 
@@ -25,7 +35,6 @@ def split_list(lst, n):
     return [lst[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
 
 def qwen3_key_mapping(param, model_config):
-    part = param.split('.')[-1]
     num_expert = model_config['num_experts']
     local_names = [param.replace('group_mlp', f"experts.{i}") for i in range(num_expert)]
     return local_names
@@ -63,7 +72,7 @@ def convert_checkpoint_cpu(args):
     if group_gemm:
         check_param_fn, key_convert_fn = arch_mapping[arch]
         num_expert = model_config['num_experts']
-    
+
     dist_model_files = glob.glob(os.path.join(dist_model_dir, "model_world_size_*.pt"))
     dist_model_state_dict = []
     for file in tqdm(dist_model_files, "Read Distributed Checkpoints"):
@@ -72,7 +81,7 @@ def convert_checkpoint_cpu(args):
     safetensor_dict = {key: {} for key in safetensor_file}
 
     for param in tqdm(param_list, desc="Merge Weights"):
-        global_tensor = torch.cat([state_dict.pop(param).to_local() for state_dict in dist_model_state_dict], dim=0)        
+        global_tensor = torch.cat([state_dict.pop(param).to_local() for state_dict in dist_model_state_dict], dim=0)
         if group_gemm:
             if check_param_fn(param):
                 # Split param for groupgemm mlp weights
@@ -92,7 +101,7 @@ def convert_checkpoint_cpu(args):
     # Save safetensor files
     for name in tqdm(safetensor_dict, "Save Safetensor Files"):
         save_safetensor_item(name, safetensor_dict[name], save_dir)
-    
+
     # Copy other files
     for file in other_file:
         if not file.startswith('.'):
