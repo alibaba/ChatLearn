@@ -44,9 +44,9 @@ class ParameterSyncGroup:
         self.config = get_args()
         self.src_model, self.dst_model = src_model, dst_model
         self._initialized = False
-        # type: Dict[str, int], mapping a global weight name to unique id
+        # mapping a global weight name to unique id, Dict[str, int]
         self.src_param_ids, self.dst_param_ids = None, None
-        # type: Dict[int, List[ShardedTensorInfo]], contains the metadata of each rank
+        # contains the metadata of each rank, Dict[int, List[ShardedTensorInfo]]
         self.src_metadatas, self.dst_metadatas = None, None
         self.sync_plan: List[SyncIteration] = None
 
@@ -102,7 +102,7 @@ class ParameterSyncGroup:
             self.src_model.call_func_on_all_workers(
                 'generate_sync_mapping',
                 dst_name_to_metadata,
-            ), 
+            ),
             return_output=True
         )
         self.timers("generate-mapping").stop()
@@ -112,8 +112,8 @@ class ParameterSyncGroup:
         self.timers("validate-mapping").stop()
 
         self.timers("generate-plan").start()
-        planner = get_planner_cls()(
-            dict(zip(itertools.chain.from_iterable(self.src_model.all_ranks), results)), 
+        planner = get_planner_cls(self.src_model, self.dst_model)(
+            dict(zip(itertools.chain.from_iterable(self.src_model.all_ranks), results)),
             self.dst_metadatas,
         )
         self.bucketized_plan = planner.make_plan()
@@ -165,7 +165,7 @@ class ParameterSyncGroup:
         return {name: idx for idx, name in enumerate(param_names)}
 
     def validate_sync_mapping(
-        self, 
+        self,
         sync_mappings: List[Dict[ShardedTensorInfo, List[ShardedTensorInfo]]]
     ):
         """
@@ -212,34 +212,35 @@ class ParameterSyncGroup:
                 raise ValueError(
                     f"{shard} does not belong to any dst metadata, target: {target_shards}"
                 )
-        
+
         # TODO: 3. all unique parameter shards should compose an entire model
 
     def sync(self, *args, dryrun: bool = False, **kwargs):
         """Intialize and call parameter synchronization on all actors
         of src and dst models.
         """
+        # pylint: disable=unused-argument
         if not self._initialized:
             self.initialize()
         if dryrun:
             return
         self.timers("communication").start()
         refs = (
-            self.src_model.call_func_on_all_workers('parameter_sync') + 
+            self.src_model.call_func_on_all_workers('parameter_sync') +
             self.dst_model.call_func_on_all_workers('parameter_sync')
         )
-        results = future.wait(refs, return_output=True)
+        future.wait(refs, return_output=True)
 
         refs = (
             self.src_model.call_func_on_all_workers(
                 'call_synchronizer_func', 
                 'release_resources'
-            ) + 
+            ) +
             self.dst_model.call_func_on_all_workers(
                 'call_synchronizer_func', 
                 'release_resources'
             )
         )
-        results = future.wait(refs, return_output=True)
+        future.wait(refs, return_output=True)
         self.timers("communication").stop()
         logger.info(f"finish parameter synchronization | {self.timers.log(names=['communication'])}")

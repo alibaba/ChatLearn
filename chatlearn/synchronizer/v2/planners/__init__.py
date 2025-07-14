@@ -12,12 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""The collections of planners"""
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
 def get_planner_cls(src_model: 'DistModel', dst_model: 'DistModel'):
-    # pylint: disable=unused-argument
+    # pylint: disable=unused-argument, import-outside-toplevel
     from chatlearn.synchronizer.v2.planners.planner import MegatronVLLMSyncPlanner
     return MegatronVLLMSyncPlanner

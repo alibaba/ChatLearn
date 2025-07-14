@@ -34,7 +34,7 @@ class TorchModule(BaseModule):
     name : str
         model name
     """
-
+    # pylint: disable=abstract-method
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 

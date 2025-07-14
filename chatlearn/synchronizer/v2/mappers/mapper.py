@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Mapper for Megatron to vLLM"""
-from enum import Enum
 from collections import defaultdict
 from typing import List, Dict, Tuple, TYPE_CHECKING
 

@@ -1279,10 +1279,11 @@ class BaseModule:
     # TODO: currently we have two version of ParameterSync in the codebase
     # TODO: rename to `set_synchronizer` when we remove the old code
     def set_synchronizer_v2(
-        self, 
-        synchronizer_name: str='general', 
+        self,
+        synchronizer_name: str='general',
         **kwargs
     ):
+        # pylint: disable=import-outside-toplevel
         from chatlearn.synchronizer.v2.comm import GeneralCommunicator
         if synchronizer_name != "general":
             raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")

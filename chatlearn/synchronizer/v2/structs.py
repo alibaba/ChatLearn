@@ -1,4 +1,19 @@
-from typing import *
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""structs for parameter synchronization"""
+from typing import Dict, List, Tuple, Optional
 from enum import Enum
 from dataclasses import dataclass, field
 from copy import deepcopy
@@ -43,7 +58,7 @@ class BucketInfo:
 
     def __hash__(self):
         return hash(self.bucket_id)
-    
+
     def copy(self):
         return deepcopy(self)
 
@@ -52,7 +67,8 @@ class BucketInfo:
 
 @dataclass
 class SyncIteration:
+    """One iteration of plan for some rank"""
     # send bucket to a list of remote ranks
-    send_buckets: Dict[BucketInfo, Ranks] = field(default_factory=dict) 
+    send_buckets: Dict[BucketInfo, Ranks] = field(default_factory=dict)
     # recv bucket from one remote rank
-    recv_buckets: Dict[BucketInfo, int] = field(default_factory=dict) 
+    recv_buckets: Dict[BucketInfo, int] = field(default_factory=dict)

@@ -453,4 +453,4 @@ class DistModel:
             for actor in replica.all_actors:
                 replica.rank_to_actors[actor_id] = actor
                 replica.all_ranks.append(actor_id)
-                actor_id += 1        
+                actor_id += 1

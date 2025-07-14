@@ -13,8 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Sync parameters"""
-from collections import defaultdict
-from typing import *
+from typing import List, Tuple, TYPE_CHECKING, Optional
 
 import torch
 from torch import distributed as dist
@@ -22,11 +21,8 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
-from chatlearn.utils.logger import logger
-from chatlearn.utils.timer import Timers
 from chatlearn.synchronizer.v2.structs import (
     SynchronizerType,
-    Ranks,
     BucketInfo,
     SyncIteration
 )
@@ -56,7 +52,7 @@ class GeneralCommunicator:
         to be synchronized in one iteration.
     """
     def __init__(
-        self, 
+        self,
         model: 'BaseModule',
         local_plan: List[SyncIteration],
         synchronizer_type: SynchronizerType,
@@ -90,7 +86,7 @@ class GeneralCommunicator:
         self.colocate_handle = colocate_handle
 
     def prepare_send_buckets(
-        self, 
+        self,
         iter_idx: int
     ) -> Tuple[List[Optional[BucketInfo]], Optional[BucketInfo]]:
         """Prepare buckets for sending data to other actors of 
@@ -130,9 +126,9 @@ class GeneralCommunicator:
         return send_buckets, this_rank_bucket
 
     def prepare_recv_buckets(
-        self, 
-        iter_idx: int, 
-        world_size: int, 
+        self,
+        iter_idx: int,
+        world_size: int,
         alloc_buffer: bool=True
     ) -> List[Optional[BucketInfo]]:
         """Prepare buckets for receiving data from other actors of 
@@ -168,11 +164,11 @@ class GeneralCommunicator:
     @torch.no_grad()
     def all2all_sync_step(self, iter_idx):
         """Core communication for parameter synchronization."""
-        # NOTE: if a receiver is not in PG, it should get handles by calling 
+        # NOTE: if a receiver is not in PG, it should get handles by calling
         # `all2all_sync_step` of colocated model
         if self.type == SynchronizerType.RECV and self.rank is None:
             handles = future.wait(
-                self.colocate_handle.remote('all2all_sync_step', iter_idx=iter_idx), 
+                self.colocate_handle.remote('all2all_sync_step', iter_idx=iter_idx),
                 return_output=True
             )
             recv_buckets = self.prepare_recv_buckets(iter_idx, alloc_buffer=False, world_size=len(handles))
@@ -183,7 +179,7 @@ class GeneralCommunicator:
                 rebuild_func, rebuild_args = handle
                 recv_buckets[src_rank].buffer = rebuild_func(*rebuild_args)
             return recv_buckets
-        
+
         # NOTE: otherwise, do all2all on the current actor
         send_buckets, this_rank_bucket = self.prepare_send_buckets(iter_idx)
         recv_buckets = self.prepare_recv_buckets(iter_idx, world_size=self.world_size)
@@ -242,7 +238,7 @@ class GeneralCommunicator:
         """Release the IPC handles in the reverse order"""
         if self.colocate_handle:
             future.wait(
-                self.colocate_handle.remote('release_ipc_resources'), 
+                self.colocate_handle.remote('release_ipc_resources'),
                 return_output=True
             )
         else:
@@ -272,8 +268,8 @@ class GeneralCommunicator:
             offset += numel * comm_dtype.itemsize
 
     def _build_p2p_ops(
-        self, 
-        send_buckets: List[Optional[BucketInfo]], 
+        self,
+        send_buckets: List[Optional[BucketInfo]],
         recv_buckets: List[Optional[BucketInfo]]
     ):
         """build p2p ops for batch_isend_irecv"""

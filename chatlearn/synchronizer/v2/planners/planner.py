@@ -14,12 +14,11 @@
 # ==============================================================================
 """Sync parameters"""
 from copy import deepcopy
-import numpy as np
 from collections import defaultdict
 from itertools import chain
-from typing import *
+from typing import Dict, List, Tuple, TYPE_CHECKING
 
-import torch
+import numpy as np
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
@@ -33,6 +32,9 @@ from chatlearn.synchronizer.v2.structs import (
     SyncIteration
 )
 
+if TYPE_CHECKING:
+    from chatlearn.runtime.dist_actor import DistModel
+
 patch_ray()
 
 # NOTE: some methods are actually for general use, extract a base class if needed.
@@ -41,8 +43,8 @@ class MegatronVLLMSyncPlanner:
     a mapping of send(recv) sharded parameters in iterations. 
     """
     def __init__(
-        self, 
-        sync_mapping: Dict[int, Dict[ShardedTensorInfo, List[ShardedTensorInfo]]], 
+        self,
+        sync_mapping: Dict[int, Dict[ShardedTensorInfo, List[ShardedTensorInfo]]],
         dst_metadata: Dict[int, List[ShardedTensorInfo]],
         bucket_size: int = 4 * 1024 ** 3,
     ):
@@ -69,17 +71,17 @@ class MegatronVLLMSyncPlanner:
         # In some cases, a source weight may be mapped to multiple destination weights.
         self.src_param_to_src_ranks = defaultdict(list)
         self.src_param_to_dst_params = defaultdict(set)
-        for rank, sync_mapping in self.sync_mapping.items():
-            for src_param, dst_params in sync_mapping.items():
+        for rank, sync_mapping_per_rank in self.sync_mapping.items():
+            for src_param, dst_params in sync_mapping_per_rank.items():
                 self.src_param_to_src_ranks[src_param].append(rank)
                 self.src_param_to_dst_params[src_param].update(dst_params)
-        
+
         # NOTE: mapping an dst weight to its owners
         self.dst_param_to_dst_ranks = defaultdict(list)
         for rank, metadata in self.dst_metadata.items():
             for param in metadata:
                 self.dst_param_to_dst_ranks[param].append(rank)
-        
+
         # group dst_param_to_dst_ranks by param_id
         grouped_by_param_id = defaultdict(lambda: defaultdict(list))
         for param, ranks in self.dst_param_to_dst_ranks.items():
@@ -87,7 +89,7 @@ class MegatronVLLMSyncPlanner:
             grouped_by_param_id[param_id][param] = ranks
 
         # NOTE: mapping an src weight to its destinations, be cautious that
-        # each destination may have multiple weights requiring the same 
+        # each destination may have multiple weights requiring the same
         # source weight. (to be checked)
         self.src_param_to_dst_ranks = defaultdict(set)
         for src_param, dst_params in self.src_param_to_dst_params.items():
@@ -103,20 +105,19 @@ class MegatronVLLMSyncPlanner:
         """
         def approximate_bin_packing(items: np.array, K: int) -> List[List[int]]:
             bins = np.zeros(K)
-            results = [list() for _ in range(K)]
+            results = [[] for _ in range(K)]
             for idx in items.argsort()[::-1]:
                 bins[bins.argmin()] += items[idx]
                 results[bins.argmin()].append(idx)
             return results
-        # NOTE: The sender in one sender_groups can send the same set of 
+        # NOTE: The sender in one sender_groups can send the same set of
         # parameters, thus we can balance payloads in this group
         self.timers("make-unbucketized").start()
         sender_groups = defaultdict(list)
         for src_param, src_ranks in self.src_param_to_src_ranks.items():
             sender_groups[Ranks(src_ranks)].append(src_param)
 
-        # type: Dict[int, Dict[Ranks, List[ShardedTensorInfo]]]
-        unbucketized_plan = defaultdict(lambda: defaultdict(list))
+        unbucketized_plan: Dict[int, Dict[Ranks, List[ShardedTensorInfo]]] = defaultdict(lambda: defaultdict(list))
         for sender_group, all_payloads in sender_groups.items():
             items = np.array([shard.size for shard in all_payloads])
             # NOTE: as we cannot determine the number of iters in advance,
@@ -128,7 +129,7 @@ class MegatronVLLMSyncPlanner:
                         Ranks(tuple(self.src_param_to_dst_ranks[all_payloads[idx]]))
                     ].append(all_payloads[idx])
         self.timers("make-unbucketized").stop()
-        
+
         # Bucketize on each rank
         self.timers("make-bucketized").start()
         bucketized_plan = self.bucketize(unbucketized_plan, bucket_size=self.bucket_size)
@@ -138,9 +139,9 @@ class MegatronVLLMSyncPlanner:
         return bucketized_plan
 
     def setup_synchronizer(
-        self, 
-        src_model: 'DistModel', 
-        dst_model: 'DistModel', 
+        self,
+        src_model: 'DistModel',
+        dst_model: 'DistModel',
         bucketized_plan: Dict[int, Dict[Ranks, List[BucketInfo]]],
     ):
         """Generate the final synchronization plan and setup synchronizer
@@ -158,7 +159,7 @@ class MegatronVLLMSyncPlanner:
         dst_gpus = future.wait(dst_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
         if set(src_gpus) != set(dst_gpus):
             raise NotImplementedError(
-                f'The source and destination model in partial colocated/ no colocated mode is not supported. '
+                'The source and destination model in partial colocated/ no colocated mode is not supported. '
             )
         # TODO: `get_rank` will get base_module._rank instead of dist.get_rank()
         comm_ranks = future.wait(src_model.call_func_on_all_workers('get_torchdist_rank'), return_output=True)
@@ -169,18 +170,18 @@ class MegatronVLLMSyncPlanner:
         gpu_id_to_src_rank = dict(zip(src_gpus, chain.from_iterable(src_model.all_ranks)))
         mem_infos = {
             src_rank_to_gpu_id[k]: v for k, v in zip(
-                chain.from_iterable(src_model.all_ranks), 
+                chain.from_iterable(src_model.all_ranks),
                 future.wait(src_model.call_func_on_all_workers('get_mem_info'), return_output=True)
             )
         }
         self.timers("prepare-metadata").stop()
-        # NOTE: Convert to iterations, which means each rank will know how 
-        # it will send/recv to others. In ChatLearn, different models are 
-        # on different actors, thus each SyncIteration will either have an 
-        # empty send_buckets or recv_buckets 
+        # NOTE: Convert to iterations, which means each rank will know how
+        # it will send/recv to others. In ChatLearn, different models are
+        # on different actors, thus each SyncIteration will either have an
+        # empty send_buckets or recv_buckets
         self.timers("prepare-iteration").start()
         sender_plan, recver_plan = self._convert_to_iterations(
-            bucketized_plan, 
+            bucketized_plan,
             src_rank_to_gpu_id,
             dst_rank_to_gpu_id,
             mem_infos
@@ -202,7 +203,7 @@ class MegatronVLLMSyncPlanner:
             for recv_iteration in recv_iterations:
                 for recv_bucket, src_rank in recv_iteration.recv_buckets.items():
                     recv_iteration.recv_buckets[recv_bucket] = comm_ranks[src_rank]
-        
+
         # NOTE: finally, register synchronizer for each actor
         self.timers("register-synchronizer").start()
         self._register_synchronizer(
@@ -272,7 +273,7 @@ class MegatronVLLMSyncPlanner:
         return bucketized_plan
 
     def _convert_to_iterations(
-        self, 
+        self,
         bucketized_plan: Dict[int, Dict[Ranks, List[BucketInfo]]],
         src_rank_to_gpu_id: Dict[int, int],
         dst_rank_to_gpu_id: Dict[int, int],
@@ -297,17 +298,17 @@ class MegatronVLLMSyncPlanner:
             sender_plan (Dict[int, List[SyncIteration]]): The plan of senders.
             receiver_plan (Dict[int, List[SyncIteration]]): The plan of receivers.
         """
-        # NOTE: for each rank, attempt to send buckets as much as 
+        # NOTE: for each rank, attempt to send buckets as much as
         # possible in one iteration. Bucket A and B can be parallelized
         # only if receivers of A and B are non-overlapped. Greedy is adopted
         # here to maximize the bucket amounts.
         budgets = {
-            gpu_id: mem_info[0] - (1 - max_memory_fraction) * mem_info[1] 
+            gpu_id: mem_info[0] - (1 - max_memory_fraction) * mem_info[1]
             for gpu_id, mem_info in mem_infos.items()
         }
 
         flatten_buckets = deepcopy([
-            (sender, bucket, receiver) 
+            (sender, bucket, receiver)
             for sender, receivers_to_buckets in bucketized_plan.items()
             for receiver, buckets in receivers_to_buckets.items()
             for bucket in buckets
@@ -324,12 +325,12 @@ class MegatronVLLMSyncPlanner:
             n_iterations += 1
             for sender in bucketized_plan:
                 sender_to_iterations[sender].append([])
-            
+
             is_progressed = False
             for sender, bucket, receivers in flatten_buckets:
                 if bucket in is_added:
                     continue
-                # NOTE: calc required memory, each sender and receiver will 
+                # NOTE: calc required memory, each sender and receiver will
                 # alloc a bucket, if sender and receiver is colocated, only one
                 # bucket is needed on the colocated gpu
                 required_mem = {k: 0 for k in budgets_this_iter}
@@ -354,7 +355,7 @@ class MegatronVLLMSyncPlanner:
                 raise RuntimeError(
                     f"Not enough memory to apply the plan with max_memory_fraction {max_memory_fraction}."
                 )
-        
+
         # NOTE: format the plan with SyncIteration dataclass
         sender_plan = defaultdict(list)
         recver_plan = defaultdict(lambda: [SyncIteration() for _ in range(n_iterations)])
@@ -387,7 +388,7 @@ class MegatronVLLMSyncPlanner:
                 sender_plan[src_rank],
                 recver_plan[dst_rank]
             ):
-                # NOTE: MCore actors perform all2all should know both 
+                # NOTE: MCore actors perform all2all should know both
                 # send_buckets/recv_buckets
                 send_iteration.recv_buckets = recv_iteration.recv_buckets
 

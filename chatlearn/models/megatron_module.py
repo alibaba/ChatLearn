@@ -515,6 +515,7 @@ if IS_MEGATRON_SUPPORTED:
 else:
     class MegatronModule(TorchModule):
         """Module Placeholder for Megatron Backend"""
+        # pylint: disable=abstract-method
         def __init__(self, *args, **kwargs):
             # pylint: disable=super-init-not-called
             raise SystemError("Cannot import megatron backend, please check your environment variable.")

@@ -306,7 +306,7 @@ class ShardedTensorInfo:
         """
         if other.param_id is not None and other.param_id != self.param_id:
             return False
-        
+
         if other.dtype is not None and other.dtype != self.dtype:
             return False
 
@@ -316,11 +316,11 @@ class ShardedTensorInfo:
             other.global_offset != self.global_offset
         ):
             return False
-        
+
         for si, oi, sj, oj in zip(
-            self.local_offset, 
-            other.local_offset, 
-            self.local_shape, 
+            self.local_offset,
+            other.local_offset,
+            self.local_shape,
             other.local_shape
         ):
             if si > oi or si + sj < oi + oj:
