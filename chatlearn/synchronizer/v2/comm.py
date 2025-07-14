@@ -13,33 +13,17 @@
 # limitations under the License.
 # ==============================================================================
 """Sync parameters"""
-import numpy as np
-import concurrent.futures
-import traceback
-import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from itertools import cycle
-from typing import List
-from queue import PriorityQueue
+from typing import *
 
-from enum import Enum
 import torch
-from tqdm import tqdm
+from torch import distributed as dist
+from torch.multiprocessing.reductions import reduce_tensor
 
-from chatlearn.models.base_module import BaseModule
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
-from chatlearn.utils import utils
-from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
-from chatlearn.utils.constant import ROUTED_EXPERT_REGROUPING_COMM_TYPE
-from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from chatlearn.utils.utils import execute_in_parallel
 from chatlearn.utils.timer import Timers
-
-from torch import distributed as dist
-
 from chatlearn.synchronizer.v2.structs import (
     SynchronizerType,
     Ranks,
@@ -49,36 +33,51 @@ from chatlearn.synchronizer.v2.structs import (
 
 patch_ray()
 
-from typing import *
-from torch.multiprocessing.reductions import reduce_tensor
+if TYPE_CHECKING:
+    from chatlearn.models.base_module import BaseModule
 
-class GeneralSynchronizer:
+class GeneralCommunicator:
     """
         Execute parameter synchronization based on the given sync plan. For simplicity,
         the current implementation claims that each actor should either be a parameter 
         provider P in the global communication group or a rank C (through IPC Handle).
 
-        In the synchronization process, (1) all Ps will firstly transform and bucketize 
-        their parameters, and (2) start an all-to-all Op to send-recv buckets from each 
-        other, then (3) all Cs will recv the buckets with IPC Handles from colocated Ps,
-        and finally (4) the received buckets will be extracted to update local parameters.
+        In the synchronization process, (1) all Ps will shard and bucketize their 
+        parameters, and (2) start one all-to-all Op to send-recv buckets from each 
+        other, then (3) all Cs will recv the buckets through IPC Handles from colocated 
+        Ps, and finally (4) the received buckets will be extracted to update 
+        local parameters.
 
         In each iteration, this synchronizer applys the following operation
-        for each parameter in the bucket:
-        >>>    dst_shard_info.index(dst_tensor) = src_shard_info.index(src_tensor)
+        for each parameter logically in the bucket:
+        >>>    dst_shard_info.index(dst_tensor).copy_(src_shard_info.index(src_tensor))
 
-        Therefore, the synchronizer does not require the full tensor to be synchronized
-        in one iteration.
+        Therefore, the synchronizer does not strictly require the full tensor 
+        to be synchronized in one iteration.
     """
     def __init__(
         self, 
-        model: BaseModule,
+        model: 'BaseModule',
         local_plan: List[SyncIteration],
         synchronizer_type: SynchronizerType,
         in_process_group: bool = False,
         *,
         colocate_handle = None
     ):
+        """The general implementation of the communicator. A communicator is reponsible
+        for send/recv of a specific set of parameters based on the local plan it is
+        initialized with.
+
+        Args:
+            model (BaseModule): The module this communicator attached to.
+            local_plan (List[SyncIteration]): The plan made by some planner.
+            synchronizer_type (SynchronizerType): The type of synchronizer. 
+            See `SynchronizerType`
+            in_process_group (bool, optional): Whether this communicator is in the PG.
+            Defaults to False.
+            colocate_handle (optional): A Ray handle of the colocated model if possible. 
+            Defaults to None.
+        """
         self.model = model
         self.plan: List[SyncIteration] = local_plan
         self.param_id_to_param = None
@@ -94,7 +93,17 @@ class GeneralSynchronizer:
         self, 
         iter_idx: int
     ) -> Tuple[List[Optional[BucketInfo]], Optional[BucketInfo]]:
-        """Prepare the bucket to send."""
+        """Prepare buckets for sending data to other actors of 
+        iteration `iter_idx`.
+
+        Args:
+            iter_idx (int): The iteration index.
+            world_size (int): The world size of ProcessGroup.
+
+        Returns:
+            List[Optional[BucketInfo]]: a list of BucketInfo. The k-th element 
+            is None if this rank does not send any data to rank k.
+        """
         send_buckets = [None] * self.world_size
         this_rank_bucket = None
         if self.type != SynchronizerType.SEND:
@@ -120,7 +129,25 @@ class GeneralSynchronizer:
         send_buckets[self.rank] = None
         return send_buckets, this_rank_bucket
 
-    def prepare_recv_buckets(self, iter_idx: int, world_size: int, alloc_buffer: bool=True):
+    def prepare_recv_buckets(
+        self, 
+        iter_idx: int, 
+        world_size: int, 
+        alloc_buffer: bool=True
+    ) -> List[Optional[BucketInfo]]:
+        """Prepare buckets for receiving data from other actors of 
+        iteration `iter_idx`.
+
+        Args:
+            iter_idx (int): The iteration index.
+            world_size (int): The world size of ProcessGroup.
+            alloc_buffer (bool, optional): Whether to create a contiguous 
+            buffer to receive data. Defaults to True.
+
+        Returns:
+            List[Optional[BucketInfo]]: a list of BucketInfo. The k-th element 
+            is None if this rank does not receive any data from rank k.
+        """
         recv_plan = self.plan[iter_idx].recv_buckets
         recv_buckets = [None] * world_size
         for recv_bucket, src_rank in recv_plan.items():
@@ -157,7 +184,7 @@ class GeneralSynchronizer:
                 recv_buckets[src_rank].buffer = rebuild_func(*rebuild_args)
             return recv_buckets
         
-        # NOTE: otherwise, do All2all on the current actor
+        # NOTE: otherwise, do all2all on the current actor
         send_buckets, this_rank_bucket = self.prepare_send_buckets(iter_idx)
         recv_buckets = self.prepare_recv_buckets(iter_idx, world_size=self.world_size)
         ops = self._build_p2p_ops(send_buckets, recv_buckets)
@@ -189,7 +216,7 @@ class GeneralSynchronizer:
             sender/receiver, side forwarder actors are created on 
             every GPU with a global PG for communication.
 
-        For cases w/o forwarder, in the `parameter_sync`, receiver
+        In case w/o forwarder, in the `parameter_sync`, receiver
         will iterate through the plan in `all2all_sync_step` and fetch
         parameter buckets from sender, then update its parameters with
         the payloads in the buckets.
@@ -227,9 +254,14 @@ class GeneralSynchronizer:
         self.param_id_to_param = None
 
     def _load_from_bucket(self, bucket: BucketInfo):
+        """Copy parameters from a bucket to local parameters
+
+        Args:
+            bucket (BucketInfo): The bucket to load from
+        """
         offset = 0
         if bucket.buffer is None:
-            raise ValueError("Bucket buffer is None")
+            raise ValueError("Attempt to read from a bucket without buffer")
         for offset, sharded_tensor_info in bucket.recv_layout:
             shard = sharded_tensor_info.index(self.param_id_to_param[sharded_tensor_info.param_id])
             comm_dtype = sharded_tensor_info.dtype
@@ -244,6 +276,7 @@ class GeneralSynchronizer:
         send_buckets: List[Optional[BucketInfo]], 
         recv_buckets: List[Optional[BucketInfo]]
     ):
+        """build p2p ops for batch_isend_irecv"""
         send_ops = []
         recv_ops = []
         for recv_rank, send_bucket in enumerate(send_buckets):

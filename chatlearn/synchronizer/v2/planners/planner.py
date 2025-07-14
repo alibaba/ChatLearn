@@ -13,30 +13,17 @@
 # limitations under the License.
 # ==============================================================================
 """Sync parameters"""
-import itertools
 from copy import deepcopy
-from dataclasses import dataclass, field
 import numpy as np
-import concurrent.futures
-import traceback
-import time
 from collections import defaultdict
-from concurrent.futures import ThreadPoolExecutor
-from itertools import cycle
-from typing import List
-from queue import PriorityQueue
+from itertools import chain
+from typing import *
 
 import torch
-from tqdm import tqdm
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
-from chatlearn.utils import utils
-from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE
-from chatlearn.utils.constant import ROUTED_EXPERT_REGROUPING_COMM_TYPE
-from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from chatlearn.utils.utils import execute_in_parallel
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.v2.structs import (
@@ -48,13 +35,10 @@ from chatlearn.synchronizer.v2.structs import (
 
 patch_ray()
 
-from typing import *
-
 # NOTE: some methods are actually for general use, extract a base class if needed.
 class MegatronVLLMSyncPlanner:
-    """Generate the sync plan based on the given sync mapping and 
-    ModelParallel setting. The plan is a mapping of send(recv) sharded 
-    parameters in one iteration.
+    """Generate the sync plan based on the given sync mapping. The plan is 
+    a mapping of send(recv) sharded parameters in one iteration.
     """
     def __init__(
         self, 
@@ -165,13 +149,13 @@ class MegatronVLLMSyncPlanner:
         # TODO: `get_rank` will get base_module._rank instead of dist.get_rank()
         comm_ranks = future.wait(src_model.call_func_on_all_workers('get_torchdist_rank'), return_output=True)
 
-        src_rank_to_gpu_id = dict(zip(itertools.chain.from_iterable(src_model.all_ranks), src_gpus))
-        dst_rank_to_gpu_id = dict(zip(itertools.chain.from_iterable(dst_model.all_ranks), dst_gpus))
-        gpu_id_to_dst_rank = dict(zip(dst_gpus, itertools.chain.from_iterable(dst_model.all_ranks)))
-        gpu_id_to_src_rank = dict(zip(src_gpus, itertools.chain.from_iterable(src_model.all_ranks)))
+        src_rank_to_gpu_id = dict(zip(chain.from_iterable(src_model.all_ranks), src_gpus))
+        dst_rank_to_gpu_id = dict(zip(chain.from_iterable(dst_model.all_ranks), dst_gpus))
+        gpu_id_to_dst_rank = dict(zip(dst_gpus, chain.from_iterable(dst_model.all_ranks)))
+        gpu_id_to_src_rank = dict(zip(src_gpus, chain.from_iterable(src_model.all_ranks)))
         mem_infos = {
             src_rank_to_gpu_id[k]: v for k, v in zip(
-                itertools.chain.from_iterable(src_model.all_ranks), 
+                chain.from_iterable(src_model.all_ranks), 
                 future.wait(src_model.call_func_on_all_workers('get_mem_info'), return_output=True)
             )
         }

@@ -63,7 +63,7 @@ class ParameterSyncGroup:
         parameter is added or removed, and the datatype or shape of parameters
         is unchanged. Therefore, the validation is performed only once.
         Regardless of the above assumption, the initialization can be called
-        multiple times if needed.
+        multiple times if needed in the future.
         """
         def _initialize_impl(model):
             # TODO: should be called by model instead of here.
@@ -119,12 +119,12 @@ class ParameterSyncGroup:
         self.bucketized_plan = planner.make_plan()
         self.timers("generate-plan").stop()
 
-        # TODO: Can we find a way to validate plan before actual comm starts?
+        # NOTE: Can we find a way to validate plan before actual comm starts?
         self.timers("setup-synchronizer").start()
         planner.setup_synchronizer(self.src_model, self.dst_model, self.bucketized_plan)
         self.timers("setup-synchronizer").stop()
         self._initialized = True
-        logger.info(f"finish parameter synchronization | {self.timers.log()}")
+        logger.info(f"finish parameter sync initialization | {self.timers.log()}")
 
     def collect_parameter_metadata(
         self,
@@ -150,14 +150,11 @@ class ParameterSyncGroup:
         """This function will generate a global parameter id for each Tensor
         in the state dict of the model, even if the Tensor will not be synchronized.
         we also generate a global weight name for each tensor, i.e., weight
-        name w/o model parallel (on elsewhere). Note that model in the same tp group
-        will share the same global weight name/param id.
+        name w/o model parallel (on module implementation).
 
         Args:
             model (DistModel): The model to generate global parameter ids.
         """
-        # Megatron: Dense (TP-CP-DP-PP)  MoE (ETP-EP-EDP-PP)
-        # vLLM: Dense (DP-PP-TP), EP group is DP-TP group, i.e., ETP=EDP=1
         results = future.wait(
             model.call_func_on_all_workers('map_local_param_name_to_global'),
             return_output=True
@@ -173,16 +170,17 @@ class ParameterSyncGroup:
     ):
         """
             Check whether the sync mapping from all source actors 
-            meets the dst metadata. Note that the integrity of the mapping
-            keys should be checked by mapper as SyncGroup doesn't know the
-            detail of the mapping construction, e.g., for GQA mapping 
-            between MCore and vLLM, if vLLM TP is larger than `num_query_groups`, 
-            KV heads of MCore will have more replicas than Q heads.
+            meets the dst metadata. 
+            
+            Note that the sanity of mapping keys should be checked by 
+            mapper as SyncGroup doesn't know the detail of the mapping 
+            construction, e.g., for GQA mapping between MCore and vLLM, if 
+            vLLM TP is larger than `num_query_groups`, KV heads of MCore will
+            have more replicas than Q heads.
 
         Args:
             sync_mappings (List[Dict[ShardedTensorInfo, ShardedTensorInfo]]): The sync 
             mappings from all source actors.
-        
         """
         # 1. each parameter should has K replicas
         counter = Counter()
@@ -215,10 +213,9 @@ class ParameterSyncGroup:
                     f"{shard} does not belong to any dst metadata, target: {target_shards}"
                 )
         
-        # 3. all unique parameter shards should compose an entire model
+        # TODO: 3. all unique parameter shards should compose an entire model
 
     def sync(self, *args, dryrun: bool = False, **kwargs):
-        # pylint: disable=unused-argument
         """Intialize and call parameter synchronization on all actors
         of src and dst models.
         """

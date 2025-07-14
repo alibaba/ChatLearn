@@ -1283,10 +1283,10 @@ class BaseModule:
         synchronizer_name: str='general', 
         **kwargs
     ):
-        from chatlearn.synchronizer.v2.comm import GeneralSynchronizer
+        from chatlearn.synchronizer.v2.comm import GeneralCommunicator
         if synchronizer_name != "general":
             raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")
-        self.synchronizer = GeneralSynchronizer(model=self, **kwargs)
+        self.synchronizer = GeneralCommunicator(model=self, **kwargs)
 
     def call_synchronizer_func(self, func_name, *args, **kwargs):
         return getattr(self.synchronizer, func_name)(*args, **kwargs)

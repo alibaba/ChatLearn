@@ -12,7 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+from typing import TYPE_CHECKING
 
-def get_planner_cls():
+if TYPE_CHECKING:
+    from chatlearn.runtime.dist_actor import DistModel
+
+def get_planner_cls(src_model: 'DistModel', dst_model: 'DistModel'):
+    # pylint: disable=unused-argument
     from chatlearn.synchronizer.v2.planners.planner import MegatronVLLMSyncPlanner
     return MegatronVLLMSyncPlanner
