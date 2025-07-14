@@ -50,6 +50,23 @@ runtime_args.log_args_dict.enable_wandb=True
 runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```
 
+## 模型转化
+Saving FSDP models is time-consuming. Chatlearn provides an offline model conversion feature, which converts FSDP-saved sharded models back into HuggingFace models. The script is as follows:
+```bash
+export CHATLEARN=$(pwd)
+python chatlearn/offline_ckpt_converter.py \
+    --hf_dir ${CHATLEARN}/Qwen3-8B/ \
+    --ckpt_dir ${CHATLEARN}/output/qwen3-grpo-8b/save_model/policy_trainer \
+    --save_dir ${CHATLEARN}/output/qwen3-grpo-8b/save_model/huggingface/ \
+    --iter 200 \
+    --groupgemm 0
+```
+If you are training an MoE model with groupgemm, please make sure to set:
+```bash
+   --groupgemm 1
+```
+This script will convert the final FSDP sharded model after training back into a HuggingFace model and save it in the path "${CHATLEARN}/output/qwen3-grpo-8b/save_model/huggingface/".
+
 ## FAQ
 ### How to Speed Up PolicyTrainer Training?
 1. Set models.policy_trainer.packing=True and configure models.policy_trainer.max_token_in_packing to the maximum token count that fits GPU memory.

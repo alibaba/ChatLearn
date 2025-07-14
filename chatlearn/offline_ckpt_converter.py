@@ -53,7 +53,7 @@ def convert_checkpoint_cpu(args_input):
     dist_model_dir = os.path.join(args_input.ckpt_dir, str(iter_))
     save_dir = args_input.save_dir
     os.makedirs(save_dir, exist_ok=True)
-    is_groupgemm = args_input.groupgemm
+    is_groupgemm = args_input.groupgemm == 1
 
     safetensor_file = []
     other_file = []
@@ -118,7 +118,7 @@ if __name__ == '__main__':
     parser.add_argument("--hf_dir", type=str, required=True, help="Directory to load hf config")
     parser.add_argument("--ckpt_dir", type=str, required=True, help="Directory to load sharded checkpoint")
     parser.add_argument("--save_dir", type=str, required=True, help="Directory to save converted hf checkpoint")
-    parser.add_argument("--groupgemm", action='store_true', help="Whether use groupgemm for training")
+    parser.add_argument("--groupgemm", type=int, choices=[0, 1], default=0, help="Whether use groupgemm for training")
     parser.add_argument("--iter", type=int, required=True, help="which iter to convert")
     args = parser.parse_args()
     convert_checkpoint_cpu(args_input=args)
