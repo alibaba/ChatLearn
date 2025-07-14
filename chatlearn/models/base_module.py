@@ -1290,3 +1290,6 @@ class BaseModule:
 
     def call_synchronizer_func(self, func_name, *args, **kwargs):
         return getattr(self.synchronizer, func_name)(*args, **kwargs)
+
+    def get_mem_info(self):
+        return torch.cuda.mem_get_info()

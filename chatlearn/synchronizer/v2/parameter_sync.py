@@ -25,6 +25,8 @@ from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.v2.mappers import get_mapper_name
 from chatlearn.synchronizer.v2.planners import get_planner_cls
+from chatlearn.utils.timer import Timers
+from chatlearn.utils.logger import logger
 
 patch_ray()
 
@@ -48,6 +50,8 @@ class ParameterSyncGroup:
         self.src_metadatas, self.dst_metadatas = None, None
         self.sync_plan: List[SyncIteration] = None
 
+        self.timers = Timers()
+
         # NOTE: for compatability, CURRENTLY NOT USED
         self.group_name = group_name
         self.frequency = frequency
@@ -69,6 +73,7 @@ class ParameterSyncGroup:
             metadata = self.collect_parameter_metadata(model)
             return param_ids, metadata
 
+        self.timers("metadata").start()
         self.src_param_ids, self.src_metadatas = _initialize_impl(self.src_model)
         self.dst_param_ids, self.dst_metadatas = _initialize_impl(self.dst_model)
         dst_name_to_metadata = {}
@@ -82,7 +87,9 @@ class ParameterSyncGroup:
                     # care the shape info of this metadata
                     dst_name_to_metadata[name] = metadata_per_rank[param_id]
                     break
+        self.timers("metadata").stop()
 
+        self.timers("generate-mapping").start()
         future.wait(
             self.src_model.call_func_on_all_workers(
                 'set_mapper',
@@ -98,18 +105,26 @@ class ParameterSyncGroup:
             ), 
             return_output=True
         )
-        self.validate_sync_mapping(results) # pylint: disable=unused-variable
+        self.timers("generate-mapping").stop()
+
+        self.timers("validate-mapping").start()
+        self.validate_sync_mapping(results)
+        self.timers("validate-mapping").stop()
+
+        self.timers("generate-plan").start()
         planner = get_planner_cls()(
             dict(zip(itertools.chain.from_iterable(self.src_model.all_ranks), results)), 
             self.dst_metadatas,
         )
-        self.sender_plan, self.recver_plan = planner.make_plan()
-        # # TODO: Can we find a way to validate plan before actual comm starts?
-        # if self.config.parameter_sync.dump_metadata:
-        #     # save metadata, sync mapping and plan in readable format
-        #     ...
-        planner.setup_synchronizer(self.src_model, self.dst_model, self.sender_plan, self.recver_plan)
+        self.bucketized_plan = planner.make_plan()
+        self.timers("generate-plan").stop()
+
+        # TODO: Can we find a way to validate plan before actual comm starts?
+        self.timers("setup-synchronizer").start()
+        planner.setup_synchronizer(self.src_model, self.dst_model, self.bucketized_plan)
+        self.timers("setup-synchronizer").stop()
         self._initialized = True
+        logger.info(f"finish parameter synchronization | {self.timers.log()}")
 
     def collect_parameter_metadata(
         self,
@@ -211,7 +226,7 @@ class ParameterSyncGroup:
             self.initialize()
         if dryrun:
             return
-
+        self.timers("communication").start()
         refs = (
             self.src_model.call_func_on_all_workers('parameter_sync') + 
             self.dst_model.call_func_on_all_workers('parameter_sync')
@@ -229,3 +244,5 @@ class ParameterSyncGroup:
             )
         )
         results = future.wait(refs, return_output=True)
+        self.timers("communication").stop()
+        logger.info(f"finish parameter synchronization | {self.timers.log(names=['communication'])}")

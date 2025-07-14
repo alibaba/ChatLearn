@@ -50,8 +50,6 @@ patch_ray()
 
 from typing import *
 
-
-
 # NOTE: some methods are actually for general use, extract a base class if needed.
 class MegatronVLLMSyncPlanner:
     """Generate the sync plan based on the given sync mapping and 
@@ -78,6 +76,7 @@ class MegatronVLLMSyncPlanner:
         self.bucket_size = bucket_size
 
         self._bucket_id = 0
+        self.timers = Timers()
 
         # NOTE: mapping an source weight to its owners and destination weights.
         # In some cases, a source weight may be mapped to multiple destination weights.
@@ -104,13 +103,14 @@ class MegatronVLLMSyncPlanner:
                     if dst_param in target:
                         self.src_param_to_dst_ranks[src_param].update(dst_ranks)
 
-    def make_plan(self) -> Tuple[Dict[int, List[SyncIteration]], ...]:
+    def make_plan(self) -> Dict[int, Dict[Ranks, List[BucketInfo]]]:
         """
             Make a general plan, do not care the specifc model parallel
             information of the source or dst model.
         """
         # NOTE: The sender in one sender_groups can send the same set of 
         # parameters, thus we can balance payloads in this group
+        self.timers("make-unbucketized").start()
         sender_groups = defaultdict(list)
         for src_param, src_ranks in self.src_param_to_src_ranks.items():
             sender_groups[Ranks(src_ranks)].append(src_param)
@@ -127,54 +127,63 @@ class MegatronVLLMSyncPlanner:
                     unbucketized_plan[rank][
                         Ranks(tuple(self.src_param_to_dst_ranks[all_payloads[idx]]))
                     ].append(all_payloads[idx])
+        self.timers("make-unbucketized").stop()
         
-        # TODO: collect the bucket statistics of each rank
-
         # Bucketize on each rank
+        self.timers("make-bucketized").start()
         bucketized_plan = self.bucketize(unbucketized_plan, bucket_size=self.bucket_size)
+        self.timers("make-bucketized").stop()
 
-        # NOTE: Convert to logical iterations, which means each rank
-        # will know what it will send/recv to others. In ChatLearn,
-        # different models are on different actors, thus each SyncIteration
-        # will has an empty send_buckets or recv_buckets
-        sender_plan, recver_plan = self.convert_to_iterations(bucketized_plan)
+        logger.info(f"finish making bucketized plan | {self.timers.log()}")
+        return bucketized_plan
 
-        # TODO: collect the iteration statistics of each rank
-        return sender_plan, recver_plan
-    
     def setup_synchronizer(
         self, 
         src_model: 'DistModel', 
         dst_model: 'DistModel', 
-        sender_plan: Dict[int, List[SyncIteration]], 
-        recver_plan: Dict[int, List[SyncIteration]],
+        bucketized_plan: Dict[int, Dict[Ranks, List[BucketInfo]]],
         group_name: str = "default_sync_group",
     ):
-        """Setup synchronizer for the actual parameter synchronization.
-        
-        
         """
-        _raw_sender_plan, _raw_recver_plan = sender_plan, recver_plan
-        sender_plan, recver_plan = deepcopy(sender_plan), deepcopy(recver_plan)
-
+        Generate the final synchronization plan and setup synchronizer
+        for the actual parameter synchronization.
+        """
         # NOTE: find colocated actors between src_model and dst_model
+        self.timers("prepare-metadata").start()
         src_gpus = future.wait(src_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
         dst_gpus = future.wait(dst_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
-
-        # TODO: `get_rank` will get base_module._rank instead of dist.get_rank()
-        comm_ranks = future.wait(src_model.call_func_on_all_workers('get_torchdist_rank'), return_output=True)
-
-        src_rank_to_gpu_id = dict(zip(itertools.chain.from_iterable(src_model.all_ranks), src_gpus))
-        gpu_id_to_dst_rank = dict(zip(dst_gpus, itertools.chain.from_iterable(dst_model.all_ranks)))
-
         if set(src_gpus) != set(dst_gpus):
             raise NotImplementedError(
                 f'The source and destination model in partial colocated/ no colocated mode is not supported. '
             )
+        # TODO: `get_rank` will get base_module._rank instead of dist.get_rank()
+        comm_ranks = future.wait(src_model.call_func_on_all_workers('get_torchdist_rank'), return_output=True)
+
+        src_rank_to_gpu_id = dict(zip(itertools.chain.from_iterable(src_model.all_ranks), src_gpus))
+        dst_rank_to_gpu_id = dict(zip(itertools.chain.from_iterable(dst_model.all_ranks), dst_gpus))
+        gpu_id_to_dst_rank = dict(zip(dst_gpus, itertools.chain.from_iterable(dst_model.all_ranks)))
+        gpu_id_to_src_rank = dict(zip(src_gpus, itertools.chain.from_iterable(src_model.all_ranks)))
+        mem_infos = {
+            src_rank_to_gpu_id[k]: v for k, v in zip(
+                itertools.chain.from_iterable(src_model.all_ranks), 
+                future.wait(src_model.call_func_on_all_workers('get_mem_info'), return_output=True)
+            )
+        }
+        self.timers("prepare-metadata").stop()
+        # NOTE: Convert to iterations, which means each rank will know how 
+        # it will send/recv to others. In ChatLearn, different models are 
+        # on different actors, thus each SyncIteration will either have an 
+        # empty send_buckets or recv_buckets 
+        self.timers("prepare-iteration").start()
+        sender_plan, recver_plan = self._convert_to_iterations(
+            bucketized_plan, 
+            src_rank_to_gpu_id,
+            dst_rank_to_gpu_id,
+            mem_infos
+        )
+        self.timers("prepare-iteration").stop()
 
         # replace recver_ranks in all send_buckets with colocated MCore comm rank
-        dst_rank_to_gpu_id = dict(zip(itertools.chain.from_iterable(dst_model.all_ranks), dst_gpus))
-        gpu_id_to_src_rank = dict(zip(src_gpus, itertools.chain.from_iterable(src_model.all_ranks)))
         for rank, send_iterations in sender_plan.items():
             for send_iteration in send_iterations:
                 for send_bucket, recv_ranks in send_iteration.send_buckets.items():
@@ -189,59 +198,20 @@ class MegatronVLLMSyncPlanner:
             for recv_iteration in recv_iterations:
                 for recv_bucket, src_rank in recv_iteration.recv_buckets.items():
                     recv_iteration.recv_buckets[recv_bucket] = comm_ranks[src_rank]
-        refs = []
-        for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
-            dst_rank = gpu_id_to_dst_rank[src_gpu_id]
-            for send_iteration, recv_iteration in zip(
-                sender_plan[src_rank],
-                recver_plan[dst_rank]
-            ):
-                # NOTE: MCore actors perform all2all should know both 
-                # send_buckets/recv_buckets
-                send_iteration.recv_buckets = recv_iteration.recv_buckets
+        
+        # NOTE: finally, register synchronizer for each actor
+        self.timers("register-synchronizer").start()
+        self._register_synchronizer(
+            src_model,
+            dst_model,
+            src_rank_to_gpu_id,
+            gpu_id_to_dst_rank,
+            sender_plan,
+            recver_plan,
+        )
+        self.timers("register-synchronizer").stop()
+        logger.info(f"finish setup synchronizer | {self.timers.log()}")
 
-            src_actor = src_model.get_actor(src_rank)
-            refs.append(src_actor.set_synchronizer_v2.remote(
-                synchronizer_name = 'general',
-                local_plan = sender_plan[src_rank],
-                synchronizer_type = SynchronizerType.SEND,
-                in_process_group = True
-            ))
-        future.wait(refs, return_output=True)
-        # NOTE: setup synchronizer of dst actors, assign `param_provider` handle
-        refs = []
-        for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
-            dst_rank = gpu_id_to_dst_rank[src_gpu_id]
-            dst_actor = dst_model.get_actor(dst_rank)
-            refs.append(dst_actor.set_synchronizer_v2.remote(
-                synchronizer_name = 'general',
-                local_plan = recver_plan[dst_rank],
-                synchronizer_type = SynchronizerType.RECV,
-                in_process_group = False,
-                colocate_handle = src_model.get_actor(src_rank).call_synchronizer_func
-            ))
-        future.wait(refs, return_output=True)
-
-
-    @staticmethod
-    def approximate_bin_packing(items: np.array, K: int) -> List[List[int]]:
-        """Packing N items into K bins and make the payloads 
-            of each bin as close as possible.
-
-        Args:
-            items (np.array): The sizes of each item
-            K (int): The num of buckets.
-
-        Returns:
-            List[List[int]]: The item index of each bucket.
-        """
-        bins = np.zeros(K)
-        results = [list() for _ in range(K)]
-        for idx in items.argsort()[::-1]:
-            bins[bins.argmin()] += items[idx]
-            results[bins.argmin()].append(idx)
-        return results
-    
     def bucketize(
         self,
         unbucketized_plan: Dict[int, Dict[Ranks, List[ShardedTensorInfo]]],
@@ -282,7 +252,7 @@ class MegatronVLLMSyncPlanner:
                 current_size = 0
                 shards = []
                 for shard in shard_info_list:
-                    if current_size + shard.size > bucket_size:
+                    if current_size + shard.size > bucket_size and len(shards) > 0:
                         bucketized_plan[sender_rank][receiver_ranks].append(
                             create_bucket(shards)
                         )
@@ -297,10 +267,13 @@ class MegatronVLLMSyncPlanner:
 
         return bucketized_plan
 
-    def convert_to_iterations(
+    def _convert_to_iterations(
         self, 
         bucketized_plan: Dict[int, Dict[Ranks, List[BucketInfo]]],
-        max_buckets_per_iteration: int=-1
+        src_rank_to_gpu_id: Dict[int, int],
+        dst_rank_to_gpu_id: Dict[int, int],
+        mem_infos: Dict[int, Tuple[int, int]],
+        ratio: float=0.8
     ) -> Tuple[Dict[int, List[SyncIteration]], ...]:
         """Given a bucketized plan, convert it to a list of iterations.
         
@@ -314,30 +287,56 @@ class MegatronVLLMSyncPlanner:
         # possible in one iteration. Bucket A and B can be parallelized
         # only if receivers of A and B are non-overlapped. Greedy is adopted
         # here to maximize the bucket amounts.
+        budgets = {gpu_id: mem_info[0] - (1 - ratio) * mem_info[1] for gpu_id, mem_info in mem_infos.items()}
 
-        # TODO: as we can measure the available memory of each GPU, we can use a
-        # TODO: threshold to control the parallel degree.
-        sender_to_iterations = {}
-        for sender_rank, buckets in bucketized_plan.items():
-            bucket_to_recvers = {b: k for k, v in buckets.items() for b in v}
-            sorted_buckets = sorted(bucket_to_recvers.items(), key=lambda x: x[0].size, reverse=True)
-            assert len(set(bucket_to_recvers)) == len(bucket_to_recvers), "Buckets are not unique"
-            is_added = set()
-            iterations = []
-            while len(is_added) < len(sorted_buckets):
-                this_iteration = []
-                is_busy = set()
-                for bucket, recvers in sorted_buckets:
-                    if bucket in is_added:
-                        continue
-                    if all(r not in is_busy for r in recvers.values):
-                        this_iteration.append((bucket, recvers))
-                        is_busy.update(recvers.values)
-                        is_added.add(bucket)
-                iterations.append(this_iteration)
-            sender_to_iterations[sender_rank] = iterations
+        flatten_buckets = deepcopy([
+            (sender, bucket, receiver) 
+            for sender, receivers_to_buckets in bucketized_plan.items()
+            for receiver, buckets in receivers_to_buckets.items()
+            for bucket in buckets
+        ])
+        # prefer bucket with larger bucket_size * n_receivers
+        flatten_buckets.sort(key=lambda x: x[1].size * len(x[2].values), reverse=True)
+        sender_to_iterations = defaultdict(list)
+        is_added = set()
+        n_iterations = 0
 
-        n_iterations = max(len(v) for v in sender_to_iterations.values())
+        while len(is_added) < len(flatten_buckets):
+            budgets_this_iter = deepcopy(budgets)
+            is_busy = set()
+            n_iterations += 1
+            for sender in bucketized_plan:
+                sender_to_iterations[sender].append([])
+            
+            is_progressed = False
+            for sender, bucket, receivers in flatten_buckets:
+                if bucket in is_added:
+                    continue
+                # NOTE: calc required memory, each sender and receiver will 
+                # alloc a bucket, if sender and receiver is colocated, only one
+                # bucket is needed on the colocated gpu
+                required_mem = {k: 0 for k in budgets_this_iter}
+                for receiver in receivers.values:
+                    required_mem[dst_rank_to_gpu_id[receiver]] += bucket.size
+                if sender not in receivers.values:
+                    required_mem[src_rank_to_gpu_id[sender]] += bucket.size
+
+                if any(required_mem[k] > budgets_this_iter[k] for k in required_mem):
+                    continue
+                if all((sender, receiver) not in is_busy for receiver in receivers.values):
+                    is_progressed = True
+                    is_added.add(bucket)
+
+                    sender_to_iterations[sender][-1].append((bucket, receivers))
+                    for receiver in receivers.values:
+                        is_busy.add((sender, receiver))
+                    for gpu_id in budgets_this_iter:
+                        budgets_this_iter[gpu_id] -= required_mem[gpu_id]
+
+            if not is_progressed:
+                raise RuntimeError("Not enough memory to apply the plan with the given memory ratio.")
+        
+        # NOTE: format the plan with SyncIteration dataclass
         sender_plan = defaultdict(list)
         recver_plan = defaultdict(lambda: [SyncIteration() for _ in range(n_iterations)])
         for sender_rank, iterations in sender_to_iterations.items():
@@ -353,8 +352,69 @@ class MegatronVLLMSyncPlanner:
                         recver_plan[recver_rank][iter_idx].recv_buckets[bucket] = sender_rank
         return sender_plan, recver_plan
 
+    def _register_synchronizer(
+        self,
+        src_model,
+        dst_model,
+        src_rank_to_gpu_id,
+        gpu_id_to_dst_rank,
+        sender_plan,
+        recver_plan,
+    ):
+        refs = []
+        for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
+            dst_rank = gpu_id_to_dst_rank[src_gpu_id]
+            for send_iteration, recv_iteration in zip(
+                sender_plan[src_rank],
+                recver_plan[dst_rank]
+            ):
+                # NOTE: MCore actors perform all2all should know both 
+                # send_buckets/recv_buckets
+                send_iteration.recv_buckets = recv_iteration.recv_buckets
+
+            src_actor = src_model.get_actor(src_rank)
+            refs.append(src_actor.set_synchronizer_v2.remote(
+                synchronizer_name = 'general',
+                local_plan = sender_plan[src_rank],
+                synchronizer_type = SynchronizerType.SEND,
+                in_process_group = True
+            ))
+        future.wait(refs, return_output=True)
+        # NOTE: setup synchronizer of dst actors, assign `param_provider` handle
+        refs = []
+        for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
+            dst_rank = gpu_id_to_dst_rank[src_gpu_id]
+            dst_actor = dst_model.get_actor(dst_rank)
+            refs.append(dst_actor.set_synchronizer_v2.remote(
+                synchronizer_name = 'general',
+                local_plan = recver_plan[dst_rank],
+                synchronizer_type = SynchronizerType.RECV,
+                in_process_group = False,
+                colocate_handle = src_model.get_actor(src_rank).call_synchronizer_func
+            ))
+        future.wait(refs, return_output=True)
+
     def _find_dst_ranks(self, sharded_info: ShardedTensorInfo):
         """Find dst ranks containing this sharded info"""
         for param, ranks in self.dst_param_to_ranks:
             if sharded_info in param:
                 return ranks
+
+    @staticmethod
+    def approximate_bin_packing(items: np.array, K: int) -> List[List[int]]:
+        """Packing N items into K bins and make the payloads 
+            of each bin as close as possible.
+
+        Args:
+            items (np.array): The sizes of each item
+            K (int): The num of buckets.
+
+        Returns:
+            List[List[int]]: The item index of each bucket.
+        """
+        bins = np.zeros(K)
+        results = [list() for _ in range(K)]
+        for idx in items.argsort()[::-1]:
+            bins[bins.argmin()] += items[idx]
+            results[bins.argmin()].append(idx)
+        return results

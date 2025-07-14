@@ -77,7 +77,6 @@ class GeneralSynchronizer:
         synchronizer_type: SynchronizerType,
         in_process_group: bool = False,
         *,
-        bucket_size: int = 4 * 1024 ** 3,
         colocate_handle = None
     ):
         self.model = model
@@ -90,7 +89,6 @@ class GeneralSynchronizer:
         if in_process_group:
             self.rank, self.world_size = dist.get_rank(), dist.get_world_size()
         self.colocate_handle = colocate_handle
-        self.bucket_size = bucket_size
 
     def prepare_send_buckets(
         self, 
