@@ -48,12 +48,12 @@ arch_mapping = {
 }
 
 def convert_checkpoint_cpu(args_input):
-    iter_ = args.iter
-    hf_dir = args.hf_dir
-    dist_model_dir = os.path.join(args.ckpt_dir, str(iter_))
-    save_dir = args.save_dir
+    iter_ = args_input.iter
+    hf_dir = args_input.hf_dir
+    dist_model_dir = os.path.join(args_input.ckpt_dir, str(iter_))
+    save_dir = args_input.save_dir
     os.makedirs(save_dir, exist_ok=True)
-    is_groupgemm = args.groupgemm
+    is_groupgemm = args_input.groupgemm
 
     safetensor_file = []
     other_file = []
