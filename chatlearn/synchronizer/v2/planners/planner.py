@@ -38,7 +38,7 @@ patch_ray()
 # NOTE: some methods are actually for general use, extract a base class if needed.
 class MegatronVLLMSyncPlanner:
     """Generate the sync plan based on the given sync mapping. The plan is 
-    a mapping of send(recv) sharded parameters in one iteration.
+    a mapping of send(recv) sharded parameters in iterations. 
     """
     def __init__(
         self, 
@@ -54,6 +54,9 @@ class MegatronVLLMSyncPlanner:
             The mapping information from all source ranks.
             dst_metadata (Dict[int, List[ShardedTensorInfo]]): The parameter metadata
             of the destination model.
+            bucket_size (int): The maximum size of a bucket. However, if some shard is
+            larger than bucket_size, that shard will be put into a individual bucket
+            with a size larger than `bucket_size` (possibly not happen).
         """
         self.sync_mapping = sync_mapping
         self.dst_metadata = dst_metadata
@@ -98,6 +101,13 @@ class MegatronVLLMSyncPlanner:
             Make a general plan, do not care the specifc model parallel
             information of the source or dst model.
         """
+        def approximate_bin_packing(items: np.array, K: int) -> List[List[int]]:
+            bins = np.zeros(K)
+            results = [list() for _ in range(K)]
+            for idx in items.argsort()[::-1]:
+                bins[bins.argmin()] += items[idx]
+                results[bins.argmin()].append(idx)
+            return results
         # NOTE: The sender in one sender_groups can send the same set of 
         # parameters, thus we can balance payloads in this group
         self.timers("make-unbucketized").start()
@@ -111,7 +121,7 @@ class MegatronVLLMSyncPlanner:
             items = np.array([shard.size for shard in all_payloads])
             # NOTE: as we cannot determine the number of iters in advance,
             # only thing we can do is to balance in the sender_group
-            balanced_payloads = self.approximate_bin_packing(items, len(sender_group.values))
+            balanced_payloads = approximate_bin_packing(items, len(sender_group.values))
             for rank, payload_indices in zip(sender_group.values, balanced_payloads):
                 for idx in payload_indices:
                     unbucketized_plan[rank][
@@ -132,11 +142,15 @@ class MegatronVLLMSyncPlanner:
         src_model: 'DistModel', 
         dst_model: 'DistModel', 
         bucketized_plan: Dict[int, Dict[Ranks, List[BucketInfo]]],
-        group_name: str = "default_sync_group",
     ):
-        """
-        Generate the final synchronization plan and setup synchronizer
+        """Generate the final synchronization plan and setup synchronizer
         for the actual parameter synchronization.
+
+        Args:
+            src_model (DistModel): The source dist model to be synchronized.
+            dst_model (DistModel): The dst dist model to be synchronized.
+            bucketized_plan (Dict[int, Dict[Ranks, List[BucketInfo]]]): 
+            The pre-bucketized plan returned by `self.make_plan()`
         """
         # NOTE: find colocated actors between src_model and dst_model
         self.timers("prepare-metadata").start()
@@ -263,21 +277,34 @@ class MegatronVLLMSyncPlanner:
         src_rank_to_gpu_id: Dict[int, int],
         dst_rank_to_gpu_id: Dict[int, int],
         mem_infos: Dict[int, Tuple[int, int]],
-        ratio: float=0.8
+        max_memory_fraction: float=0.8
     ) -> Tuple[Dict[int, List[SyncIteration]], ...]:
         """Given a bucketized plan, convert it to a list of iterations.
-        
+
+        Args:
+            bucketized_plan (Dict[int, Dict[Ranks, List[BucketInfo]]]): 
+            The bucketized plan returned by `bucketize`.
+            src_rank_to_gpu_id (Dict[int, int]): map ranks of source model to 
+            physical GPU ID.
+            dst_rank_to_gpu_id (Dict[int, int]): map ranks of destination model 
+            to physical GPU ID.
+            mem_infos (Dict[int, Tuple[int, int]]): The used memory and 
+            total memory for each physical GPU.
+            max_memory_fraction (float, optional): The maximum ratio of planner 
+            could use. Defaults to 0.8.
+
         Returns:
-            sender_plan (Dict[int, List[SyncIteration]]): The iterations 
-            for each rank of the sender.
-            recver_plan (Dict[int, List[SyncIteration]]): The iterations
-            for each rank of the receiver.
+            sender_plan (Dict[int, List[SyncIteration]]): The plan of senders.
+            receiver_plan (Dict[int, List[SyncIteration]]): The plan of receivers.
         """
         # NOTE: for each rank, attempt to send buckets as much as 
         # possible in one iteration. Bucket A and B can be parallelized
         # only if receivers of A and B are non-overlapped. Greedy is adopted
         # here to maximize the bucket amounts.
-        budgets = {gpu_id: mem_info[0] - (1 - ratio) * mem_info[1] for gpu_id, mem_info in mem_infos.items()}
+        budgets = {
+            gpu_id: mem_info[0] - (1 - max_memory_fraction) * mem_info[1] 
+            for gpu_id, mem_info in mem_infos.items()
+        }
 
         flatten_buckets = deepcopy([
             (sender, bucket, receiver) 
@@ -324,7 +351,9 @@ class MegatronVLLMSyncPlanner:
                         budgets_this_iter[gpu_id] -= required_mem[gpu_id]
 
             if not is_progressed:
-                raise RuntimeError("Not enough memory to apply the plan with the given memory ratio.")
+                raise RuntimeError(
+                    f"Not enough memory to apply the plan with max_memory_fraction {max_memory_fraction}."
+                )
         
         # NOTE: format the plan with SyncIteration dataclass
         sender_plan = defaultdict(list)
@@ -383,28 +412,3 @@ class MegatronVLLMSyncPlanner:
                 colocate_handle = src_model.get_actor(src_rank).call_synchronizer_func
             ))
         future.wait(refs, return_output=True)
-
-    def _find_dst_ranks(self, sharded_info: ShardedTensorInfo):
-        """Find dst ranks containing this sharded info"""
-        for param, ranks in self.dst_param_to_ranks:
-            if sharded_info in param:
-                return ranks
-
-    @staticmethod
-    def approximate_bin_packing(items: np.array, K: int) -> List[List[int]]:
-        """Packing N items into K bins and make the payloads 
-            of each bin as close as possible.
-
-        Args:
-            items (np.array): The sizes of each item
-            K (int): The num of buckets.
-
-        Returns:
-            List[List[int]]: The item index of each bucket.
-        """
-        bins = np.zeros(K)
-        results = [list() for _ in range(K)]
-        for idx in items.argsort()[::-1]:
-            bins[bins.argmin()] += items[idx]
-            results[bins.argmin()].append(idx)
-        return results
