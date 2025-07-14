@@ -314,6 +314,9 @@ class MegatronVLLMSyncPlanner:
         # possible in one iteration. Bucket A and B can be parallelized
         # only if receivers of A and B are non-overlapped. Greedy is adopted
         # here to maximize the bucket amounts.
+
+        # TODO: as we can measure the available memory of each GPU, we can use a
+        # TODO: threshold to control the parallel degree.
         sender_to_iterations = {}
         for sender_rank, buckets in bucketized_plan.items():
             bucket_to_recvers = {b: k for k, v in buckets.items() for b in v}
