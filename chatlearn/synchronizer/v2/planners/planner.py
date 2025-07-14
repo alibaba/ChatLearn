@@ -93,13 +93,19 @@ class MegatronVLLMSyncPlanner:
             for param in metadata:
                 self.dst_param_to_dst_ranks[param].append(rank)
         
+        # group dst_param_to_dst_ranks by param_id
+        grouped_by_param_id = defaultdict(lambda: defaultdict(list))
+        for param, ranks in self.dst_param_to_dst_ranks.items():
+            param_id = param.param_id
+            grouped_by_param_id[param_id][param] = ranks
+
         # NOTE: mapping an src weight to its destinations, be cautious that
         # each destination may have multiple weights requiring the same 
         # source weight. (to be checked)
         self.src_param_to_dst_ranks = defaultdict(set)
         for src_param, dst_params in self.src_param_to_dst_params.items():
             for dst_param in dst_params:
-                for target, dst_ranks in self.dst_param_to_dst_ranks.items():
+                for target, dst_ranks in grouped_by_param_id[dst_param.param_id].items():
                     if dst_param in target:
                         self.src_param_to_dst_ranks[src_param].update(dst_ranks)
 
