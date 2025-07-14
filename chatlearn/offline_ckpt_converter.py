@@ -21,6 +21,7 @@ import shutil
 import argparse
 
 import torch
+import torch.distributed.tensor
 
 from safetensors.torch import save_file
 
@@ -46,7 +47,7 @@ arch_mapping = {
     'Qwen3MoeForCausalLM': (check_groupgemm_param, qwen3_key_mapping)
 }
 
-def convert_checkpoint_cpu(args):
+def convert_checkpoint_cpu(args_input):
     iter_ = args.iter
     hf_dir = args.hf_dir
     dist_model_dir = os.path.join(args.ckpt_dir, str(iter_))
@@ -62,9 +63,11 @@ def convert_checkpoint_cpu(args):
         else:
             other_file.append(file)
 
-    safetensor_config = json.load(open(os.path.join(hf_dir, "model.safetensors.index.json")))
+    with open(os.path.join(hf_dir, "model.safetensors.index.json")) as f: # pylint: disable=unspecified-encoding
+        safetensor_config = json.load(f)
     weight_map = safetensor_config['weight_map']
-    model_config = json.load(open(os.path.join(hf_dir, "config.json")))
+    with open(os.path.join(hf_dir, "config.json")) as f: # pylint: disable=unspecified-encoding
+        model_config = json.load(f)
     arch = model_config['architectures'][0]
 
     # Check whether training using groupgemm
@@ -118,4 +121,4 @@ if __name__ == '__main__':
     parser.add_argument("--groupgemm", action='store_true', help="Whether use groupgemm for training")
     parser.add_argument("--iter", type=int, required=True, help="which iter to convert")
     args = parser.parse_args()
-    convert_checkpoint_cpu(args)
+    convert_checkpoint_cpu(args_input=args)
