@@ -50,6 +50,23 @@ runtime_args.log_args_dict.enable_wandb=True
 runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```
 
+## 模型转化
+FSDP模型保存耗时较高，Chatlearn提供了离线模型转化功能，将FSDP保存的切片模型转化回huggingface模型。脚本如下：
+```bash
+export CHATLEARN=$(pwd)
+python chatlearn/offline_ckpt_converter.py \
+    --hf_dir ${CHATLEARN}/Qwen3-8B/ \
+    --ckpt_dir ${CHATLEARN}/output/qwen3-grpo-8b/save_model/policy_trainer \
+    --save_dir ${CHATLEARN}/output/qwen3-grpo-8b/save_model/huggingface/ \
+    --iter 200 \
+    --groupgemm 0
+```
+如果你使用groupgemm优化的moe模型训练，请确保设置：
+```bash
+   --groupgemm 1
+```
+这段脚本会将训练完成后的最后一个FSDP切片模型转化回HF模型，并保存在"${CHATLEARN}/output/qwen3-grpo-8b/save_model/huggingface/"路径下
+
 ## FAQ
 ### 如何可以加快PolicyTrainer的训练速度？
 1. 设置models.policy_trainer.packing=True，并设置models.policy_trainer.max_token_in_packing=可以打满显存的总token数。
