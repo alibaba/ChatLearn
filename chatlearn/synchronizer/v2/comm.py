@@ -115,7 +115,12 @@ class GeneralCommunicator:
                 device=torch.cuda.current_device(),
             )
             for offset, shard_info in bucket_info.send_layout:
-                shard = shard_info.index(self.param_id_to_param[shard_info.param_id]).view(dtype=torch.uint8)
+                # NOTE: dtype of some weights may change during training, force data
+                # dtype to be shard_info.dtype (the original dtype of the weight)
+                # to avoid potential issue.
+                shard = shard_info.index(
+                    self.param_id_to_param[shard_info.param_id].to(shard_info.dtype)
+                ).view(dtype=torch.uint8)
                 bucket_info.buffer[offset:offset + shard_info.size].view(shard.shape).copy_(shard)
             for rank in ranks.values:
                 if send_buckets[rank] is not None:
