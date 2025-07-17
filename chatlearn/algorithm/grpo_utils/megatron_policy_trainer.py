@@ -260,13 +260,14 @@ class MegatronPolicyTrainer(MegatronModule):
                     total_losses[k].append(v)
             # sum across microbatches.
             keys = sorted(list(total_losses.keys()))
+            keys.pop(keys.index('num_tokens'))
             loss_for_dp_reduce = torch.stack(
                 [sum(total_losses[key]).float() for key in keys] +
                 [sum(total_losses.pop('num_tokens')).float()]
             )
             torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group())
             loss_reduced_for_metric = {
-                key: loss_for_dp_reduce[i] / loss_for_dp_reduce[-1] 
+                key: (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
                 for i, key in enumerate(keys)
             }
             
