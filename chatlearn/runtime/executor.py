@@ -17,11 +17,16 @@
 import threading
 from collections import defaultdict
 from itertools import cycle
+from typing import List, Callable, Optional
+
+import ray
 from ray.util.queue import Queue
 import torch
 
+from chatlearn.models.base_module import BaseModule
 from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.runtime.model_flow import ModelFlow
+from chatlearn.runtime.model_flow import ModelFlow, ModelNode
+from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG
 from chatlearn.utils.constant import LOG_START
@@ -31,35 +36,11 @@ from .utils import encode_data, decode_data
 from .utils import FlowParser
 
 
-
-def split_list(lst, n):
-    assert len(lst) % n == 0, f"{len(lst)} % {n} != 0"
-    k = len(lst) // n
-    return [lst[i*k:(i+1)*k] for i in range(n)]
-
-
-def split_along_batch(tensors, num_splits):
-    res = [{} for _ in range(num_splits)]
-    if tensors is None:
-        return res
-    for key in tensors.keys():
-        to_batch = tensors[key]
-        if isinstance(to_batch, torch.Tensor):
-            batched = to_batch.chunk(num_splits)
-        elif isinstance(to_batch, list):
-            batched = split_list(to_batch, num_splits)
-        else:
-            raise Exception(f"unknown types key: {key} and {type(to_batch)} to split: {key} {tensors.keys()} {to_batch}")
-        for idx, ele in enumerate(batched):
-            res[idx][key] = ele
-    return res
-
-
 # pylint: disable=not-callable
 class Executor:
     """Executor"""
 
-    def __init__(self, model_flow):
+    def __init__(self, model_flow: Callable):
         """
         Executor
 
@@ -86,7 +67,7 @@ class Executor:
     def timers(self):
         return self._timers
 
-    def _set_flow(self, flow):
+    def _set_flow(self, flow: Callable):
         """
         Set compution flow
 
@@ -95,27 +76,31 @@ class Executor:
         flow : callable
              a function that defines model computation flow
 
-        Returns
         -------
-        Executor
-            return self
         """
-        self._flow = flow
-        self.model_to_call_funcs = FlowParser().parse(flow)
+        self._flow: Callable = flow
+        # model_to_call_funcs example:
+        # {
+        #     Module1: ["func_name1"],
+        #     Module2: ["func_name2"],
+        #     ...
+        # }
+        self.model_to_call_funcs: defaultdict[BaseModule, List[str]] = FlowParser().parse(flow)
         for model, func_names in self.model_to_call_funcs.items():
+            # BaseModule.call_funcs: List[str]
             model.call_funcs += func_names
-        self.models = list(self.model_to_call_funcs.keys())
-        return self
+        self.models: List[BaseModule] = list(self.model_to_call_funcs.keys())
 
     @property
-    def first_node(self):
+    def first_node(self) -> ModelNode:
         return self.model_flow.model_nodes[0]
 
     @property
-    def first_model(self):
+    def first_model(self) -> DistModel:
         return self.first_node.model
 
     def update_models(self, models):
+        
         # update local model with remote models
         new_models = []
         name_to_new_models = {model.name: model for model in models}
@@ -128,11 +113,14 @@ class Executor:
             self.args = get_args().runtime_args
 
     def setup(self):
+        """
+
+        """
         self._models_and_results_to_wait = []
         self.model_flow = ModelFlow(self)
         self.model_flow.trace(self.models, self._flow)
-        self.models = [model_node.model for model_node in self.model_flow.model_nodes]
-        self.model_locks = {model_node: threading.Lock() for model_node in self.model_flow.model_nodes}
+        self.models: List[DistModel] = [model_node.model for model_node in self.model_flow.model_nodes]
+        # self.model_locks: Dict[ModelNode, threading.Lock] = {model_node: threading.Lock() for model_node in self.model_flow.model_nodes}
 
     def _next_model(self, model):
         if len(model.replicas) == 1:
@@ -141,12 +129,46 @@ class Executor:
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
 
-    def get_merged_data(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
+    def get_merged_data(self, 
+                        queues: List[ray.util.queue.Queue],
+                        encode: bool = True, 
+                        micro_batch_index: Optional[int] = None, 
+                        model_node: Optional[ModelNode] = None, 
+                        trainable: bool = False
+                        ):
+        """
+        this bullshit do what????
+
+        example of self.merged_buffer:
+        { 
+            mini_batch1:{
+                micro_batch1: {...},
+                micro_batch2: {...},
+            }
+            mini_batch2:{
+                micro_batch1: {...},
+                micro_batch2: {...},
+            }
+        }
+        Args:
+            queues: a list of ray Queue, it seems the length always be 1
+            encode: whether encode or not, it seems only when model_node is None, encode is False
+            micro_batch_index: it seems always be None
+            model_node: related to self.merged_buffer, but don't know where to use
+            trainable: 
+        Returns:
+
+        """
+        print("debughh", queues, encode, micro_batch_index, model_node, trainable)
+
+
         mb0 = None
         if micro_batch_index is not None:
             mb0 = micro_batch_index
+
         data_list = [None] * len(queues)
         merged_buffer = self.merged_buffer[model_node]
+
         for index, queue in enumerate(queues):
             if index not in merged_buffer:
                 merged_buffer[index] = {}
@@ -162,23 +184,28 @@ class Executor:
                         break
                 if flag:
                     break
+
                 encoded_data = queue.get()
                 mb, data = decode_data(encoded_data)
                 if mb0 is None:
                     mb0 = mb
+                # only remove list or get the last of list???
                 if isinstance(data, list) and not trainable:
+                    print("debughh2", data, model_node)
                     data = data[-1]
                 if mb == mb0:
                     data_list[index] = data
                     break
                 merged_buffer[index][mb] = data
+        print("debughh3", self.merged_buffer)
         if encode:
             return encode_data(mb0, data_list)
+
         return data_list
 
-    def get_merged_data_locked(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
-        with self.model_locks[model_node]:
-            return self.get_merged_data(queues, encode, micro_batch_index, model_node, trainable)
+    # def get_merged_data_locked(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
+    #     with self.model_locks[model_node]:
+    #         return self.get_merged_data(queues, encode, micro_batch_index, model_node, trainable)
 
     @staticmethod
     def align_out_queues(queues, encode=False):
@@ -267,13 +294,13 @@ class Executor:
                 # behavior for models accept multiple inputs
                 # we need to deal with it later
                 assert not model_node.trainable
-                data = self.get_merged_data_locked(in_queue, micro_batch_index=micro_batch_index,
+                data = self.get_merged_data(in_queue, micro_batch_index=micro_batch_index,
                                                     model_node=model_node, trainable=model_node.trainable)
                 mb, query = decode_data(data)
             else:
                 mb, query = micro_batch_index, []
         else:
-            data = self.get_merged_data_locked([in_queue], micro_batch_index=micro_batch_index,
+            data = self.get_merged_data([in_queue], micro_batch_index=micro_batch_index,
                                                 model_node=model_node, trainable=model_node.trainable)
             assert len(data['data']) == 1
             data['data'] = data['data'][0]
