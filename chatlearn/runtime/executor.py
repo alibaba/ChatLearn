@@ -129,6 +129,7 @@ class Executor:
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
 
+
     def get_merged_data(self, 
                         queues: List[ray.util.queue.Queue],
                         encode: bool = True, 
@@ -137,67 +138,23 @@ class Executor:
                         trainable: bool = False
                         ):
         """
-        this bullshit do what????
-
-        example of self.merged_buffer:
-        { 
-            mini_batch1:{
-                micro_batch1: {...},
-                micro_batch2: {...},
-            }
-            mini_batch2:{
-                micro_batch1: {...},
-                micro_batch2: {...},
-            }
-        }
+        get data from queues for current node by dp-wise.
+        It will be executed in form of a for loop for dp size-times.
         Args:
-            queues: a list of ray Queue, it seems the length always be 1
+            queues: a list of ray Queue, it seems the length always be 1, the length of queues means
+            the number of input node. The queues[0].qsize() is the dp size of current node.
             encode: whether encode or not, it seems only when model_node is None, encode is False
             micro_batch_index: it seems always be None
             model_node: related to self.merged_buffer, but don't know where to use
-            trainable: 
-        Returns:
-
         """
-        print("debughh", queues, encode, micro_batch_index, model_node, trainable)
 
-
+        data_list = []
         mb0 = None
-        if micro_batch_index is not None:
-            mb0 = micro_batch_index
-
-        data_list = [None] * len(queues)
-        merged_buffer = self.merged_buffer[model_node]
-
         for index, queue in enumerate(queues):
-            if index not in merged_buffer:
-                merged_buffer[index] = {}
-            if mb0 in merged_buffer[index]:
-                data_list[index] = merged_buffer[index].pop(mb0)
-                continue
-            while True:
-                flag = False
-                while queue.qsize() == 0:
-                    if mb0 in merged_buffer[index]:
-                        data_list[index] = merged_buffer[index].pop(mb0)
-                        flag = True
-                        break
-                if flag:
-                    break
-
-                encoded_data = queue.get()
-                mb, data = decode_data(encoded_data)
-                if mb0 is None:
-                    mb0 = mb
-                # only remove list or get the last of list???
-                if isinstance(data, list) and not trainable:
-                    print("debughh2", data, model_node)
-                    data = data[-1]
-                if mb == mb0:
-                    data_list[index] = data
-                    break
-                merged_buffer[index][mb] = data
-        print("debughh3", self.merged_buffer)
+            encoded_data = queue.get()
+            mb, data = decode_data(encoded_data)
+            data_list.append(data)
+            mb0 = mb if mb0 is None else mb0
         if encode:
             return encode_data(mb0, data_list)
 
