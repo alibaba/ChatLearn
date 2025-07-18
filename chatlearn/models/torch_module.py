@@ -34,7 +34,7 @@ class TorchModule(BaseModule):
     name : str
         model name
     """
-
+    # pylint: disable=abstract-method
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -135,6 +135,9 @@ class TorchModule(BaseModule):
     @property
     def world_size(self):
         return dist.get_world_size()
+
+    def get_torchdist_rank(self):
+        return dist.get_rank()
 
     def _get_if_not_none(self, to_set: Optional[bool], default: bool) -> bool:
         if not default:
