@@ -15,11 +15,14 @@
 """Model FLow"""
 
 from collections import defaultdict, deque
+from typing import List, Callable, Dict
 
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import unwrap_func
 from chatlearn.utils.global_vars import reset_dependencies, set_dependencies, get_dependencies
 from chatlearn.utils.utils import flatten
+from chatlearn.runtime.dist_actor import DistModel
+from chatlearn.models.base_module import BaseModule
 from .decorator import decorate_class_func
 
 
@@ -50,7 +53,7 @@ class DummyData:
 class ModelNode:
     """ModelNode"""
 
-    def __init__(self, model, func_name):
+    def __init__(self, model: DistModel, func_name):
         self.model = model
         self.name = model.name
         self.func_name = func_name
@@ -175,7 +178,7 @@ class ModelFlow:
 
         return inner
 
-    def trace(self, models, compute_flow):
+    def trace(self, models: List[DistModel], compute_flow: Callable):
         """
         Trace the model compute_flow to get model graph.
 
@@ -186,8 +189,8 @@ class ModelFlow:
         compute_flow: callable
             compute_flow function
         """
-        local_models = [model.replicas[0].model for model in models]
-        self.name2remote_model = {model.name: model for model in models}
+        local_models: List[BaseModule] = [model.replicas[0].model for model in models]
+        self.name2remote_model: Dict[str, DistModel] = {model.name: model for model in models}
         for model in local_models:
             for func_name in self.cls.model_to_call_funcs[model]:
                 decorate_class_func(model.__class__, func_name, self.fake_compute)
@@ -205,10 +208,11 @@ class ModelFlow:
                 dummy_output = [dummy_output]
             for do in dummy_output:
                 self.return_model_nodes.append(do.from_node)
-
-        self.input_consumers = dummy_data.to_nodes
-        self.flow_topology = self.topological_sort()
-        self.model_nodes = flatten(self.flow_topology)
+        # self.input_consumers is the input model node
+        self.input_consumers: List[ModelNode] = dummy_data.to_nodes
+        # self.flow_topology: the final compute graph used for Executor
+        self.flow_topology: List[List[ModelNode]] = self.topological_sort()
+        self.model_nodes: List[ModelNode] = flatten(self.flow_topology)
         for i, current_node in enumerate(self.model_nodes):
             for j in range(i + 1, len(self.model_nodes)):
                 next_node = self.model_nodes[j]

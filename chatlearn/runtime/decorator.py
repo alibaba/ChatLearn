@@ -134,9 +134,11 @@ def preprocess_compute(func, trainable):
 
             for idx, arg_obj in enumerate(args):
                 batched_data_list[idx] = arg_obj
+                # manipulate in dp-wise
                 if CHATLEARN_REGROUP_TAG in arg_obj:
                     batched_data_list[idx] = regroup_by_concat_along_batch(arg_obj[CHATLEARN_REGROUP_TAG])
                 if INDEX_TAG in arg_obj:
+                    # there is redundancy data，and slice by INDEX_TAG
                     batched_data_list[idx] = slice_by_index_along_batch(batched_data_list[idx], arg_obj[INDEX_TAG])
                 assert isinstance(batched_data_list[idx], dict), \
                     f"expect output arg for {self.name} to be a dict, while {type(batched_data_list[idx])}, arg: {batched_data_list[idx]}"
