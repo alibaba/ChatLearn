@@ -29,7 +29,7 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.decorator import decorate_class_func
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
-from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup
+from chatlearn.synchronizer.v2 import ParameterSyncGroup
 from chatlearn.synchronizer.parameter_sync_fsdp import FSDP2VllmParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
@@ -137,19 +137,9 @@ class ModelManager:
             logger.info(
                 f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
             group_name = self._get_group_name(src_model, dst_model)
-            sync_frequency = self._get_sync_frequency(dst_model)
-
+            sync_frequency = dst_model.module_args.sync_frequency
             if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
                 sync_group = FSDP2VllmParameterSyncGroup(
-                    self._name2distmodel[src_model.name],
-                    self._name2distmodel[dst_model.name],
-                    group_name,
-                    sync_frequency,
-                    self.error_signal
-                )
-            elif self.runtime_args.use_parameter_sync_v2:
-                from chatlearn.synchronizer.v2 import ParameterSyncGroup as V2 # pylint: disable=import-outside-toplevel
-                sync_group = V2(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
                     group_name,
@@ -174,15 +164,12 @@ class ModelManager:
     def _get_group_name(self, src_model, dst_model):
         return src_model.name + "2" + dst_model.name
 
-    def _get_sync_frequency(self, model):
-        return model.parameter_sync_frequency
-
     def set_parameter_sync(self, src_model, tgt_model):
         group_name = self._get_group_name(src_model, tgt_model)
         if group_name in self.parameter_sync_groups:
             logger.warning(f"{group_name} already set, ignore")
         else:
-            sync_frequency = self._get_sync_frequency(tgt_model)
+            sync_frequency = tgt_model.module_args.sync_frequency
             assert sync_frequency >= 0, \
                 f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
             logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
@@ -216,13 +203,6 @@ class ModelManager:
 
                 # parameter sync
                 sync_group.sync(requires_grad, validate, dryrun=dryrun)
-
-                refs = []
-                for replica in dst_model.replicas:
-                    refs.append(replica.call_remote_funcs('release_params_sync_buffers'))
-                for replica in src_model.replicas:
-                    refs.append(replica.call_remote_funcs('release_params_sync_buffers'))
-                future.wait(refs, return_output=True)
 
                 # offload policy trainer
                 future.wait(src_model.offload())
@@ -261,7 +241,6 @@ class ModelManager:
             model: BaseModule
         """
         self.set_func_decorator(model)
-        model.finalize()
 
         def actor_type():
             if isinstance(model, VLLMModule):
@@ -474,8 +453,6 @@ class ModelManager:
             concurrent.futures.wait(futures)
 
     def clean(self):
-        for group in self.parameter_sync_groups.values():
-            group.destroy_collective_group()
         for dist_model in self._name2distmodel.values():
             for dist_actor in dist_model.replicas:
                 for actor in dist_actor.all_actors:

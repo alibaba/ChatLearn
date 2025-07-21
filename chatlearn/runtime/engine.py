@@ -423,9 +423,9 @@ class Engine(BaseEngine):
         data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
             self.runtime_args.train_micro_batch_size,
-            self.env._padding_config,
             self.runtime_args.max_replay_episode,
-            self.runtime_args.replay_episode_offset)
+            self.runtime_args.replay_episode_offset
+        )
 
         logger.info(f"{LOG_START} " + get_full_proc_memory_info('Before first param sync'))
         dump_root_path = os.getenv("DEBUG_SYNC_PARAMETERS_PATH", "")

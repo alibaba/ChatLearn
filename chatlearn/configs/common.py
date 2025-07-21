@@ -8,7 +8,7 @@ import warnings
 
 from omegaconf import MISSING
 
-from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE, RAY_PG_STRATEGY
+from chatlearn.utils.constant import RAY_PG_STRATEGY
 
 
 class BaseConfig:
@@ -420,34 +420,9 @@ class RuntimeConfig(BaseConfig):
     coalesced_buffer_mb: int = field(
         default=100, metadata={"help": "coalesce_buffer size in mb"}
     )
-    concurrent_comm: bool = field(
-        default=True,
-        metadata={
-            "help": "whether concurrent parameter sync or not, for megatron to vllm"
-        },
-    )
-    param_sync_comm_type: str = field(
-        default=PARAM_SYNC_COMM_TYPE.BROADCAST.value,
-        metadata={"help": "parameter sync communication type, broadcast/p2p"},
-    )
-    param_sync_max_workers: Optional[int] = field(
-        default=None, metadata={"help": "parameter sync max workers"}
-    )
-    routed_expert_regrouping_comm_type: str = field(
-        default="alltoall",
-        metadata={
-            "help": "communication type to regroup routed experts, allgather/alltoall"
-        },
-    )
     bucket_size_mb_in_memory_manager: int = field(
         default=1024,
         metadata={"help": "bucket size in the memory manager to reduce peak memory"},
-    )
-    free_sync_collective_group: bool = field(
-        default=False,
-        metadata={
-            "help": "free collective group after parameter synchronization and rebuild before next synchronization"
-        },
     )
     cpu_schedule_strategy: str = field(
         default=RAY_PG_STRATEGY.SPREAD.value,

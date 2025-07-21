@@ -73,12 +73,6 @@ class FSDPModule(TorchModule):
                 "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
             self._num_replica = self.total_gpu // self._num_gpu_per_replica
      
-    def get_visible_gpus(self):
-        """
-        :meta private:
-        """
-        return ray.get_gpu_ids()
-
     @staticmethod
     def init_fn(x: torch.nn.Module):
         if torch.distributed.get_rank() != 0:
@@ -209,15 +203,6 @@ class FSDPModule(TorchModule):
             return dist.get_rank(group=dp_group)
         else:
             return dist.get_rank()
-
-    def tensor_parallel_rank(self):
-        return self.data_parallel_rank
-
-    def pipeline_parallel_rank(self):
-        return 1
-
-    def expert_model_parallel_size(self):
-        return 1
 
     def check_sp_compatibility(self, config):
         assert config.num_attention_heads % self.sp_size == 0, \

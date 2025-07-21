@@ -223,7 +223,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.offload_weights()
 
     def worker_dump_parameters(self, dump_path_root):
-        tp_rank = self.tensor_parallel_rank()
+        tp_rank = parallel_state.get_tensor_model_parallel_rank()
         model = self.model
         if isinstance(model, list):
             model = model[0]
@@ -232,9 +232,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
         self._logger.info(f"dump parameters to {dir_path}")
-        for name, param in self.named_parameters.items():
+        for name, weight in self.model.state_dict().items():
             pt_file = os.path.join(dir_path, name)
-            torch.save(param.data.clone(), pt_file)
+            torch.save(weight.data.clone(), pt_file)
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -381,12 +381,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def is_last_rank(self):
         return True
 
-    def num_layers(self):
-        """
-        :meta private:
-        """
-        return self.llm.llm_engine.model_config.hf_config.num_hidden_layers
-
     def peak_memory(self):
         """
         :meta private:
@@ -411,33 +405,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     @property
     def model(self):
         return self._model
-
-    def tensor_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return parallel_state.get_tensor_model_parallel_rank()
-
-    def pipeline_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return get_pipeline_model_parallel_rank()
-
-    def tensor_model_parallel_size(self):
-        return self.tensor_and_expert_model_parallel_size()
-
-    def expert_model_parallel_size(self):
-        return 1
-
-    def tensor_and_expert_model_parallel_size(self):
-        """
-        get tensor_and_expert_model_parallel_size
-        :meta private:
-        """
-        # vLLM not supported to enable expert parallel size
-        # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
-        return parallel_state.get_tensor_model_parallel_world_size()
 
     def offload_weights(self): # is_param_sync=True
         """

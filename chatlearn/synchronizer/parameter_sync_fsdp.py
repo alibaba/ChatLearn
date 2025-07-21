@@ -32,6 +32,7 @@ class FSDP2VllmParameterSyncGroup:
         self.error_signal = error_signal
         self.frequency = frequency
 
+        # TODO: use a new name
         self.setup_collective_group()
 
     def setup_collective_group(self):

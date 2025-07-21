@@ -126,22 +126,6 @@ class DistActor:
     def create_actor(self, num_gpus, placement_group, group_index):
         return self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
 
-    def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
-        refs = []
-        all_ranks = []
-        for i, actor in enumerate(self.all_actors):
-            rank = i + rank_offset
-            ref = actor.setup_collective_group.remote(
-                rank=rank,
-                world_size=world_size,
-                backend=backend,
-                group_name=group_name)
-            refs.append(ref)
-            all_ranks.append(rank)
-            self.rank_to_actors[rank] = actor
-        self.all_ranks = all_ranks
-        return refs
-
     def _setup_ranks(self, rank_offset):
         all_ranks = []
         for i, actor in enumerate(self.all_actors):
@@ -367,7 +351,6 @@ class DistModel:
                           "after_episode",
                           "get_and_clear_metrics",
                           "validate",
-                          "destroy_collective_group",
                           "terminate",
                           "peak_memory",
                           "empty_cache",
@@ -376,7 +359,6 @@ class DistModel:
                           "onload",
                           "eval",
                           "train",
-                          "set_src_parameter_model",
                           "set_colocate"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
