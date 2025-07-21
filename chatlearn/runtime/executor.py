@@ -98,7 +98,6 @@ class Executor:
     def update_models(self, models: List[DistModel]) -> None:
         """
         set self.models by input models
-        TODO: why do this
         """
         
         # update local model with remote models
@@ -185,6 +184,8 @@ class Executor:
             micro_batch_index: it seems always be None
             model_node: related to self.merged_buffer, but don't know where to use
         """
+        assert micro_batch_index==None, "micro_batch_index should be None, will be deprecated and will be removed in future"
+        assert model_node==None, "model_node should be None, will be deprecated and will be removed in future"
         data_list = []
         mb0 = None
         for index, queue in enumerate(queues):
