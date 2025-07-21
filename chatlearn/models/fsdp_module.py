@@ -46,6 +46,7 @@ class FSDPModule(TorchModule):
     name : str
         model name
     """
+    # pylint: disable=abstract-method
 
     def __init__(self, *args, **kwargs):
 

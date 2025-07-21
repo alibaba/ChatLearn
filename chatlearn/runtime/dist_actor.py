@@ -448,3 +448,13 @@ class DistModel:
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'
+
+    def assign_ranks(self):
+        """assign an unique id to each actor of the model"""
+        actor_id = 0
+        for replica in self.replicas:
+            replica.all_ranks = []
+            for actor in replica.all_actors:
+                replica.rank_to_actors[actor_id] = actor
+                replica.all_ranks.append(actor_id)
+                actor_id += 1

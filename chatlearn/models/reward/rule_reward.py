@@ -22,7 +22,7 @@ from chatlearn.utils.rule_reward_score import math
 
 class RuleReward(BaseModule):
     """rule reward"""
-
+    # pylint: disable=abstract-method
     def setup(self):
         self.stats = {}
         self._metric_prefix = "rulereward"
