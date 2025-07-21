@@ -15,8 +15,10 @@
 """Environment"""
 
 from itertools import cycle
+from typing import Optional
 
 from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from .executor import Executor
@@ -29,11 +31,6 @@ class Environment(Executor):
     def __init__(self, model_flow):
         """
         Environment
-
-        Args
-        ----
-        models : List[BaseModule]
-            a list of modules
         """
         super().__init__(model_flow)
         self._batch_size = None
@@ -132,23 +129,22 @@ class Environment(Executor):
 
         return batch_size
 
-    def batch_per_episode(self, model=None):
+    def global_dp_size(self, model: Optional[DistModel]=None) -> int:
+        """
+        !!! it seems just return num_replica * dp_size
+        the number is used for split data in Environment.execute
+        """
         if model is None:
             model = self.models[0]
 
         num_replica = len(model.replicas)
-        if self.sample_per_episode >= num_replica:
-            _batch_per_episode = num_replica
-        else:
-            _batch_per_episode = self.sample_per_episode
         dp_size = len(model.replicas[0].dp_rank_to_actors)
-        if dp_size > 1:
-            _batch_per_episode *= dp_size
+        assert self.sample_per_episode >= num_replica, "sample_per_episode need larger than num replica"
+        assert dp_size >= 1, "dp size need larger or equal to 1"
 
+        return num_replica * dp_size
 
-        return _batch_per_episode
-
-    def num_iteration(self, model=None):
+    def num_iteration(self, model: Optional[DistModel]=None):
         """Calculate the number of iterations for a model in the environment.
 
         Args:
@@ -160,22 +156,8 @@ class Environment(Executor):
         if model is None:
             model = self.models[0]
 
-        _batch_per_episode = self.batch_per_episode(model)
-        # dp_size: numer of dp
-        dp_size = len(model.replicas[0].dp_rank_to_actors)
-
-        if _batch_per_episode < dp_size:
-            raise NotImplementedError(
-                "Currently ChaLearn requires batch_per_episode >= len(dp_rank_to_actors), "
-                f"got {_batch_per_episode} and {dp_size}. "
-                f"Please allocate more replicas to inference model {model.name} to walk-around the issue."
-            )
-        assert _batch_per_episode % dp_size == 0, (
-            "Inner loop in Executor.generate_step_one_model_internal() depends on dp_size of each replica."
-        )
-        return _batch_per_episode // dp_size
-
-
+        # !!! it seems just return num_replica
+        return self.global_dp_size(model) // len(model.replicas[0].dp_rank_to_actors)
 
     def execute(self, is_eval):
         data_queues, out_queue = self.setup_queues()

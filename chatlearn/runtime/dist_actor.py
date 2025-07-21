@@ -163,7 +163,11 @@ class DistActor:
     def placement_group(self, pg):
         self._placement_group = pg
 
-    def group_dist_actors_by_tp_rank(self):
+    def group_dist_actors_by_dp_rank(self):
+        """
+        get a dp rank to actors map(self.dp_rank_to_actors).
+        Warning: vllm DistActor may have an additional engine
+        """
         self.dp_rank_to_actors = defaultdict(list)
         self.data_parallel_size = future.get(self.all_actors[0].get_data_parallel_size.remote())
         if self.data_parallel_size is None:
@@ -430,9 +434,9 @@ class DistModel:
     def use_vllm_backend(self):
         return vllm_exist and isinstance(self.replicas[0].model, VLLMModule)
 
-    def group_dist_actors_by_tp_rank(self):
+    def group_dist_actors_by_dp_rank(self):
         for replica in self.replicas:
-            replica.group_dist_actors_by_tp_rank()
+            replica.group_dist_actors_by_dp_rank()
 
     @property
     def enable_offload(self):
