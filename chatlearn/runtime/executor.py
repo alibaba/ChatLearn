@@ -284,35 +284,32 @@ class Executor:
 
     def generate_step_one_model_internal(self, model_node, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
                                          is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
+
         """
-        Args:
-            model: DistModel
-            in_queue: Queue
-            step_num: int
-            replica: current model replica of DistModel
-            func_name: str
-            to_empty_cache: None or boolean
+        forward for a model replica
         """
         model = model_node.model
-        kwargs = {}
 
+        if model.name=="policy_trainer":
+            breakpoint()
         replica_num = len(model.replicas)
         output = []
         last_step_start = max(self.num_iteration(model) - replica_num, 0)
         is_last_batch = step_num >= last_step_start
-        kwargs["is_last_batch"] = is_last_batch
-        if is_eval is not None:
-            kwargs["is_eval"] = is_eval
-        if to_empty_cache is not None:
-            kwargs["to_empty_cache"] = to_empty_cache
-        if to_onload is not None:
-            kwargs["to_onload"] = to_onload
-        if to_offload is not None:
-            kwargs["to_offload"] = to_offload
+        kwargs = {
+            "is_last_batch": is_last_batch,
+            "is_eval": is_eval,
+            "to_empty_cache": to_empty_cache,
+            "to_onload": to_onload,
+            "to_offload": to_offload
+        }
+
         if isinstance(replica.model, VLLMModule):
+            # for VLLMModule we only to pass data to vllm_engine for every replica
             mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
             assert isinstance(query, list)
             ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
+            # output length is num replica
             output.append((ret, mb))
         else:
             for _, actors in replica.dp_rank_to_actors.items():
@@ -320,26 +317,22 @@ class Executor:
                 assert isinstance(query, list)
                 for actor in actors:
                     ret = replica.call_actor_remote_func(actor, func_name, *query, **kwargs)
+                    # output length is num actor
                     output.append((ret, mb))
         return output
 
     def generate_step_one_model(self, model_node, replica, in_queue, out_queue, step_num, func_name="forward_step",
                                 to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
-        Args:
-            model: DistModel
-            in_queue: Queue
-            out_queue: Queue
-            step_num: int
-            func_name: str
-            to_empty_cache: None or boolean
+        forward for a model replica, and only set the output of last rank in dp rank to out_queue
         """
         # output is a list of tuple, each tuple is (remote_refs, mb)
         output = self.generate_step_one_model_internal(model_node, in_queue, step_num, replica, func_name, to_empty_cache,
                                                        is_eval, to_onload, to_offload, micro_batch_index)
-        # numer of dp
+
+        # for get the data in last actor of a dp rank
         # replica.dp_rank_to_actors : Dict[int, List[Actor]]
-        num_dp_rank = len(replica.dp_rank_to_actors)
+        num_dp_rank = len(replica.dp_rank_to_actors) # numer of actors in a dp rank
         num_output = len(output)
         assert num_output % num_dp_rank == 0, (
             f"The number of outputs ({num_output}) must be divisible by "
@@ -360,7 +353,10 @@ class Executor:
         remote_refs = [item[0] for item in output]
         return out_queue, remote_refs
 
-    def regroup_inqueue(self, model_node, queues, is_eval=False):
+    def regroup_inqueue(self, model_node: ModelNode, queues, is_eval=False):
+        """
+        re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
+        """
         if self.args.policy_to_regroup_queue == "global_barrier":
             # barrier to regroup all queues of producer node
             if not isinstance(queues, list):
@@ -373,6 +369,9 @@ class Executor:
             raise RuntimeError(f"Unsupported policy_to_regroup_queue {self.args.policy_to_regroup_queue}.")
 
     def compute_loop_one_model(self, model_node: ModelNode, num_batch=None):
+        """
+        forward for all model replica in the model mode
+        """
         logger.info(f"{LOG_START} start compute_loop for {model_node}, is_eval={self.is_eval}")
         model = model_node.model
         is_eval = self.is_eval
@@ -421,6 +420,9 @@ class Executor:
             self._models_and_results_to_wait.append((model_node, results))
 
     def compute_loop(self, out_queue, num_batch=None):
+        """
+        compute for all model node in executor
+        """
         for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
                 self.compute_loop_one_model(model_node, num_batch)
@@ -449,6 +451,10 @@ class Executor:
             self.get_all_merged_data(data, out_queue, encode=False)
 
     def setup_queues(self):
+        """
+        setup queues for input_node and output queues for every model node
+        if node is return_model_nodes, there will be an external queue for output
+        """
         data_queues = []
         out_queue = Queue()
         for model_node in self.model_flow.input_consumers:

@@ -146,12 +146,7 @@ class Environment(Executor):
 
     def num_iteration(self, model: Optional[DistModel]=None):
         """Calculate the number of iterations for a model in the environment.
-
-        Args:
-            model: an model in environment. if None, use the first model. default: None.
-
-        Returns:
-            The number of iterations for the model in the environment
+        !!! It seems equal to num_replica
         """
         if model is None:
             model = self.models[0]
@@ -165,6 +160,7 @@ class Environment(Executor):
         # prepare batches for all model replicas
         for mb in range(self.global_dp_size(self.models[0])):
             current_data_producer = next(data_producer_iter)
+            # master is vllm.engine or self.all_actors[0]
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             for data_queue in data_queues:
