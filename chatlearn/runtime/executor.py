@@ -14,15 +14,11 @@
 # ==============================================================================
 """Executor"""
 
-import threading
 from collections import defaultdict
 from itertools import cycle
-from typing import List, Dict, Callable, Optional, Union
+from typing import List, Callable, Optional, Union
 
-import ray
-from ray import ObjectRef
 from ray.util.queue import Queue
-import torch
 
 from chatlearn.models.base_module import BaseModule
 from chatlearn.models.vllm_module import VLLMModule
@@ -99,7 +95,7 @@ class Executor:
         """
         set self.models by input models
         """
-        
+
         # update local model with remote models
         new_models = []
         name_to_new_models = {model.name: model for model in models}
@@ -167,11 +163,12 @@ class Executor:
                 out_queues.append(out_queue)
         return out_queues
 
-    def get_merged_data(self, 
+    # pylint: disable-next=unused-argument
+    def get_merged_data(self,
                         queues: List[Queue],
-                        encode: bool = True, 
-                        micro_batch_index: Optional[int] = None, 
-                        model_node: Optional[ModelNode] = None, 
+                        encode: bool = True,
+                        micro_batch_index: Optional[int] = None,
+                        model_node: Optional[ModelNode] = None,
                         trainable: bool = False
                         ):
         """
@@ -290,8 +287,6 @@ class Executor:
         """
         model = model_node.model
 
-        if model.name=="policy_trainer":
-            breakpoint()
         replica_num = len(model.replicas)
         output = []
         last_step_start = max(self.num_iteration(model) - replica_num, 0)
