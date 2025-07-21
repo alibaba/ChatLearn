@@ -185,7 +185,6 @@ class Executor:
             model_node: related to self.merged_buffer, but don't know where to use
         """
         assert micro_batch_index==None, "micro_batch_index should be None, will be deprecated and will be removed in future"
-        assert model_node==None, "model_node should be None, will be deprecated and will be removed in future"
         data_list = []
         mb0 = None
         for index, queue in enumerate(queues):
