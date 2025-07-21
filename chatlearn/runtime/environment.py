@@ -163,7 +163,7 @@ class Environment(Executor):
         data_queues, out_queue = self.setup_queues()
         data_producer_iter = cycle(iter(self.models[0].replicas))
         # prepare batches for all model replicas
-        for mb in range(self.batch_per_episode(self.models[0])):
+        for mb in range(self.global_dp_size(self.models[0])):
             current_data_producer = next(data_producer_iter)
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)

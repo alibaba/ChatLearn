@@ -130,7 +130,7 @@ class Executor:
         return next(self.model2iter[model])
 
     @staticmethod
-    def align_out_queues(queues: List[Queue], encode=False) -> List[ObjectRef]:
+    def align_out_queues(queues: List[Queue], encode=False) -> List[Queue]:
         """
         Merge every queue in queues to the min_qsize in queues.
         !!!queue.qsize() means the replica number of this DistModel 
@@ -206,12 +206,12 @@ class Executor:
             res = self.get_merged_data(queues, encode)
             out_queue.put(res)
 
-    def rebatch_all_merged_data(self, model_node: ModelNode, in_queues: List[Queue], is_eval=False):# pylint: disable=unused-argument
+    def rebatch_all_merged_data(self, model_node: ModelNode, in_queues: List[Queue], is_eval=False) -> List[Queue]:# pylint: disable=unused-argument
         """
-
+        re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
+        warning: input_queues and output_queues are ray.util.queue.Queue, we can't get real data in executor.
+        will actual merge data in !!!decorator.preprocess_compute
         """
-        if model_node.model.name=="reward":
-            breakpoint()
         # if this node is the first node, just pass the queues
         if not model_node.input_nodes:
             return in_queues
@@ -257,7 +257,10 @@ class Executor:
                                                               INDEX_TAG: (q_idx % division, division)}))
         return out_queues
 
-    def get_next_data(self, in_queue, model_node, micro_batch_index):
+    def get_next_data(self, in_queue: Union[Queue, List[Queue]], model_node: ModelNode, micro_batch_index):
+        """
+        get a dp-rank data
+        """
         if isinstance(in_queue, list):
             if len(in_queue) > 0:
                 # this should happen for inference models, will trigger bug for training models
