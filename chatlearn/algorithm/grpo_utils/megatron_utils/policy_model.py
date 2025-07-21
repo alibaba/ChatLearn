@@ -27,6 +27,8 @@ from torch import Tensor
 
 from chatlearn.configs.common import BaseModelConfig
 
+from ..loss_gallery import calculate_grpo_loss
+from .train_helper import vocab_parallel_entropy
 
 class PolicyModel(GPTModel):
     """PolicyModel"""
@@ -134,17 +136,17 @@ class PolicyModel(GPTModel):
             self.compute_language_model_loss(labels, all_token_logits) * -1
         )
 
-        logprobs_diff = forward_logprob - old_logprobs
-        logprobs_diff = torch.clamp(logprobs_diff, max=self.module_args.diff_clip_ratio)
-        ratio = torch.exp(logprobs_diff)
-        pg_loss = -advantages.unsqueeze(-1) * ratio
-        pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(
-            ratio, 1.0 - self.module_args.neg_clip_ratio, 1.0 + self.module_args.pos_clip_ratio
+        pg_loss = calculate_grpo_loss(
+            log_probs=forward_logprob,
+            old_log_probs=old_logprobs,
+            advantages=advantages,
+            diff_clip_ratio=self.module_args.diff_clip_ratio,
+            pos_clip_ratio=self.module_args.pos_clip_ratio,
+            neg_clip_ratio=self.module_args.neg_clip_ratio,
+            final_clip_ratio=self.module_args.final_clip_ratio,
         )
-        pg_loss_clip = torch.max(pg_loss, pg_loss_2)
-        pg_loss_upperbound = torch.ones_like(pg_loss) * self.module_args.final_clip_ratio
-        pg_loss = torch.min(pg_loss_clip, pg_loss_upperbound)
-        assert not torch.isnan(pg_loss).any(), "pg loss is nan"
+
+        entropy_loss = vocab_parallel_entropy(all_token_logits).transpose(0, 1)
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
@@ -155,6 +157,6 @@ class PolicyModel(GPTModel):
 
         return {
             'pg_loss': pg_loss,
-            'entropy_loss': -forward_logprob,
+            'entropy_loss': entropy_loss,
             'kl_loss': kl_loss,
         }
