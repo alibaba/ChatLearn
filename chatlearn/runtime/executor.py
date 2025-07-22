@@ -14,6 +14,7 @@
 # ==============================================================================
 """Executor"""
 
+
 from collections import defaultdict
 from itertools import cycle
 from typing import List, Callable, Optional, Union
@@ -181,7 +182,8 @@ class Executor:
             micro_batch_index: it seems always be None
             model_node: related to self.merged_buffer, but don't know where to use
         """
-        assert micro_batch_index==None, "micro_batch_index should be None, will be deprecated and will be removed in future"
+        assert micro_batch_index is None, "micro_batch_index should be None, will be deprecated and removed in future"
+        logger.warning(f"model_node={model_node} and trainable={trainable} is never used, will be deprecated and removed in future")
         data_list = []
         mb0 = None
         for index, queue in enumerate(queues):
