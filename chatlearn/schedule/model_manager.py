@@ -17,17 +17,19 @@
 import concurrent.futures
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from typing import Tuple, List
 import time
 
 import ray
 import ray.experimental.state.api
 
+from chatlearn.configs.common import BaseConfig
 from chatlearn.launcher import dlc_utils
+from chatlearn.models.base_module import BaseModule
 from chatlearn.models.fsdp_module import FSDPModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.runtime.decorator import decorate_class_func
-from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
+from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error, decorate_class_func
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
 from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup
 from chatlearn.synchronizer.parameter_sync_fsdp import FSDP2VllmParameterSyncGroup
@@ -36,13 +38,14 @@ from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
 from .port_manager import PortManager
+from .resource_manager import ResourceManager
 from ..utils import future
 
 
 class ModelManager:
     """ModelManager"""
 
-    def __init__(self, models, resouce_manager, global_args):
+    def __init__(self, models: Tuple[BaseModule], resouce_manager: ResourceManager, global_args: BaseConfig):
         self.local_models = models
         self.resouce_manager = resouce_manager
         self.dist_models = []
@@ -83,6 +86,9 @@ class ModelManager:
     def remote(self) -> list:
         """
         convert model to remote
+        1. create DistModel and DistActor object for every BaseModule
+        2. place every DistActor to specific device
+        3. set environment variables for every DistActor
         """
         logger.info(f"{LOG_START} model_manager start to convert model to remote")
         t1 = time.time()
@@ -99,7 +105,7 @@ class ModelManager:
         total_gpu_required = self._get_total_gpu_required()
         if total_gpu_required > self.resouce_manager.total_gpu:
             raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " + \
-                               f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
+                                f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
         if self.resouce_manager.total_gpu > total_gpu_required:
             logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " + \
                            f"while the number of required gpus is {total_gpu_required}, " + \
@@ -109,7 +115,8 @@ class ModelManager:
         logger.info(f"{LOG_START} model_manager convert model to remote, get_total_gpu_required(s):{(t2-t1)}")
         env_list = []
         for group in self.runtime_args.colocation:
-            colocate_models = [self._name2distmodel[name] for name in group]
+            colocate_models: List[DistModel] = [self._name2distmodel[name] for name in group]
+            # it seems very cost time
             self.place_models_to_remote_devices(colocate_models, env_list)
             if len(colocate_models) > 1:
                 set_colocate = []
@@ -121,10 +128,10 @@ class ModelManager:
                 remote_states.add(name)
         t3 = time.time()
         logger.info(f"{LOG_START} model_manager convert model to remote, set_colocate(s):{(t3-t2)}")
-        for model in self.dist_models:
+        for dist_model in self.dist_models:
             # place non-colocate models
-            if model.name not in remote_states:
-                self.place_models_to_remote_devices([model], env_list)
+            if dist_model.name not in remote_states:
+                self.place_models_to_remote_devices([dist_model], env_list)
         self.set_dist_env_concurrent(env_list)
         self.converted = True
         t4 = time.time()
