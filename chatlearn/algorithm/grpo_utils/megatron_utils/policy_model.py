@@ -28,7 +28,7 @@ from torch import Tensor
 from chatlearn.configs.common import BaseModelConfig
 
 from ..loss_gallery import calculate_grpo_loss
-from .train_helper import vocab_parallel_entropy
+from .train_helper import entropy_from_tensor_parallel_logits
 
 class PolicyModel(GPTModel):
     """PolicyModel"""
@@ -146,7 +146,7 @@ class PolicyModel(GPTModel):
             final_clip_ratio=self.module_args.final_clip_ratio,
         )
 
-        entropy_loss = vocab_parallel_entropy(all_token_logits).transpose(0, 1)
+        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).transpose(0, 1)
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
