@@ -15,9 +15,13 @@
 # ==============================================================================
 
 import copy
+from typing import Dict
 from functools import partial
 
 import torch
+from torch import distributed as dist
+
+from megatron.core import mpu
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import (get_args, get_timers, is_last_rank, get_tokenizer,
                                print_rank_last)
@@ -253,22 +257,39 @@ def get_batch(batch_data):
     return inputs
 
 
-def loss_func(inputs, losses):
-    ppo_losses, kl_losses, entropy_losses = losses
-    loss_mask = inputs["all_token_loss_mask"]
-    ppo_loss = torch.mean(ppo_losses)
-    with torch.no_grad():
-        num_tokens = loss_mask.sum().float()
-        # reduced all losses in this microbatch
-        data = average_losses_across_data_parallel_group(
-            [ppo_losses.sum(), entropy_losses.sum(), kl_losses.sum(), num_tokens]
-        )
-        reduced_data = {
-            "pg_loss": (data[0], data[-1]),
-            "entropy_loss": (data[1], data[-1]),
-            "kl_loss": (data[2], data[-1]),
-        }
-    return ppo_loss, reduced_data
+def loss_func(
+    inputs: Dict,
+    losses: Dict[str, torch.Tensor]
+):
+    """Loss function.
+
+    Args:
+        inputs (Dict): The full inputs of this micro-batch.
+        losses (Dict[str, torch.Tensor]): The tensor with the losses
+
+    Returns:
+        the loss scalar for this micro-batch
+        the number of non-padded tokens in this microbatch
+        a dict containing reporting metrics on the loss and number of tokens across
+            the data parallel ranks
+    """
+    require_bp_keys = ['pg_loss']
+
+    loss_mask = inputs["all_token_loss_mask"].float()
+    total_loss_for_bp = 0
+    reporting_losses = {}
+    for key, loss in losses.items():
+        if key not in require_bp_keys:
+            loss = loss.detach()
+        final_loss = (loss.float() * loss_mask).sum()
+        if key in require_bp_keys:
+            total_loss_for_bp = total_loss_for_bp + final_loss
+
+        reporting_losses[key] = final_loss.detach().clone().to(torch.float)
+
+    num_tokens = loss_mask.sum().clone().detach().to(torch.int)
+    reporting_losses["num_tokens"] = num_tokens
+    return total_loss_for_bp, num_tokens, reporting_losses
 
 
 def forward_step(data_iterator, model):
@@ -334,3 +355,35 @@ def inference_forward_step(data_iterator, model):
 
     # NOTE: The latter (loss function) just returns the output tensor (the first argument).
     return output_tensor, lambda x, **_: x
+
+
+class _VocabParallelEntropy(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, logits: torch.Tensor) -> torch.Tensor:
+        # NOTE: force fp32
+        vocab_parallel_logits = logits.float() if logits.dtype != torch.float32 else logits.clone()
+
+        logits_max = torch.max(vocab_parallel_logits, dim=-1)[0]
+        dist.all_reduce(logits_max, op=dist.ReduceOp.MAX, group=mpu.get_tensor_model_parallel_group())
+
+        vocab_parallel_logits -= logits_max.unsqueeze(-1)
+        exp_logits = vocab_parallel_logits.exp_()
+        sum_exp_logits = exp_logits.sum(dim=-1)
+        dist.all_reduce(sum_exp_logits, group=mpu.get_tensor_model_parallel_group())
+
+        softmax_times_logits = (
+            exp_logits
+            .div_(sum_exp_logits.unsqueeze(-1))
+            .mul_(logits)
+            .sum(dim=-1)
+        )
+        dist.all_reduce(softmax_times_logits, group=mpu.get_tensor_model_parallel_group())
+        return logits_max + sum_exp_logits.log() - softmax_times_logits
+
+def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
+    """Compute entropy loss on tp-sharded logits.
+
+    Args:
+        logits: (*, vocab_size // tp_size)
+    """
+    return _VocabParallelEntropy.apply(logits)

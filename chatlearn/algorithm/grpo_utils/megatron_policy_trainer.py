@@ -17,6 +17,7 @@ import inspect
 import os
 from contextlib import nullcontext
 from typing import Union
+from collections import defaultdict
 
 import torch
 from megatron.core import mpu
@@ -249,43 +250,27 @@ class MegatronPolicyTrainer(MegatronModule):
         if args.empty_unused_memory_level >= 2:
             torch.cuda.empty_cache()
 
-        loss_reduced = {}
-        # NOTE: for compatability
+        # NOTE: per-token-average metrics, besides loss_per_microbatch,
+        # losses_reduced also contains num_tokens_per_microbatch
+        loss_reduced_for_metric = {}
         if mpu.is_pipeline_last_stage(ignore_virtual=True):
-            total_losses = {}
-            for i in range(len(losses_reduced)):
-                for key in losses_reduced[i].keys():
-                    if key not in total_losses:
-                        total_losses[key] = []
-                    total_losses[key].append(losses_reduced[i][key])
-            # Average loss across microbatches.
-
-            # accumulate and average lbl_loss and z-loss for MoE
-            # Get all keys; looking at first element in losses_reduced is insufficient with
-            # virtual stages and models with LBL since only the last virtual stage in the
-            # last physical stage has the true loss and the LBL, while all other stages have
-            # LBL only.
-            # different python processes may iterate over the same set in different orders, so list is used here.
+            total_losses = defaultdict(list)
+            for losses_per_micro_batch in losses_reduced:
+                for k, v in losses_per_micro_batch.items():
+                    total_losses[k].append(v)
+            # sum across microbatches.
             keys = sorted(list(total_losses.keys()))
-            for key in keys:
-                losses_reduced_for_key = torch.stack(
-                    [item[0] for item in total_losses[key]]
-                )
-                num_tokens_reduced_for_key = torch.stack(
-                    [item[1] for item in total_losses[key]]
-                )
-                loss_reduced[key] = (
-                    losses_reduced_for_key.sum() / num_tokens_reduced_for_key.sum()
-                )
-                # Load balancing losses need to be summed across virtual stages (not averaged),
-                # so multiply back the number of virtual stages in a physical stage.
-                if key == "load balancing loss":
-                    if args.virtual_pipeline_model_parallel_size is not None:
-                        loss_reduced[key] *= args.virtual_pipeline_model_parallel_size
-                if key == "router z loss":
-                    if args.virtual_pipeline_model_parallel_size is not None:
-                        loss_reduced[key] *= args.virtual_pipeline_model_parallel_size
-
+            keys.pop(keys.index('num_tokens'))
+            loss_for_dp_reduce = torch.stack(
+                [sum(total_losses[key]).float() for key in keys] +
+                [sum(total_losses.pop('num_tokens')).float()]
+            )
+            torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group())
+            loss_reduced_for_metric = {
+                key: (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
+                for i, key in enumerate(keys)
+            }
+            
         self.iteration_for_log += 1
 
         self.args.consumed_train_samples += (
@@ -300,7 +285,7 @@ class MegatronPolicyTrainer(MegatronModule):
         if self.args.log_params_norm:
             params_norm = calc_params_l2_norm(self.model)
         report_memory_flag = training_log(
-            loss_reduced,
+            loss_reduced_for_metric,
             {},
             self.optimizer.param_groups[0]["lr"],
             self.iteration_for_log,
