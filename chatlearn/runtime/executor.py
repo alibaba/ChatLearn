@@ -129,7 +129,6 @@ class Executor:
     def align_out_queues(queues: List[Queue], encode=False) -> List[Queue]:
         """
         Merge every queue in queues to the min_qsize in queues.
-        !!!queue.qsize() means the replica number of this DistModel 
         Warning: 
         1. In graph, the data is ObjectRef, we can not get the real data.
         2. This function is used at the end of executor, align every queue to have same data size. 
@@ -186,7 +185,7 @@ class Executor:
         logger.warning(f"model_node={model_node} and trainable={trainable} is never used, will be deprecated and removed in future")
         data_list = []
         mb0 = None
-        for index, queue in enumerate(queues):
+        for queue in queues:
             encoded_data = queue.get()
             mb, data = decode_data(encoded_data)
             data_list.append(data)
