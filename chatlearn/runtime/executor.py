@@ -14,64 +14,36 @@
 # ==============================================================================
 """Executor"""
 
-import threading
+
 from collections import defaultdict
 from itertools import cycle
-from ray.util.queue import Queue
-import torch
+from typing import List, Callable, Optional, Union
 
+from ray.util.queue import Queue
+
+from chatlearn.models.base_module import BaseModule
 from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.runtime.model_flow import ModelFlow
+from chatlearn.runtime.model_flow import ModelFlow, ModelNode
+from chatlearn.runtime.dist_actor import DistModel, DistActor
 from chatlearn.utils import future
-from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG
-from chatlearn.utils.constant import LOG_START
+from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG, LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import encode_data, decode_data
-from .utils import FlowParser
-
-
-
-def split_list(lst, n):
-    assert len(lst) % n == 0, f"{len(lst)} % {n} != 0"
-    k = len(lst) // n
-    return [lst[i*k:(i+1)*k] for i in range(n)]
-
-
-def split_along_batch(tensors, num_splits):
-    res = [{} for _ in range(num_splits)]
-    if tensors is None:
-        return res
-    for key in tensors.keys():
-        to_batch = tensors[key]
-        if isinstance(to_batch, torch.Tensor):
-            batched = to_batch.chunk(num_splits)
-        elif isinstance(to_batch, list):
-            batched = split_list(to_batch, num_splits)
-        else:
-            raise Exception(f"unknown types key: {key} and {type(to_batch)} to split: {key} {tensors.keys()} {to_batch}")
-        for idx, ele in enumerate(batched):
-            res[idx][key] = ele
-    return res
+from .utils import encode_data, decode_data, FlowParser
 
 
 # pylint: disable=not-callable
 class Executor:
     """Executor"""
 
-    def __init__(self, model_flow):
+    def __init__(self, model_flow: Callable):
         """
         Executor
-
-        Args
-        ----
-        models : List[BaseModule]
-            a list of modules
         """
         self._set_flow(model_flow)
         self.args = get_args().runtime_args
         self.model_flow = None
-        self.local_models = self.models
+        self.local_models: List[BaseModule] = self.models
         self._batch_per_episode = -1
         self.is_eval = False
         self._timers = None
@@ -86,155 +58,178 @@ class Executor:
     def timers(self):
         return self._timers
 
-    def _set_flow(self, flow):
+    def _set_flow(self, flow: Callable):
         """
-        Set compution flow
+        parse flow function to get BaseModule2forward_func map which is used in ModelFlow.trace
+        Args:
+            flow(callable): a function that defines model computation flow
 
-        Args
-        ----
-        flow : callable
-             a function that defines model computation flow
-
-        Returns
-        -------
-        Executor
-            return self
         """
-        self._flow = flow
-        self.model_to_call_funcs = FlowParser().parse(flow)
+        self._flow: Callable = flow
+        # model_to_call_funcs example:
+        # {
+        #     Module1: ["func_name1"],
+        #     Module2: ["func_name2"],
+        #     ...
+        # }
+        self.model_to_call_funcs: defaultdict[BaseModule, List[str]] = FlowParser().parse(flow)
         for model, func_names in self.model_to_call_funcs.items():
+            # BaseModule.call_funcs: List[str]
             model.call_funcs += func_names
-        self.models = list(self.model_to_call_funcs.keys())
-        return self
+        self.models: List[BaseModule] = list(self.model_to_call_funcs.keys())
 
     @property
-    def first_node(self):
+    def first_node(self) -> ModelNode:
+        """
+        get the first ModelNode in Executor
+        """
         return self.model_flow.model_nodes[0]
 
     @property
-    def first_model(self):
+    def first_model(self) -> DistModel:
+        """
+        get the DistModel in first node
+        """
         return self.first_node.model
 
-    def update_models(self, models):
+    def update_models(self, models: List[DistModel]) -> None:
+        """
+        set self.models by input models
+        """
+
         # update local model with remote models
         new_models = []
         name_to_new_models = {model.name: model for model in models}
         for model in self.local_models:
             dist_model = name_to_new_models[model.name]
-            dist_model.group_dist_actors_by_tp_rank()
+            dist_model.group_dist_actors_by_dp_rank()
             new_models.append(dist_model)
         self.models = new_models
         if self.args is None:
             self.args = get_args().runtime_args
 
     def setup(self):
+        """
+        setup model_flow and get DistModel in the flow
+        """
         self._models_and_results_to_wait = []
         self.model_flow = ModelFlow(self)
         self.model_flow.trace(self.models, self._flow)
-        self.models = [model_node.model for model_node in self.model_flow.model_nodes]
-        self.model_locks = {model_node: threading.Lock() for model_node in self.model_flow.model_nodes}
+        self.models: List[DistModel] = [model_node.model for model_node in self.model_flow.model_nodes]
 
-    def _next_model(self, model):
-        if len(model.replicas) == 1:
-            return model.replicas[0]
+    def _next_model(self, model: DistModel) -> DistActor:
+        """
+        return the next DistActor of DistModel which is used for current execute
+        """
         if model not in self.model2iter:
             self.model2iter[model] = cycle(iter(model.replicas))
         return next(self.model2iter[model])
 
-    def get_merged_data(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
-        mb0 = None
-        if micro_batch_index is not None:
-            mb0 = micro_batch_index
-        data_list = [None] * len(queues)
-        merged_buffer = self.merged_buffer[model_node]
-        for index, queue in enumerate(queues):
-            if index not in merged_buffer:
-                merged_buffer[index] = {}
-            if mb0 in merged_buffer[index]:
-                data_list[index] = merged_buffer[index].pop(mb0)
-                continue
-            while True:
-                flag = False
-                while queue.qsize() == 0:
-                    if mb0 in merged_buffer[index]:
-                        data_list[index] = merged_buffer[index].pop(mb0)
-                        flag = True
-                        break
-                if flag:
-                    break
-                encoded_data = queue.get()
-                mb, data = decode_data(encoded_data)
-                if mb0 is None:
-                    mb0 = mb
-                if isinstance(data, list) and not trainable:
-                    data = data[-1]
-                if mb == mb0:
-                    data_list[index] = data
-                    break
-                merged_buffer[index][mb] = data
-        if encode:
-            return encode_data(mb0, data_list)
-        return data_list
-
-    def get_merged_data_locked(self, queues, encode=True, micro_batch_index=None, model_node=None, trainable=False):
-        with self.model_locks[model_node]:
-            return self.get_merged_data(queues, encode, micro_batch_index, model_node, trainable)
-
     @staticmethod
-    def align_out_queues(queues, encode=False):
-        # TODO: deal with one2many scene
+    def align_out_queues(queues: List[Queue], encode=False) -> List[Queue]:
+        """
+        Merge every queue in queues to the min_qsize in queues.
+        Warning: 
+        1. In graph, the data is ObjectRef, we can not get the real data.
+        2. This function is used at the end of executor, align every queue to have same data size. 
+        3. As the data is ObjectRef, we just regroup ObjectRef in every list item, and actual merge data in !!!decorator.preprocess_compute
+        """
         out_queues = []
         min_qsize = min([ele.qsize() for ele in queues]) # pylint: disable=consider-using-generator
         for queue in queues:
-            num_producers = queue.qsize()
-            if num_producers == min_qsize:
+            cur_qsize = queue.qsize()
+            # if cur_qsize==min_qsize just pass this queue
+            if cur_qsize == min_qsize:
                 out_queues.append(queue)
-                continue
-            assert num_producers % min_qsize == 0
-            out_queue = Queue()
-            res_list = []
-            while queue.qsize() > 0:
-                res = queue.get()
-                res = decode_data(res)[1] if encode else res
-                res_list.append(res)
+            # if cur_qize>min_qsize merge this queue length to min_qsize
+            elif cur_qsize > min_qsize:
+                assert cur_qsize % min_qsize == 0
+                out_queue = Queue()
+                res_list = []
+                while queue.qsize() > 0:
+                    res = queue.get()
+                    res = decode_data(res)[1] if encode else res
+                    res_list.append(res)
 
-            division = num_producers // min_qsize
-            in_qsize = len(res_list)
-            out_qsize = in_qsize // division
-            for q_idx in range(out_qsize):
-                start = q_idx * division
-                end = start + division
-                out_queue.put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
-            out_queues.append(out_queue)
+                division = cur_qsize // min_qsize
+                out_qsize = cur_qsize // division
+
+                for q_idx in range(out_qsize):
+                    start = q_idx * division
+                    end = start + division
+                    # TODO: Refacor this nested var
+                    # !!!the data in out_queue is Dict[int, Dict[str, List[ObjectRef]]]]
+                    out_queue.put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
+                out_queues.append(out_queue)
         return out_queues
 
-    def get_all_merged_data(self, queues, out_queue, encode=True):
+    # pylint: disable-next=unused-argument
+    def get_merged_data(self,
+                        queues: List[Queue],
+                        encode: bool = True,
+                        micro_batch_index: Optional[int] = None,
+                        model_node: Optional[ModelNode] = None,
+                        trainable: bool = False
+                        ):
+        """
+        merge data from different queues, get data from queues for current node by dp-wise.
+        It will be executed in form of a for loop for dp size-times.
+        Args:
+            queues: a list of ray Queue, the length of queues means the number of current node. 
+            the queues[0].qsize() is the global dp size of current node.
+            encode: whether encode or not, it seems only when model_node is None, encode is False
+            micro_batch_index: it seems always be None
+            model_node: related to self.merged_buffer, but don't know where to use
+        """
+        assert micro_batch_index is None, "micro_batch_index should be None, will be deprecated and removed in future"
+        logger.warning(f"model_node={model_node} and trainable={trainable} is never used, will be deprecated and removed in future")
+        data_list = []
+        mb0 = None
+        for queue in queues:
+            encoded_data = queue.get()
+            mb, data = decode_data(encoded_data)
+            data_list.append(data)
+            mb0 = mb if mb0 is None else mb0
+
+        return encode_data(mb0, data_list) if encode else data_list
+
+    def get_all_merged_data(self, queues: List[Queue], out_queue: Queue, encode=True):
+        """
+        Merge different node Queues into one output queue, only used at the end of executor
+        """
         logger.info(f"{LOG_START} start to align output queues with sizes {[ele.qsize() for ele in queues]}.")
         queues = self.align_out_queues(queues, True)
         logger.info(f"{LOG_START} complete to align output queues, sizes of output_queues are {[ele.qsize() for ele in queues]}.")
-        queue0 = queues[0]
-        while queue0.qsize() > 0:
+        while queues[0].qsize() > 0:
             res = self.get_merged_data(queues, encode)
             out_queue.put(res)
 
-    def rebatch_all_merged_data(self, model_node, in_queues, is_eval=False):# pylint: disable=unused-argument
+    def rebatch_all_merged_data(self, model_node: ModelNode, in_queues: List[Queue], is_eval=False) -> List[Queue]:# pylint: disable=unused-argument
+        """
+        re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
+        warning: input_queues and output_queues are ray.util.queue.Queue, we can't get real data in executor.
+        will actual merge data in !!!decorator.preprocess_compute
+        """
+        # if this node is the first node, just pass the queues
         if not model_node.input_nodes:
             return in_queues
         out_queues = [None] * len(in_queues)
-        num_consumers = self.batch_per_episode(model_node.model)
+        # in environment, num_consumers is global dp size(replica_dp_size*dp_size)
+        num_consumers = self.global_dp_size(model_node.model)
         for index, (input_node, in_queue) in enumerate(zip(model_node.input_nodes, in_queues)):
-            num_producers = self.batch_per_episode(input_node.model)
+            num_producers = self.global_dp_size(input_node.model)
             if num_producers == num_consumers:
                 out_queues[index] = in_queue
             else:
                 out_queues[index] = Queue()
+                # convert input queue to res_list
                 res_list = []
                 while in_queue.qsize() > 0:
                     res = in_queue.get()
                     res = decode_data(res)[1]
                     res_list.append(res)
-                if num_producers > num_consumers:
                 # Deal with the case where num_producers > num_consumers
+                if num_producers > num_consumers:
                     assert num_producers % num_consumers == 0, \
                         f"many2one: num_producers: {num_producers}, num_consumers: {num_consumers}, len inqueue: {len(in_queues)}"
                     division = num_producers // num_consumers
@@ -255,11 +250,15 @@ class Executor:
                     for q_idx in range(out_qsize):
                         start = q_idx // division
                         end = start + 1
+                        # q_idx means dp rank
                         out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG: res_list[start:end],
                                                               INDEX_TAG: (q_idx % division, division)}))
         return out_queues
 
-    def get_next_data(self, in_queue, model_node, micro_batch_index):
+    def get_next_data(self, in_queue: Union[Queue, List[Queue]], model_node: ModelNode, micro_batch_index):
+        """
+        get a dp-rank data
+        """
         if isinstance(in_queue, list):
             if len(in_queue) > 0:
                 # this should happen for inference models, will trigger bug for training models
@@ -267,13 +266,13 @@ class Executor:
                 # behavior for models accept multiple inputs
                 # we need to deal with it later
                 assert not model_node.trainable
-                data = self.get_merged_data_locked(in_queue, micro_batch_index=micro_batch_index,
+                data = self.get_merged_data(in_queue, micro_batch_index=micro_batch_index,
                                                     model_node=model_node, trainable=model_node.trainable)
                 mb, query = decode_data(data)
             else:
                 mb, query = micro_batch_index, []
         else:
-            data = self.get_merged_data_locked([in_queue], micro_batch_index=micro_batch_index,
+            data = self.get_merged_data([in_queue], micro_batch_index=micro_batch_index,
                                                 model_node=model_node, trainable=model_node.trainable)
             assert len(data['data']) == 1
             data['data'] = data['data'][0]
@@ -283,35 +282,30 @@ class Executor:
 
     def generate_step_one_model_internal(self, model_node, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
                                          is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
+
         """
-        Args:
-            model: DistModel
-            in_queue: Queue
-            step_num: int
-            replica: current model replica of DistModel
-            func_name: str
-            to_empty_cache: None or boolean
+        forward for a model replica
         """
         model = model_node.model
-        kwargs = {}
 
         replica_num = len(model.replicas)
         output = []
         last_step_start = max(self.num_iteration(model) - replica_num, 0)
         is_last_batch = step_num >= last_step_start
-        kwargs["is_last_batch"] = is_last_batch
-        if is_eval is not None:
-            kwargs["is_eval"] = is_eval
-        if to_empty_cache is not None:
-            kwargs["to_empty_cache"] = to_empty_cache
-        if to_onload is not None:
-            kwargs["to_onload"] = to_onload
-        if to_offload is not None:
-            kwargs["to_offload"] = to_offload
+        kwargs = {
+            "is_last_batch": is_last_batch,
+            "is_eval": is_eval,
+            "to_empty_cache": to_empty_cache,
+            "to_onload": to_onload,
+            "to_offload": to_offload
+        }
+
         if isinstance(replica.model, VLLMModule):
+            # for VLLMModule we only to pass data to vllm_engine for every replica
             mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
             assert isinstance(query, list)
             ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
+            # output length is num replica
             output.append((ret, mb))
         else:
             for _, actors in replica.dp_rank_to_actors.items():
@@ -319,26 +313,22 @@ class Executor:
                 assert isinstance(query, list)
                 for actor in actors:
                     ret = replica.call_actor_remote_func(actor, func_name, *query, **kwargs)
+                    # output length is num actor
                     output.append((ret, mb))
         return output
 
     def generate_step_one_model(self, model_node, replica, in_queue, out_queue, step_num, func_name="forward_step",
                                 to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
-        Args:
-            model: DistModel
-            in_queue: Queue
-            out_queue: Queue
-            step_num: int
-            func_name: str
-            to_empty_cache: None or boolean
+        forward for a model replica, and only set the output of last rank in dp rank to out_queue
         """
         # output is a list of tuple, each tuple is (remote_refs, mb)
         output = self.generate_step_one_model_internal(model_node, in_queue, step_num, replica, func_name, to_empty_cache,
                                                        is_eval, to_onload, to_offload, micro_batch_index)
-        # numer of dp
+
+        # for get the data in last actor of a dp rank
         # replica.dp_rank_to_actors : Dict[int, List[Actor]]
-        num_dp_rank = len(replica.dp_rank_to_actors)
+        num_dp_rank = len(replica.dp_rank_to_actors) # numer of actors in a dp rank
         num_output = len(output)
         assert num_output % num_dp_rank == 0, (
             f"The number of outputs ({num_output}) must be divisible by "
@@ -359,7 +349,10 @@ class Executor:
         remote_refs = [item[0] for item in output]
         return out_queue, remote_refs
 
-    def regroup_inqueue(self, model_node, queues, is_eval=False):
+    def regroup_inqueue(self, model_node: ModelNode, queues, is_eval=False):
+        """
+        re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
+        """
         if self.args.policy_to_regroup_queue == "global_barrier":
             # barrier to regroup all queues of producer node
             if not isinstance(queues, list):
@@ -371,7 +364,10 @@ class Executor:
         else:
             raise RuntimeError(f"Unsupported policy_to_regroup_queue {self.args.policy_to_regroup_queue}.")
 
-    def compute_loop_one_model(self, model_node, num_batch=None):
+    def compute_loop_one_model(self, model_node: ModelNode, num_batch=None):
+        """
+        forward for all model replica in the model mode
+        """
         logger.info(f"{LOG_START} start compute_loop for {model_node}, is_eval={self.is_eval}")
         model = model_node.model
         is_eval = self.is_eval
@@ -420,6 +416,9 @@ class Executor:
             self._models_and_results_to_wait.append((model_node, results))
 
     def compute_loop(self, out_queue, num_batch=None):
+        """
+        compute for all model node in executor
+        """
         for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
                 self.compute_loop_one_model(model_node, num_batch)
@@ -448,6 +447,10 @@ class Executor:
             self.get_all_merged_data(data, out_queue, encode=False)
 
     def setup_queues(self):
+        """
+        setup queues for input_node and output queues for every model node
+        if node is return_model_nodes, there will be an external queue for output
+        """
         data_queues = []
         out_queue = Queue()
         for model_node in self.model_flow.input_consumers:
