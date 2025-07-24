@@ -29,7 +29,7 @@ modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/M
 # preprocess dataset
 python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
 ```
 
 ## CKPT Conversion

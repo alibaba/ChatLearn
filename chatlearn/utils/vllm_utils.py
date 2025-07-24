@@ -13,11 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 """vllm utils"""
-
-import argparse
 import os
-import re
 
+from argparse import Namespace
 from datetime import timedelta
 
 import torch
@@ -25,66 +23,31 @@ import torch.distributed
 from vllm.distributed.parallel_state import init_world_group
 from vllm.distributed import parallel_state as mpu
 from vllm.distributed.parallel_state import initialize_model_parallel
-from vllm.model_executor.model_loader.utils import get_model_architecture  as get_model_architecture_v2
-
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 
-def get_model_architecture(config):
-    return get_model_architecture_v2(config)[0]
-
-def get_pipeline_model_parallel_rank():
-    return mpu.get_pp_group().rank_in_group
-
-def get_pipeline_model_parallel_world_size():
-    return mpu.get_pp_group().world_size
-
-def parse_args(extra_args_provider=None, ignore_unknown_args=False):
-    """Parse all arguments."""
-    parser = argparse.ArgumentParser(description='vLLM Arguments',
-                                     allow_abbrev=False)
-
-    # Custom arguments.
-    if extra_args_provider is not None:
-        parser = extra_args_provider(parser)
-
-    # Parse.
-    if ignore_unknown_args:
-        args, _ = parser.parse_known_args()
+def initialize_vllm(args_dict):
+    # pylint: disable=useless-return
+    # Parse arguments
+    args = Namespace(**args_dict)
+    if not hasattr(args, 'distributed_backend'):
+        args.distributed_backend = 'nccl' 
+    if not hasattr(args, 'distributed_timeout_minutes'):
+        args.distributed_timeout_minutes = 10
     else:
-        args = parser.parse_args()
+        args.distributed_timeout_minutes = int(args.distributed_timeout_minutes)
+    args.rank = int(os.getenv('RANK', '0')) if not hasattr(args, 'rank') else int(args.rank)
+    args.local_rank = int(os.getenv('LOCAL_RANK', '0')) if not hasattr(args, 'local_rank') else int(args.local_rank)
+    args.world_size = int(os.getenv("WORLD_SIZE", '1')) if not hasattr(args, 'world_size') else int(args.world_size)
 
-    # Args from environment
-    args.rank = int(os.getenv('RANK', '0'))
-    args.local_rank = int(os.getenv('LOCAL_RANK', '0'))
-    args.world_size = int(os.getenv("WORLD_SIZE", '1'))
+    if args.rank == 0:
+        print("> setting random seeds to {} ...".format(args.seed))
 
-    return args
-
-
-def _init_distributed_environment(args):
-    """Initialize the distributed environment."""
-    device_count = torch.cuda.device_count()
     if torch.distributed.is_initialized():
-
         if args.rank == 0:
             print('torch distributed is already initialized, '
                   'skipping initialization ...', flush=True)
         args.rank = torch.distributed.get_rank()
         args.world_size = torch.distributed.get_world_size()
-    else:
-        if args.rank == 0:
-            print('> initializing torch distributed ...', flush=True)
-        # Manually set the device ids.
-        if device_count > 0:
-            device = args.rank % device_count
-            if args.local_rank is not None:
-                assert args.local_rank == device, \
-                    'expected local-rank to be the same as rank % device-count.'
-            else:
-                args.local_rank = device
-            torch.cuda.set_device(device)
-
-    if torch.distributed.is_initialized():
         world_size = args.tensor_model_parallel_size * args.pipeline_model_parallel_size
         torch_world_size = torch.distributed.get_world_size()
         if torch_world_size != world_size:
@@ -92,11 +55,24 @@ def _init_distributed_environment(args):
                 "torch.distributed is already initialized but the torch world "
                 "size does not match args.world_size "
                 f"({torch_world_size} vs. {args.world_size}).")
-    else:
-        torch.distributed.init_process_group(
-            backend=args.distributed_backend,
-            world_size=args.world_size, rank=args.rank,
-            timeout=timedelta(minutes=args.distributed_timeout_minutes))
+        return
+    
+    device_count = torch.cuda.device_count()
+    if args.rank == 0:
+        print('> initializing torch distributed ...', flush=True)
+    # Manually set the device ids.
+    if device_count > 0:
+        device = args.rank % device_count
+        if args.local_rank is not None:
+            assert args.local_rank == device, \
+                'expected local-rank to be the same as rank % device-count.'
+        else:
+            args.local_rank = device
+        torch.cuda.set_device(device)
+    torch.distributed.init_process_group(
+        backend=args.distributed_backend,
+        world_size=args.world_size, rank=args.rank,
+        timeout=timedelta(minutes=args.distributed_timeout_minutes))
 
     if CURRENT_VLLM_VERSION == VLLMVersion.v_0_8_5:
         _WORLD = None
@@ -110,48 +86,6 @@ def _init_distributed_environment(args):
 
     initialize_model_parallel(args.tensor_model_parallel_size,
                               args.pipeline_model_parallel_size)
-
-
-def initialize_vllm( # pylint: disable=dangerous-default-value,useless-return
-    extra_args_provider=None,
-    ignore_unknown_args=False,
-    allow_no_cuda=False,
-    args_dict=None
-):
-    """Set global variables, initialize distributed, and
-    set autoresume and random seeds.
-    `allow_no_cuda` should not be set unless using megatron for cpu only
-    data processing. In general this arg should not be set unless you know
-    what you are doing.
-    Returns a function to finalize distributed env initialization
-    (optionally, only when args.lazy_mpu_init == True)
-    """
-    if not allow_no_cuda:
-        # Make sure cuda is available.
-        assert torch.cuda.is_available(), "Megatron requires CUDA."
-    # Parse arguments
-    args = parse_args(extra_args_provider, ignore_unknown_args)
-    if args_dict:
-        for key, value in args_dict.items():
-            if value == "None":
-                value = None
-            if hasattr(args, key):
-                default_value = getattr(args, key)
-                if default_value is not None and value is not None:
-                    default_type = type(default_value)
-                    if not isinstance(value, default_type):
-                        value = default_type(value)
-            setattr(args, key, value)
-    def finish_mpu_init():
-        # Pytorch distributed.
-        _init_distributed_environment(args)
-
-        # Random seeds for reproducibility.
-        if args.rank == 0:
-            print("> setting random seeds to {} ...".format(args.seed))
-
-
-    finish_mpu_init()
 
     return args
 

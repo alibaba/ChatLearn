@@ -435,13 +435,7 @@ class Engine(BaseEngine):
             logger.info(f"{LOG_START} dump parameters before syncnizing...")
             self.dump_parameters(os.path.join(dump_root_path, "before_sync_parameter"))
         self.timers("sync_parameters").start()
-        if os.getenv("ENABLE_PARAM_SYNC_WARMUP", "false") == "true":
-            self.timers("warmup_sync_parameters").start()
-            self.model_manager.sync_parameters(requires_grad=False, validate=False, dryrun=True)
-            self.model_manager.warmup_collective_topology()
-            self.timers("warmup_sync_parameters").stop()
-            logger.info(f"{LOG_START} finish warmup_sync_parameters {self.timers.log(names=['warmup_sync_parameters'])} ")
-        self.model_manager.sync_parameters(requires_grad=False, validate=self.runtime_args.validate_param_sync)
+        self.model_manager.sync_parameters()
         self.timers("sync_parameters").stop()
         if self.runtime_args.enable_eval_before_training:
             self.evaluate(-1)
@@ -492,7 +486,7 @@ class Engine(BaseEngine):
                 self.timers("save ckpts").stop()
                 logger.info(f"{LOG_START} save episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
-                self.model_manager.sync_parameters(episode_id + 1, validate=validate)
+                self.model_manager.sync_parameters(episode_id + 1)
                 self.timers("sync_parameters").stop()
                 logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} parameter sync done")
             logger.info(f"{LOG_START} train episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")

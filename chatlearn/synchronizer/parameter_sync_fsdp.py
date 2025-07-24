@@ -1,66 +1,57 @@
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 """fsdp to vllm parameter sync group"""
+from itertools import chain
+
 import ray
 from chatlearn.utils import future
-from chatlearn.runtime.dist_actor import DistModel
-from chatlearn.utils.error_monitor import ErrorSignalActor
+
+from .base_parameter_sync import BaseParameterSyncGroup
 
 
-def flatten(lst: list, reverse=False):
-    result = []
-    for item in lst:
-        if reverse:
-            result += item[::-1]
-        else:
-            result += item
-    return result
+class FSDP2VllmParameterSyncGroup(BaseParameterSyncGroup):
+    """fsdp to vllm parameter sync group"""
 
+    def sync(self, dryrun: bool=False):
+        """Perform parameter synchronization on this group. If `dryrun` is True,
+        some initialization will be excuted and no actual synchronization 
+        will be done.
 
-class FSDP2VllmParameterSyncGroup:
-    """fsdp to vllm parameter sync group
-    """
-    def __init__(
-        self,
-        src_model: DistModel,
-        dst_model: DistModel,
-        group_name: str,
-        frequency: int,
-        error_signal: ErrorSignalActor,
-    ):
-        self.src_model = src_model
-        self.dst_model = dst_model
-        self.group_name = group_name
-        self.error_signal = error_signal
-        self.frequency = frequency
-
-        # TODO: use a new name
-        self.setup_collective_group()
-
-    def setup_collective_group(self):
-        # we put src_model first, so we don't need to change the rank of training model
-        models = [self.src_model, self.dst_model]
-
-        rank_offset = 0
-        for model in models:
-            for replica in model.replicas:
-                replica._setup_ranks(rank_offset)
-                rank_offset += replica.actor_num
-
-    def sync(self,  *args, **kwargs):  # pylint: disable=unused-argument
+        Args:
+            dryrun (bool, optional): Whether to run in dryrun mode. 
+            Defaults to False.
         """
-        sync function for fsdp to vllm
-        """
-        # for fsdp to vllm, we only need to find the src and dst actors that are on the same GPU.
-        src_model_ranks = flatten(self.src_model.all_ranks)
-        # adapt for model manager: models_to_revert
-        dst_model_ranks = flatten(self.dst_model.all_ranks, reverse=True)
+        if dryrun:
+            return
+        src_model, dst_model = self.src_model, self.dst_model
+        # NOTE: for each source actor, find its colocated dst actor.
+        src_gpus = future.wait(src_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
+        dst_gpus = future.wait(dst_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
+        src_rank_to_gpu_id = dict(zip(chain.from_iterable(src_model.all_actor_ids), src_gpus))
+        gpu_id_to_dst_rank = dict(zip(dst_gpus, chain.from_iterable(dst_model.all_actor_ids)))
+        src_rank_to_dst_rank = {
+            src_rank: gpu_id_to_dst_rank[src_gpu_id]
+            for src_rank, src_gpu_id in src_rank_to_gpu_id.items()
+        }
 
-        param_name_list = ray.get(self.src_model.get_actor(0).get_fsdp_param_name.remote())
+        param_name_list = ray.get(src_model.get_actor(0).get_fsdp_param_name.remote())
         for param_name in param_name_list:
-
             refs = []
-            for src_rank, dst_rank in zip(src_model_ranks, dst_model_ranks):
-                src_actor = self.src_model.get_actor(src_rank)
-                dst_actor = self.dst_model.get_actor(dst_rank)
+            for src_rank, dst_rank in src_rank_to_dst_rank.items():
+                src_actor = src_model.get_actor(src_rank)
+                dst_actor = dst_model.get_actor(dst_rank)
                 reduce_data_ref = src_actor.get_weight_ipc_handles_by_name.remote(param_name)
                 ref = dst_actor.update_weights_from_ipc_handles.remote(reduce_data_ref)
                 refs.append(ref)

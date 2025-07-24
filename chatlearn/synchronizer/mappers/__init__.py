@@ -12,13 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""The collections of planners"""
+"""The mappers between architectures"""
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
-def get_planner_cls(src_model: 'DistModel', dst_model: 'DistModel'):
-    # pylint: disable=unused-argument, import-outside-toplevel
-    from chatlearn.synchronizer.v2.planners.planner import MegatronVLLMSyncPlanner
-    return MegatronVLLMSyncPlanner
+def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
+    # pylint: disable=unused-argument
+    return "MegatronVLLMMapper"
+
+def name_to_mapper_cls(mapper_name: str):
+    if mapper_name == "MegatronVLLMMapper":
+        # pylint: disable=import-outside-toplevel
+        from .mapper import MegatronVLLMMapper
+        return MegatronVLLMMapper
+    else:
+        raise ValueError(f"Unrecognized Mapper {mapper_name}")

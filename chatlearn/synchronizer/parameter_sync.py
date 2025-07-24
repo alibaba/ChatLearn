@@ -15,25 +15,28 @@
 """Sync parameters"""
 import itertools
 from collections import Counter, defaultdict
-from typing import List, Dict
+from typing import List, Dict, TYPE_CHECKING
 
-from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import get_args
-
 from chatlearn.utils.mappings import ShardedTensorInfo
-from chatlearn.synchronizer.v2.mappers import get_mapper_name
-from chatlearn.synchronizer.v2.planners import get_planner_cls
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.logger import logger
+
+from .base_parameter_sync import BaseParameterSyncGroup
+from .mappers import get_mapper_name
+from .planners import get_planner_cls
+
+if TYPE_CHECKING:
+    from chatlearn.runtime.dist_actor import DistModel
 
 patch_ray()
 
 
-class ParameterSyncGroup:
+class ParameterSyncGroup(BaseParameterSyncGroup):
     """The core implementation of parameter synchronization."""
-    def __init__(self, src_model: DistModel, dst_model: DistModel, group_name: str, frequency, error_signal):
+    def __init__(self, src_model: 'DistModel', dst_model: 'DistModel', frequency: int):
         """Manage Parameter Synchronization between source and destination models.
 
         Args:
@@ -41,21 +44,15 @@ class ParameterSyncGroup:
             dst_model (DistModel): The destination distmodel, only vLLM backend is supported.
             group_name (str): The tag of this parameter sync group. (Unused)
         """
-        self.config = get_args()
-        self.src_model, self.dst_model = src_model, dst_model
+        super().__init__(src_model, dst_model, frequency)        
         self._initialized = False
         # mapping a global weight name to unique id, Dict[str, int]
         self.src_param_ids, self.dst_param_ids = None, None
         # contains the metadata of each rank, Dict[int, List[ShardedTensorInfo]]
         self.src_metadatas, self.dst_metadatas = None, None
         self.sync_plan: List[SyncIteration] = None
-
         self.timers = Timers()
 
-        # NOTE: for compatability, CURRENTLY NOT USED
-        self.group_name = group_name
-        self.frequency = frequency
-        self.error_signal = error_signal
 
     def initialize(self):
         """Intialize the synchronizer. The sync plan is built and validated.
@@ -66,8 +63,6 @@ class ParameterSyncGroup:
         multiple times if needed in the future.
         """
         def _initialize_impl(model):
-            # TODO: should be called by model instead of here.
-            model.assign_ranks()
             param_ids = self.generate_global_param_ids(model)
             future.wait(model.call_func_on_all_workers('set_param_ids', param_ids), return_output=True)
             metadata = self.collect_parameter_metadata(model)
@@ -113,7 +108,7 @@ class ParameterSyncGroup:
 
         self.timers("generate-plan").start()
         planner = get_planner_cls(self.src_model, self.dst_model)(
-            dict(zip(itertools.chain.from_iterable(self.src_model.all_ranks), results)),
+            dict(zip(itertools.chain.from_iterable(self.src_model.all_actor_ids), results)),
             self.dst_metadatas,
         )
         self.bucketized_plan = planner.make_plan()
@@ -128,7 +123,7 @@ class ParameterSyncGroup:
 
     def collect_parameter_metadata(
         self,
-        model: DistModel
+        model: 'DistModel'
     ) -> Dict[int, List[ShardedTensorInfo]]:
         """Collect parameter metadata from model.
 
@@ -144,9 +139,9 @@ class ParameterSyncGroup:
             return_output=True
         )
         results = [list(r.values()) for r in results ]
-        return dict(zip(itertools.chain.from_iterable(model.all_ranks), results))
+        return dict(zip(itertools.chain.from_iterable(model.all_actor_ids), results))
 
-    def generate_global_param_ids(self, model: DistModel) -> Dict[str, int]:
+    def generate_global_param_ids(self, model: 'DistModel') -> Dict[str, int]:
         """This function will generate a global parameter id for each Tensor
         in the state dict of the model, even if the Tensor will not be synchronized.
         we also generate a global weight name for each tensor, i.e., weight
@@ -215,11 +210,15 @@ class ParameterSyncGroup:
 
         # TODO: 3. all unique parameter shards should compose an entire model
 
-    def sync(self, *args, dryrun: bool = False, **kwargs):
-        """Intialize and call parameter synchronization on all actors
-        of src and dst models.
+    def sync(self, dryrun: bool = False):
+        """Perform parameter synchronization on this group. If `dryrun` is True,
+        some initialization will be excuted and no actual synchronization 
+        will be done.
+
+        Args:
+            dryrun (bool, optional): Whether to run in dryrun mode. 
+            Defaults to False.
         """
-        # pylint: disable=unused-argument
         if not self._initialized:
             self.initialize()
         if dryrun:

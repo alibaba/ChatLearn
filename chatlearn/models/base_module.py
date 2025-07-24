@@ -36,6 +36,8 @@ from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.common import BaseModelConfig
+from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
+
 
 class BaseModule:
     def __init__(self, name: str, args=None, replica_id: int=0):
@@ -626,7 +628,6 @@ class BaseModule:
 
     # NOTE: the following APIs are for updated parameter synchronization.
     def set_mapper(self, mapper_name: str, dst_model_config: BaseModelConfig):
-        from chatlearn.synchronizer.v2.mappers import name_to_mapper_cls # pylint: disable=import-outside-toplevel
         self.mapper = name_to_mapper_cls(mapper_name)(
             dst_model_config,
             self
@@ -661,8 +662,6 @@ class BaseModule:
         synchronizer_name: str='general',
         **kwargs
     ):
-        # pylint: disable=import-outside-toplevel
-        from chatlearn.synchronizer.v2.comm import GeneralCommunicator
         if synchronizer_name != "general":
             raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")
         self.synchronizer = GeneralCommunicator(model=self, **kwargs)

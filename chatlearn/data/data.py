@@ -19,16 +19,13 @@ import random
 import copy
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Optional, Union, Type, Tuple, Callable
 
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
-from torch.utils.data import (
-    default_collate, 
-    collate, 
-    default_collate_fn_map
-)
+from torch.utils.data import default_collate
+
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
@@ -45,14 +42,12 @@ def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
     return data
 
 
-def custom_collate_tensor_fn(
-    batch: List[torch.Tensor],
-    *,
-    collate_fn_map: Optional[Dict[Union[Type, Tuple[Type, ...]], Callable]] = None,
-):
+def collate_tensor_fn(batch: List[torch.Tensor]):
     """
     If the tensors are of different lengths, this function pads them to the maximum length.
     """
+    if max([elem.ndim for elem in batch]) == 0:
+        return torch.stack(batch)
     max_len = max([elem.shape[0] for elem in batch])
     min_len = min([elem.shape[0] for elem in batch])
     if max_len == min_len:
@@ -62,16 +57,31 @@ def custom_collate_tensor_fn(
         out[i, : elem.shape[0]] = elem
     return out
 
-def batching(batches):
+def batching(batches: List[Union[torch.Tensor, Dict, List, Tuple]]):
     """
-    Batching a list of data, the only difference with `torch.data.utils.default_collate`
-    is that we apply an extra zero-right padding to the internal tensors if they are of 
-    different lengths.
+    Batching a list of data
     """
-    custom_collate_fn_map = collate_fn_map.copy()
-    custom_collate_fn_map[torch.Tensor] = custom_collate_tensor_fn
-    return collate(batches, collate_fn_map=custom_collate_fn_map)
-
+    assert len(batches) > 0, "Cannot batching on the zero-size batches"
+    elem = batches[0]
+    if isinstance(elem, torch.Tensor):
+        return collate_tensor_fn(batches)
+    elif isinstance(elem, dict):
+        assert all(item.keys() == elem.keys() for item in batches), \
+            "all dict items should share same keys"
+        batched = {k: [item[k] for item in batches] for k in elem.keys()}
+        for k, values in batched.items():
+            if isinstance(values[0], torch.Tensor):
+                batched[k] = collate_tensor_fn(values)
+    elif isinstance(elem, (list, tuple)):
+        elem_type = type(elem)
+        assert all(len(item) == len(elem) for item in batches), \
+            "all list/tuple items should have same length"
+        batched = [[item[i] for item in batches] for i in range(len(elem))]
+        for k, values in enumerate(batched):
+            if isinstance(values[0], torch.Tensor):
+                batched[k] = collate_tensor_fn(values)
+        batched = elem_type(batched)
+    return batched
 
 def split_batch(batch):
     """

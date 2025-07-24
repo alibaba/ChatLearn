@@ -19,7 +19,13 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from transformer_engine.pytorch.cpp_extensions import grouped_gemm
+try:
+    from transformer_engine.pytorch.cpp_extensions import grouped_gemm
+    GENERAL_GEMM=False
+except ImportError:
+    from transformer_engine.pytorch.cpp_extensions import general_grouped_gemm as grouped_gemm
+    GENERAL_GEMM=True
+
 from transformer_engine.pytorch.module.base import get_multi_stream_cublas_workspace
 from transformer_engine.pytorch.permutation import (
     moe_permute,
@@ -49,14 +55,15 @@ class GroupGemm(torch.autograd.Function):
             dtype=activation_dtype,
             device=inputmats[0].device,
         )
+        grouped_gemm_kwargs = {'out_dtype': activation_dtype} if GENERAL_GEMM else {'dtype': activation_dtype}
         _ = grouped_gemm(
-            weights,
-            inputmats,
-            torch.split(output_tensor, m_splits),
-            activation_dtype,
-            get_multi_stream_cublas_workspace(),
+            A=weights,
+            B=inputmats,
+            out=torch.split(output_tensor, m_splits),
+            workspaces=get_multi_stream_cublas_workspace(),
             bias=bias,
             use_bias=use_bias,
+            **grouped_gemm_kwargs
         )
         if is_grad_enabled:
             ctx.save_for_backward(
@@ -87,14 +94,15 @@ class GroupGemm(torch.autograd.Function):
                 dtype=ctx.activation_dtype,
                 device=grad_output.device,
             )
+            grouped_gemm_kwargs = {'out_dtype': ctx.activation_dtype} if GENERAL_GEMM else {'dtype': ctx.activation_dtype}
             grouped_gemm(
-                weights,
-                grad_output_mats,
-                torch.split(dgrad, ctx.m_splits),
-                ctx.activation_dtype,
-                get_multi_stream_cublas_workspace(),
+                A=weights,
+                B=grad_output_mats,
+                out=torch.split(dgrad, ctx.m_splits),
+                workspaces=get_multi_stream_cublas_workspace(),
                 layout="NN",
                 grad=True,
+                **grouped_gemm_kwargs
             )
 
             #wgrad
@@ -103,14 +111,14 @@ class GroupGemm(torch.autograd.Function):
                 for w in weights
             ]
             _, grad_biases, _ = grouped_gemm(
-                inputmats,
-                grad_output_mats,
-                wgrad_list,
-                ctx.activation_dtype,
-                get_multi_stream_cublas_workspace(),
+                A=inputmats,
+                B=grad_output_mats,
+                out=wgrad_list,
+                workspaces=get_multi_stream_cublas_workspace(),
                 layout="NT",
                 grad=True,
                 use_bias=ctx.use_bias,
+                **grouped_gemm_kwargs
             )
             if not ctx.use_bias:
                 grad_biases = [None]

@@ -29,7 +29,6 @@ from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
-from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
@@ -91,22 +90,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
-    def add_extra_args(self, parser):
-        """
-        Add extra arguments for vllm.
-
-        Args
-        ----
-        parser : ArgumentParser
-            Add extra arguments.
-        """
-        group = parser.add_argument_group(title='vLLM extra arguments')
-        group.add_argument('--distributed-backend', default='nccl',
-                           choices=['nccl', 'gloo'],
-                           help='Which backend to use for distributed training.')
-        group.add_argument('--distributed-timeout-minutes', type=int, default=10,
-                           help='Timeout minutes for torch.distributed.')
-        return parser
     def init_engine_args(self):
         dtype = self.module_args.get("dtype", "bfloat16")
         if self.module_args.get("fp16", False):
@@ -162,9 +145,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         parallel_state.set_custom_all_reduce(False)
-        initialize_vllm(extra_args_provider=self.add_extra_args,
-                        ignore_unknown_args=True,
-                        args_dict=self.module_args)
+        initialize_vllm(self.module_args)
 
     def setup(self):
         """Set up tokenizer."""
