@@ -1,4 +1,5 @@
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright (c) 2023, NVIDIA CORPORATION. All rights reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -33,7 +34,13 @@ import torch
 import torch.nn.functional as F
 from chatlearn.utils.logger import logger
 
+try:
+    from packaging.version import Version as PkgVersion
 
+    HAVE_PACKAGING = True
+except ImportError:
+    HAVE_PACKAGING = False
+_te_version = None
 
 def get_attributes(cls):
     """Get attributes from class."""
@@ -400,3 +407,43 @@ def map_reduce_metrics(metric_list):
     mapped_metrics = map_metrics(metric_list)
     reduced_metrics = reduce_metrics(mapped_metrics)
     return reduced_metrics
+
+# Copied from https://github.com/NVIDIA/Megatron-LM/blob/main/megatron/core/utils.py
+def get_te_version():
+    """Get TE version from __version__; if not available use pip's. Use caching."""
+    if not HAVE_PACKAGING:
+        raise ImportError(
+            "packaging is not installed. Please install it with `pip install packaging`."
+        )
+
+    try:
+        import transformer_engine as te
+
+        HAVE_TE = True
+    except ImportError:
+        HAVE_TE = False
+
+    def get_te_version_str():
+        import transformer_engine as te
+
+        if hasattr(te, "__version__"):
+            return str(te.__version__)
+        else:
+            return version("transformer-engine")
+
+    global _te_version
+    if _te_version is None and HAVE_TE:
+        _te_version = PkgVersion(get_te_version_str())
+    return _te_version
+
+
+def is_te_min_version(version, check_equality=True):
+    """Check if minimum version of `transformer-engine` is installed."""
+    if not HAVE_PACKAGING:
+        raise ImportError(
+            "packaging is not installed. Please install it with `pip install packaging`."
+        )
+
+    if check_equality:
+        return get_te_version() >= PkgVersion(version)
+    return get_te_version() > PkgVersion(version)

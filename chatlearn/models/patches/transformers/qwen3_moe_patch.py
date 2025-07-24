@@ -21,17 +21,17 @@ import torch.nn.functional as F
 
 try:
     from transformer_engine.pytorch.cpp_extensions import grouped_gemm
-    GENERAL_GEMM=False
 except ImportError:
     from transformer_engine.pytorch.cpp_extensions import general_grouped_gemm as grouped_gemm
-    GENERAL_GEMM=True
-
 from transformer_engine.pytorch.module.base import get_multi_stream_cublas_workspace
 from transformer_engine.pytorch.permutation import (
     moe_permute,
     moe_unpermute,
 )
 from transformers.activations import ACT2FN
+
+from chatlearn.utils import is_te_min_version
+
 
 class GroupGemm(torch.autograd.Function):
     """ Autograd function for grouped gemm"""
@@ -55,7 +55,9 @@ class GroupGemm(torch.autograd.Function):
             dtype=activation_dtype,
             device=inputmats[0].device,
         )
-        grouped_gemm_kwargs = {'out_dtype': activation_dtype} if GENERAL_GEMM else {'dtype': activation_dtype}
+        grouped_gemm_kwargs = {'dtype': activation_dtype}
+        if is_te_min_version("2.0.0"):
+            grouped_gemm_kwargs = {'out_dtype': activation_dtype, 'm_splits': m_splits}
         _ = grouped_gemm(
             A=weights,
             B=inputmats,
@@ -94,7 +96,9 @@ class GroupGemm(torch.autograd.Function):
                 dtype=ctx.activation_dtype,
                 device=grad_output.device,
             )
-            grouped_gemm_kwargs = {'out_dtype': ctx.activation_dtype} if GENERAL_GEMM else {'dtype': ctx.activation_dtype}
+            grouped_gemm_kwargs = {'dtype': ctx.activation_dtype}
+            if is_te_min_version("2.0.0"):
+                grouped_gemm_kwargs = {'out_dtype': ctx.activation_dtype, 'm_splits': ctx.m_splits}
             grouped_gemm(
                 A=weights,
                 B=grad_output_mats,
@@ -184,8 +188,10 @@ class MoeGroupMLP(nn.Module):
     def forward(self, hidden_states, router_weights, selected_experts, token_per_expert) -> torch.Tensor:
         flat_seqlen = hidden_states.shape[0]
         topk = router_weights.shape[1]
-
-        grouped_input, row_id_map = moe_permute(hidden_states, selected_experts)
+        if is_te_min_version("2.1.0"):
+            grouped_input, row_id_map = moe_permute(hidden_states, selected_experts, map_type='index')
+        else:
+            grouped_input, row_id_map = moe_permute(hidden_states, selected_experts)
         probs = router_weights.T.contiguous().view(-1, 1)
 
         token_per_expert = token_per_expert.tolist()
@@ -216,7 +222,10 @@ class MoeGroupMLP(nn.Module):
             weights_bias = self.down_proj.weight,
             num_experts=self.num_experts
         )
-        final_hidden_states = moe_unpermute(down_output, row_id_map, probs)
+        if is_te_min_version("2.1.0"):
+            final_hidden_states = moe_unpermute(down_output, row_id_map, probs, map_type='index')
+        else:
+            final_hidden_states = moe_unpermute(down_output, row_id_map, probs)
         final_hidden_states = final_hidden_states.view(topk, flat_seqlen, -1).permute(1,0,2)
         final_hidden_states = torch.sum(final_hidden_states, dim=1).squeeze(1)
         return final_hidden_states

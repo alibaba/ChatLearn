@@ -264,8 +264,6 @@ class RuntimeConfig(BaseConfig):
     nsys: bool = False
     #: profiler dir
     profiler_dir: str = None
-    #: coalesce_buffer size in mb
-    coalesced_buffer_mb: int = 100
     #: max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes
     #: if `max_replay_episode` is set to 0, then replay is disabled
     max_replay_episode: int = 0
@@ -285,8 +283,6 @@ class RuntimeConfig(BaseConfig):
     exp_name: str = "CHATLEARN"
     #: output dir
     output_dir: str = "./"
-    #: validate param sync
-    validate_param_sync: bool = False
     #: whether to eval before training
     enable_eval_before_training: bool = False
     #: policy to regroup queue

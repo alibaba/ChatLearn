@@ -417,9 +417,6 @@ class RuntimeConfig(BaseConfig):
     )
 
     # param sync config
-    coalesced_buffer_mb: int = field(
-        default=100, metadata={"help": "coalesce_buffer size in mb"}
-    )
     bucket_size_mb_in_memory_manager: int = field(
         default=1024,
         metadata={"help": "bucket size in the memory manager to reduce peak memory"},
@@ -431,9 +428,6 @@ class RuntimeConfig(BaseConfig):
                     PACK: All provided bundles are packed onto a single node on a best-effort basis. \
                     SPREAD: Each bundle is spread onto separate nodes on a best-effort basis."
         },
-    )
-    validate_param_sync: bool = field(
-        default=False, metadata={"help": "validate param sync"}
     )
 
     # graph config

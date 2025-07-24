@@ -45,4 +45,3 @@ runtime:
     eval_episode_interval: ${eval_episode_interval:0}
     eval_data_num_limit: 20
     nsys: False
-    validate_param_sync: ${validate_param_sync:False}

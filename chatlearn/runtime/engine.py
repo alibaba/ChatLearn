@@ -471,8 +471,6 @@ class Engine(BaseEngine):
                                                   self.runtime_args.sample_per_episode)
             future.wait(refs, return_output=True)
             if self.trainer is not None:
-                # validate parameter sync in the first two episodes
-                validate = self.runtime_args.validate_param_sync and episode_id < 2
                 self.timers("set_train_dataset").stop()
                 self.trainer.set_data_loader(data_loader)
                 logger.info(f"{LOG_START} set dataloader for trainer done")
