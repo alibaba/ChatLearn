@@ -72,7 +72,7 @@ class FSDPModule(TorchModule):
             assert self.total_gpu % self._num_gpu_per_replica == 0, \
                 "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
             self._num_replica = self.total_gpu // self._num_gpu_per_replica
-     
+
     def get_visible_gpus(self):
         """
         :meta private:

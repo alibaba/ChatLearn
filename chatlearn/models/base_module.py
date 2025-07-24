@@ -46,6 +46,7 @@ from chatlearn.launcher import dlc_utils
 from chatlearn.configs.common import BaseModelConfig
 
 class BaseModule:
+    """The base class for all chatlearn models."""
     def __init__(self, name: str, args=None, replica_id: int=0):
         """The base class for all chatlearn models. After setup, the initialized
         base module on the remote actor can be used for training/inferencing.
