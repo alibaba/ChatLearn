@@ -304,36 +304,15 @@ def multi_thread_data_processing(num_threads: int, all_data: list, process_one_d
     return result
 
 
-def regroup_by_concat_along_batch(tensors: List[Dict[str, Union[torch.Tensor, List[Any]]]]) -> Dict[str, Union[torch.Tensor, List[Any]]]:
+def regroup_by_concat_along_batch(data: List[Dict[str, Union[torch.Tensor, List[Any]]]]) -> Dict[str, Union[torch.Tensor, List[Any]]]:
     """
-    Concatenates or batches a list of dictionaries along the batch dimension, handling both tensors and lists.
-
-    This function takes a list of dictionaries where each dictionary maps string keys to either PyTorch tensors
-    or lists. It combines values across all entries for each key into a single tensor or list. Tensors are padded
-    and stacked if 2D, or concatenated if 1D. Lists are simply extended into a single list.
-
-    Parameters:
-        tensors (List[Dict[str, Union[torch.Tensor, List[Any]]]]):
-            A list of dictionaries mapping string keys to either:
-                - 1D or 2D PyTorch tensors (will be concatenated or padded and stacked)
-                - Lists of any elements (will be merged into one list)
-
-    Returns:
-        Dict[str, Union[torch.Tensor, List[Any]]]:
-            A dictionary mapping each key found in the input dictionaries to a single combined tensor or list,
-            batched across the input entries.
-
-    Raises:
-        RuntimeError:
-            If a tensor has unsupported dimensions (not 1D or 2D).
-        Exception:
-            If an unknown type is encountered for a key in the input dictionaries.
+    Merge a List[Dict] in to one Dict
     """
     batched = {}
-    if tensors[0] is None:
+    if data[0] is None:
         return batched
-    for key in tensors[0].keys():
-        to_batch = [results[key] for results in tensors]
+    for key in data[0].keys():
+        to_batch = [results[key] for results in data]
         if isinstance(to_batch[0], torch.Tensor):
             if len(to_batch[0].shape) == 2:
                 max_dim_1 = max([ele.shape[1] for ele in to_batch]) # pylint: disable=consider-using-generator
@@ -360,7 +339,10 @@ def regroup_by_concat_along_batch(tensors: List[Dict[str, Union[torch.Tensor, Li
 
     return batched
 
-def slice_by_index_along_batch(batched_input, index):
+def slice_by_index_along_batch(batched_input: Dict[str, Union[torch.Tensor, List[Any]]], index):
+    """
+    get partial data by index
+    """
     start = index[0]
     offset = index[1]
     batched = {}
