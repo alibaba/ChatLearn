@@ -27,6 +27,8 @@ from torch import Tensor
 
 from chatlearn.configs.common import BaseModelConfig
 
+from ..loss_gallery import calculate_grpo_loss
+from .train_helper import entropy_from_tensor_parallel_logits
 
 class PolicyModel(GPTModel):
     """PolicyModel"""
@@ -134,20 +136,17 @@ class PolicyModel(GPTModel):
             self.compute_language_model_loss(labels, all_token_logits) * -1
         )
 
-        logprobs_diff = forward_logprob - old_logprobs
-        logprobs_diff = torch.clamp(logprobs_diff, max=self.module_args.diff_clip_ratio)
-        ratio = torch.exp(logprobs_diff)
-        pg_loss = -advantages.unsqueeze(-1) * ratio
-        pg_loss_2 = -advantages.unsqueeze(-1) * torch.clamp(
-            ratio, 1.0 - self.module_args.neg_clip_ratio, 1.0 + self.module_args.pos_clip_ratio
+        pg_loss = calculate_grpo_loss(
+            log_probs=forward_logprob,
+            old_log_probs=old_logprobs,
+            advantages=advantages,
+            diff_clip_ratio=self.module_args.diff_clip_ratio,
+            pos_clip_ratio=self.module_args.pos_clip_ratio,
+            neg_clip_ratio=self.module_args.neg_clip_ratio,
+            final_clip_ratio=self.module_args.final_clip_ratio,
         )
-        pg_loss_clip = torch.max(pg_loss, pg_loss_2)
-        pg_loss_upperbound = torch.ones_like(pg_loss) * self.module_args.final_clip_ratio
-        pg_loss = torch.min(pg_loss_clip, pg_loss_upperbound)
-        assert not torch.isnan(pg_loss).any(), "pg loss is nan"
-        pg_loss = torch.masked_select(
-            pg_loss, training_inputs["all_token_loss_mask"].bool()
-        )
+
+        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).transpose(0, 1)
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
@@ -155,12 +154,9 @@ class PolicyModel(GPTModel):
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()
         kl_loss = torch.clamp(kld, min=-10, max=10)
-        kl_loss = torch.masked_select(
-            kl_loss, training_inputs["all_token_loss_mask"].bool()
-        )
 
-        entropy_loss = torch.masked_select(
-            -forward_logprob, training_inputs["all_token_loss_mask"].bool()
-        )
-
-        return pg_loss.contiguous(), kl_loss.contiguous(), entropy_loss.contiguous()
+        return {
+            'pg_loss': pg_loss,
+            'entropy_loss': entropy_loss,
+            'kl_loss': kl_loss,
+        }

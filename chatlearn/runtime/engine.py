@@ -75,7 +75,10 @@ class BaseEngine:
 
     def setup(self):
         """
-        :meta private:
+        1. create MetricManager、ResourceManager、ModelManager
+        2. create all remote models
+        3. init remote models
+        4. model_setup for remote models
         """
         logger.info(f"{LOG_START} setup, start to create_remote_models")
         self._create_metric_manager()
@@ -247,7 +250,10 @@ class Engine(BaseEngine):
 
     def setup(self):
         """
-        :meta private:
+        1. BaseEngine.setup()
+        2. set the Initialized DistModel to executor
+        3. set dataset to env
+        4. build_parameter_group for parameter sync
         """
         super().setup()
         self._executors = [self.env, self.trainer, self.evaluator]
