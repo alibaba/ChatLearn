@@ -48,9 +48,15 @@ class FSDPModule(TorchModule):
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, name: str, args=None, replica_id: int=0):
+        """The chatlearn wrapper for a FSDP model.
 
-        super().__init__(*args, **kwargs)
+        Args:
+            name (str): The name of this module
+            args (Any, optional): The arguments. Defaults to None.
+            replica_id (int, optional): The replica id of this module. Defaults to 0.
+        """
+        super().__init__(name, args=args, replica_id=replica_id)
 
         self.fsdp_size = self.module_args.fsdp_size
         self.sp_size = self.module_args.ulysses_sequence_parallel_size
@@ -58,6 +64,14 @@ class FSDPModule(TorchModule):
         self.sp_device_mesh = None
         self.packing = self.module_args.packing
         self.max_token_in_seq = self.module_args.max_token_in_packing
+
+        assert self.total_gpu > 0, "FSDP requires at least one GPU"
+        # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
+        if not self.trainable:
+            self._num_gpu_per_replica = self.fsdp_size
+            assert self.total_gpu % self._num_gpu_per_replica == 0, \
+                "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
+            self._num_replica = self.total_gpu // self._num_gpu_per_replica
 
     def get_visible_gpus(self):
         """
