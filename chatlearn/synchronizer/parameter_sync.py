@@ -19,7 +19,6 @@ from typing import List, Dict, TYPE_CHECKING
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
-from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.logger import logger
@@ -44,7 +43,7 @@ class ParameterSyncGroup(BaseParameterSyncGroup):
             dst_model (DistModel): The destination distmodel, only vLLM backend is supported.
             group_name (str): The tag of this parameter sync group. (Unused)
         """
-        super().__init__(src_model, dst_model, frequency)        
+        super().__init__(src_model, dst_model, frequency)
         self._initialized = False
         # mapping a global weight name to unique id, Dict[str, int]
         self.src_param_ids, self.dst_param_ids = None, None

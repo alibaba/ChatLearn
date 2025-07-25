@@ -19,11 +19,10 @@ import random
 import copy
 import os
 import json
-from typing import List, Dict, Optional, Union, Type, Tuple, Callable
+from typing import List, Dict, Union, Tuple
 
 import ray
 import torch
-from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
 
 from chatlearn.utils import future
@@ -46,10 +45,10 @@ def collate_tensor_fn(batch: List[torch.Tensor]):
     """
     If the tensors are of different lengths, this function pads them to the maximum length.
     """
-    if max([elem.ndim for elem in batch]) == 0:
+    if max(elem.ndim for elem in batch) == 0:
         return torch.stack(batch)
-    max_len = max([elem.shape[0] for elem in batch])
-    min_len = min([elem.shape[0] for elem in batch])
+    max_len = max(elem.shape[0] for elem in batch)
+    min_len = min(elem.shape[0] for elem in batch)
     if max_len == min_len:
         return torch.stack(batch)
     out = torch.zeros(len(batch), max_len, *batch[0].shape[1:], device=batch[0].device)

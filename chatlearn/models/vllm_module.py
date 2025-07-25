@@ -54,7 +54,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         # TODO: support expert-model parallel
         assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of vLLM is not supported"
         self._num_gpu_per_replica = (
-            self.module_args.tensor_model_parallel_size * 
+            self.module_args.tensor_model_parallel_size *
             self.module_args.pipeline_model_parallel_size
         )
         assert self.total_gpu % self._num_gpu_per_replica == 0, \

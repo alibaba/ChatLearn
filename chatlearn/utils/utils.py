@@ -21,9 +21,7 @@ import socket
 import subprocess
 import textwrap
 import time
-import math
 import copy
-import concurrent.futures
 from contextlib import closing
 from types import SimpleNamespace
 from typing import Dict, List, Union, Any
@@ -274,7 +272,7 @@ def dict_to_simplenamespace(d):
             d[key] = dict_to_simplenamespace(value)
     return SimpleNamespace(**d)
 
-def regroup_by_concat_along_batch(tensors: List[Dict[str, Union[torch.Tensor, List[Any]]]]) -> Dict[str, Union[torch.Tensor, List[Any]]]:
+def regroup_by_concat_along_batch(data: List[Dict[str, Union[torch.Tensor, List[Any]]]]) -> Dict[str, Union[torch.Tensor, List[Any]]]:
     """
     Merge a List[Dict] in to one Dict
     """
@@ -399,14 +397,14 @@ def get_te_version():
         )
 
     try:
-        import transformer_engine as te
+        import transformer_engine as te # pylint: disable=import-outside-toplevel, unused-import
 
         HAVE_TE = True
     except ImportError:
         HAVE_TE = False
 
     def get_te_version_str():
-        import transformer_engine as te
+        import transformer_engine as te # pylint: disable=import-outside-toplevel
 
         if hasattr(te, "__version__"):
             return str(te.__version__)

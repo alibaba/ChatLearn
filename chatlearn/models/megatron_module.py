@@ -15,9 +15,7 @@
 import re
 import math
 from dataclasses import fields
-import functools
 import torch
-import torch.distributed as dist
 
 try:
     from megatron.training import get_args

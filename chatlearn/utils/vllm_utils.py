@@ -30,7 +30,7 @@ def initialize_vllm(args_dict):
     # Parse arguments
     args = Namespace(**args_dict)
     if not hasattr(args, 'distributed_backend'):
-        args.distributed_backend = 'nccl' 
+        args.distributed_backend = 'nccl'
     if not hasattr(args, 'distributed_timeout_minutes'):
         args.distributed_timeout_minutes = 10
     else:
@@ -56,7 +56,7 @@ def initialize_vllm(args_dict):
                 "size does not match args.world_size "
                 f"({torch_world_size} vs. {args.world_size}).")
         return
-    
+
     device_count = torch.cuda.device_count()
     if args.rank == 0:
         print('> initializing torch distributed ...', flush=True)

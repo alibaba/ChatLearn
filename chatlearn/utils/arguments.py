@@ -463,7 +463,7 @@ class Config(BaseConfig):
                 "expect data_path and data_ratio to have same length, "
                 f"got {len(self.runtime_args.data_path)} and {len(self.runtime_args.data_ratio)}"
             )
-        
+
         # TODO: check the following assertions
         for model_name, model_args in self.models.items():
             if model_args.num_gpu >= 1:

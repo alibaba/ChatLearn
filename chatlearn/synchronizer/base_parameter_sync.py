@@ -23,15 +23,16 @@ if TYPE_CHECKING:
 
 
 class BaseParameterSyncGroup(ABC):
+    """The ABC for Parameter Synchronization"""
     def __init__(
-        self, 
-        src_model: 'DistModel', 
+        self,
+        src_model: 'DistModel',
         dst_model: 'DistModel',
         frequency: int,
     ):
         self.src_model, self.dst_model = src_model, dst_model
         self.frequency = frequency
-    
+
     @abstractmethod
     def sync(self, dryrun: bool=False):
         """Perform parameter synchronization on this group. If `dryrun` is True,
@@ -42,4 +43,3 @@ class BaseParameterSyncGroup(ABC):
             dryrun (bool, optional): Whether to run in dryrun mode. 
             Defaults to False.
         """
-        ...

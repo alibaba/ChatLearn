@@ -14,11 +14,9 @@
 # ==============================================================================
 """base module"""
 from typing import Dict
-from collections import defaultdict
 from itertools import cycle
 from pathlib import Path
 import math
-import time
 import os
 import torch
 import ray
@@ -31,7 +29,7 @@ from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.logger import logger
-from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
+from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
@@ -40,6 +38,7 @@ from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
 
 
 class BaseModule:
+    """The base class for all chatlearn models."""
     def __init__(self, name: str, args=None, replica_id: int=0):
         """The base class for all chatlearn models. After setup, the initialized
         base module on the remote actor can be used for training/inferencing.

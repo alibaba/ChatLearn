@@ -34,10 +34,12 @@ from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
+from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
+
 from .port_manager import PortManager
 from ..utils import future
 
-from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
+
 
 
 class ModelManager:
@@ -141,7 +143,7 @@ class ModelManager:
             names.add((src_model.name, dst_model.name))
             logger.info(
                 f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
-            
+
             sync_frequency = dst_model.module_args.sync_frequency
             if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
                 sync_group = FSDP2VllmParameterSyncGroup(
