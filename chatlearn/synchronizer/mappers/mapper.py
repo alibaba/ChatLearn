@@ -27,12 +27,13 @@ from megatron.training.utils import unwrap_model
 
 from chatlearn.configs.common import PolicyConfig
 from chatlearn.configs.megatron_config import MegatronPolicyTrainerConfig
-from chatlearn.synchronizer.v2.mappers.mapping_helpers import (
+from chatlearn.utils.mappings import ShardedTensorInfo
+
+from .mapping_helpers import (
     process_normal_tensor,
     process_gate_up_tensor,
     process_qkv_tensor
 )
-from chatlearn.utils.mappings import ShardedTensorInfo
 
 if TYPE_CHECKING:
     from megatron.core.models.gpt import GPTModel

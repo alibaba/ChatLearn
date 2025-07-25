@@ -25,7 +25,7 @@ def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
 def name_to_mapper_cls(mapper_name: str):
     if mapper_name == "MegatronVLLMMapper":
         # pylint: disable=import-outside-toplevel
-        from chatlearn.synchronizer.v2.mappers.mapper import MegatronVLLMMapper
+        from .mapper import MegatronVLLMMapper
         return MegatronVLLMMapper
     else:
         raise ValueError(f"Unrecognized Mapper {mapper_name}")

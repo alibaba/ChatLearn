@@ -14,4 +14,4 @@
 # ==============================================================================
 """utils"""
 
-from .utils import to_device
+from .utils import to_device, is_te_min_version

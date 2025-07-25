@@ -35,7 +35,7 @@ You can run the following command to start training:
 Run this command on server with 8 GPUs
 ```bash
 # download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
 bash scripts/train_fsdp_vllm_qwen3_30b_a3b_grpo.sh
 ```
 

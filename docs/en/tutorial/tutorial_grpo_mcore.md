@@ -23,13 +23,14 @@ tar -xvf Pai-Megatron-Patch.tar
 ## Data & Model Preparation
 We take [MATH-lighteval](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-lighteval) as exmaple.
 ```bash
+cd ChatLearn
 # download dataset
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # preprocess dataset
 python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
 ```
 
 ## CKPT Conversion
@@ -38,11 +39,12 @@ Please check [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch)
 
 Below codes show how to convert qwen3 8B model ckpt.
 ```bash
-cd Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
+CHATLEARN_ROOT=$(pwd)
+cd ../Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
 bash scripts/qwen3/run_8xH20.sh \
 8B \
-/mnt/data/ckpts/huggingface/Qwen3-8B  \
-/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore \
+${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B  \
+${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B-to-mcore \
 false  \
 true  \
 bf16
@@ -51,6 +53,7 @@ bf16
 You can run the following command to start training:
 
 ```bash
+cd ${CHATLEARN_ROOT}
 bash scripts/train_mcore_vllm_qwen3_8b_grpo.sh
 ```
 

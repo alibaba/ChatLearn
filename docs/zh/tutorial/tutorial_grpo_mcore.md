@@ -22,23 +22,25 @@ tar -xvf Pai-Megatron-Patch.tar
 ## 数据&模型准备
 以[MATH-lighteval](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-lighteval)数据集作为示例.
 ```bash
+cd ChatLearn
 # 下载数据集
 mkdir -p dataset
 modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
 # preprocess dataset
 python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
 # download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
 ```
 
 ## 模型转换
 使用下述脚本将8B量级的Qwen3的Huggingface格式的模型转换到MCore格式
 ```bash
-cd Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
+CHATLEARN_ROOT=$(pwd)
+cd ../Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
 bash scripts/qwen3/run_8xH20.sh \
 8B \
-/mnt/data/ckpts/huggingface/Qwen3-8B  \
-/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore \
+${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B  \
+${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B-to-mcore \
 false  \
 true  \
 bf16
@@ -48,6 +50,7 @@ bf16
 运行以下命令开始训练：
 
 ```bash
+cd ${CHATLEARN_ROOT}
 bash scripts/train_mcore_vllm_qwen3_8b_grpo.sh
 ```
 

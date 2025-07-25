@@ -115,7 +115,6 @@ def get_batches(modify_generation_batch_size=False):
 
     data_loader = StreamDataset.remote(engine.runtime_args.stream_data_loader_type,
                                             engine.runtime_args.train_micro_batch_size,
-                                            engine.env._padding_config,
                                             engine.runtime_args.max_replay_episode,
                                             engine.runtime_args.replay_episode_offset)
     engine._data_loader = data_loader

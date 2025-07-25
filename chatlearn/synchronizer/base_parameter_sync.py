@@ -12,13 +12,34 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""The collections of planners"""
+"""Abstract class for parameter synchronization."""
+
+from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
-def get_planner_cls(src_model: 'DistModel', dst_model: 'DistModel'):
-    # pylint: disable=unused-argument, import-outside-toplevel
-    from chatlearn.synchronizer.v2.planners.planner import MegatronVLLMSyncPlanner
-    return MegatronVLLMSyncPlanner
+
+
+class BaseParameterSyncGroup(ABC):
+    """The ABC for Parameter Synchronization"""
+    def __init__(
+        self,
+        src_model: 'DistModel',
+        dst_model: 'DistModel',
+        frequency: int,
+    ):
+        self.src_model, self.dst_model = src_model, dst_model
+        self.frequency = frequency
+
+    @abstractmethod
+    def sync(self, dryrun: bool=False):
+        """Perform parameter synchronization on this group. If `dryrun` is True,
+        some initialization will be excuted and no actual synchronization 
+        will be done.
+
+        Args:
+            dryrun (bool, optional): Whether to run in dryrun mode. 
+            Defaults to False.
+        """

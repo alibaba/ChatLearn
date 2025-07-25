@@ -54,6 +54,3 @@ runtime:
     eval_episode_interval: ${eval_episode_interval:0}
     eval_data_num_limit: 20
     nsys: False
-    free_sync_collective_group: ${free_sync_collective_group:False}
-    param_sync_comm_type: ${param_sync_comm_type:broadcast}
-    validate_param_sync: ${validate_param_sync:False}

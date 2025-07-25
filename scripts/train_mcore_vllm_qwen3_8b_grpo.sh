@@ -3,18 +3,17 @@ set -x
 
 export RAY_CGRAPH_get_timeout=200
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export RAY_num_server_call_thread=1
-export RAY_DEDUP_LOGS=0
+export RAY_DEDUP_LOGS=1
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
-export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250328
+export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250624
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
-hf_ckpt_path=${CHATLEARN}/Qwen3-8B
-mcore_ckpt_path=${CHATLEARN}/Qwen3-8B-to-mcore
+hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B
+mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B-to-mcore
 
 exp_name="test_qwen3_8b"
 export output_dir=${CHATLEARN}/output/${exp_name}

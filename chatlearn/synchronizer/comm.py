@@ -21,7 +21,7 @@ from torch.multiprocessing.reductions import reduce_tensor
 
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
-from chatlearn.synchronizer.v2.structs import (
+from .structs import (
     SynchronizerType,
     BucketInfo,
     SyncIteration
