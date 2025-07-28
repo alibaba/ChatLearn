@@ -168,6 +168,9 @@ class BaseModelConfig(BaseConfig):
     expert_model_parallel_size: int = field(
         default=1, metadata={"help": "expert model parallel size for Megatron-Core"}
     )
+    expert_tensor_parallel_size: Optional[int] = field(
+        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
+    )
     fsdp_size: int = field(default=1, metadata={"help": "FSDP parallel size"})
     ulysses_sequence_parallel_size: int = field(
         default=1,
@@ -542,3 +545,4 @@ def _config_validate(cfg):
                     runtime_args.sample_per_episode // (models.ref_policy.num_gpu // models.ref_policy.ulysses_sequence_parallel_size) = \
                     {sample_per_episode // ref_fsdp_dp_size}"
                 warnings.warn(warning_message)
+                
