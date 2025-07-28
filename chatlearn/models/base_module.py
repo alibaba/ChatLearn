@@ -46,15 +46,16 @@ from chatlearn.launcher import dlc_utils
 from chatlearn.configs.common import BaseModelConfig
 
 class BaseModule:
-    """BaseModule is the base class for Base models.
+    """The base class for all chatlearn models."""
+    def __init__(self, name: str, args=None, replica_id: int=0):
+        """The base class for all chatlearn models. After setup, the initialized
+        base module on the remote actor can be used for training/inferencing.
 
-    Args
-    ----
-    name : str
-        model name
-    """
-
-    def __init__(self, name, args=None, replica_id=0):
+        Args:
+            name (str): The name of this module
+            args (Any, optional): The arguments. Defaults to None.
+            replica_id (int, optional): The replica id of this module. Defaults to 0.
+        """
         logger.info(f"{LOG_START} basemodule {name} init start")
         self.name = name
         if args is None:
@@ -73,30 +74,10 @@ class BaseModule:
         self.replica_id = replica_id
         self._is_colocate = False
 
-        if self.total_gpu > 0:
-            self._num_gpu_per_replica = (
-                args.tensor_model_parallel_size
-                * args.pipeline_model_parallel_size
-                * args.expert_model_parallel_size
-                * args.fsdp_size
-            )
-            assert self._num_gpu_per_replica <= self.total_gpu, \
-                f"_num_gpu_per_replica {self._num_gpu_per_replica} larger than total_gpu {self.total_gpu} " + \
-                f"tp_size: {args.tensor_model_parallel_size} pp_size: {args.pipeline_model_parallel_size} " + \
-                f"ep_size: {args.expert_model_parallel_size}"
-            assert self.total_gpu % self._num_gpu_per_replica == 0
-            if not self.trainable:
-                self._num_replica = args.num_gpu // self._num_gpu_per_replica
-            else:
-                # For trainable models, perform the DP inside DistActor
-                self._num_replica = 1
-                self._num_gpu_per_replica = self.total_gpu
-        else:
-            self._num_gpu_per_replica = 0
-            # self._num_replica = args.num_replica
-            self._num_replica = args.num_cpu // args.cpu_per_process
+        # NOTE: the below two attributes may be further calculated by submodule
+        self._num_gpu_per_replica = self.total_gpu
+        self._num_replica = 1
 
-        assert self._num_replica >= 1
         self._param_ranks = None
         self._named_parameters = None
         self._param_to_name = None

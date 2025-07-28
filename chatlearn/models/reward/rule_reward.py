@@ -23,6 +23,20 @@ from chatlearn.utils.rule_reward_score import math
 class RuleReward(BaseModule):
     """rule reward"""
     # pylint: disable=abstract-method
+
+    def __init__(self, name: str, args=None, replica_id: int=0):
+        """The chatlearn wrapper for a RuleReward model.
+
+        Args:
+            name (str): The name of this module
+            args (Any, optional): The arguments. Defaults to None.
+            replica_id (int, optional): The replica id of this module. Defaults to 0.
+        """
+        super().__init__(name, args=args, replica_id=replica_id)
+        assert self.total_gpu == 0, "RuleReward does not require GPU"
+        self._num_gpu_per_replica = 0
+        self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
+
     def setup(self):
         self.stats = {}
         self._metric_prefix = "rulereward"
