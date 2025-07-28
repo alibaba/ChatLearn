@@ -37,7 +37,7 @@ python chatlearn/entrypoint.py grpo \
         models.ref_policy.generation_batch_size=64 \
         models.policy.generation_batch_size=64 \
         models.policy.enforce_eager=False \
-        models.policy.tensor_model_parallel_size=1 \
+        models.policy.tensor_model_parallel_size=2 \
         models.policy.seq_length=2048 \
         models.policy.max_seq_len_to_capture=2348 \
         models.policy.num_inference_per_prompt=32 \

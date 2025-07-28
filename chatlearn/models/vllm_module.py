@@ -107,6 +107,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         group.add_argument('--distributed-timeout-minutes', type=int, default=10,
                            help='Timeout minutes for torch.distributed.')
         return parser
+
     def init_engine_args(self):
         dtype = self.module_args.get("dtype", "bfloat16")
         if self.module_args.get("fp16", False):
@@ -159,21 +160,29 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     def init(self):
         """
-        :meta private:
+        set global variables, initialize distributed env.
+        used in BaseEngine.setup
         """
+        # set global var _ENABLE_CUSTOM_ALL_REDUCE to False
         parallel_state.set_custom_all_reduce(False)
         initialize_vllm(extra_args_provider=self.add_extra_args,
                         ignore_unknown_args=True,
                         args_dict=self.module_args)
 
     def setup(self):
-        """Set up tokenizer."""
+        """Set up tokenizer.
+        used in BaseEngine.setup and BaseModule.model_setup
+        """
         super().setup()
         tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
     def setup_vllm(self, workers):
+        """setup vllm engine
+        used in Environment.setup()
+        """
+
         if self.llm is not None: # for evaluator
             return
         # setup vllm engine in rank 0

@@ -31,6 +31,7 @@ from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
+from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
@@ -196,7 +197,8 @@ class GrpoAlgorithm(BaseAlgorithm):
         elif self.cfg.runtime_args.train_backend == "megatron":
             policy_trainer = MegatronPolicyTrainer("policy_trainer")
             ref_policy = MegatronPolicyTrainer("ref_policy")
-        policy = VLLMPolicyInference("policy")
+        # policy = VLLMPolicyInference("policy")
+        policy = SGLangPolicyInference("policy")
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 
