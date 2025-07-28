@@ -343,7 +343,7 @@ class ModelManager:
                 final_packs.extend(packs_list)
         return final_packs
 
-    def place_gpu_models(self, gpu_models, env_list=None):
+    def place_gpu_models(self, gpu_models: List[DistModel], env_list=None):
         """ place DistModel to gpu
         GPU models: Lis[DistModel]
         """
@@ -360,8 +360,8 @@ class ModelManager:
         for model in gpu_models:
             # TODO: for colocate gpu_per_process > 1, support later
             assert model.gpu_per_process == 1
+        # model_packs example: [[<DistModel(policy_trainer) object at 0x7fb848458bc0>], [<DistModel(policy) object at 0x7fb848458680>], [<DistModel(ref_policy) object at 0x7fb848459310>]]
         self.model_packs = self.find_model_packing_strategy(gpu_models, max_gpu)
-
         for model in gpu_models:
             pack = []
             for pack in self.model_packs:
