@@ -70,6 +70,11 @@ class BaseModule:
         self._num_gpu_per_replica = self.total_gpu
         self._num_replica = 1
 
+        self._param_ranks = None
+        self._named_parameters = None
+        self._param_to_name = None
+        self._parameters = None
+        self._coalesced_parameters = None
         self.error_signal = None
 
 
