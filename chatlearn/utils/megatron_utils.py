@@ -58,8 +58,6 @@ def update_cfg(cfg):
                 + [1] * (hf_transformer_config.num_hidden_layers - hf_transformer_config.first_k_dense_replace)
             cfg.models.policy_trainer.megatron_model_cfg.q_lora_rank = hf_transformer_config.q_lora_rank
             cfg.models.policy_trainer.megatron_model_cfg.kv_lora_rank = hf_transformer_config.kv_lora_rank
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_num_groups = hf_transformer_config.n_group
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_group_topk = hf_transformer_config.topk_group
             cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_intermediate_size = hf_transformer_config.n_shared_experts \
                  * hf_transformer_config.moe_intermediate_size
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_score_function = "sigmoid"

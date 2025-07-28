@@ -168,7 +168,7 @@ class BaseModelConfig(BaseConfig):
     expert_model_parallel_size: int = field(
         default=1, metadata={"help": "expert model parallel size for Megatron-Core"}
     )
-        expert_tensor_parallel_size: Optional[int] = field(
+    expert_tensor_parallel_size: Optional[int] = field(
         default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
     )
     fsdp_size: int = field(default=1, metadata={"help": "FSDP parallel size"})
