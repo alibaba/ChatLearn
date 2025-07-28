@@ -20,9 +20,9 @@ A flexible and efficient reinforcement learning framework for large language mod
 ---
 
 *Latest News* 🔥
-- [2025/7] We Provide a reinforcement learning training example for DeepSeek-V3-671B based on [Mcore](scripts/train_mcore_vllm_deepseekv3_grpo.sh)! 🔥
-- [2025/7] We Provide reinforcement learning training examples for Qwen3-235B-A22B based on [Mcore](scripts/train_mcore_vllm_qwen3_235b_a22b_grpo.sh) and [FSDP2](scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh)! 🔥
-- [2025/7] Training now supports the FSDP2 framework! We Offers sequence packing, sequence parallelism, and group GEMM support for efficient and user-friendly reinforcement learning training! 🔥
+- [2025/7] We give a reinforcement learning training example for DeepSeek-V3-671B based on [Mcore](scripts/train_mcore_vllm_deepseekv3_grpo.sh)! 🔥
+- [2025/7] We give reinforcement learning training examples for Qwen3-235B-A22B based on [Mcore](scripts/train_mcore_vllm_qwen3_235b_a22b_grpo.sh) and [FSDP2](scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh)! 🔥
+- [2025/7] Training now supports the FSDP2 framework! We support sequence packing, sequence parallelism, and group GEMM for efficient and user-friendly reinforcement learning training! 🔥
 - [2025/5] We support Mcore frameworks for training! By using Mcore and vLLM, we give a [tutorial](docs/en/tutorial/tutorial_grpo_mcore.md) about end-2-end GRPO training for Qwen3!
 - [2025/5] We support FSDP frameworks for training! By using FSDP and vLLM, we give a [tutorial](docs/en/tutorial/tutorial_grpo_fsdp.md) about end-2-end GRPO training for Qwen3!
 - [2024/8] We officially released ChatLearn! Check out our [documentation](docs/en/chatlearn.md).
