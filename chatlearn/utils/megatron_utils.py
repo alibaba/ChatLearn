@@ -14,6 +14,7 @@
 # ==============================================================================
 """megatron_utils"""
 
+from megatron.core.transformer.enums import AttnBackend
 from transformers import AutoConfig
 
 def update_cfg(cfg):
@@ -52,7 +53,7 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.num_experts = hf_transformer_config.num_experts
             cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [1] * hf_transformer_config.num_hidden_layers
         elif "DeepseekV3ForCausalLM" == hf_transformer_config.architectures[0]:
-            from megatron.core.transformer.enums import AttnBackend
+            
             cfg.models.policy_trainer.megatron_model_cfg.num_experts = hf_transformer_config.n_routed_experts
             cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [0] * hf_transformer_config.first_k_dense_replace \
                 + [1] * (hf_transformer_config.num_hidden_layers - hf_transformer_config.first_k_dense_replace)
@@ -81,7 +82,6 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.fused
             cfg.models.policy_trainer.megatron_model_cfg.attention_softmax_in_fp32 = True
             cfg.models.policy_trainer.megatron_model_cfg.rotary_scaling_factor = 40
- 
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg
 
     return cfg
