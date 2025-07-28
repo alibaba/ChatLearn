@@ -265,22 +265,25 @@ class MegatronTrainConfig(BaseConfig):
         default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
     moe_router_force_load_balancing: bool = field(
-        default=False, metadata={"help": "moe_router_force_load_balancing."}
+        default=False, metadata={"help": "Force load balancing with random logits for MoE router, supports naive topk \
+    and group-limited topk."}
     )
     gradient_accumulation_fusion: bool = field(
-        default=False, metadata={"help": "gradient_accumulation_fusion."}
+        default=False, metadata={"help": "If true, fuses weight gradient accumulation to GEMMs. Requires the custom CUDA extension \
+            fused_weight_gradient_mlp_cuda module.."}
     )
     async_tensor_model_parallel_allreduce: bool = field(
         default=False, metadata={"help": "async_tensor_model_parallel_allreduce."}
     )
     overlap_p2p_comm: bool = field(
-        default=False, metadata={"help": "overlap_p2p_comm."}
+        default=False, metadata={"help": "When True some of the peer to peer communication for pipeline parallelism will overlap with computation。"}
     )
     batch_p2p_comm: bool = field(
-        default=False, metadata={"help": "batch_p2p_comm."}
+        default=False, metadata={"help": "Use batch_isend_irecv instead of individual isend/irecv calls."}
     )
     deallocate_pipeline_outputs: bool = field(
-        default=False, metadata={"help": "deallocate_pipeline_outputs."}
+        default=False, 
+        metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
     )
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
         default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
