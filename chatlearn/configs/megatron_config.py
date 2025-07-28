@@ -163,7 +163,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=False, metadata={"help": "prevent matmul from using reduced precision accumulation when using BF16"}
     )
     moe_shared_expert_overlap: bool = field(
-        default=False, metadata={"help": "prevent matmul from using reduced precision accumulation when using BF16"}
+        default=False, metadata={"help": "Enable overlapping between shared expert computations and dispatcher communications."}
     )
     moe_router_load_balancing_type: str = field(
         default="aux_loss",

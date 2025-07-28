@@ -54,8 +54,8 @@ models:
     pipeline_model_parallel_size: 1
     expert_tensor_parallel_size: 1
     expert_model_parallel_size: 1
-    decoder_first_pipeline_num_layers: 0
-    decoder_last_pipeline_num_layers: 0
+    decoder_first_pipeline_num_layers: null
+    decoder_last_pipeline_num_layers: null
     moe_router_force_load_balancing: False
     # train config
     load: your_megatron_model_path

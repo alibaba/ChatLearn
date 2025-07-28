@@ -78,7 +78,7 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.overlap_p2p_comm = True
             cfg.models.policy_trainer.megatron_model_cfg.batch_p2p_comm = False
             cfg.models.policy_trainer.megatron_model_cfg.deallocate_pipeline_outputs = False
-            cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.fused
+            cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.auto
             cfg.models.policy_trainer.megatron_model_cfg.attention_softmax_in_fp32 = True
             cfg.models.policy_trainer.megatron_model_cfg.rotary_scaling_factor = 40
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg
