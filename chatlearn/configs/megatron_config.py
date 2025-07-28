@@ -283,7 +283,7 @@ class MegatronTrainConfig(BaseConfig):
         default=False, metadata={"help": "deallocate_pipeline_outputs."}
     )
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
-        default=AttnBackend.fused, metadata={"help": "attention_backend."}
+        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
     )
     attention_softmax_in_fp32: bool = field(
         default=True, metadata={"help": "attention_softmax_in_fp32."}
