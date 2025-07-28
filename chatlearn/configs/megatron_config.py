@@ -1,14 +1,13 @@
 # pylint: disable=missing-module-docstring
 # pylint: disable=missing-class-docstring
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
 from omegaconf import MISSING
 
-from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
+from megatron.training.arguments import moe_freq_type
+from megatron.core.transformer.enums import AttnBackend
 
-if TYPE_CHECKING:
-    from megatron.training.arguments import moe_freq_type
+from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
 
 
 @dataclass
@@ -34,7 +33,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         metadata={"help": "Transformer Feed-Forward Network hidden size. "},
     )
     num_query_groups: int = field(
-        default=MISSING, metadata={"help": "num query groups"}
+        default=None, metadata={"help": "num query groups"}
     )
     max_position_embeddings: int = field(
         default=MISSING,
@@ -57,23 +56,23 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default="rope", metadata={"help": "Position embedding type."}
     )
     add_qkv_bias: bool = field(
-        default=MISSING, metadata={"help": "Enable bias only in the QKV linear layers"}
+        default=False, metadata={"help": "Enable bias only in the QKV linear layers"}
     )
     add_bias_linear: bool = field(
-        default=MISSING, metadata={"help": "Whether bias in the linear layers"}
+        default=False, metadata={"help": "Whether bias in the linear layers"}
     )
     rotary_base: int = field(
         default=1000000,
         metadata={"help": "Base to use for rotary positional embeddings"},
     )
     group_query_attention: bool = field(
-        default=MISSING, metadata={"help": "Use group-query attention."}
+        default=False, metadata={"help": "Use group-query attention."}
     )
     untie_embeddings_and_output_weights: bool = field(
-        default=MISSING, metadata={"help": "Untie embeddings and output weights."}
+        default=False, metadata={"help": "Untie embeddings and output weights."}
     )
     qk_layernorm: bool = field(
-        default=MISSING, metadata={"help": "qk layer norm"}
+        default=False, metadata={"help": "qk layer norm"}
     )
     vocab_size: int = field(default=32000)
     kv_channels: int = field(
@@ -105,7 +104,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     moe_router_pre_softmax: bool = field(
         default=False, metadata={"help": "moe_router_pre_softmax"}
     )
-    moe_layer_freq: "moe_freq_type" = field(
+    moe_layer_freq: moe_freq_type = field(
         default=1,
         metadata={"help": "Frequency between MoE layers and Dense layers."},
     )
@@ -118,7 +117,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     )
     q_lora_rank: int = field(
         default=None,
-        metadata={"help": "Rank of Query tensor's low rank representation."},
+        metadata={"help": "Rank of Key and Value tensors' low rank representation."},
     )
     kv_lora_rank: int = field(
         default=32,
@@ -160,12 +159,37 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=True, metadata={"help": "Disable rope fusion, the fusion is available"}
     )
 
+    disable_bf16_reduced_precision_matmul: bool = field(
+        default=False, metadata={"help": "prevent matmul from using reduced precision accumulation when using BF16"}
+    )
+    moe_shared_expert_overlap: bool = field(
+        default=False, metadata={"help": "prevent matmul from using reduced precision accumulation when using BF16"}
+    )
+    moe_router_load_balancing_type: str = field(
+        default="aux_loss",
+        metadata={"help": "moe_router_load_balancing_type"},
+    )
+    bias_swiglu_fusion: bool = field(
+        default=False, metadata={"help": "Disable swiglu fusion, the fusion is available"}
+    )
+    bias_dropout_fusion: bool = field(
+        default=False, metadata={"help": "Disable dropout fusion, the fusion is available"}
+    )
+    rotary_scaling_factor: float = field(
+        default=1.0, metadata={"help": "rotary_scaling_factor "}
+    )
 
 
 @dataclass
 class MegatronTrainConfig(BaseConfig):
     expert_tensor_parallel_size: int = field(
-        default=None, metadata={"help": "expert model parallel size for Megatron-Core"}
+        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
+    )
+    decoder_first_pipeline_num_layers: int = field(
+        default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
+    )
+    decoder_last_pipeline_num_layers: int = field(
+        default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
     )
     load: str = field(default=MISSING, metadata={"help": "path to train model"})
     save: str = field(default=MISSING, metadata={"help": "path to save model"})
@@ -204,7 +228,7 @@ class MegatronTrainConfig(BaseConfig):
         },
     )
     recompute_granularity: str = field(
-        default="selective",
+        default=None,
         metadata={
             "help": "Checkpoint activations to allow for training with larger models, sequences, and batch sizes. \
             It is supported at two granularities 1) full: whole transformer layer is recomputed, \
@@ -240,12 +264,29 @@ class MegatronTrainConfig(BaseConfig):
     optimizer: OptimizerConfig = field(
         default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
-    calculate_per_token_loss: bool = field(
-        default=True,
-        metadata={
-            "help": "Whether cross entropy loss is calculated over the actual number of non-padded tokens in the \
-             global batch, versus the default behavior of assuming all tokens are non-padded. Should be True for RL training."
-        },
+    moe_router_force_load_balancing: bool = field(
+        default=False, metadata={"help": "moe_router_force_load_balancing."}
+    )
+    gradient_accumulation_fusion: bool = field(
+        default=False, metadata={"help": "gradient_accumulation_fusion."}
+    )
+    async_tensor_model_parallel_allreduce: bool = field(
+        default=False, metadata={"help": "async_tensor_model_parallel_allreduce."}
+    )
+    overlap_p2p_comm: bool = field(
+        default=False, metadata={"help": "overlap_p2p_comm."}
+    )
+    batch_p2p_comm: bool = field(
+        default=False, metadata={"help": "batch_p2p_comm."}
+    )
+    deallocate_pipeline_outputs: bool = field(
+        default=False, metadata={"help": "deallocate_pipeline_outputs."}
+    )
+    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
+        default=AttnBackend.fused, metadata={"help": "attention_backend."}
+    )
+    attention_softmax_in_fp32: bool = field(
+        default=True, metadata={"help": "attention_softmax_in_fp32."}
     )
 
 
@@ -274,7 +315,16 @@ class MegatronRefPolicyConfig(BaseModelConfig):
     )
     bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
     expert_tensor_parallel_size: int = field(
-        default=None, metadata={"help": "expert model parallel size for Megatron-Core"}
+        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
+    )
+    decoder_first_pipeline_num_layers: int = field(
+        default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
+    )
+    decoder_last_pipeline_num_layers: int = field(
+        default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
+    )
+    moe_router_force_load_balancing: bool = field(
+        default=False, metadata={"help": "moe_router_force_load_balancing."}
     )
 
 
