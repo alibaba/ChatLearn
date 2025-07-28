@@ -83,11 +83,13 @@ class MegatronModelArchitectureConfig(BaseConfig):
         metadata={"help": "Number of Experts in MoE (None means no MoE)"},
     )
     moe_grouped_gemm: bool = field(
-        default=False, metadata={"help": "open moe grouped gemm"}
+        default=False, metadata={"help": "When there are multiple experts per rank, compress multiple local (potentially small) gemms \
+    in a single kernel launch to improve the utilization and performance by leveraging the Grouped \
+    GEMM feature introduced since CUTLASS 2.8 (https://github.com/fanshiqing/grouped_gemm)."}
     )
     moe_token_dispatcher_type: str = field(
         default="allgather",
-        metadata={"help": "The type of token dispatcher to use."},
+        metadata={"help": "The type of token dispatcher to use. The default is 'allgather'."},
     )
     moe_router_topk: int = field(
         default=2,
@@ -99,14 +101,18 @@ class MegatronModelArchitectureConfig(BaseConfig):
     )
     moe_router_dtype: str = field(
         default=None,
-        metadata={"help": "moe_router_dtype"},
+        metadata={"help": "Data type for routing and expert output weighted averaging. Using fp32 or fp64 can \
+    improve stability especially when the number of experts is large"},
     )
     moe_router_pre_softmax: bool = field(
-        default=False, metadata={"help": "moe_router_pre_softmax"}
+        default=False, metadata={"help": "Enable pre-softmax(pre-sigmoid) routing for MoE, which means softmax is before the \
+    top-k selection."}
     )
     moe_layer_freq: moe_freq_type = field(
         default=1,
-        metadata={"help": "Frequency between MoE layers and Dense layers."},
+        metadata={"help": "Frequency between MoE layers and Dense layers. Accepts either: \
+    - An integer N: Represents a 1:N ratio, meaning one expert layer for every N-1 dense layers. \
+    - A list that defines a custom pattern, e.g.: [1,1,1,0,1,1,1,0,1,1,1,0]"},
     )
     moe_ffn_hidden_size: int = field(
         default=None,
@@ -282,8 +288,7 @@ class MegatronTrainConfig(BaseConfig):
         default=False, metadata={"help": "Use batch_isend_irecv instead of individual isend/irecv calls."}
     )
     deallocate_pipeline_outputs: bool = field(
-        default=False, 
-        metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
+        default=False, metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
     )
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
         default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
