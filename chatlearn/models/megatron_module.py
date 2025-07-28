@@ -13,6 +13,7 @@
 # ==============================================================================
 """Megatron module"""
 import re
+import math
 from dataclasses import fields
 import functools
 import torch
@@ -48,13 +49,29 @@ if IS_MEGATRON_SUPPORTED:
     from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
     class MegatronModule(TorchModule):
-        """MegatronModule is the class for Alignment Megatron models.
+        """MegatronModule is the class for Alignment Megatron models."""
 
-        Args
-        ----
-        name : str
-            model name
-        """
+        def __init__(self, name: str, args=None, replica_id: int=0):
+            """The chatlearn wrapper for a Megatron model.
+
+            Args:
+                name (str): The name of this module
+                args (Any, optional): The arguments. Defaults to None.
+                replica_id (int, optional): The replica id of this module. Defaults to 0.
+            """
+            super().__init__(name, args=args, replica_id=replica_id)
+            assert self.total_gpu > 0, "Megatron-Core requires at least one GPU"
+            # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
+            if not self.trainable:
+                # NOTE: LCM(TP x CP, ETP x EP) x PP, currently only allow CP = 1
+                self._num_gpu_per_replica = math.lcm(
+                    self.module_args.tensor_model_parallel_size * 1,
+                    self.module_args.expert_tensor_parallel_size *
+                    self.module_args.expert_model_parallel_size
+                ) * self.module_args.pipeline_model_parallel_size
+                assert self.total_gpu % self._num_gpu_per_replica == 0, \
+                    "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
+                self._num_replica = self.total_gpu // self._num_gpu_per_replica
 
         def add_extra_args(self, parser):
             """
