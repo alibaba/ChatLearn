@@ -13,8 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 """Inference Memery manager for Megatron."""
-from typing import Optional, List
+from typing import Optional, List, Union
 
+from torch import nn
 from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel
 
 from chatlearn.utils.flat_tensors import BucketizedFlatTensors
@@ -25,12 +26,19 @@ class InferenceMemoryManager:
     Memory manager for Megatron inference modules which provides utilities to free memory when unused.
     """
 
-    def __init__(self, model, bucket_size_mb=0):
+    def __init__(self, model: List[nn.Module], bucket_size_mb: int=0):
+        """Manage memory of inference models which only have model weights.
+
+        Args:
+            model (List[nn.Module]): The Megatron model chunks to be managed. 
+            Should all be unwrapped.
+            bucket_size_mb (int): The bucket size when offloading weights.
+        """
         self._model = model
 
-        assert not isinstance(
-            model, (DistributedDataParallel,)
-        ), f'Only support model type non-DistributedDataParallel, current type is {str(type(model))}.'
+        if any(isinstance(model_chunk, (DistributedDataParallel,)) for model_chunk in model):
+            all_types = ','.join([str(type(model_chunk)) for model_chunk in model] )
+            raise NotImplementedError(f'Only support model type non-DistributedDataParallel, current type is {all_types}.')
 
         self._weights_offloaded = False
         self._group_flat_weights: Optional[List[BucketizedFlatTensors]] = None
@@ -46,11 +54,12 @@ class InferenceMemoryManager:
 
         if self._group_flat_weights is None:
             dtype_to_params = {}
-            for p in self._model.parameters():
-                dtype = p.dtype
-                if dtype not in dtype_to_params:
-                    dtype_to_params[dtype] = []
-                dtype_to_params[dtype].append(p)
+            for model_chunk in self._model:
+                for p in model_chunk.parameters():
+                    dtype = p.dtype
+                    if dtype not in dtype_to_params:
+                        dtype_to_params[dtype] = []
+                    dtype_to_params[dtype].append(p)
 
             self._group_flat_weights = []
             for params in dtype_to_params.values():
