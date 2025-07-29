@@ -14,8 +14,8 @@
 # ==============================================================================
 """helper function to parse datatype from Config class"""
 from functools import partial
-from dataclasses import fields, dataclass, is_dataclass
-from typing import get_origin, get_args, Dict, List, Union, Type, Optional, Callable, Any
+from dataclasses import fields, is_dataclass
+from typing import get_origin, get_args, Dict, List, Union, Optional, Callable, Any
 
 
 def parse_optional(dtype, data):
