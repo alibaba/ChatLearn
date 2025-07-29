@@ -34,8 +34,9 @@ def parse_boolean(data: Union[str, bool]):
 def _resolve_type_from_dataclass(dt) -> Dict:
     """resolve parser from a dataclass object (not dataclass type!!!)"""
     if not is_dataclass(dt):
-        raise ValueError("Should accept a dataclass object")
+        raise ValueError("Should be a dataclass object")
     dtypes = {}
+    default_parser = {bool: parse_boolean, Any: None}
     for f in fields(dt):
         dtypes[f.name] = None
         dtype = f.type if f.type is not Any else type(getattr(dt, f.name))
@@ -47,10 +48,11 @@ def _resolve_type_from_dataclass(dt) -> Dict:
             # we only process optional here
             args = get_args(dtype)
             if len(args) == 2 and args[1] is type(None):
-                dtypes[f.name] = partial(parse_optional, args[0])
-        elif dtype is bool:
-            dtypes[f.name] = parse_boolean
-        elif dtype is not Any and callable(dtype):
+                parser = default_parser[args[0]] if args[0] in default_parser else args[0]
+                dtypes[f.name] = partial(parse_optional, parser)
+        elif dtype in default_parser:
+            dtypes[f.name] = default_parser[dtype]
+        elif callable(dtype):
             dtypes[f.name] = dtype
     return dtypes
 
