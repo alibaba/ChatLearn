@@ -12,11 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+"""helper function to parse datatype from Config class"""
 from functools import partial
 from dataclasses import fields, dataclass, is_dataclass
 from typing import get_origin, get_args, Dict, List, Union, Type, Optional, Callable, Any
-from chatlearn.configs.common import BaseConfig
-from omegaconf import DictConfig
 
 
 def parse_optional(dtype, data):
@@ -65,7 +64,7 @@ def _find_type(dtypes, key: str):
     return _inner_find(dtypes, 0, key.split("."))
 
 def find_parser_from_keyname(
-    dt: Any, 
+    dt: Any,
     keynames: List[str]
 ) -> Dict[str, Optional[Callable]]:
     """Find datatype parser according to keyname by searching
