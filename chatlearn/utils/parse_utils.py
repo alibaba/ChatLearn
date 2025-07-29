@@ -22,6 +22,8 @@ from omegaconf import DictConfig
 def parse_optional(dtype, data):
     if data is None:
         return None
+    if isinstance(data, str) and data.lower() in ["none", "null"]:
+        return None
     return dtype(data)
 
 def parse_boolean(data: Union[str, bool]):
