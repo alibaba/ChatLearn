@@ -102,10 +102,6 @@ class ChatlearnLauncher:
                 parsers = find_parser_from_keyname(default_merged_config, keynames)
                 for keyname, value in zip(keynames, values):
                     parser = parsers[keyname]
-                    if parser is None:
-                        default_value = OmegaConf.select(external_cfg, keyname)
-                        if default_value is not None:
-                            parser = type(default_value)
                     if parser is not None:
                         value = parser(value)
                     OmegaConf.update(external_cfg, keyname, value)
