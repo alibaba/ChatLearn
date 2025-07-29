@@ -10,7 +10,7 @@ from omegaconf import MISSING
 
 from chatlearn.utils.constant import RAY_PG_STRATEGY
 
-
+@dataclass
 class BaseConfig:
     # TODO: Unifying Parameter Access Using dataclass approach
     def __setitem__(self, key, value):
@@ -44,6 +44,9 @@ class BaseConfig:
     def values(self) -> Iterator[Any]:
         """support args.values()"""
         return asdict(self).values()
+
+    def validate(self):
+        return True
 
 
 @dataclass

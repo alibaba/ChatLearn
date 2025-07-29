@@ -33,4 +33,4 @@ def apply_group_gemm(model):
             # pylint: disable=import-outside-toplevel
         apply_group_gemm_patch(model)
     else:
-        raise ValueError(f"Unsupported model architecture: {model_config.architectures} for groupgemm patch")
+        raise ValueError(f"Unsupported model architecture: {model.config.architectures} for groupgemm patch")

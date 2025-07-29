@@ -1,5 +1,6 @@
 # pylint: disable=missing-module-docstring
 # pylint: disable=missing-class-docstring
+from typing import Optional
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING
@@ -32,7 +33,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=MISSING,
         metadata={"help": "Transformer Feed-Forward Network hidden size. "},
     )
-    num_query_groups: int = field(
+    num_query_groups: Optional[int] = field(
         default=None, metadata={"help": "num query groups"}
     )
     max_position_embeddings: int = field(
@@ -78,7 +79,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     kv_channels: int = field(
         default=MISSING, metadata={"help": "kv channels"}
     )
-    num_experts: int = field(
+    num_experts: Optional[int] = field(
         default=None,
         metadata={"help": "Number of Experts in MoE (None means no MoE)"},
     )
@@ -99,7 +100,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default="aux_loss",
         metadata={"help": "Determines the load balancing strategy for the router."},
     )
-    moe_router_dtype: str = field(
+    moe_router_dtype: Optional[str] = field(
         default=None,
         metadata={"help": "Data type for routing and expert output weighted averaging. Using fp32 or fp64 can \
     improve stability especially when the number of experts is large"},
@@ -114,14 +115,14 @@ class MegatronModelArchitectureConfig(BaseConfig):
     - An integer N: Represents a 1:N ratio, meaning one expert layer for every N-1 dense layers. \
     - A list that defines a custom pattern, e.g.: [1,1,1,0,1,1,1,0,1,1,1,0]"},
     )
-    moe_ffn_hidden_size: int = field(
+    moe_ffn_hidden_size: Optional[int] = field(
         default=None,
         metadata={"help": "The hidden size of each expert\'s feed-forward network (ffn). "},
     )
     moe_aux_loss_coeff: float = field(
         default=0.0, metadata={"help": "Scaling coefficient for the aux loss: a starting value of 1e-2 is recommended."}
     )
-    q_lora_rank: int = field(
+    q_lora_rank: Optional[int] = field(
         default=None,
         metadata={"help": "Rank of Key and Value tensors' low rank representation."},
     )
@@ -129,15 +130,15 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=32,
         metadata={"help": "Rank of Key and Value tensors' low rank representation."},
     )
-    moe_router_num_groups: int = field(
+    moe_router_num_groups: Optional[int] = field(
         default=None,
         metadata={"help": "Number of groups to divide experts into for group-limited routing"},
     )
-    moe_router_group_topk: int = field(
+    moe_router_group_topk: Optional[int] = field(
         default=None,
         metadata={"help": "Number of selected groups for group-limited routing."},
     )
-    moe_shared_expert_intermediate_size: int = field(
+    moe_shared_expert_intermediate_size: Optional[int] = field(
         default=None,
         metadata={"help": "Shared expert total ffn hidden size. "},
     )
@@ -151,7 +152,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     multi_latent_attention: bool = field(
         default=False, metadata={"help": "Use multi-latent attention for model."}
     )
-    v_head_dim: int = field(
+    v_head_dim: Optional[int] = field(
         default=None,
         metadata={"help": "v_head_dim "},
     )
@@ -188,13 +189,13 @@ class MegatronModelArchitectureConfig(BaseConfig):
 
 @dataclass
 class MegatronTrainConfig(BaseConfig):
-    expert_tensor_parallel_size: int = field(
+    expert_tensor_parallel_size: Optional[int] = field(
         default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
     )
-    decoder_first_pipeline_num_layers: int = field(
+    decoder_first_pipeline_num_layers: Optional[int] = field(
         default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
     )
-    decoder_last_pipeline_num_layers: int = field(
+    decoder_last_pipeline_num_layers: Optional[int] = field(
         default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
     )
     load: str = field(default=MISSING, metadata={"help": "path to train model"})
@@ -202,7 +203,7 @@ class MegatronTrainConfig(BaseConfig):
     tokenizer_type: str = field(
         default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
     )
-    tokenizer_model: str = field(
+    tokenizer_model: Optional[str] = field(
         default=None, metadata={"help": "pretrained model name or path"}
     )
     seq_length: int = field(
@@ -233,7 +234,7 @@ class MegatronTrainConfig(BaseConfig):
                        from checkpoint and ignore input arguments."
         },
     )
-    recompute_granularity: str = field(
+    recompute_granularity: Optional[str] = field(
         default=None,
         metadata={
             "help": "Checkpoint activations to allow for training with larger models, sequences, and batch sizes. \
@@ -318,17 +319,17 @@ class MegatronRefPolicyConfig(BaseModelConfig):
     tokenizer_type: str = field(
         default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
     )
-    tokenizer_model: str = field(
+    tokenizer_model: Optional[str] = field(
         default=None, metadata={"help": "pretrained model name or path"}
     )
     bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
-    expert_tensor_parallel_size: int = field(
+    expert_tensor_parallel_size: Optional[int] = field(
         default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
     )
-    decoder_first_pipeline_num_layers: int = field(
+    decoder_first_pipeline_num_layers: Optional[int] = field(
         default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
     )
-    decoder_last_pipeline_num_layers: int = field(
+    decoder_last_pipeline_num_layers: Optional[int] = field(
         default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
     )
     moe_router_force_load_balancing: bool = field(
