@@ -25,7 +25,7 @@ from hydra.core.global_hydra import GlobalHydra
 from hydra.core.config_store import ConfigStore
 
 from chatlearn.algorithm.base_algo import BaseAlgorithm
-
+from chatlearn.utils.parse_utils import find_parser_from_keyname
 
 # e.g. python chatlearn/chatlearn.py grpo --config-file grpo.yaml runtime.data_path=/tmp/data runtime.eval_data_path=/tmp/eval_data
 
@@ -98,14 +98,17 @@ class ChatlearnLauncher:
 
             if algo_args.config_file is not None:
                 external_cfg = OmegaConf.load(algo_args.config_file)
-                for arg in algo_args.hydra_args:
-                    if '=' in arg:
-                        key, value = arg.split('=', 1)
-                        origin_type = type(OmegaConf.select(external_cfg, key))
-                        if origin_type == bool:
-                            OmegaConf.update(external_cfg, key, value.lower().strip() == 'true')
-                        else:
-                            OmegaConf.update(external_cfg, key, origin_type(value))
+                keynames, values = list(zip(*[arg.split('=', 1) for arg in algo_args.hydra_args if '=' in arg]))
+                parsers = find_parser_from_keyname(config_cls, keynames)
+                for keyname, value in zip(keynames, values):
+                    parser = parsers[keyname]
+                    if parser is None:
+                        default_value = OmegaConf.select(external_cfg, keyname)
+                        if default_value is not None:
+                            parser = type(default_value)
+                    if parser is not None:
+                        value = parser(value)
+                    OmegaConf.update(external_cfg, keyname, value)
                 cfg = OmegaConf.merge(cfg, external_cfg) # include $
             cfg = OmegaConf.to_object(cfg) # real cfg
             instance = algo_cls(cfg)
