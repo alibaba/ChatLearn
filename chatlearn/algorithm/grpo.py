@@ -116,7 +116,9 @@ class GrpoConfig(BaseConfig):
         self.models.policy_trainer = convert_to_dataclass(
             policytrainer_cls, self.models.policy_trainer
         )
-        _config_validate(self)
+    
+    def validate(self):
+        return _config_validate(self)
 
 
 class GRPOEvaluator(Evaluator):
