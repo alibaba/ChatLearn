@@ -29,7 +29,6 @@ from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
-from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
@@ -91,22 +90,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
-    def add_extra_args(self, parser):
-        """
-        Add extra arguments for vllm.
-
-        Args
-        ----
-        parser : ArgumentParser
-            Add extra arguments.
-        """
-        group = parser.add_argument_group(title='vLLM extra arguments')
-        group.add_argument('--distributed-backend', default='nccl',
-                           choices=['nccl', 'gloo'],
-                           help='Which backend to use for distributed training.')
-        group.add_argument('--distributed-timeout-minutes', type=int, default=10,
-                           help='Timeout minutes for torch.distributed.')
-        return parser
     def init_engine_args(self):
         dtype = self.module_args.get("dtype", "bfloat16")
         if self.module_args.get("fp16", False):
@@ -162,9 +145,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         :meta private:
         """
         parallel_state.set_custom_all_reduce(False)
-        initialize_vllm(extra_args_provider=self.add_extra_args,
-                        ignore_unknown_args=True,
-                        args_dict=self.module_args)
+        initialize_vllm(self.module_args)
 
     def setup(self):
         """Set up tokenizer."""
@@ -223,7 +204,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.offload_weights()
 
     def worker_dump_parameters(self, dump_path_root):
-        tp_rank = self.tensor_parallel_rank()
+        tp_rank = parallel_state.get_tensor_model_parallel_rank()
         model = self.model
         if isinstance(model, list):
             model = model[0]
@@ -232,9 +213,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
         self._logger.info(f"dump parameters to {dir_path}")
-        for name, param in self.named_parameters.items():
+        for name, weight in self.model.state_dict().items():
             pt_file = os.path.join(dir_path, name)
-            torch.save(param.data.clone(), pt_file)
+            torch.save(weight.data.clone(), pt_file)
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -381,12 +362,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def is_last_rank(self):
         return True
 
-    def num_layers(self):
-        """
-        :meta private:
-        """
-        return self.llm.llm_engine.model_config.hf_config.num_hidden_layers
-
     def peak_memory(self):
         """
         :meta private:
@@ -411,33 +386,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     @property
     def model(self):
         return self._model
-
-    def tensor_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return parallel_state.get_tensor_model_parallel_rank()
-
-    def pipeline_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return get_pipeline_model_parallel_rank()
-
-    def tensor_model_parallel_size(self):
-        return self.tensor_and_expert_model_parallel_size()
-
-    def expert_model_parallel_size(self):
-        return 1
-
-    def tensor_and_expert_model_parallel_size(self):
-        """
-        get tensor_and_expert_model_parallel_size
-        :meta private:
-        """
-        # vLLM not supported to enable expert parallel size
-        # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
-        return parallel_state.get_tensor_model_parallel_world_size()
 
     def offload_weights(self): # is_param_sync=True
         """

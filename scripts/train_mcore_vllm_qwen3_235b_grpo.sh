@@ -13,8 +13,8 @@ export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatr
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
-hf_ckpt_path=${CHATLEARN}/Qwen3-235B-A22B
-mcore_ckpt_path=${CHATLEARN}/Qwen3-235B-A22B-to-mcore
+hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-235B-A22B
+mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-235B-A22B-to-mcore
 
 exp_name="test_qwen3_235b"
 export output_dir=${CHATLEARN}/output/${exp_name}

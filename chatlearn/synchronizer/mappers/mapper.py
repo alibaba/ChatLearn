@@ -27,12 +27,13 @@ from megatron.training.utils import unwrap_model
 
 from chatlearn.configs.common import PolicyConfig
 from chatlearn.configs.megatron_config import MegatronPolicyTrainerConfig
-from chatlearn.synchronizer.v2.mappers.mapping_helpers import (
+from chatlearn.utils.mappings import ShardedTensorInfo
+
+from .mapping_helpers import (
     process_normal_tensor,
     process_gate_up_tensor,
     process_qkv_tensor
 )
-from chatlearn.utils.mappings import ShardedTensorInfo
 
 if TYPE_CHECKING:
     from megatron.core.models.gpt import GPTModel
@@ -138,11 +139,12 @@ class MegatronVLLMMapper:
                     src_prefix="decoder.final_layernorm.",
                     dst_prefix="model.norm.",
                 ))
-                mapping.update(self._map_postprocess_layer(
-                    model.output_layer,
-                    src_prefix="output_layer.",
-                    dst_prefix="",
-                ))
+                if not model.share_embeddings_and_output_weights:
+                    mapping.update(self._map_postprocess_layer(
+                        model.output_layer,
+                        src_prefix="output_layer.",
+                        dst_prefix="",
+                    ))
 
             if len(self.model) > 1:
                 mpu.set_virtual_pipeline_model_parallel_rank(None)

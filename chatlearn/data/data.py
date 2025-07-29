@@ -19,19 +19,18 @@ import random
 import copy
 import os
 import json
-from typing import List, Dict
+from typing import List, Dict, Union, Tuple
 
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
+
 from chatlearn.utils import future
 from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
 
-
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
-
     data = []
     for data_path in data_path_list:
         if mode == "json":
@@ -41,6 +40,7 @@ def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
             with open(data_path, 'r', encoding='utf-8') as f:
                 data.extend([json.loads(line) for line in f])
     return data
+
 
 def get_iter_keys(data):
     """
@@ -62,30 +62,22 @@ def create_from_type(data):
     return type(data)()
 
 
-def batching(tensors, padding_value=0.0, padding_type="right"):
+def batching(batches: List[Union[torch.Tensor, Dict, List, Tuple]]):
     """
-    batch tensors
+    batch batches
     """
-    if isinstance(tensors[0], torch.Tensor):
-        if tensors[0].dim() == 0:
-            return torch.stack(tensors)
-        if padding_type == "right":
-            return pad_sequence(tensors, batch_first=True, padding_value=padding_value)
-        return pad_sequence([elem.flip(0) for elem in tensors],
-                            padding_value=padding_value,
-                            batch_first=True).flip(1)
-    batch = create_from_type(tensors[0])
-    batch_size = len(tensors)
-    for key in get_iter_keys(tensors[0]):
-        pad = padding_value.get(key, 0.0) if isinstance(padding_value,
-                                                        dict) else padding_value
-        ptype = padding_type.get(key, "right") if isinstance(padding_type, dict) else padding_type
-        batched = [tensors[j][key] for j in range(batch_size)]
+    if isinstance(batches[0], torch.Tensor):
+        if batches[0].dim() == 0:
+            return torch.stack(batches)
+        return pad_sequence(batches, batch_first=True, padding_value=0.0)
+    batch = create_from_type(batches[0])
+    batch_size = len(batches)
+    for key in get_iter_keys(batches[0]):
+        batched = [batches[j][key] for j in range(batch_size)]
         if isinstance(batched[0], torch.Tensor):
-            batched = batching(batched, pad, ptype)
+            batched = batching(batched)
         batch[key] = batched
     return batch
-
 
 def split_batch(batch):
     """
@@ -115,7 +107,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, micro_batch_size, padding_config=None, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -125,10 +117,6 @@ class StreamDataset:
         else:
             self._dynamic_dataset = True
         self.batch_size = micro_batch_size
-
-        self._padding_config = padding_config if padding_config is not None else {}
-        self._padding_value = {key: value["padding_value"] for key, value in padding_config.items()}
-        self._padding_type = {key: value["padding_type"] for key, value in padding_config.items()}
 
         if max_replay_episode < 0:
             max_replay_episode = math.inf
@@ -158,7 +146,7 @@ class StreamDataset:
         data_to_batch = self.replay_buffer.get_samples(start_index, end_index)
         if len(data_to_batch) < self.batch_size:
             data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
-        batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
+        batched_data = batching(data_to_batch)
         return batched_data
 
     def iter_fixed(self):

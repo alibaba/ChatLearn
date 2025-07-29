@@ -13,8 +13,8 @@ export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatr
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
-hf_ckpt_path=${CHATLEARN}/Moonlight-16B-A3B-Instruct
-mcore_ckpt_path=${CHATLEARN}/Moonlight-16B-A3B-Instruct-to-mcore
+hf_ckpt_path=${CHATLEARN}/pretrained_models/Moonlight-16B-A3B-Instruct
+mcore_ckpt_path=${CHATLEARN}/pretrained_models/Moonlight-16B-A3B-Instruct-to-mcore
 
 
 exp_name="test_moonlight_16b_grpo"

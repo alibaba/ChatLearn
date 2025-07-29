@@ -37,7 +37,6 @@ class Environment(Executor):
         self._batch_per_episode = None
         self._all_datasets = None
         self.data_iter = None
-        self._padding_config = {}
 
     def set_dataset(self, dataset):
         """Set dataset for the environment.
@@ -101,9 +100,6 @@ class Environment(Executor):
 
         for model_node in self.model_flow.model_nodes:
             model = model_node.model.replicas[0]
-            config = future.get(model.master.padding_config.remote())
-            self._padding_config.update(config)
-
             if isinstance(model.model, VLLMModule):
                 logger.info(
                     f"setup vllm engine for model {model.model}")

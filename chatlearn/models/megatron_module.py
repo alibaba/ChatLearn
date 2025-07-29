@@ -15,9 +15,7 @@
 import re
 import math
 from dataclasses import fields
-import functools
 import torch
-import torch.distributed as dist
 
 try:
     from megatron.training import get_args
@@ -159,28 +157,6 @@ if IS_MEGATRON_SUPPORTED:
                         self.runtime_args.bucket_size_mb_in_memory_manager,
                     )
                     self.offload()
-            self.set_pipe_layer_num_offset()
-
-        def set_pipe_layer_num_offset(self):
-            self.stage2layer_num = [None] * self.pipeline_model_parallel_size()
-            self.stage2offset = [0] * self.pipeline_model_parallel_size()
-            stage_layer_num = self.get_pipeline_stage_layer_num()
-            world_size = torch.distributed.get_world_size()
-            rank_layer_num = torch.tensor([self.pipeline_parallel_rank(), stage_layer_num], device='cuda')
-            # Gather all tensors to all processes
-            all_stage_layer_nums = [torch.zeros_like(rank_layer_num, device='cuda') for _ in range(world_size)]
-            torch.distributed.all_gather(all_stage_layer_nums, rank_layer_num)
-            for item in all_stage_layer_nums:
-                rank = item[0].item()
-                num = item[1].item()
-                if self.stage2layer_num[rank] is None:
-                    self.stage2layer_num[rank] = num
-                else:
-                    assert self.stage2layer_num[rank] == num
-            for i, num in enumerate(self.stage2layer_num):
-                if i+1 == len(self.stage2offset):
-                    break
-                self.stage2offset[i+1] = self.stage2offset[i] + num
 
         @property
         def megatron_args(self):
@@ -188,40 +164,6 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             return get_args()
-
-        def pipeline_model_parallel_size(self):
-            """
-            get pipeline_model_parallel_size
-
-            :meta private:
-            """
-            return self.megatron_args.pipeline_model_parallel_size
-
-        def tensor_model_parallel_size(self):
-            """
-            get tensor_model_parallel_size
-
-            :meta private:
-            """
-            return self.megatron_args.tensor_model_parallel_size
-
-        def expert_model_parallel_size(self):
-            """
-            get expert_model_parallel_size
-            :meta private:
-            """
-            if hasattr(self.megatron_args, "expert_model_parallel_size"):
-                return self.megatron_args.expert_model_parallel_size
-            if hasattr(self.megatron_args, "moe_expert_model_parallel_size"):
-                return self.megatron_args.moe_expert_model_parallel_size
-            return 1
-
-        def tensor_and_expert_model_parallel_size(self):
-            """
-            get tensor_and_expert_model_parallel_size
-            :meta private:
-            """
-            return self.megatron_args.tensor_model_parallel_size * self.expert_model_parallel_size()
 
         @property
         def data_parallel_size(self):
@@ -237,38 +179,6 @@ if IS_MEGATRON_SUPPORTED:
             """
             return mpu.get_data_parallel_rank()
 
-        def pipeline_parallel_rank(self):
-            """
-            :meta private:
-            """
-            return mpu.get_pipeline_model_parallel_rank()
-
-        def tensor_parallel_rank(self):
-            """
-            :meta private:
-            """
-            return mpu.get_tensor_model_parallel_rank()
-
-        def tensor_and_expert_parallel_group(self):
-            """
-            :meta private:
-            """
-            return mpu.get_tensor_and_expert_parallel_group()
-
-        def expert_parallel_rank(self):
-            """
-            :meta private:
-            """
-            if hasattr(mpu, "get_expert_model_parallel_rank"):
-                return mpu.get_expert_model_parallel_rank()
-            return 0
-
-        def num_layers(self):
-            """
-            :meta private:
-            """
-            return self.megatron_args.num_layers
-
         def megatron_model(self):
             if isinstance(self.model, list):
                 assert len(self.model) == 1
@@ -276,79 +186,6 @@ if IS_MEGATRON_SUPPORTED:
             else:
                 model = self.model
             return model
-
-        def build_pipeline_layer_name_mapping(self, num_target_pipe_stage, target_pipe_rank, tgt_layer_offset, requires_grad=True):
-            # pylint: disable=unused-argument
-            """
-            remap pipeline layer_name. For each pipeline stage, the layer number starts with 0.
-            Args:
-                num_target_pipe_stage: number of pipeline stage in target model
-                target_pipe_rank: target model pipeline rank
-                tgt_layer_offset: target model pipeline stage layer offset
-                requires_grad: (deprecated) unused
-
-            :meta private:
-            """
-            layer_re = re.compile(r'layers\.([0-9]+)')
-            def update_layer_num(start_layer_num, m):
-                # This assumes no interleaved pipeline execution
-                layer = int(m.group(1))
-                layer += start_layer_num
-                return f'layers.{layer}'
-            src_layer_offset = self.get_pipeline_stage_layer_offset()
-            model = self.megatron_model()
-            is_tgt_last_stage = target_pipe_rank == num_target_pipe_stage - 1 and target_pipe_rank != 0
-            name_mapping = {}
-            for src_name, _ in model.named_parameters():
-                if src_name.endswith("word_embeddings.weight") \
-                        and "language_model" not in src_name \
-                        and hasattr(unwrap_model(model), "language_model"):
-                    # See comment in MegatronModule.initialize_word_embeddings()
-                    if not is_tgt_last_stage:
-                        tgt_name = src_name.replace("word_embeddings.weight", "language_model.embedding.word_embeddings.weight")
-                    else:
-                        tgt_name = src_name
-                else:
-                    # Translate destination layer number (0-N for each partition)
-                    # to source layer number (single-model layer number)
-                    # e.g. for src model with 8 layers, src_num_stage=4, dst_num_stage=2
-                    # for src_model, stage offsets are [0, 2, 4, 6]. for dst model, stage offsets are [0, 4]
-                    # then the start layer_num of src->dst is as follows:
-                    # stage0 0->0 stage1 0->(2-0) stage2 0->(4-4) stage3 0->(6-4)
-                    start_layer_num = src_layer_offset - tgt_layer_offset
-                    _update_layer_num = functools.partial(update_layer_num, start_layer_num)
-                    tgt_name = re.sub(layer_re, _update_layer_num, src_name)
-                name_mapping[tgt_name] = src_name
-
-            for src_name, _ in model.named_buffers():
-                if 'local_tokens_per' in src_name:
-                    continue
-                start_layer_num = src_layer_offset - tgt_layer_offset
-                _update_layer_num = functools.partial(update_layer_num, start_layer_num)
-                tgt_name = re.sub(layer_re, _update_layer_num, src_name)
-                name_mapping[tgt_name] = src_name
-
-            return name_mapping
-        def get_local_param_ranks(self):
-            """
-            :meta private:
-            """
-            if self.expert_model_parallel_size() == 1:
-                data_parallel_global_ranks = list(mpu._DATA_PARALLEL_GLOBAL_RANKS)
-                return data_parallel_global_ranks, mpu.get_data_parallel_rank()
-            else:
-                # Get data parallel modulo expert parallel ranks
-                # NOTE: for compatability, use `get_expert_data_parallel_group` instead of
-                # `get_data_modulo_expert_parallel_group` if possible
-                if hasattr(mpu, 'get_expert_data_parallel_group'):
-                    data_modulo_expert_parallel_group = mpu.get_expert_data_parallel_group()
-                    data_modulo_expert_parallel_ranks = dist.get_process_group_ranks(data_modulo_expert_parallel_group)
-                    this_rank = mpu.get_expert_data_parallel_rank()
-                else:
-                    data_modulo_expert_parallel_group = mpu.get_data_modulo_expert_parallel_group()
-                    data_modulo_expert_parallel_ranks = dist.get_process_group_ranks(data_modulo_expert_parallel_group)
-                    this_rank = mpu.get_data_modulo_expert_parallel_rank()
-                return data_modulo_expert_parallel_ranks, this_rank
 
         def save_checkpoint(self, iteration):
             """
@@ -421,47 +258,6 @@ if IS_MEGATRON_SUPPORTED:
             """
             if self.module_args.free_gpu_memory.free_grad_buffers:
                 self._memory_manager.build_grad_buffers()
-
-        def get_pipeline_stage_layer_num(self):
-            assert self.stage2layer_num is not None
-            if self.stage2layer_num[self.pipeline_parallel_rank()] is not None:
-                return self.stage2layer_num[self.pipeline_parallel_rank()]
-            layer_re = re.compile(r'layers\.([0-9]+)')
-            layer_set = set()
-            for name in self.named_parameters:
-                layer_num = re.findall(layer_re, name)
-                if layer_num:
-                    layer_set.add(layer_num[0])
-            stage_layer_num = len(layer_set)
-            return stage_layer_num
-
-        def get_pipeline_stage_layer_offset(self):
-            assert self.stage2offset is not None and \
-                self.stage2offset[self.pipeline_parallel_rank()] is not None
-            return self.stage2offset[self.pipeline_parallel_rank()]
-
-        @torch.no_grad()
-        def collect_sparse_params(self):
-            from megatron.core.parallel_state import ( # pylint: disable=import-outside-toplevel
-                get_expert_model_parallel_group,
-                get_expert_model_parallel_world_size
-            )
-            to_be_merged = []
-            for name, params_to_sync in self.named_parameters.items():
-                if 'extra_state' in name:
-                    continue
-                if 'mlp.experts.linear_fc1' in name or 'mlp.experts.linear_fc2' in name:
-                    to_be_merged.append([name, params_to_sync])
-            to_be_merged = sorted(to_be_merged, key=lambda x: x[0])
-            self._sparse_params = {}
-            for name, params_to_sync in to_be_merged:
-                out_tensor = torch.empty(
-                    [get_expert_model_parallel_world_size(), *params_to_sync.shape],
-                    dtype=params_to_sync.dtype,
-                    device=params_to_sync.device
-                )
-                dist.all_gather_into_tensor(out_tensor, params_to_sync, group=get_expert_model_parallel_group())
-                self._sparse_params[name] = out_tensor
 
         @torch.no_grad()
         def map_local_param_name_to_global(self):

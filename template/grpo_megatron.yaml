@@ -21,7 +21,6 @@ runtime_args:
   # config for eval
   eval_episode_interval: 5
   enable_eval_before_training: False
-  use_parameter_sync_v2: True
   log_args_dict:
     log_dir: ${runtime_args.output_dir}
     enable_wandb: False
