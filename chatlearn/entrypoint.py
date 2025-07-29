@@ -99,7 +99,9 @@ class ChatlearnLauncher:
             if algo_args.config_file is not None:
                 external_cfg = OmegaConf.load(algo_args.config_file)
                 keynames, values = list(zip(*[arg.split('=', 1) for arg in algo_args.hydra_args if '=' in arg]))
-                parsers = find_parser_from_keyname(config_cls, keynames)
+                # NOTE: we assume default_merged_config is runable
+                default_merged_config = OmegaConf.to_object(OmegaConf.merge(cfg, external_cfg))
+                parsers = find_parser_from_keyname(default_merged_config, keynames)
                 for keyname, value in zip(keynames, values):
                     parser = parsers[keyname]
                     if parser is None:

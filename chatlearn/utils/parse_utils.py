@@ -28,23 +28,28 @@ def parse_boolean(data: Union[str, bool]):
     if isinstance(data, bool):
         return data
     return data.lower() == "true"
-def _resolve_type_from_dataclass(dt: dataclass) -> Dict:
+
+def _resolve_type_from_dataclass(dt) -> Dict:
+    """resolve parser from a dataclass object (not dataclass type!!!)"""
+    if not is_dataclass(dt):
+        raise ValueError("Should accept a dataclass object")
     dtypes = {}
     for f in fields(dt):
         dtypes[f.name] = None
+        dtype = f.type if f.type is not Any else type(getattr(dt, f.name))
         # NOTE: Optional -> Union, List -> list, Union -> Union, Tuple -> tuple
         # NOTE: iteratively resolve nested dataclass
-        if is_dataclass(f.type):
-            dtypes[f.name] = _resolve_type_from_dataclass(f.type)
-        elif get_origin(f.type) is Union:
+        if is_dataclass(dtype):
+            dtypes[f.name] = _resolve_type_from_dataclass(getattr(dt, f.name))
+        elif get_origin(dtype) is Union:
             # we only process optional here
-            args = get_args(f.type)
+            args = get_args(dtype)
             if len(args) == 2 and args[1] is type(None):
                 dtypes[f.name] = partial(parse_optional, args[0])
-        elif f.type is bool:
+        elif dtype is bool:
             dtypes[f.name] = parse_boolean
-        elif f.type is not Any and callable(f.type):
-            dtypes[f.name] = f.type
+        elif dtype is not Any and callable(dtype):
+            dtypes[f.name] = dtype
     return dtypes
 
 def _find_type(dtypes, key: str):
@@ -56,14 +61,14 @@ def _find_type(dtypes, key: str):
     return _inner_find(dtypes, 0, key.split("."))
 
 def find_parser_from_keyname(
-    dt: Type, 
+    dt: Any, 
     keynames: List[str]
 ) -> Dict[str, Optional[Callable]]:
     """Find datatype parser according to keyname by searching
-    in dataclass.
+    in dataclass object.
 
     Args:
-        dt (Type): The type of some dataclass containing keyname.
+        dt (Any): The dataclass object containing keyname.
         keynames (List[str]): The list of keynames to be parsed.
 
     Returns:
