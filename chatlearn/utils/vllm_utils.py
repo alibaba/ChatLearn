@@ -468,7 +468,6 @@ def parse_args(extra_args_provider=None, ignore_unknown_args=False):
 
 def _init_distributed_environment(args):
     """Initialize the distributed environment."""
-    breakpoint()
     device_count = torch.cuda.device_count()
     if torch.distributed.is_initialized():
 

@@ -107,7 +107,7 @@ class SGLangModule(TorchModule):
             self.llm = sgl.Engine(
                 model_path=self.module_args['load'],
                 dtype=dtype,
-                mem_fraction_static=self.config.gpu_memory_utilization,
+                mem_fraction_static=self.module_args.get("gpu_memory_utilization", 0.85),
                 enable_memory_saver=True,
                 base_gpu_id=0,
                 gpu_id_step=1,
@@ -115,13 +115,10 @@ class SGLangModule(TorchModule):
                 node_rank=node_rank,
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
-                nnodes=nnodes,
+                nnodes=nnodes_per_replica,
                 trust_remote_code=True,
-
                 port=40000 + self.replica_id,
-                # NOTE(Chenyang): if you want to debug the SGLang engine output
-                # please set the following parameters
-                # Otherwise, it will make the engine run too slow
+                # for debug
                 # log_level="INFO",
                 # log_requests=True,
                 # log_requests_level=2,
@@ -133,11 +130,20 @@ class SGLangModule(TorchModule):
                 # skip_tokenizer_init=self.config.mode == "async",
             )
         else:
-            self._engine = None
-        dist.barriar()
-        breakpoint()
+            self.llm = None
+
+    def _get_sampling_params(self, is_eval):
         
 
 
     def generate(self, query):
         pass
+
+    def update_weights_from_ipc_handles(self, reduce_data):
+        ...
+
+    def offload_weights(self):
+        ...
+
+    def onload_weights(self):
+        ...

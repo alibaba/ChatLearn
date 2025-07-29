@@ -448,7 +448,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
         return parallel_state.get_tensor_model_parallel_world_size()
 
-    def offload_weights(self): # is_param_sync=True
+    def offload_weights(self):
         """
         offload weights
         """
@@ -457,7 +457,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
 
-    def onload_weights(self, tags: Optional[list[str]] = None): # , is_param_sync=False
+    def onload_weights(self, tags: Optional[list[str]] = None):
         """
         onload weights
         Wake up the engine from sleep mode. See the :meth:`sleep` method
