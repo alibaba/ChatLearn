@@ -72,12 +72,6 @@ class FSDPModule(TorchModule):
                 "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
             self._num_replica = self.total_gpu // self._num_gpu_per_replica
 
-    def get_visible_gpus(self):
-        """
-        :meta private:
-        """
-        return ray.get_gpu_ids()
-
     @staticmethod
     def init_fn(x: torch.nn.Module):
         if torch.distributed.get_rank() != 0:

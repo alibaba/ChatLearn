@@ -67,6 +67,8 @@ def batching(batches: List[Union[torch.Tensor, Dict, List, Tuple]]):
     batch batches
     """
     if isinstance(batches[0], torch.Tensor):
+        if batches[0].dim() == 0:
+            return torch.stack(batches)
         return pad_sequence(batches, batch_first=True, padding_value=0.0)
     batch = create_from_type(batches[0])
     batch_size = len(batches)
