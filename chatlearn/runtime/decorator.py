@@ -219,7 +219,8 @@ def preprocess_compute(func, trainable):
                 self.empty_cache()
         if to_offload:
             if isinstance(self, VLLMModule) or isinstance(self, SGLangModule):
-                self.offload_weights()
+                if not is_eval:
+                    self.offload_weights()
             else:
                 self.offload()
         if is_last_batch and not is_eval:

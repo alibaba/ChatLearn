@@ -155,7 +155,8 @@ class SGLangModule(TorchModule):
                 # attention_backend="fa3",
                 # In async mode, we want token in token out.
                 # skip_tokenizer_init=self.config.mode == "async",
-                skip_tokenizer_init=True
+                skip_tokenizer_init=True,
+                # disable_cuda_graph=True
             )
         else:
             self.llm = None
@@ -264,6 +265,7 @@ class SGLangModule(TorchModule):
                     # load_format=load_format,
                     flush_cache=index == len(reduce_data)-1,
                 )
+        torch.cuda.synchronize()
     
     def flush_cache(self):
         if self.llm and self.llm.tokenizer_manager is not None:
@@ -314,6 +316,7 @@ class SGLangModule(TorchModule):
 
             if "weights" in tags:
                 self.weight_onloaded = True
+        
             
     def is_engine(self):
         if self.llm and self.llm.tokenizer_manager is not None:
