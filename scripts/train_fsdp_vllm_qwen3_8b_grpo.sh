@@ -3,8 +3,6 @@
 # Tested on 8xH20-3e with 140G VRAM
 set -x
 
-export WANDB_BASE_URL=http://120.26.137.9:8080
-export WANDB_API_KEY=local-330098da54db392d6d188861d47e0028ec65b355
 
 export CHATLEARN=$(pwd)
 export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
