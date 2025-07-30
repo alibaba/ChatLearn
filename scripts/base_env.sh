@@ -4,7 +4,7 @@ ray stop
 
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export NCCL_DEBUG=WARN
-export RAY_DEDUP_LOGS=1
+
 
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1

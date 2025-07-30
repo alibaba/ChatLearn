@@ -16,7 +16,7 @@ from typing import Tuple, List, Any
 
 import chatlearn
 from chatlearn.utils.mappings import ShardedTensorInfo
-from chatlearn.synchronizer.v2.mappers.mapping_helpers import (
+from chatlearn.synchronizer.mappers.mapping_helpers import (
     process_normal_tensor,
     process_gate_up_tensor,
     process_qkv_tensor

@@ -15,6 +15,8 @@
 """SGLang Moudle"""
 import os
 import math
+from typing import Optional, List
+import copy
 
 import ray
 import torch
@@ -22,8 +24,10 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer
 import sglang as sgl
+from sglang.srt.utils import MultiprocessingSerializer
 
 from .torch_module import TorchModule
+from chatlearn.utils.utils import get_full_proc_memory_info
 
 class SGLangModule(TorchModule):
 
@@ -80,6 +84,7 @@ class SGLangModule(TorchModule):
 
         # used for init sglang engine in ray actor
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+        dist.barrier()
 
     def setup(self):
         super().setup()
@@ -89,6 +94,7 @@ class SGLangModule(TorchModule):
     
     def setup_sglang(self):
         
+
         nnodes_per_replica = math.ceil(self.tensor_model_parallel_size / self.gpu_per_node)
         if nnodes_per_replica > 1:
             dist_init_addr = f"{os.environ["MASTER_ADDR"]}:{os.environ["MASTER_PORT"]}"
@@ -101,6 +107,27 @@ class SGLangModule(TorchModule):
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
 
         dtype = self.module_args.get("dtype", "bfloat16")
+
+        print(  f"debughh {self.replica_id}",
+                os.environ["CUDA_VISIBLE_DEVICES"],
+                os.environ["MASTER_PORT"],
+                os.environ["MASTER_ADDR"],
+                os.environ["RANK"],
+                os.environ["LOCAL_RANK"],
+                self.module_args['load'],
+                dtype,
+                self.module_args.get("gpu_memory_utilization", 0.85),
+                True,
+                0,
+                1,
+                self._tp_size,
+                node_rank,
+                load_format,
+                dist_init_addr,
+                nnodes_per_replica,
+                True,
+                40000 + self.replica_id,
+            )
 
         if first_rank_in_node:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -120,30 +147,176 @@ class SGLangModule(TorchModule):
                 port=40000 + self.replica_id,
                 # for debug
                 # log_level="INFO",
-                # log_requests=True,
-                # log_requests_level=2,
+                log_requests=True,
+                log_requests_level=2,
                 # max_running_requests=1,
 
                 # mm_attention_backend="fa3",
                 # attention_backend="fa3",
                 # In async mode, we want token in token out.
                 # skip_tokenizer_init=self.config.mode == "async",
+                skip_tokenizer_init=True
             )
         else:
             self.llm = None
+        # sampling_params = {"temperature": 1, "top_p": 0.95}
+        # if self.llm and self.llm.tokenizer_manager is not None:
+        #     print("debughh in setup", self.llm.generate("你是谁", sampling_params))
+
+        # it seems only need to offload kv cache here
+        # because next operation is param sync
+
+        self.kv_cache_onloaded = True
+        self.weight_onloaded =True
+        # self.offload_weights(tags=['kv_cache'])
+        self.offload_weights()
 
     def _get_sampling_params(self, is_eval):
+        temperature = 0.0
+        if not self.module_args.get("use_beam_search", False):
+            temperature = self.module_args.get("eval_temperature", 1.0) if is_eval else self.module_args.get(
+                "temperature", 1.0)
+        top_p = self.module_args.get("eval_top_p", 1.0) if is_eval else self.module_args.get("top_p", 1.0)
+        top_k = self.module_args.get("eval_top_k", -1) if is_eval else self.module_args.get("top_k", -1)
+        min_p = self.module_args.get("eval_min_p", 0.0) if is_eval else self.module_args.get("min_p", 0.0)
+        presence_penalty = self.module_args.get("eval_presence_penalty", 0.0) if is_eval else self.module_args.get(
+            "presence_penalty", 0.0)
+        frequency_penalty = self.module_args.get("eval_frequency_penalty", 0.0) if is_eval else self.module_args.get(
+            "frequency_penalty", 0.0)
+        repetition_penalty = self.module_args.get("eval_repetition_penalty", 1.0) if is_eval else self.module_args.get(
+            "repetition_penalty", 1.0)
+        stop = self.module_args.get("stop_token_list", None)
+        if stop is not None and isinstance(stop, str):
+            stop = stop.split(";")
         
+        sampling_params = {
+            "n": 1,
+            "presence_penalty": presence_penalty,
+            "frequency_penalty": frequency_penalty,
+            "repetition_penalty": repetition_penalty,
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "min_p": min_p,
+            "ignore_eos": self.module_args.get("ignore_eos", False),
+            "stop": stop,
+            # "logprobs": self.module_args.get("logprobs", 1), # not found
+            # "detokenize": self.module_args.get("detokenize", False),
+            # "prompt_logprobs": self.module_args.get("prompt_logprobs", None),
+            "skip_special_tokens": self.module_args.get('skip_special_tokens', True)
+        }
 
+        return sampling_params
 
-    def generate(self, query):
-        pass
+    def is_last_rank(self):
+        return True
+
+    def generate(self, query, is_eval):
+
+        outputs = None
+        if self.llm and self.llm.tokenizer_manager is not None:
+            prompt_key = "prompt"
+            input_ids_key = "input_ids"
+            seq_len = self.module_args.seq_length
+            prompts = query[prompt_key]
+            prompts_token_ids = query[input_ids_key]
+            sampling_param = self._get_sampling_params(is_eval)
+            sampling_params = []
+
+            for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
+                max_tokens = seq_len - len(prompt_token_ids_item)
+                assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+                sampling_param_item = copy.deepcopy(sampling_param)
+                sampling_param_item['max_new_tokens'] = max_tokens
+                sampling_params.append(sampling_param_item)
+            
+            outputs = self.llm.generate(input_ids=prompts_token_ids,
+                                        sampling_params=sampling_params)
+        return outputs
 
     def update_weights_from_ipc_handles(self, reduce_data):
-        ...
 
-    def offload_weights(self):
-        ...
+        from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+        for index, (name, reduced) in enumerate(reduce_data.items()):
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor: torch.Tensor = rebuild_func(*rebuild_args)
+            serialized_tensor = MultiprocessingSerializer.serialize(reconstructed_tensor.clone()) # Attempted to send CUDA tensor received from another process; this is not currently supported.
+            if self._tp_rank == 0:
+                gathered_serialized_tensors = [None] * self._tp_size
+            else:
+                gathered_serialized_tensors = None
 
-    def onload_weights(self):
-        ...
+            dist.gather_object(
+                obj=serialized_tensor,
+                object_gather_list=gathered_serialized_tensors,
+                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+                group=self.cpu_mesh["tp"].get_group(),
+            )
+
+            if self._tp_rank == 0:
+                self.llm.update_weights_from_tensor(
+                    named_tensors=[
+                        (
+                            name,
+                            LocalSerializedTensor(values=gathered_serialized_tensors),
+                        )
+                    ],
+                    # load_format=load_format,
+                    flush_cache=index == len(reduce_data)-1,
+                )
+    
+    def flush_cache(self):
+        if self.llm and self.llm.tokenizer_manager is not None:
+            self.llm.flush_cache()
+
+    def offload_weights(self, tags: Optional[List[str]] = None):
+
+        # Currently we only support `weights` and `kv_cache`
+        if self.llm and self.llm.tokenizer_manager is not None:
+            # avoid offload offloaded param
+            if tags is None:
+                tags = ['kv_cache', 'weights']
+            if not self.kv_cache_onloaded and "kv_cache" in tags:
+                tags.pop(tags.index("kv_cache"))
+            if not self.weight_onloaded and "weights" in tags:
+                tags.pop(tags.index("weights"))
+            if not tags:
+                return
+            print(f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}")
+            self.llm.release_memory_occupation(tags=tags)
+            print(f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}")
+
+            if "kv_cache" in tags:
+                self.kv_cache_onloaded = False
+
+            if "weights" in tags:
+                self.weight_onloaded = False
+            
+
+    def onload_weights(self, tags: Optional[List[str]] = None):
+        # Currently we only support `weights` and `kv_cache`
+        if self.llm and self.llm.tokenizer_manager is not None:
+            # avoid onload onloaded param
+            if tags is None:
+                tags = ['kv_cache', 'weights']
+            if self.kv_cache_onloaded and "kv_cache" in tags:
+                tags.pop(tags.index("kv_cache"))
+            if self.weight_onloaded and "weights" in tags:
+                tags.pop(tags.index("weights"))
+            if not tags:
+                return
+            print(f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+            self.llm.resume_memory_occupation(tags=tags)
+            print(f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+
+            if "kv_cache" in tags:
+                self.kv_cache_onloaded = True
+
+            if "weights" in tags:
+                self.weight_onloaded = True
+            
+    def is_engine(self):
+        if self.llm and self.llm.tokenizer_manager is not None:
+            return True
+        else:
+            return False

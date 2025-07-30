@@ -29,6 +29,7 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule
 
 RAY_REMOTE = "remote"
 
@@ -54,10 +55,10 @@ class DistActor:
         self.name = self.model.name
         self.error_signal = error_signal
         # ranks for model update
-        self.all_ranks = None
+        self.all_actor_ids = None
         self._init_done = False
         self._placement_group = None
-        self.rank_to_actors = {}
+        self.id_to_actors = {}
 
     @property
     def module_args(self):
@@ -125,30 +126,6 @@ class DistActor:
 
     def create_actor(self, num_gpus, placement_group, group_index):
         return self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
-
-    def _setup_collective_group(self, rank_offset, world_size, group_name, backend="nccl"):
-        refs = []
-        all_ranks = []
-        for i, actor in enumerate(self.all_actors):
-            rank = i + rank_offset
-            ref = actor.setup_collective_group.remote(
-                rank=rank,
-                world_size=world_size,
-                backend=backend,
-                group_name=group_name)
-            refs.append(ref)
-            all_ranks.append(rank)
-            self.rank_to_actors[rank] = actor
-        self.all_ranks = all_ranks
-        return refs
-
-    def _setup_ranks(self, rank_offset):
-        all_ranks = []
-        for i, actor in enumerate(self.all_actors):
-            rank = i + rank_offset
-            all_ranks.append(rank)
-            self.rank_to_actors[rank] = actor
-        self.all_ranks = all_ranks
 
     def terminate(self):
         # terminate when catching exceptions
@@ -297,6 +274,59 @@ class DistVLLMActor(DistTorchActor):
     def peak_memory(self):
         return self.model.peak_memory()
 
+class DistSGLangActor(DistTorchActor):
+    """DistSGLangActor"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.engine = None
+
+    def create_actor(self, num_gpus, placement_group, group_index):
+
+        self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
+
+        self.engine = self.all_actors[0]
+
+    @property
+    def master(self):
+        return self.engine
+
+    def add_remote_func(self):
+        # for func_name, _ in inspect.getmembers(self.master):
+        #     # ray.actor.ActorMethod
+        #     if func_name.startswith('_') or func_name in ["peak_memory"]:
+        #         continue
+        #     if func_name in ["timer_summary"]:
+        #         dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
+        #     elif func_name in ["onload", "offload"]:
+        #         if func_name == "onload":
+        #             new_func_name = "onload_weights"
+        #         else:
+        #             new_func_name = "offload_weights"
+        #         dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
+        #     elif func_name in ["model_setup"]:
+        #         dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
+        #     elif func_name in ["get_and_clear_metrics"]:
+        #         dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
+        #     else: # needed to check for other call_funs.
+        #         dist_call = partial(self.call_remote_funcs, func_name)
+        #     setattr(self, func_name, dist_call)
+
+        for func_name, _ in inspect.getmembers(self.all_actors[0]):
+            # ray.actor.ActorMethod
+            if func_name.startswith('_'):
+                continue
+            elif func_name in ["onload", "offload"]:
+                if func_name == "onload":
+                    new_func_name = "onload_weights"
+                else:
+                    new_func_name = "offload_weights"
+                dist_call = partial(self.call_remote_funcs, func_name)
+            else:
+                dist_call = partial(self.call_remote_funcs, func_name)
+            setattr(self, func_name, dist_call)
+
+
 
 class DistModel:
     """DistModel"""
@@ -304,7 +334,7 @@ class DistModel:
     def __init__(self):
         self.replicas = []
         self.name = None
-        self.rank_to_actors = {}
+        self.id_to_actors = {}
         self.register_func()
         self._is_colocate = False
         self._colocate_models = []
@@ -356,14 +386,27 @@ class DistModel:
     def get_actor(self, rank):
         # given rank, return the actor
         for dist_actor in self.replicas:
-            if rank in dist_actor.rank_to_actors:
-                return dist_actor.rank_to_actors[rank]
+            if rank in dist_actor.id_to_actors:
+                return dist_actor.id_to_actors[rank]
 
     def init(self):
+        """initialize on all actors of this DistModel and
+        assign a unique id to each actor. We ensure id
+        """
         refs = []
         for dist_actor in self.replicas:
+            # TODO: actually call basemodule.init() on all workers?
             refs.append(dist_actor.init())
         future.get(refs)
+
+        # NOTE: we ensure the id starts from 0
+        actor_id = 0
+        for replica in self.replicas:
+            replica.all_actor_ids = []
+            for actor in replica.all_actors:
+                replica.id_to_actors[actor_id] = actor
+                replica.all_actor_ids.append(actor_id)
+                actor_id += 1
 
     def register_func(self):
         for func_name in ["model_setup",
@@ -371,7 +414,6 @@ class DistModel:
                           "after_episode",
                           "get_and_clear_metrics",
                           "validate",
-                          "destroy_collective_group",
                           "terminate",
                           "peak_memory",
                           "empty_cache",
@@ -380,7 +422,6 @@ class DistModel:
                           "onload",
                           "eval",
                           "train",
-                          "set_src_parameter_model",
                           "set_colocate"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
@@ -427,8 +468,8 @@ class DistModel:
         return self._colocate_models
 
     @property
-    def all_ranks(self):
-        return [dist_actor.all_ranks for dist_actor in self.replicas]
+    def all_actor_ids(self):
+        return [dist_actor.all_actor_ids for dist_actor in self.replicas]
 
     @property
     def use_vllm_backend(self):
@@ -448,13 +489,3 @@ class DistModel:
 
     def __repr__(self):
         return f'<{self.__class__.__name__}({self.name}) object at {hex(id(self))}>'
-
-    def assign_ranks(self):
-        """assign an unique id to each actor of the model"""
-        actor_id = 0
-        for replica in self.replicas:
-            replica.all_ranks = []
-            for actor in replica.all_actors:
-                replica.rank_to_actors[actor_id] = actor
-                replica.all_ranks.append(actor_id)
-                actor_id += 1

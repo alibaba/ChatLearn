@@ -19,7 +19,6 @@ import gc
 import copy
 from typing import List
 
-import ray
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -72,12 +71,6 @@ class FSDPModule(TorchModule):
             assert self.total_gpu % self._num_gpu_per_replica == 0, \
                 "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
             self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
-    def get_visible_gpus(self):
-        """
-        :meta private:
-        """
-        return ray.get_gpu_ids()
 
     @staticmethod
     def init_fn(x: torch.nn.Module):
@@ -210,15 +203,6 @@ class FSDPModule(TorchModule):
         else:
             return dist.get_rank()
 
-    def tensor_parallel_rank(self):
-        return self.data_parallel_rank
-
-    def pipeline_parallel_rank(self):
-        return 1
-
-    def expert_model_parallel_size(self):
-        return 1
-
     def check_sp_compatibility(self, config):
         assert config.num_attention_heads % self.sp_size == 0, \
             "num_attention_heads must be divisible by sp"
@@ -329,7 +313,7 @@ class FSDPModule(TorchModule):
         del full_state
         self.offload()
 
-    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
+    def get_fsdp_param_name(self, block_size=1_000_000_000) -> List[List]:
         name_list = []
         param_cnt = 0
         current_group = []
@@ -359,6 +343,7 @@ class FSDPModule(TorchModule):
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
+
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()

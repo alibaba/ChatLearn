@@ -38,9 +38,9 @@ from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.utils.utils import listdict_to_dictlist
-from chatlearn.utils.megatron_utils import update_cfg
 
 try:
+    from chatlearn.utils.megatron_utils import update_cfg
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
     from configs.megatron_config import (MegatronPolicyTrainerConfig, # pylint: disable=ungrouped-imports

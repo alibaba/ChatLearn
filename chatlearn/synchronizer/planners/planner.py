@@ -25,7 +25,7 @@ from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.mappings import ShardedTensorInfo
-from chatlearn.synchronizer.v2.structs import (
+from chatlearn.synchronizer.structs import (
     SynchronizerType,
     Ranks,
     BucketInfo,
@@ -161,16 +161,15 @@ class MegatronVLLMSyncPlanner:
             raise NotImplementedError(
                 'The source and destination model in partial colocated/ no colocated mode is not supported. '
             )
-        # TODO: `get_rank` will get base_module._rank instead of dist.get_rank()
-        comm_ranks = future.wait(src_model.call_func_on_all_workers('get_torchdist_rank'), return_output=True)
+        comm_ranks = future.wait(src_model.call_func_on_all_workers('get_rank'), return_output=True)
 
-        src_rank_to_gpu_id = dict(zip(chain.from_iterable(src_model.all_ranks), src_gpus))
-        dst_rank_to_gpu_id = dict(zip(chain.from_iterable(dst_model.all_ranks), dst_gpus))
-        gpu_id_to_dst_rank = dict(zip(dst_gpus, chain.from_iterable(dst_model.all_ranks)))
-        gpu_id_to_src_rank = dict(zip(src_gpus, chain.from_iterable(src_model.all_ranks)))
+        src_rank_to_gpu_id = dict(zip(chain.from_iterable(src_model.all_actor_ids), src_gpus))
+        dst_rank_to_gpu_id = dict(zip(chain.from_iterable(dst_model.all_actor_ids), dst_gpus))
+        gpu_id_to_dst_rank = dict(zip(dst_gpus, chain.from_iterable(dst_model.all_actor_ids)))
+        gpu_id_to_src_rank = dict(zip(src_gpus, chain.from_iterable(src_model.all_actor_ids)))
         mem_infos = {
             src_rank_to_gpu_id[k]: v for k, v in zip(
-                chain.from_iterable(src_model.all_ranks),
+                chain.from_iterable(src_model.all_actor_ids),
                 future.wait(src_model.call_func_on_all_workers('get_mem_info'), return_output=True)
             )
         }
@@ -393,7 +392,7 @@ class MegatronVLLMSyncPlanner:
                 send_iteration.recv_buckets = recv_iteration.recv_buckets
 
             src_actor = src_model.get_actor(src_rank)
-            refs.append(src_actor.set_synchronizer_v2.remote(
+            refs.append(src_actor.set_synchronizer.remote(
                 synchronizer_name = 'general',
                 local_plan = sender_plan[src_rank],
                 synchronizer_type = SynchronizerType.SEND,
@@ -405,7 +404,7 @@ class MegatronVLLMSyncPlanner:
         for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
             dst_rank = gpu_id_to_dst_rank[src_gpu_id]
             dst_actor = dst_model.get_actor(dst_rank)
-            refs.append(dst_actor.set_synchronizer_v2.remote(
+            refs.append(dst_actor.set_synchronizer.remote(
                 synchronizer_name = 'general',
                 local_plan = recver_plan[dst_rank],
                 synchronizer_type = SynchronizerType.RECV,

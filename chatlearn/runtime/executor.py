@@ -23,6 +23,7 @@ from ray.util.queue import Queue
 
 from chatlearn.models.base_module import BaseModule
 from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.model_flow import ModelFlow, ModelNode
 from chatlearn.runtime.dist_actor import DistModel, DistActor
 from chatlearn.utils import future
@@ -306,6 +307,11 @@ class Executor:
             assert isinstance(query, list)
             ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
             # output length is num replica
+            output.append((ret, mb))
+        elif isinstance(replica.model, SGLangModule):
+            mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
+            assert isinstance(query, list)
+            ret = replica.call_actor_remote_func(replica.engine, func_name, *query, **kwargs)
             output.append((ret, mb))
         else:
             for _, actors in replica.dp_rank_to_actors.items():

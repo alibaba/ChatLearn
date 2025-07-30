@@ -18,8 +18,11 @@
 ---
 
 *最新进展* 🔥
-- [2025/5] 训练支持Mcore框架！基于Mcore和vLLM，我们提供了Qwen3模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_mcore.md)!🔥
-- [2025/5] 训练支持FSDP框架！基于FSDP和vLLM，我们提供了Qwen3模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_fsdp.md)!🔥
+- [2025/7] 提供基于[Mcore](scripts/train_mcore_vllm_deepseek_v3_671b_grpo.sh)的DeepSeek-V3-671B强化学习训练示例!🔥
+- [2025/7] 提供基于[Mcore](scripts/train_mcore_vllm_qwen3_235b_grpo.sh)和[FSDP2](scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh)的Qwen3-235B-A22B强化学习训练示例!🔥
+- [2025/7] 训练支持FSDP2框架！提供sequence packing，sequence parallelism，group GEMM支持实现高效易用的强化学习训练!🔥
+- [2025/5] 训练支持Mcore框架！基于Mcore和vLLM，我们提供了Qwen3模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_mcore.md)!
+- [2025/5] 训练支持FSDP框架！基于FSDP和vLLM，我们提供了Qwen3模型的端到端GRPO训练[教学](docs/en/tutorial/tutorial_grpo_fsdp.md)!
 - [2024/8] 正式开源 ChatLearn，更多介绍请参考我们的 [文档](docs/zh/chatlearn.md)。
 
 ---
@@ -65,8 +68,8 @@ ChatLearn的特点如下:
 # Roadmap
 
 ChatLearn 接下来会支持以下特性：
-- [ ] 简化参数配置
-- [ ] 提供MoE模型强化学习训练的教程
+- [X] 简化参数配置
+- [X] 提供MoE模型强化学习训练的教程
 - [ ] 支持更多的模型
 - [ ] 性能优化
 - [ ] 支持更多的强化学习算法

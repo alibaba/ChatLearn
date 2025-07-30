@@ -22,8 +22,7 @@ import re
 
 import yaml
 
-from chatlearn.utils.constant import (RAY_PG_STRATEGY,
-    PARAM_SYNC_COMM_TYPE, ROUTED_EXPERT_REGROUPING_COMM_TYPE)
+from chatlearn.utils.constant import RAY_PG_STRATEGY
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_attributes
 
@@ -177,12 +176,6 @@ class ModelConfig(BaseConfig):
     # num_replica: int = 1
     #: [required] whether model is trainable
     trainable: bool = False
-    #: [optional] tensor model parallel size
-    tensor_model_parallel_size: int = None
-    #: [optional] pipeline model parallel size
-    pipeline_model_parallel_size: int = None
-    #: [optional] expert model parallel size for Megatron-Core
-    expert_model_parallel_size: int = None
     #: [optional] zero size
     zero_size: int = None
     #: [optional] FSDP parallel size
@@ -271,16 +264,6 @@ class RuntimeConfig(BaseConfig):
     nsys: bool = False
     #: profiler dir
     profiler_dir: str = None
-    #: coalesce_buffer size in mb
-    coalesced_buffer_mb: int = 100
-    #: concurrent parameter sync
-    concurrent_comm: bool = True
-    #: parameter sync communication type, broadcast/p2p
-    param_sync_comm_type: str = PARAM_SYNC_COMM_TYPE.BROADCAST.value
-    #: parameter sync max workers
-    param_sync_max_workers: int = None
-    #: communication type to regroup routed experts, allgather/alltoall
-    routed_expert_regrouping_comm_type: str = ROUTED_EXPERT_REGROUPING_COMM_TYPE.ALLTOALL
     #: max number of replay episodes, if `max_replay_episode` is set to -1, then replay all episodes
     #: if `max_replay_episode` is set to 0, then replay is disabled
     max_replay_episode: int = 0
@@ -292,8 +275,6 @@ class RuntimeConfig(BaseConfig):
     concurrent_setup: bool = False
     #: bucket size in the memory manager to reduce peak memory
     bucket_size_mb_in_memory_manager: int = 1024
-    #: free collective group after parameter synchronization and rebuild before next synchronization
-    free_sync_collective_group: bool = False
     #: [optional] cpu only model schedule policy, PACK or SPREAD
     #: PACK: All provided bundles are packed onto a single node on a best-effort basis.
     #: SPREAD: Each bundle is spread onto separate nodes on a best-effort basis.
@@ -302,8 +283,6 @@ class RuntimeConfig(BaseConfig):
     exp_name: str = "CHATLEARN"
     #: output dir
     output_dir: str = "./"
-    #: validate param sync
-    validate_param_sync: bool = False
     #: whether to eval before training
     enable_eval_before_training: bool = False
     #: policy to regroup queue
@@ -476,7 +455,6 @@ class Config(BaseConfig):
             f"got {self.runtime_args.train_global_batch_size} and {self.runtime_args.sample_per_episode}"
         assert self.runtime_args.stream_data_loader_type.lower() in ["fixed", "dynamic"]
         assert self.runtime_args.cpu_schedule_strategy in [strategy.value for strategy in RAY_PG_STRATEGY]
-        assert self.runtime_args.param_sync_comm_type in list(PARAM_SYNC_COMM_TYPE)
         if isinstance(self.runtime_args.data_path, list):
             assert self.runtime_args.data_ratio is not None and isinstance(self.runtime_args.data_ratio, list), (
                 f"expect data_ratio to be list when data_path is list, got {self.runtime_args.data_ratio}"
@@ -485,6 +463,8 @@ class Config(BaseConfig):
                 "expect data_path and data_ratio to have same length, "
                 f"got {len(self.runtime_args.data_path)} and {len(self.runtime_args.data_ratio)}"
             )
+
+        # TODO: check the following assertions
         for model_name, model_args in self.models.items():
             if model_args.num_gpu >= 1:
                 if model_args.gpu_per_process is None:
