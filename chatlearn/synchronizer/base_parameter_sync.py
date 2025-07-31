@@ -33,7 +33,7 @@ class BaseParameterSyncGroup(ABC):
         self.frequency = frequency
 
     @abstractmethod
-    def sync(self, dryrun: bool=False, rollout_engine = "vllm"):
+    def sync(self, dryrun: bool=False):
         """Perform parameter synchronization on this group. If `dryrun` is True,
         some initialization will be excuted and no actual synchronization 
         will be done.
@@ -41,5 +41,4 @@ class BaseParameterSyncGroup(ABC):
         Args:
             dryrun (bool, optional): Whether to run in dryrun mode. 
             Defaults to False.
-            rollout_engine (str): target rollout engine type
         """

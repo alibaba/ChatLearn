@@ -189,7 +189,7 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            # entropy = entropy_from_logits_with_chunking(output.logits)
+            # entropy = entropy_from_logits_with_chunking(output.logits, chunk_size=128)
 
             if sp_group is not None:
                 logprobs = gather(

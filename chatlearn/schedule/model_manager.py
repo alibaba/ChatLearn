@@ -208,7 +208,7 @@ class ModelManager:
                 future.wait(refs, return_output=True)
 
                 # sync param
-                sync_group.sync(dryrun=dryrun, rollout_engine="sglang")
+                sync_group.sync(dryrun=dryrun)
                 future.wait(src_model.offload())
                 
                 # TODO: refactor to an general API

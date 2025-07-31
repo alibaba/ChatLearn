@@ -230,13 +230,11 @@ class SGLangModule(TorchModule):
                     flush_cache=index == len(reduce_data)-1,
                 )
         torch.cuda.synchronize()
-        # dist.barrier(group=self.cpu_mesh.get_group())
     
     def flush_cache(self):
         if self.is_engine:
             self.llm.flush_cache()
         torch.cuda.synchronize()
-        # dist.barrier(group=self.cpu_mesh.get_group())
 
     def offload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
@@ -261,7 +259,6 @@ class SGLangModule(TorchModule):
             if "weights" in tags:
                 self.weight_onloaded = False
         torch.cuda.synchronize()
-        # dist.barrier(group=self.cpu_mesh.get_group())
             
 
     def onload_weights(self, tags: Optional[List[str]] = None):
@@ -285,7 +282,6 @@ class SGLangModule(TorchModule):
             if "weights" in tags:
                 self.weight_onloaded = True
         torch.cuda.synchronize()
-        # dist.barrier(group=self.cpu_mesh.get_group())
         
     @property
     def is_engine(self):

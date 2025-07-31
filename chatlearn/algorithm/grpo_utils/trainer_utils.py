@@ -24,7 +24,7 @@ def entropy_from_logits(logits: torch.Tensor):
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
     return entropy
 
-def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 128):
+def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 2048):
     """Memory-efficient entropy calculation with chunking.
     logits shape: (batch_size, seq_len, dimension)
     entropy shape: (batch_size, seq_len)

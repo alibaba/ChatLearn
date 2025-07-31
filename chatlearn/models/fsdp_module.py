@@ -328,11 +328,12 @@ class FSDPModule(TorchModule):
             name_list.append(copy.deepcopy(current_group))
         return name_list
 
-    def get_weight_ipc_handles_by_name(self, block_name: List[str], rollout_engine='sglang'):
+    def get_weight_ipc_handles_by_name(self, block_name: List[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
             from sglang.srt.utils import MultiprocessingSerializer

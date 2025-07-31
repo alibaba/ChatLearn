@@ -24,7 +24,7 @@ from .base_parameter_sync import BaseParameterSyncGroup
 class FSDPParameterSyncGroup(BaseParameterSyncGroup):
     """fsdp to vllm or sglang parameter sync group"""
 
-    def sync(self, dryrun: bool=False,  rollout_engine = "vllm"):
+    def sync(self, dryrun: bool=False):
         """Perform parameter synchronization on this group. If `dryrun` is True,
         some initialization will be excuted and no actual synchronization 
         will be done.
@@ -32,7 +32,6 @@ class FSDPParameterSyncGroup(BaseParameterSyncGroup):
         Args:
             dryrun (bool, optional): Whether to run in dryrun mode. 
             Defaults to False.
-            rollout_engine (str): target rollout engine type
         """
         if dryrun:
             return
@@ -53,7 +52,7 @@ class FSDPParameterSyncGroup(BaseParameterSyncGroup):
             for src_rank, dst_rank in src_rank_to_dst_rank.items():
                 src_actor = src_model.get_actor(src_rank)
                 dst_actor = dst_model.get_actor(dst_rank)
-                reduce_data_ref = src_actor.get_weight_ipc_handles_by_name.remote(param_name, rollout_engine)
+                reduce_data_ref = src_actor.get_weight_ipc_handles_by_name.remote(param_name)
                 ref = dst_actor.update_weights_from_ipc_handles.remote(reduce_data_ref)
                 refs.append(ref)
             future.wait(refs, return_output=True)
