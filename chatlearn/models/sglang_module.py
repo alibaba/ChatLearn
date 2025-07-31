@@ -23,8 +23,7 @@ import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer
-import sglang as sgl
-from sglang.srt.utils import MultiprocessingSerializer
+
 
 from .torch_module import TorchModule
 from chatlearn.utils.utils import get_full_proc_memory_info
@@ -34,6 +33,9 @@ class SGLangModule(TorchModule):
     def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
         """The chatlearn wrapper for a sglang model.
         """
+        # lazy import
+        import sglang as sgl
+        from sglang.srt.utils import MultiprocessingSerializer
 
         super().__init__(name, args=args, replica_id=replica_id)
 
