@@ -92,7 +92,6 @@ models:
     trainable: False
     load: ${models.policy_trainer.load}
   policy:
-    engine_type: vllm
     free_gpu_memory:
       offload_weights: True
     tensor_model_parallel_size: 2
