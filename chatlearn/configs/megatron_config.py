@@ -313,8 +313,7 @@ MegatronRefPolicyConfig = MegatronBaseConfig
 class MegatronPolicyTrainerConfig(
     MegatronBaseConfig, MegatronTrainConfig
 ):
-    """PolicyTrainerConfig"""
-    
+    """PolicyTrainerConfig"""    
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     diff_clip_ratio: float = field(default=10)
