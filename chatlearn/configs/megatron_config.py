@@ -189,27 +189,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
 
 @dataclass
 class MegatronTrainConfig(BaseConfig):
-    expert_tensor_parallel_size: Optional[int] = field(
-        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
-    )
-    decoder_first_pipeline_num_layers: Optional[int] = field(
-        default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
-    )
-    decoder_last_pipeline_num_layers: Optional[int] = field(
-        default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
-    )
-    load: str = field(default=MISSING, metadata={"help": "path to train model"})
     save: str = field(default=MISSING, metadata={"help": "path to save model"})
-    tokenizer_type: str = field(
-        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
-    )
-    tokenizer_model: Optional[str] = field(
-        default=None, metadata={"help": "pretrained model name or path"}
-    )
-    seq_length: int = field(
-        default=MISSING,
-        metadata={"help": "Maximum sequence length to process."},
-    )
     save_interval: int = field(
         default=MISSING,
         metadata={"help": "Number of iterations between persistent checkpoint saves."},
@@ -224,7 +204,6 @@ class MegatronTrainConfig(BaseConfig):
         default=MISSING,
         metadata={"help": "Total number of iterations to train over all"},
     )
-    bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
     use_checkpoint_opt_param_scheduler: bool = field(
         default=True,
         metadata={
@@ -241,10 +220,6 @@ class MegatronTrainConfig(BaseConfig):
             It is supported at two granularities 1) full: whole transformer layer is recomputed, \
             2) selective: submodules set in --recompute-modules are recomputed, default is core_attn."
         },
-    )
-    sequence_parallel: bool = field(
-        default=False,
-        metadata={"help": "Enable sequence parallel optimization for mcore"},
     )
     use_distributed_optimizer: bool = field(
         default=False,
@@ -271,10 +246,6 @@ class MegatronTrainConfig(BaseConfig):
     optimizer: OptimizerConfig = field(
         default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
     )
-    moe_router_force_load_balancing: bool = field(
-        default=False, metadata={"help": "Force load balancing with random logits for MoE router, supports naive topk \
-    and group-limited topk."}
-    )
     gradient_accumulation_fusion: bool = field(
         default=False, metadata={"help": "If true, fuses weight gradient accumulation to GEMMs. Requires the custom CUDA extension \
             fused_weight_gradient_mlp_cuda module.."}
@@ -291,38 +262,32 @@ class MegatronTrainConfig(BaseConfig):
     deallocate_pipeline_outputs: bool = field(
         default=False, metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
     )
-    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
-        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
-    )
     attention_softmax_in_fp32: bool = field(
         default=True, metadata={"help": "attention_softmax_in_fp32."}
     )
 
-
 @dataclass
-class MegatronRefPolicyConfig(BaseModelConfig):
-    """RefPolicyConfig"""
-    megatron_model_cfg: MegatronModelArchitectureConfig = field(
-        default_factory=MegatronModelArchitectureConfig,
-        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
-    )
+class MegatronBaseConfig(BaseModelConfig):
     load: str = field(default=MISSING, metadata={"help": "path to reference model"})
-    seed: int = field(default=1234, metadata={"help": "seed"})
-    sequence_parallel: bool = field(
-        default=True,
-        metadata={"help": "Enable sequence parallel optimization for mcore"},
-    )
-    seq_length: int = field(
-        default=MISSING,
-        metadata={"help": "Maximum sequence length to process."},
-    )
     tokenizer_type: str = field(
         default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
     )
     tokenizer_model: Optional[str] = field(
         default=None, metadata={"help": "pretrained model name or path"}
     )
-    bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
+    seq_length: int = field(
+        default=MISSING,
+        metadata={"help": "Maximum sequence length to process."},
+    )
+    megatron_model_cfg: MegatronModelArchitectureConfig = field(
+        default_factory=MegatronModelArchitectureConfig,
+        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
+    )
+
+    sequence_parallel: bool = field(
+        default=True,
+        metadata={"help": "Enable sequence parallel optimization for mcore"},
+    )
     expert_tensor_parallel_size: Optional[int] = field(
         default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
     )
@@ -335,17 +300,21 @@ class MegatronRefPolicyConfig(BaseModelConfig):
     moe_router_force_load_balancing: bool = field(
         default=False, metadata={"help": "moe_router_force_load_balancing."}
     )
+    bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
+    seed: int = field(default=1234, metadata={"help": "seed"})
+    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
+        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
+    )
+    variable_seq_lengths: bool = True
 
+MegatronRefPolicyConfig = MegatronBaseConfig
 
 @dataclass
 class MegatronPolicyTrainerConfig(
-    BaseModelConfig, MegatronTrainConfig
+    MegatronBaseConfig, MegatronTrainConfig
 ):
     """PolicyTrainerConfig"""
-    megatron_model_cfg: MegatronModelArchitectureConfig = field(
-        default_factory=MegatronModelArchitectureConfig,
-        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
-    )
+    
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     diff_clip_ratio: float = field(default=10)

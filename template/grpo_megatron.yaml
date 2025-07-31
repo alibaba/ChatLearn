@@ -70,6 +70,7 @@ models:
     neg_clip_ratio: 0.2
     diff_clip_ratio: 10
     final_clip_ratio: 3
+    packing: true
   ref_policy:
     free_gpu_memory:
       offload_weights: True
@@ -90,6 +91,7 @@ models:
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     load: ${models.policy_trainer.load}
+    packing: ${models.policy_trainer.packing}
   policy:
     free_gpu_memory:
       offload_weights: True
