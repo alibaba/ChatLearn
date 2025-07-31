@@ -313,6 +313,9 @@ class RuntimeConfig(BaseConfig):
         default=MISSING,
         metadata={"help": "which train backend to use, one of megatron or fsdp"},
     )
+    rollout_backend: str = field(
+        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
+    )
     exp_name: str = field(
         default="CHATLEARN", metadata={"help": "exp name for each run"}
     )

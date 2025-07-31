@@ -163,7 +163,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         used in Environment.setup()
         """
 
-        if self.llm is not None: # for evaluator
+        if self.llm is not None: # for evaluator not setup twice
             return
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
@@ -395,11 +395,18 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def model(self):
         return self._model
 
+    @property
+    def is_engine(self):
+        if self.llm:
+            return True
+        else:
+            return False
+
     def offload_weights(self): # is_param_sync=True
         """
         offload weights
         """
-        if self.module_args.free_gpu_memory.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights and self.is_engine:
             self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
@@ -417,7 +424,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
                 wake_up should be called with all tags (or None) before the
                 engine is used again.
         """
-        if self.module_args.free_gpu_memory.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights and self.is_engine:
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")

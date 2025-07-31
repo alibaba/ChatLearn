@@ -208,7 +208,7 @@ class DistVLLMActor(DistTorchActor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.vllm_engine = None
+        self.engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
 
@@ -220,14 +220,14 @@ class DistVLLMActor(DistTorchActor):
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
-        self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
+        self.engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
 
     def call_vllm_engine_remote_funcs(self, func_name, *args, **kwargs):
         """
         Call remote functions for vllm_engine.
         """
         results = []
-        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(self.engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -239,7 +239,7 @@ class DistVLLMActor(DistTorchActor):
         for actor in self.all_actors:
             res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
             results.append(res)
-        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(self.engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -265,11 +265,11 @@ class DistVLLMActor(DistTorchActor):
             setattr(self, func_name, dist_call)
 
     def setup_vllm_engine(self):
-        return self.vllm_engine.setup_vllm.remote(self.all_actors)
+        return self.engine.setup_vllm.remote(self.all_actors)
 
     @property
     def master(self):
-        return self.vllm_engine
+        return self.engine
 
     def peak_memory(self):
         return self.model.peak_memory()
@@ -292,26 +292,6 @@ class DistSGLangActor(DistTorchActor):
         return self.engine
 
     def add_remote_func(self):
-        # for func_name, _ in inspect.getmembers(self.master):
-        #     # ray.actor.ActorMethod
-        #     if func_name.startswith('_') or func_name in ["peak_memory"]:
-        #         continue
-        #     if func_name in ["timer_summary"]:
-        #         dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
-        #     elif func_name in ["onload", "offload"]:
-        #         if func_name == "onload":
-        #             new_func_name = "onload_weights"
-        #         else:
-        #             new_func_name = "offload_weights"
-        #         dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
-        #     elif func_name in ["model_setup"]:
-        #         dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
-        #     elif func_name in ["get_and_clear_metrics"]:
-        #         dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
-        #     else: # needed to check for other call_funs.
-        #         dist_call = partial(self.call_remote_funcs, func_name)
-        #     setattr(self, func_name, dist_call)
-
         for func_name, _ in inspect.getmembers(self.all_actors[0]):
             # ray.actor.ActorMethod
             if func_name.startswith('_'):

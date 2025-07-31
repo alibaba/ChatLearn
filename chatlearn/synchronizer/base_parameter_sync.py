@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
 
-
 class BaseParameterSyncGroup(ABC):
     """The ABC for Parameter Synchronization"""
     def __init__(
@@ -34,7 +33,7 @@ class BaseParameterSyncGroup(ABC):
         self.frequency = frequency
 
     @abstractmethod
-    def sync(self, dryrun: bool=False):
+    def sync(self, dryrun: bool=False, rollout_engine = "vllm"):
         """Perform parameter synchronization on this group. If `dryrun` is True,
         some initialization will be excuted and no actual synchronization 
         will be done.
@@ -42,4 +41,5 @@ class BaseParameterSyncGroup(ABC):
         Args:
             dryrun (bool, optional): Whether to run in dryrun mode. 
             Defaults to False.
+            rollout_engine (str): target rollout engine type
         """

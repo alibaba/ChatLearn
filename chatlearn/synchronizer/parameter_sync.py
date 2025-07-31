@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 patch_ray()
 
 
-class ParameterSyncGroup(BaseParameterSyncGroup):
+class McoreParameterSyncGroup(BaseParameterSyncGroup):
     """The core implementation of parameter synchronization."""
     def __init__(self, src_model: 'DistModel', dst_model: 'DistModel', frequency: int):
         """Manage Parameter Synchronization between source and destination models.
@@ -209,7 +209,7 @@ class ParameterSyncGroup(BaseParameterSyncGroup):
 
         # TODO: 3. all unique parameter shards should compose an entire model
 
-    def sync(self, dryrun: bool = False):
+    def sync(self, dryrun: bool = False, rollout_engine = "vllm"):
         """Perform parameter synchronization on this group. If `dryrun` is True,
         some initialization will be excuted and no actual synchronization 
         will be done.
@@ -217,6 +217,7 @@ class ParameterSyncGroup(BaseParameterSyncGroup):
         Args:
             dryrun (bool, optional): Whether to run in dryrun mode. 
             Defaults to False.
+            rollout_engine (str): target rollout engine type
         """
         if not self._initialized:
             self.initialize()

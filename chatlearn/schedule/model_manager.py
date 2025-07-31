@@ -32,7 +32,7 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error, decorate_class_func
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistSGLangActor, DistModel
-from chatlearn.synchronizer import ParameterSyncGroup, FSDP2VllmParameterSyncGroup
+from chatlearn.synchronizer import McoreParameterSyncGroup, FSDPParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
@@ -154,13 +154,13 @@ class ModelManager:
 
             sync_frequency = dst_model.module_args.sync_frequency
             if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
-                sync_group = FSDP2VllmParameterSyncGroup(
+                sync_group = FSDPParameterSyncGroup(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
                     sync_frequency
                 )
             else:
-                sync_group = ParameterSyncGroup(
+                sync_group = McoreParameterSyncGroup(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
                     sync_frequency
@@ -201,49 +201,23 @@ class ModelManager:
 
                 # TODO: refactor to an general API
                 # onload policy weights
-                # refs = []
-                # for replica in dst_model.replicas:
-                #     refs.append(replica.vllm_engine.onload_weights.remote(tags=['weights']))
-                # future.wait(refs, return_output=True)
-                print("debughh start onload policy")
                 refs = []
                 for replica in dst_model.replicas:
                     for actor in replica.all_actors:
                         refs.append(actor.onload_weights.remote(tags=['weights']))
-
                 future.wait(refs, return_output=True)
-                print("debughh after onload policy")
 
-
-                print("debughh start sync")
-                sync_group.sync(dryrun=dryrun)
+                # sync param
+                sync_group.sync(dryrun=dryrun, rollout_engine="sglang")
                 future.wait(src_model.offload())
                 
-                print("debughh end sync")
                 # TODO: refactor to an general API
                 # onload policy kv cache
-                # refs = []
-                # for replica in dst_model.replicas:
-                #     refs.append(replica.vllm_engine.onload_weights.remote(tags=['kv_cache']))
-                # future.wait(refs, return_output=True)
-
-                print("debughh start onload kvcache")
                 refs = []
                 for replica in dst_model.replicas:
                     for actor in replica.all_actors:
                         refs.append(actor.onload_weights.remote(tags=['kv_cache']))
                 future.wait(refs, return_output=True)
-
-                print("debughh end onload kvcache")
-
-                # print("debughh start flush cache")
-                # refs = []
-                # for replica in dst_model.replicas:
-                #     for actor in replica.all_actors:
-                #         refs.append(actor.flush_cache.remote())
-                # future.wait(refs, return_output=True)
-
-                # print("debughh end flush cache")
 
     def set_func_decorator(self, model):
         if is_decorated(model.name):

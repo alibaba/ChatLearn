@@ -520,7 +520,7 @@ class Engine(BaseEngine):
         for _, model in enumerate(self.models):
             replic_0 = model.replicas[0]
             if isinstance(replic_0, DistVLLMActor):
-                future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
+                future.wait(replic_0.engine.dump_parameters.remote(dump_path))
 
     def save_checkpoint(self, episode_id):
         """
@@ -539,7 +539,7 @@ class Engine(BaseEngine):
             refs = []
             for i, model in enumerate(self.models[0].replicas):
                 if isinstance(model, DistVLLMActor):
-                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                    refs.append(model.engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 if isinstance(model, DistSGLangActor):
                     refs.append(model.engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 else:

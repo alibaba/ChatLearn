@@ -197,8 +197,10 @@ class GrpoAlgorithm(BaseAlgorithm):
         elif self.cfg.runtime_args.train_backend == "megatron":
             policy_trainer = MegatronPolicyTrainer("policy_trainer")
             ref_policy = MegatronPolicyTrainer("ref_policy")
-        # policy = VLLMPolicyInference("policy")
-        policy = SGLangPolicyInference("policy")
+        if self.cfg.runtime_args.rollout_backend == "vllm":
+            policy = VLLMPolicyInference("policy")
+        elif self.cfg.runtime_args.rollout_backend == "sglang":
+            policy = SGLangPolicyInference("policy")
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 

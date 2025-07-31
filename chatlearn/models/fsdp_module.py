@@ -313,7 +313,7 @@ class FSDPModule(TorchModule):
         del full_state
         self.offload()
 
-    def get_fsdp_param_name(self, block_size=1_000_000_000) -> List[List]:
+    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
         name_list = []
         param_cnt = 0
         current_group = []
@@ -328,18 +328,22 @@ class FSDPModule(TorchModule):
             name_list.append(copy.deepcopy(current_group))
         return name_list
 
-    def get_weight_ipc_handles_by_name(self, block_name: List[str]):
+    def get_weight_ipc_handles_by_name(self, block_name: List[str], rollout_engine='sglang'):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        if rollout_engine == "sglang":
+            # lazy import sglang
+            from sglang.srt.utils import MultiprocessingSerializer
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
+        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach() \
-                                            if isinstance(param, DTensor) else param.detach())
+                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                                        if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict

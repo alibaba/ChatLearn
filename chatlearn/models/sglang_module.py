@@ -56,6 +56,7 @@ class SGLangModule(TorchModule):
         # get gpu_per_node used for setup sglang
         resource = ray.nodes()[0]['Resources']
         self.gpu_per_node = int(resource['GPU'])
+        self.llm = None
 
         self._metric_prefix = 'sglang_inference'
 
@@ -84,7 +85,7 @@ class SGLangModule(TorchModule):
 
         # used for init sglang engine in ray actor
         os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
-        dist.barrier()
+        dist.barrier(group=self.cpu_mesh.get_group())
 
     def setup(self):
         super().setup()
@@ -94,7 +95,8 @@ class SGLangModule(TorchModule):
     
     def setup_sglang(self):
         
-
+        if self.llm is not None: # for evaluator not setup twice
+            return 
         nnodes_per_replica = math.ceil(self.tensor_model_parallel_size / self.gpu_per_node)
         if nnodes_per_replica > 1:
             dist_init_addr = f"{os.environ["MASTER_ADDR"]}:{os.environ["MASTER_PORT"]}"
@@ -107,27 +109,6 @@ class SGLangModule(TorchModule):
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0
 
         dtype = self.module_args.get("dtype", "bfloat16")
-
-        print(  f"debughh {self.replica_id}",
-                os.environ["CUDA_VISIBLE_DEVICES"],
-                os.environ["MASTER_PORT"],
-                os.environ["MASTER_ADDR"],
-                os.environ["RANK"],
-                os.environ["LOCAL_RANK"],
-                self.module_args['load'],
-                dtype,
-                self.module_args.get("gpu_memory_utilization", 0.85),
-                True,
-                0,
-                1,
-                self._tp_size,
-                node_rank,
-                load_format,
-                dist_init_addr,
-                nnodes_per_replica,
-                True,
-                40000 + self.replica_id,
-            )
 
         if first_rank_in_node:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
@@ -145,31 +126,16 @@ class SGLangModule(TorchModule):
                 nnodes=nnodes_per_replica,
                 trust_remote_code=True,
                 port=40000 + self.replica_id,
-                # for debug
-                # log_level="INFO",
-                log_requests=True,
-                log_requests_level=2,
-                # max_running_requests=1,
-
-                # mm_attention_backend="fa3",
-                # attention_backend="fa3",
-                # In async mode, we want token in token out.
-                # skip_tokenizer_init=self.config.mode == "async",
+                # nccl_port=45000 + self.replica_id,
+                mm_attention_backend="fa3",
+                attention_backend="fa3",
                 skip_tokenizer_init=True,
-                # disable_cuda_graph=True
+                disable_cuda_graph=self.module_args.get("enforce_eager", False)
             )
-        else:
-            self.llm = None
-        # sampling_params = {"temperature": 1, "top_p": 0.95}
-        # if self.llm and self.llm.tokenizer_manager is not None:
-        #     print("debughh in setup", self.llm.generate("你是谁", sampling_params))
 
-        # it seems only need to offload kv cache here
-        # because next operation is param sync
-
+        # this two flag used for avoid onload,offload twice
         self.kv_cache_onloaded = True
         self.weight_onloaded =True
-        # self.offload_weights(tags=['kv_cache'])
         self.offload_weights()
 
     def _get_sampling_params(self, is_eval):
@@ -233,16 +199,14 @@ class SGLangModule(TorchModule):
             
             outputs = self.llm.generate(input_ids=prompts_token_ids,
                                         sampling_params=sampling_params)
+        self.flush_cache()
         return outputs
 
     def update_weights_from_ipc_handles(self, reduce_data):
 
         from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-        for index, (name, reduced) in enumerate(reduce_data.items()):
-            rebuild_func, rebuild_args = reduced
-            reconstructed_tensor: torch.Tensor = rebuild_func(*rebuild_args)
-            serialized_tensor = MultiprocessingSerializer.serialize(reconstructed_tensor.clone()) # Attempted to send CUDA tensor received from another process; this is not currently supported.
-            if self._tp_rank == 0:
+        for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
+            if self.is_engine:
                 gathered_serialized_tensors = [None] * self._tp_size
             else:
                 gathered_serialized_tensors = None
@@ -254,7 +218,7 @@ class SGLangModule(TorchModule):
                 group=self.cpu_mesh["tp"].get_group(),
             )
 
-            if self._tp_rank == 0:
+            if self.is_engine:
                 self.llm.update_weights_from_tensor(
                     named_tensors=[
                         (
@@ -266,15 +230,18 @@ class SGLangModule(TorchModule):
                     flush_cache=index == len(reduce_data)-1,
                 )
         torch.cuda.synchronize()
+        # dist.barrier(group=self.cpu_mesh.get_group())
     
     def flush_cache(self):
-        if self.llm and self.llm.tokenizer_manager is not None:
+        if self.is_engine:
             self.llm.flush_cache()
+        torch.cuda.synchronize()
+        # dist.barrier(group=self.cpu_mesh.get_group())
 
     def offload_weights(self, tags: Optional[List[str]] = None):
-
         # Currently we only support `weights` and `kv_cache`
-        if self.llm and self.llm.tokenizer_manager is not None:
+
+        if self.is_engine:
             # avoid offload offloaded param
             if tags is None:
                 tags = ['kv_cache', 'weights']
@@ -284,20 +251,22 @@ class SGLangModule(TorchModule):
                 tags.pop(tags.index("weights"))
             if not tags:
                 return
-            print(f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}")
+            self._logger.info(f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.release_memory_occupation(tags=tags)
-            print(f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}")
+            self._logger.info(f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}")
 
             if "kv_cache" in tags:
                 self.kv_cache_onloaded = False
 
             if "weights" in tags:
                 self.weight_onloaded = False
+        torch.cuda.synchronize()
+        # dist.barrier(group=self.cpu_mesh.get_group())
             
 
     def onload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
-        if self.llm and self.llm.tokenizer_manager is not None:
+        if self.is_engine:
             # avoid onload onloaded param
             if tags is None:
                 tags = ['kv_cache', 'weights']
@@ -307,17 +276,18 @@ class SGLangModule(TorchModule):
                 tags.pop(tags.index("weights"))
             if not tags:
                 return
-            print(f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+            self._logger.info(f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.resume_memory_occupation(tags=tags)
-            print(f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+            self._logger.info(f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}")
 
             if "kv_cache" in tags:
                 self.kv_cache_onloaded = True
-
             if "weights" in tags:
                 self.weight_onloaded = True
+        torch.cuda.synchronize()
+        # dist.barrier(group=self.cpu_mesh.get_group())
         
-            
+    @property
     def is_engine(self):
         if self.llm and self.llm.tokenizer_manager is not None:
             return True

@@ -183,7 +183,7 @@ class Executor:
             model_node: related to self.merged_buffer, but don't know where to use
         """
         assert micro_batch_index is None, "micro_batch_index should be None, will be deprecated and removed in future"
-        logger.warning(f"model_node={model_node} and trainable={trainable} is never used, will be deprecated and removed in future")
+        # TODO：remove unused pramater model_node and trainable
         data_list = []
         mb0 = None
         for queue in queues:
@@ -301,17 +301,12 @@ class Executor:
             "to_offload": to_offload
         }
 
-        if isinstance(replica.model, VLLMModule):
-            # for VLLMModule we only to pass data to vllm_engine for every replica
-            mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
-            assert isinstance(query, list)
-            ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
-            # output length is num replica
-            output.append((ret, mb))
-        elif isinstance(replica.model, SGLangModule):
+        if isinstance(replica.model, VLLMModule) or isinstance(replica.model, SGLangModule):
+            # for rollout we only to pass data to engine for every replica
             mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
             assert isinstance(query, list)
             ret = replica.call_actor_remote_func(replica.engine, func_name, *query, **kwargs)
+            # output length is num replica
             output.append((ret, mb))
         else:
             for _, actors in replica.dp_rank_to_actors.items():
