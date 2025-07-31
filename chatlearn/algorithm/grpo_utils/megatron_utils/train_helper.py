@@ -12,7 +12,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import math
 import copy
 from typing import Dict, Iterator, Union, List, Any
 from functools import partial
@@ -234,10 +233,7 @@ def get_batch(
         # NOTE: sequence-parallel padding, the len of right-padded seq should be divisible by TP & Expert TP
         pad_size = 0
         if args.sequence_parallel:
-            divisor = math.lcm(
-                mpu.get_tensor_model_parallel_world_size(),
-                mpu.get_expert_tensor_parallel_world_size()
-            )
+            divisor = mpu.get_tensor_model_parallel_world_size()
             total_nnz = tokens.shape[1]
             pad_size = (divisor - total_nnz % divisor) % divisor
             tokens = F.pad(tokens, (0, pad_size), value=get_tokenizer().eod)
