@@ -47,9 +47,14 @@ class TrainerMemoryManager:
         optimizer: Union[MixedPrecisionOptimizer, ChainedOptimizer],
         bucket_size_mb: int=0,
     ):
-        """Manage memory for Megatron training modules. Any
-        
-        
+        """Manage memory of training models with one or more chunks.
+
+        Args:
+            model (List[nn.Module]): The Megatron model chunks to be managed. 
+            optimizer (Union[MixedPrecisionOptimizer, ChainedOptimizer]): The optimizer
+            to be managed. Should be (chained or individual) FP16Optimizer or 
+            DistributedOptimizer.
+            bucket_size_mb (int): The bucket size when offloading weights.
         """
         self._model = model
         self._optimizer = optimizer
