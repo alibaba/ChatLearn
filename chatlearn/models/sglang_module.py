@@ -32,10 +32,11 @@ from chatlearn.utils.utils import get_full_proc_memory_info
 try:
     import sglang as sgl
     from sglang.srt.utils import MultiprocessingSerializer
-except:
+except Exception:
     warnings.warn("SGLang is not installed.")
 
 class SGLangModule(TorchModule):
+    """SGLangModule"""
 
     def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
         """The chatlearn wrapper for a sglang model.
@@ -44,7 +45,7 @@ class SGLangModule(TorchModule):
 
         assert self.total_gpu > 0, "SGLang requires at least one GPU"
         assert not self.trainable, "SGLang does not support training"
-        # TODO: support expert-model parallel, 
+        # TODO: support expert-model parallel
         assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of SGLang is not supported"
         assert self.module_args.pipeline_model_parallel_size == 1, "Pipeline Parallel of SGLang is not supported"
 
@@ -97,17 +98,17 @@ class SGLangModule(TorchModule):
         tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
-    
+
     def setup_sglang(self):
-        
+
         if self.llm is not None: # for evaluator not setup twice
-            return 
+            return
         nnodes_per_replica = math.ceil(self.tensor_model_parallel_size / self.gpu_per_node)
         if nnodes_per_replica > 1:
             dist_init_addr = f"{os.environ['MASTER_ADDR']}:{os.environ['MASTER_PORT']}"
         else:
             dist_init_addr = None
-        
+
         load_format = self.module_args.get("vllm_load_format", "dummy")
         tp_size_per_node = self._tp_size // nnodes_per_replica
         node_rank = self._tp_rank // tp_size_per_node
@@ -160,7 +161,7 @@ class SGLangModule(TorchModule):
         stop = self.module_args.get("stop_token_list", None)
         if stop is not None and isinstance(stop, str):
             stop = stop.split(";")
-        
+
         sampling_params = {
             "n": 1,
             "presence_penalty": presence_penalty,
@@ -201,7 +202,7 @@ class SGLangModule(TorchModule):
                 sampling_param_item = copy.deepcopy(sampling_param)
                 sampling_param_item['max_new_tokens'] = max_tokens
                 sampling_params.append(sampling_param_item)
-            
+
             outputs = self.llm.generate(input_ids=prompts_token_ids,
                                         sampling_params=sampling_params)
         self.flush_cache()
@@ -235,7 +236,7 @@ class SGLangModule(TorchModule):
                     flush_cache=index == len(reduce_data)-1,
                 )
         torch.cuda.synchronize()
-    
+
     def flush_cache(self):
         if self.is_engine:
             self.llm.flush_cache()
@@ -263,8 +264,7 @@ class SGLangModule(TorchModule):
 
             if "weights" in tags:
                 self.weight_onloaded = False
-        torch.cuda.synchronize()
-            
+        torch.cuda.synchronize() 
 
     def onload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
@@ -287,7 +287,10 @@ class SGLangModule(TorchModule):
             if "weights" in tags:
                 self.weight_onloaded = True
         torch.cuda.synchronize()
-        
+
+    def get_param_id_to_parameters(self):
+        pass
+
     @property
     def is_engine(self):
         return self.llm and self.llm.tokenizer_manager is not None
