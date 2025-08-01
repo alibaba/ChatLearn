@@ -201,8 +201,7 @@ class ModelManager:
                 # onload policy weights
                 refs = []
                 for replica in dst_model.replicas:
-                    for actor in replica.all_actors:
-                        refs.append(actor.onload_weights.remote(tags=['weights']))
+                    refs.append(replica.engine.onload_weights.remote(tags=['weights']))
                 future.wait(refs, return_output=True)
 
                 # sync param
@@ -213,8 +212,7 @@ class ModelManager:
                 # onload policy kv cache
                 refs = []
                 for replica in dst_model.replicas:
-                    for actor in replica.all_actors:
-                        refs.append(actor.onload_weights.remote(tags=['kv_cache']))
+                    refs.append(replica.engine.onload_weights.remote(tags=['kv_cache']))
                 future.wait(refs, return_output=True)
 
     def set_func_decorator(self, model):
