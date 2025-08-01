@@ -88,8 +88,9 @@ class MegatronModelArchitectureConfig(BaseConfig):
     in a single kernel launch to improve the utilization and performance by leveraging the Grouped \
     GEMM feature introduced since CUTLASS 2.8 (https://github.com/fanshiqing/grouped_gemm)."}
     )
+    # TODO: find a solution (maybe __post_init__) and rollback default value
     moe_token_dispatcher_type: str = field(
-        default="allgather",
+        default="alltoall",
         metadata={"help": "The type of token dispatcher to use. The default is 'allgather'."},
     )
     moe_router_topk: int = field(
