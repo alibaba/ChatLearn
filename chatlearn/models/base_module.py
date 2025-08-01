@@ -658,7 +658,11 @@ class BaseModule:
         assert len(gpu_ids) == 1, "Not Supported"
         return f"{node_id}-{gpu_ids[0]}"
 
-    def get_param_id_to_parameters(self):
+    def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
+        """For all weights in the model of this rank, generate a mapping that maps
+        global param id to the corresponding weight. Should be called only after
+        calling `set_param_ids`. Used for parameter syhchornizing.
+        """
         raise NotImplementedError("mapping param id to parameters is not implemented")
 
     def set_synchronizer(

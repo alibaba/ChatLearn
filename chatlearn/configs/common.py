@@ -171,6 +171,15 @@ class BaseModelConfig(BaseConfig):
     expert_model_parallel_size: int = field(
         default=1, metadata={"help": "expert model parallel size for Megatron-Core"}
     )
+    expert_tensor_parallel_size: Optional[int] = field(
+        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
+    )
+    virtual_pipeline_model_parallel_size: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "virtual pipeline model parallel size for Megatron-Core"
+        },
+    )
     fsdp_size: int = field(default=1, metadata={"help": "FSDP parallel size"})
     ulysses_sequence_parallel_size: int = field(
         default=1,

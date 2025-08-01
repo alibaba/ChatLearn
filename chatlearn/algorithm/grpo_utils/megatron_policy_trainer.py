@@ -212,7 +212,8 @@ class MegatronPolicyTrainer(MegatronModule):
     def train_step(self, data_list):
         args = get_args()
         timers = get_timers()
-        self.model[0].module.train()
+        for model_chunk in self.model:
+            model_chunk.module.train()
 
         num_microbatches = get_num_microbatches()
         if self.module_args.packing:
@@ -342,8 +343,8 @@ class MegatronPolicyTrainer(MegatronModule):
             data (Dict[str, Any]): If this is the last rank of the replica, the output logprobs will be
              updated into the dict, otherwise do NOTHING.
         """
-        for model_module in self.model:
-            model_module.eval()
+        for model_chunk in self.model:
+            model_chunk.eval()
 
         if self.module_args.packing:
             # NOTE: When packing is enabled, data_list will only contain one microbatch
@@ -374,8 +375,8 @@ class MegatronPolicyTrainer(MegatronModule):
             collect_non_loss_data=True,  # set True to hack the forward_step_func
         )  # shape: [num_microbatches, *]
 
-        for model_module in self.model:
-            model_module.train()
+        for model_chunk in self.model:
+            model_chunk.train()
         if not mpu.is_pipeline_last_stage():
             return
         # trainable is True --> policy trainer; False --> PolicyReference

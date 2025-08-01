@@ -53,6 +53,7 @@ models:
     pipeline_model_parallel_size: 1
     expert_tensor_parallel_size: 1
     expert_model_parallel_size: 1
+    virtual_pipeline_model_parallel_size: null
     decoder_first_pipeline_num_layers: null
     decoder_last_pipeline_num_layers: null
     moe_router_force_load_balancing: False
