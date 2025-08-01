@@ -184,13 +184,14 @@ class DistTorchActor(DistActor):
                 count = 0
         return ordered_actors
 
-    def set_dist_env(self, revert_placement=False):
+    def set_dist_env(self, revert_placement=False, extra_env={}):
         self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
         master_addr = future.get(self.master.get_address.remote())
         master_port = future.get(self._port_manager.get_free_port.remote(master_addr))
 
         world_size = self.actor_num
         env_config = {"MASTER_ADDR": master_addr, "MASTER_PORT": master_port, "WORLD_SIZE": world_size}
+        env_config.update(extra_env)
         ret = []
         for rank, actor in enumerate(self.all_actors):
             env_config["RANK"] = rank
@@ -306,6 +307,11 @@ class DistSGLangActor(DistTorchActor):
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
+    def set_dist_env(self, revert_placement=False):
+        master_addr = future.get(self.master.get_address.remote())
+        sgalng_nccl_port = future.get(self._port_manager.get_free_port.remote(master_addr))
+        extra_env = {"SGLANG_NCCL_PORT": sgalng_nccl_port}
+        super().set_dist_env(revert_placement=revert_placement, extra_env=extra_env)
 
 
 class DistModel:

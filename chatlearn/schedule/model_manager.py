@@ -32,7 +32,7 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error, decorate_class_func
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistSGLangActor, DistModel
-from chatlearn.synchronizer import McoreParameterSyncGroup, FSDPParameterSyncGroup
+from chatlearn.synchronizer import MCoreParameterSyncGroup, FSDPParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
@@ -160,7 +160,7 @@ class ModelManager:
                     sync_frequency
                 )
             else:
-                sync_group = McoreParameterSyncGroup(
+                sync_group = MCoreParameterSyncGroup(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
                     sync_frequency

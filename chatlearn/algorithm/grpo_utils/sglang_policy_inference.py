@@ -48,7 +48,7 @@ class SGLangPolicyInference(SGLangModule):
             l1 + l2 for l1, l2 in zip(prompt_token_length, response_token_length)
         ]
         clip_ratio = sum(
-            1 for l in seq_len if l >= self.module_args.get("seq_length")
+            l >= self.module_args.get("seq_length") for l in seq_len
         ) / len(seq_len)
         inference_stats = {
             "response_token_length": sum(response_token_length)

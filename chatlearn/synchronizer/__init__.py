@@ -13,14 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 """Parameter Synchronization module"""
-from .parameter_sync import McoreParameterSyncGroup
+from .parameter_sync import MCoreParameterSyncGroup
 from .parameter_sync_fsdp import FSDPParameterSyncGroup
 from .comm import GeneralCommunicator
 from .mappers import name_to_mapper_cls
 from .planners import get_planner_cls
 
 __all__ = [
-  'McoreParameterSyncGroup',
+  'MCoreParameterSyncGroup',
   'FSDPParameterSyncGroup',
   'GeneralCommunicator',
   'name_to_mapper_cls',

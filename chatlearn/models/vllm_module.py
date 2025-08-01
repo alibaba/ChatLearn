@@ -397,10 +397,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     @property
     def is_engine(self):
-        if self.llm:
-            return True
-        else:
-            return False
+        return self.llm
 
     def offload_weights(self): # is_param_sync=True
         """

@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """SGLang Moudle"""
+import warnings
 import os
 import math
 from typing import Optional, List
@@ -28,15 +29,17 @@ from transformers import AutoTokenizer
 from .torch_module import TorchModule
 from chatlearn.utils.utils import get_full_proc_memory_info
 
+try:
+    import sglang as sgl
+    from sglang.srt.utils import MultiprocessingSerializer
+except:
+    warnings.warn("SGLang is not installed.")
+
 class SGLangModule(TorchModule):
 
     def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
         """The chatlearn wrapper for a sglang model.
         """
-        # lazy import
-        import sglang as sgl
-        from sglang.srt.utils import MultiprocessingSerializer
-
         super().__init__(name, args=args, replica_id=replica_id)
 
         assert self.total_gpu > 0, "SGLang requires at least one GPU"
@@ -128,7 +131,7 @@ class SGLangModule(TorchModule):
                 nnodes=nnodes_per_replica,
                 trust_remote_code=True,
                 port=40000 + self.replica_id,
-                # nccl_port=45000 + self.replica_id,
+                nccl_port=int(os.environ["SGLANG_NCCL_PORT"]),
                 mm_attention_backend="fa3",
                 attention_backend="fa3",
                 skip_tokenizer_init=True,
@@ -287,7 +290,4 @@ class SGLangModule(TorchModule):
         
     @property
     def is_engine(self):
-        if self.llm and self.llm.tokenizer_manager is not None:
-            return True
-        else:
-            return False
+        return self.llm and self.llm.tokenizer_manager is not None

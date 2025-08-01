@@ -1,5 +1,6 @@
 # pylint: skip-file
 import math
+from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
@@ -189,15 +190,19 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            # entropy = entropy_from_logits_with_chunking(output.logits, chunk_size=128)
+            
+            # save memory while not use entropy in loss
+            entropy_context = nullcontext() if self.module_args.entropy_coef > 0 else torch.no_grad()
+            with entropy_context:
+                entropy = entropy_from_logits_with_chunking(output.logits)
 
             if sp_group is not None:
                 logprobs = gather(
                     input_tensor=logprobs, sp_group=sp_group, gather_dim=1
                 )
-                # entropy = gather(
-                #     input_tensor=entropy, sp_group=sp_group, gather_dim=1
-                # )
+                entropy = gather(
+                    input_tensor=entropy, sp_group=sp_group, gather_dim=1
+                )
             if self.packing:
                 # Recover packing sequence
                 logprobs = pad_input(
@@ -205,15 +210,15 @@ class PolicyTrainer(FSDPModule):
                     inputs['indices'], 
                     inputs['ori_batch_size'], 
                     inputs['ori_seq_len']).squeeze(-1)
-                # entropy = pad_input(
-                #     entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                #     inputs['indices'], 
-                #     inputs['ori_batch_size'], 
-                #     inputs['ori_seq_len']).squeeze(-1)
+                entropy = pad_input(
+                    entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1), 
+                    inputs['indices'], 
+                    inputs['ori_batch_size'], 
+                    inputs['ori_seq_len']).squeeze(-1)
             else:
                 logprobs_len = logprobs.shape[1]
                 logprobs = F.pad(logprobs, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
-                # entropy = F.pad(entropy, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
+                entropy = F.pad(entropy, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
             loss = calculate_grpo_loss(
                 log_probs=logprobs,
                 old_log_probs=inputs["old_logprobs"],
@@ -228,8 +233,7 @@ class PolicyTrainer(FSDPModule):
             pg_loss_list.append(pg_loss)
 
             # entropy loss
-            # entropy_loss = torch.masked_select(entropy, inputs["loss_mask"].bool())
-            entropy_loss = torch.masked_select(-logprobs, inputs["loss_mask"].bool())
+            entropy_loss = torch.masked_select(entropy, inputs["loss_mask"].bool())
             entropy_loss_mean = torch.sum(entropy_loss) / response_token_length_total * self.fsdp_size
             entropy_loss_list.append(entropy_loss)
             # kl loss
