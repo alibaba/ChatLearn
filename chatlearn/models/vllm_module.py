@@ -421,7 +421,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         simply return all keys
         """
         names = list(self.model.state_dict().keys())
-        self.local_name_to_global_name = {n: n for n in names}
         self.global_name_to_local_name = {n: n for n in names}
         return names
 
