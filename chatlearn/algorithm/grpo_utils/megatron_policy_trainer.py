@@ -208,7 +208,6 @@ class MegatronPolicyTrainer(MegatronModule):
         data_iterator = iter(data_list)
 
         self.optimizer.zero_grad()
-
         # Forward pass.
         timers("forward-backward", log_level=1).start(barrier=args.barrier_with_L1_time)
         forward_backward_func = get_forward_backward_func()
