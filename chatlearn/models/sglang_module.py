@@ -70,7 +70,7 @@ class SGLangModule(TorchModule):
         initialize distributed env
         """
         # we need cpu process group for communicate ipc handle
-        dist.init_process_group(backend=f"cpu:gloo,cuda:nccl")
+        dist.init_process_group(backend="cpu:gloo,cuda:nccl")
 
         # init cpu_mesh
         self.cpu_mesh = init_device_mesh(device_type="cpu",
@@ -208,6 +208,7 @@ class SGLangModule(TorchModule):
 
     def update_weights_from_ipc_handles(self, reduce_data):
 
+        # pylint: disable-next=import-outside-toplevel
         from sglang.srt.model_executor.model_runner import LocalSerializedTensor
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
             if self.is_engine:
