@@ -1,17 +1,30 @@
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
 from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
-import torch.distributed as dist
 
 from chatlearn.data.prompt_dataset import VLLMPromptPipeline
-# pylint: disable=ungrouped-imports
 from chatlearn.models.sglang_module import SGLangModule
 
 
 
 class SGLangPolicyInference(SGLangModule):
-
+    """sglang rollout
+    """
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
@@ -29,8 +42,7 @@ class SGLangPolicyInference(SGLangModule):
         return self._forward_step(data, iteration, True)
 
     def _forward_step(
-        self, data, iteration, is_eval
-    ):  # pylint: disable=unused-argument
+        self, data, iteration, is_eval):  # pylint: disable=unused-argument
         outputs = self.generate(data, is_eval)
 
         if outputs is not None:
