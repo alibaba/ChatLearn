@@ -18,6 +18,7 @@ from itertools import cycle
 from typing import Optional
 
 from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
@@ -105,9 +106,21 @@ class Environment(Executor):
                     f"setup vllm engine for model {model.model}")
                 refs = []
                 for replica in model_node.model.replicas:
-                    refs.append(replica.vllm_engine.setup_vllm.remote(
+                    refs.append(replica.engine.setup_vllm.remote(
                         replica.all_actors))
                 future.wait(refs, return_output=True)
+
+            if isinstance(model.model, SGLangModule):
+                logger.info(
+                    f"setup sglang engine for model {model.model}")
+                refs = []
+                for replica in model_node.model.replicas:
+                    for actor in replica.all_actors:
+
+                        refs.append(actor.setup_sglang.remote())
+                future.wait(refs, return_output=True)
+
+
 
     @property
     def sample_per_episode(self):

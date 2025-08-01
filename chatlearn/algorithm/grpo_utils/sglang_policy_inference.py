@@ -1,5 +1,4 @@
-# pylint: skip-file
-# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -13,20 +12,20 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""vllm policy inference"""
+"""sglang rollout"""
 from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
 
 from chatlearn.data.prompt_dataset import PromptPipeline
-# pylint: disable=ungrouped-imports
-from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule
 
 
-class VLLMPolicyInference(VLLMModule):
-    """Policy vLLM Inference"""
 
+class SGLangPolicyInference(SGLangModule):
+    """sglang rollout
+    """
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
@@ -44,19 +43,15 @@ class VLLMPolicyInference(VLLMModule):
         return self._forward_step(data, iteration, True)
 
     def _forward_step(
-        self, data, iteration, is_eval
-    ):  # pylint: disable=unused-argument
-        outputs = self.generate_vllm(data, is_eval, iteration=iteration)
-
-        # for get rule reward function
-        data_source_list = data["data_source"]
-        ground_truth_list = data["ground_truth"]
+        self, data, iteration, is_eval):  # pylint: disable=unused-argument
+        outputs = self.generate(data, is_eval)
 
         if outputs is not None:
-            rets = self.decode_internal(outputs, data_source_list, ground_truth_list)
+            rets = self.decode_internal(outputs, data)
             return rets
 
     def forward_step(self, data, iteration=0):
+
         rets = self._forward_step(data, iteration, False)
         rets["uid"] = data["uid"]
         # collect metric
@@ -66,7 +61,7 @@ class VLLMPolicyInference(VLLMModule):
             l1 + l2 for l1, l2 in zip(prompt_token_length, response_token_length)
         ]
         clip_ratio = sum(
-            1 for l in seq_len if l >= self.module_args.get("seq_length")
+            l >= self.module_args.get("seq_length") for l in seq_len
         ) / len(seq_len)
         inference_stats = {
             "response_token_length": sum(response_token_length)
@@ -78,35 +73,35 @@ class VLLMPolicyInference(VLLMModule):
         return rets
 
     def decode_internal(
-        self, batched_outputs, data_source_list=None, ground_truth_list=None
+        self, batched_outputs: List[Dict], input_data
     ):
+        data_source_list = input_data["data_source"]
+        ground_truth_list = input_data["ground_truth"]
         max_tokens_length = self.module_args.get("seq_length")
         all_tokens = []
         str_outputs = []
-        prompt_token_ids: list = []
+        prompt_token_ids: list = input_data["input_ids"]
         prompt_token_length = []
         response_token_length = []
         data_sources = []
         ground_truths = []
-
         for idx, output in enumerate(batched_outputs):
-            num_responses_per_prompt = len(output.outputs)
             data_source = data_source_list[idx] if data_source_list else ""
+            data_sources.append(data_source)
+
             ground_truth = ground_truth_list[idx] if ground_truth_list else ""
-            for res_idx in range(num_responses_per_prompt):
-                # str_prompts.append(output.prompt)
-                prompt_token_ids.append(output.prompt_token_ids)
-                output_tokens = list(output.outputs[res_idx].token_ids)
-                response_token_length.append(len(output_tokens))
-                prompt_token_length.append(len(output.prompt_token_ids))
-                str_outputs.append(
-                    self.tokenizer.tokenizer.decode(
-                        output_tokens, skip_special_tokens=True
-                    )
+            ground_truths.append(ground_truth)
+            prompt_token = input_data['input_ids'][idx]
+            output_tokens = output['output_ids']
+
+            response_token_length.append(output['meta_info']['completion_tokens'])
+            prompt_token_length.append(output['meta_info']['prompt_tokens'])
+            str_outputs.append(
+                self.tokenizer.tokenizer.decode(
+                    output_tokens, skip_special_tokens=True
                 )
-                data_sources.append(data_source)
-                ground_truths.append(ground_truth)
-                all_tokens.append(torch.tensor(output.prompt_token_ids + output_tokens))
+            )
+            all_tokens.append(torch.tensor(prompt_token + output_tokens))
 
         all_tokens = [
             F.pad(

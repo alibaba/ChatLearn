@@ -95,7 +95,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("load_format", LoadFormat.DUMMY)
 
         if self.module_args.get("apply_replica_id_to_seed", True):
             seed = self.module_args.get("seed", 0) + self.replica_id
@@ -142,20 +142,28 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     def init(self):
         """
-        :meta private:
+        set global variables, initialize distributed env.
+        used in BaseEngine.setup
         """
+        # set global var _ENABLE_CUSTOM_ALL_REDUCE to False
         parallel_state.set_custom_all_reduce(False)
         initialize_vllm(self.module_args)
 
     def setup(self):
-        """Set up tokenizer."""
+        """Set up tokenizer.
+        used in BaseEngine.setup and BaseModule.model_setup
+        """
         super().setup()
         tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
     def setup_vllm(self, workers):
-        if self.llm is not None: # for evaluator
+        """setup vllm engine
+        used in Environment.setup()
+        """
+
+        if self.llm is not None: # for evaluator not setup twice
             return
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
@@ -165,7 +173,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("load_format", LoadFormat.DUMMY)
 
         if self.module_args.get("apply_replica_id_to_seed", True):
             seed = self.module_args.get("seed", 0) + self.replica_id
@@ -387,16 +395,20 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def model(self):
         return self._model
 
+    @property
+    def is_engine(self):
+        return self.llm
+
     def offload_weights(self): # is_param_sync=True
         """
         offload weights
         """
-        if self.module_args.free_gpu_memory.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights and self.is_engine:
             self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
 
-    def onload_weights(self, tags: Optional[list[str]] = None): # , is_param_sync=False
+    def onload_weights(self, tags: Optional[list[str]] = None):
         """
         onload weights
         Wake up the engine from sleep mode. See the :meth:`sleep` method
@@ -409,7 +421,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
                 wake_up should be called with all tags (or None) before the
                 engine is used again.
         """
-        if self.module_args.free_gpu_memory.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights and self.is_engine:
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")

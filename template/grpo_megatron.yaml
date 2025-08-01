@@ -1,6 +1,7 @@
 runtime_args:
   # setup config
   train_backend: megatron
+  rollout_backend: vllm
   exp_name: grpo_megatron
   colocation: [policy,policy_trainer,ref_policy]
   # path config

@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer
 
 
-class VLLMPromptPipeline(Dataset):
+class PromptPipeline(Dataset):
     """
     process this format
     {

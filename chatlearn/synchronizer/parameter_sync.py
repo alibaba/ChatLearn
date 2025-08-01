@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 patch_ray()
 
 
-class ParameterSyncGroup(BaseParameterSyncGroup):
+class MCoreParameterSyncGroup(BaseParameterSyncGroup):
     """The core implementation of parameter synchronization."""
     def __init__(self, src_model: 'DistModel', dst_model: 'DistModel', frequency: int):
         """Manage Parameter Synchronization between source and destination models.

@@ -183,13 +183,15 @@ class DistTorchActor(DistActor):
                 count = 0
         return ordered_actors
 
-    def set_dist_env(self, revert_placement=False):
+    def set_dist_env(self, revert_placement=False, extra_env=None):
         self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
         master_addr = future.get(self.master.get_address.remote())
         master_port = future.get(self._port_manager.get_free_port.remote(master_addr))
 
         world_size = self.actor_num
         env_config = {"MASTER_ADDR": master_addr, "MASTER_PORT": master_port, "WORLD_SIZE": world_size}
+        if extra_env:
+            env_config.update(extra_env)
         ret = []
         for rank, actor in enumerate(self.all_actors):
             env_config["RANK"] = rank
@@ -207,7 +209,7 @@ class DistVLLMActor(DistTorchActor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.vllm_engine = None
+        self.engine = None
 
     def create_actor(self, num_gpus, placement_group, group_index):
 
@@ -219,14 +221,14 @@ class DistVLLMActor(DistTorchActor):
         self._create_actor(self.model.__class__, num_gpus, placement_group, group_index, **kwargs)
 
     def create_engine_actor(self, num_gpus, placement_group, group_index):
-        self.vllm_engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
+        self.engine = self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
 
     def call_vllm_engine_remote_funcs(self, func_name, *args, **kwargs):
         """
         Call remote functions for vllm_engine.
         """
         results = []
-        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(self.engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -238,7 +240,7 @@ class DistVLLMActor(DistTorchActor):
         for actor in self.all_actors:
             res = self.call_actor_remote_func(actor, func_name, *args, **kwargs)
             results.append(res)
-        res = self.call_actor_remote_func(self.vllm_engine, func_name, *args, **kwargs)
+        res = self.call_actor_remote_func(self.engine, func_name, *args, **kwargs)
         results.append(res)
         return results
 
@@ -264,14 +266,52 @@ class DistVLLMActor(DistTorchActor):
             setattr(self, func_name, dist_call)
 
     def setup_vllm_engine(self):
-        return self.vllm_engine.setup_vllm.remote(self.all_actors)
+        return self.engine.setup_vllm.remote(self.all_actors)
 
     @property
     def master(self):
-        return self.vllm_engine
+        return self.engine
 
     def peak_memory(self):
         return self.model.peak_memory()
+
+class DistSGLangActor(DistTorchActor):
+    """DistSGLangActor"""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.engine = None
+
+    def create_actor(self, num_gpus, placement_group, group_index):
+
+        self._create_actor(self.model.__class__, num_gpus, placement_group, group_index)
+
+        self.engine = self.all_actors[0]
+
+    @property
+    def master(self):
+        return self.engine
+
+    def add_remote_func(self):
+        for func_name, _ in inspect.getmembers(self.all_actors[0]):
+            # ray.actor.ActorMethod
+            if func_name.startswith('_'):
+                continue
+            if func_name in ["onload", "offload"]:
+                if func_name == "onload":
+                    new_func_name = "onload_weights"
+                else:
+                    new_func_name = "offload_weights"
+                dist_call = partial(self.call_remote_funcs, new_func_name)
+            else:
+                dist_call = partial(self.call_remote_funcs, func_name)
+            setattr(self, func_name, dist_call)
+
+    def set_dist_env(self, revert_placement=False, extra_env=None):
+        master_addr = future.get(self.master.get_address.remote())
+        sgalng_nccl_port = future.get(self._port_manager.get_free_port.remote(master_addr))
+        extra_env = {"SGLANG_NCCL_PORT": sgalng_nccl_port}
+        super().set_dist_env(revert_placement=revert_placement, extra_env=extra_env)
 
 
 class DistModel:

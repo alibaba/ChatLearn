@@ -16,20 +16,23 @@
 
 import os
 import time
+from typing import Tuple
 
 import ray
 import ray.experimental.state.api
 from ray.util.placement_group import placement_group
 
 from chatlearn.utils.logger import logger
+from chatlearn.models.base_module import BaseModule
 
 
 class ResourceManager:
     """
     Manage hardware resources for each task.
+    Used for managing ray placement_group
     """
 
-    def __init__(self, models):
+    def __init__(self, models: Tuple[BaseModule]):
         self.models = models
         self.name2models = {model.name: model for model in self.models}
         self.model_to_placegroup = {}
@@ -52,6 +55,8 @@ class ResourceManager:
         create resource placement group given model device args
         """
         if num_gpus > 0:
+            # a resource bundles should in on node
+            # each bundle represents a group of reserved resource
             if num_gpus <= self.gpu_per_node:
                 cpu_count = int(self.cpu_per_node * num_gpus / self.gpu_per_node)
                 bundles = [{"GPU": num_gpus, "CPU": cpu_count}]
