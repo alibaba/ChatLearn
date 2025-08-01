@@ -160,7 +160,7 @@ def preprocess_compute(func, trainable):
         is_eval = get_kwarg('is_eval')
 
         if to_onload:
-            if isinstance(self, VLLMModule) or isinstance(self, SGLangModule):
+            if isinstance(self, (VLLMModule, SGLangModule)):
                 self.onload_weights()
             else:
                 self.onload()
@@ -215,10 +215,10 @@ def preprocess_compute(func, trainable):
             if self.is_last_rank():
                 final_results = ret
         if to_empty_cache:
-            if not isinstance(self, VLLMModule) or not isinstance(self, SGLangModule):
+            if not isinstance(self, (VLLMModule, SGLangModule)):
                 self.empty_cache()
         if to_offload:
-            if isinstance(self, VLLMModule) or isinstance(self, SGLangModule):
+            if isinstance(self, (VLLMModule, SGLangModule)) :
                 if not is_eval:
                     self.offload_weights()
             else:

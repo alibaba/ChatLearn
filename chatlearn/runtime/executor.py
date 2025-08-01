@@ -164,12 +164,11 @@ class Executor:
                 out_queues.append(out_queue)
         return out_queues
 
-    # pylint: disable-next=unused-argument
     def get_merged_data(self,
                         queues: List[Queue],
                         encode: bool = True,
-                        micro_batch_index: Optional[int] = None,
-                        model_node: Optional[ModelNode] = None,
+                        micro_batch_index: Optional[int] = None, # pylint: disable-next=unused-argument
+                        model_node: Optional[ModelNode] = None, # pylint: disable-next=unused-argument
                         trainable: bool = False
                         ):
         """
@@ -301,7 +300,7 @@ class Executor:
             "to_offload": to_offload
         }
 
-        if isinstance(replica.model, VLLMModule) or isinstance(replica.model, SGLangModule):
+        if isinstance(replica.model, (VLLMModule, SGLangModule)):
             # for rollout we only to pass data to engine for every replica
             mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
             assert isinstance(query, list)

@@ -104,7 +104,7 @@ class SGLangModule(TorchModule):
             return 
         nnodes_per_replica = math.ceil(self.tensor_model_parallel_size / self.gpu_per_node)
         if nnodes_per_replica > 1:
-            dist_init_addr = f"{os.environ["MASTER_ADDR"]}:{os.environ["MASTER_PORT"]}"
+            dist_init_addr = f"{os.environ['MASTER_ADDR']}:{os.environ['MASTER_PORT']}"
         else:
             dist_init_addr = None
         

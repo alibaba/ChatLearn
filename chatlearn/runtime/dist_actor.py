@@ -29,7 +29,6 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.models.sglang_module import SGLangModule
 
 RAY_REMOTE = "remote"
 
@@ -297,17 +296,17 @@ class DistSGLangActor(DistTorchActor):
             # ray.actor.ActorMethod
             if func_name.startswith('_'):
                 continue
-            elif func_name in ["onload", "offload"]:
+            if func_name in ["onload", "offload"]:
                 if func_name == "onload":
                     new_func_name = "onload_weights"
                 else:
                     new_func_name = "offload_weights"
-                dist_call = partial(self.call_remote_funcs, func_name)
+                dist_call = partial(self.call_remote_funcs, new_func_name)
             else:
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
-    def set_dist_env(self, revert_placement=False):
+    def set_dist_env(self, revert_placement=False, extra_env={}):
         master_addr = future.get(self.master.get_address.remote())
         sgalng_nccl_port = future.get(self._port_manager.get_free_port.remote(master_addr))
         extra_env = {"SGLANG_NCCL_PORT": sgalng_nccl_port}

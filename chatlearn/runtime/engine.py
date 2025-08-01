@@ -538,7 +538,7 @@ class Engine(BaseEngine):
                 future.wait(refs, return_output=True)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
-                if isinstance(model, DistVLLMActor) or isinstance(model, DistSGLangActor):
+                if isinstance(model, (DistVLLMActor, DistSGLangActor)):
                     refs.append(model.engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 else:
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))

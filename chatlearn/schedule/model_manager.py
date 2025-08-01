@@ -210,7 +210,7 @@ class ModelManager:
                 # sync param
                 sync_group.sync(dryrun=dryrun)
                 future.wait(src_model.offload())
-                
+
                 # TODO: refactor to an general API
                 # onload policy kv cache
                 refs = []
