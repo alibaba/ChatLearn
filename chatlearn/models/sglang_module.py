@@ -25,20 +25,18 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer
 
-
-from .torch_module import TorchModule
 from chatlearn.utils.utils import get_full_proc_memory_info
+from .torch_module import TorchModule
 
 try:
     import sglang as sgl
-    from sglang.srt.utils import MultiprocessingSerializer
 except Exception:
     warnings.warn("SGLang is not installed.")
 
 class SGLangModule(TorchModule):
     """SGLangModule"""
 
-    def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
+    def __init__(self, name: str, args=None, replica_id: int=0):
         """The chatlearn wrapper for a sglang model.
         """
         super().__init__(name, args=args, replica_id=replica_id)
@@ -264,7 +262,7 @@ class SGLangModule(TorchModule):
 
             if "weights" in tags:
                 self.weight_onloaded = False
-        torch.cuda.synchronize() 
+        torch.cuda.synchronize()chatlearn/models/sglang_module.py:41
 
     def onload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`

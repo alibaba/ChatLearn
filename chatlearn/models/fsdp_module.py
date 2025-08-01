@@ -336,6 +336,7 @@ class FSDPModule(TorchModule):
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
+            # pylint: disable-next=import-outside-toplevel
             from sglang.srt.utils import MultiprocessingSerializer
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")

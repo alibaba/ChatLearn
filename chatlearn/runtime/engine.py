@@ -24,7 +24,7 @@ from ray.actor import ActorHandle
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
 from chatlearn.models.base_module import BaseModule
-from chatlearn.runtime.dist_actor import DistVLLMActor
+from chatlearn.runtime.dist_actor import DistVLLMActor, DistSGLangActor
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.schedule.model_manager import ModelManager

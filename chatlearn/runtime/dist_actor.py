@@ -183,7 +183,7 @@ class DistTorchActor(DistActor):
                 count = 0
         return ordered_actors
 
-    def set_dist_env(self, revert_placement=False, extra_env={}):
+    def set_dist_env(self, revert_placement=False, extra_env=dict()):
         self.all_actors = self.reorder_actors(self.all_actors, revert_placement)
         master_addr = future.get(self.master.get_address.remote())
         master_port = future.get(self._port_manager.get_free_port.remote(master_addr))
@@ -306,7 +306,7 @@ class DistSGLangActor(DistTorchActor):
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
-    def set_dist_env(self, revert_placement=False, extra_env={}):
+    def set_dist_env(self, revert_placement=False, extra_env=dict()):
         master_addr = future.get(self.master.get_address.remote())
         sgalng_nccl_port = future.get(self._port_manager.get_free_port.remote(master_addr))
         extra_env = {"SGLANG_NCCL_PORT": sgalng_nccl_port}
