@@ -107,7 +107,7 @@ class SGLangModule(TorchModule):
         else:
             dist_init_addr = None
 
-        load_format = self.module_args.get("vllm_load_format", "dummy")
+        load_format = self.module_args.get("load_format", "dummy")
         tp_size_per_node = self._tp_size // nnodes_per_replica
         node_rank = self._tp_rank // tp_size_per_node
         first_rank_in_node = self._tp_rank % tp_size_per_node == 0

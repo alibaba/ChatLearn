@@ -95,7 +95,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("load_format", LoadFormat.DUMMY)
 
         if self.module_args.get("apply_replica_id_to_seed", True):
             seed = self.module_args.get("seed", 0) + self.replica_id
@@ -173,7 +173,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("load_format", LoadFormat.DUMMY)
 
         if self.module_args.get("apply_replica_id_to_seed", True):
             seed = self.module_args.get("seed", 0) + self.replica_id

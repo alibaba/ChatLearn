@@ -19,7 +19,7 @@ from typing import Dict, List
 import torch
 import torch.nn.functional as F
 
-from chatlearn.data.prompt_dataset import VLLMPromptPipeline
+from chatlearn.data.prompt_dataset import PromptPipeline
 # pylint: disable=ungrouped-imports
 from chatlearn.models.vllm_module import VLLMModule
 
@@ -31,7 +31,7 @@ class VLLMPolicyInference(VLLMModule):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
 
-        prompts_dataset = VLLMPromptPipeline(
+        prompts_dataset = PromptPipeline(
             prompts,
             seq_length,
             self.tokenizer.tokenizer,
