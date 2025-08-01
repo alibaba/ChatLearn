@@ -262,7 +262,7 @@ class SGLangModule(TorchModule):
 
             if "weights" in tags:
                 self.weight_onloaded = False
-        torch.cuda.synchronize()chatlearn/models/sglang_module.py:41
+        torch.cuda.synchronize()
 
     def onload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
