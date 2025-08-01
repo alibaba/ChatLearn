@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Trainer Memery manager for Megatron-Core"""
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import torch
 
@@ -110,14 +110,15 @@ class TrainerMemoryManager:
         # DDP: buffers & expert_parallel_buffers
         processed_buffers = set()
         buffers = []
-        for buffer in model.buffers:
-            if buffer not in processed_buffers:
-                processed_buffers.add(buffer)
-                buffers.append(buffer)
-        for buffer in model.expert_parallel_buffers:
-            if buffer not in processed_buffers:
-                processed_buffers.add(buffer)
-                buffers.append(buffer)
+        for model_chunk in model:
+            for buffer in model_chunk.buffers:
+                if buffer not in processed_buffers:
+                    processed_buffers.add(buffer)
+                    buffers.append(buffer)
+            for buffer in model_chunk.expert_parallel_buffers:
+                if buffer not in processed_buffers:
+                    processed_buffers.add(buffer)
+                    buffers.append(buffer)
         return buffers
 
     def param_to_buffer(self):
@@ -318,7 +319,7 @@ class TrainerMemoryManager:
 
         # NOTE: for MoE model, detach probs in the token dispatcher to avoid memory leak
         # TODO: MCore will provide a fix for this issue in the future, remove this when fixed
-        for model_chunk in self._model.named_modules():
+        for model_chunk in self._model:
             for _, m in model_chunk.named_modules():
                 if isinstance(m, MoELayer):
                     m.token_dispatcher.probs, m.token_dispatcher.routing_map = None, None

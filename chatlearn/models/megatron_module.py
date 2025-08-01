@@ -145,9 +145,6 @@ if IS_MEGATRON_SUPPORTED:
                     self._memory_manager = TrainerMemoryManager(
                         self.model,
                         self.optimizer,
-                        self.megatron_args.use_distributed_optimizer,
-                        self.megatron_args.accumulate_allreduce_grads_in_fp32,
-                        self.megatron_args.params_dtype,
                         self.runtime_args.bucket_size_mb_in_memory_manager,
                     )
                     self.offload()
@@ -266,7 +263,7 @@ if IS_MEGATRON_SUPPORTED:
             regex = re.compile(r"(.*)decoder.layers\.(\d+)\.([a-z0-9_.]+)([\._])([a-z]+)([0-9]*)")
             for vp_stage, model_chunk in enumerate(self.model):
                 model_config = unwrap_model(model_chunk).config
-                if 'vp_stage' in inspect.signature(func).parameters:
+                if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
                     offset = get_transformer_layer_offset(model_config, vp_stage=vp_stage)
                 else:
                     if len(self.model) > 1:

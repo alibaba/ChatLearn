@@ -112,8 +112,8 @@ class MegatronVLLMMapper:
         """
         mapping = {}
         for vp_stage, model in enumerate(self.model):
-            if 'vp_stage' in inspect.signature(func).parameters:
-                offset = get_transformer_layer_offset(model_config, vp_stage=vp_stage)
+            if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
+                layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
             else:
                 if len(self.model) > 1:
                     mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
@@ -126,31 +126,30 @@ class MegatronVLLMMapper:
             if model.pre_process:
                 mapping.update(self._map_preprocess_layer(
                     model.embedding,
-                    src_prefix="embedding.",
+                    src_prefix=f"{vp_stage}-embedding.",
                     dst_prefix="model.",
                 ))
+
             for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
                 global_layer_id = layer_offset + layer_idx
                 mapping.update(self._map_decoder_layer(
                     model.decoder.layers[layer_idx],
-                    src_prefix=f"decoder.layers.{layer_idx}.",
+                    src_prefix=f"{vp_stage}-decoder.layers.{layer_idx}.",
                     dst_prefix=f"model.layers.{global_layer_id}.",
                 ))
             if model.post_process:
                 mapping.update(self._map_norm_layer(
                     model.decoder.final_layernorm,
-                    src_prefix="decoder.final_layernorm.",
+                    src_prefix=f"{vp_stage}-decoder.final_layernorm.",
                     dst_prefix="model.norm.",
                 ))
                 if not model.share_embeddings_and_output_weights:
                     mapping.update(self._map_postprocess_layer(
                         model.output_layer,
-                        src_prefix="output_layer.",
+                        src_prefix=f"{vp_stage}-output_layer.",
                         dst_prefix="",
                     ))
 
-            if len(self.model) > 1:
-                mpu.set_virtual_pipeline_model_parallel_rank(None)
         return mapping
 
     def _map_norm_layer(self, module: nn.Module, src_prefix: str='', dst_prefix: str='', *, is_norm_layer: bool=True):
