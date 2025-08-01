@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Inference Memery manager for Megatron."""
-from typing import Optional, List, Union
+from typing import Optional, List
 
 from torch import nn
 from megatron.core.distributed.distributed_data_parallel import DistributedDataParallel

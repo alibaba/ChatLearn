@@ -60,7 +60,7 @@ class TrainerMemoryManager:
         self._optimizer = optimizer
         self._use_distributed_optimizer = self._check_sanity()
         self._bucket_size_mb = bucket_size_mb
-        
+
         self._main_weights_offloaded = False
         self._group_flat_main_weights: Optional[List[BucketizedFlatTensors]] = None
         self._weights_offloaded = False
@@ -98,7 +98,7 @@ class TrainerMemoryManager:
         if len(sub_optimizers) == 0:
             return True # should not return here (though supported)
 
-        assert all(type(optim) == type(sub_optimizers[0]) for optim in sub_optimizers), \
+        assert all(isinstance(optim, type(sub_optimizers[0])) for optim in sub_optimizers), \
             "All sub optimizers should be the same type"
         use_distributed_optimizer = isinstance(sub_optimizers[0], DistributedOptimizer)
         if not use_distributed_optimizer:
