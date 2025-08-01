@@ -14,7 +14,7 @@
 # ==============================================================================
 """Packing Utilities"""
 
-from typing import List, Dict
+from typing import List, Dict, Union, Any
 import warnings
 
 import torch
@@ -118,7 +118,25 @@ def merge_data_list(data_list: List):
             merged_data[key] = [item for sub_list in merged_data[key] for item in sub_list]
     return merged_data
 
-def regroup_data_packing(data_list: List, key_list: List[str], max_train_token: int):
+def regroup_data_packing(
+    data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]], 
+    key_list: List[str], 
+    max_train_token: int
+) -> List[Dict[str, Union[torch.Tensor, List[Any]]]]:
+    """Automatically split a list of data into serveral micro-batches according to
+    `max_train_token`, used for dynamic-batching. Note that the data in each batch
+    is still not merged into one packed sample.
+
+    Args:
+        data_list (List[Dict[str, Union[torch.Tensor, List[Any]]]]): A list of 
+        PRE-BATCHED data to be regrouped.
+        key_list (List[str]): The keynames to be returned in the final regrouped batches.
+        max_train_token (int): The maximum token num in each batch.
+    
+    Returns:
+        a list of micro-batches. Each batch is a Dict, mapping key in
+        `key_list` to a List of values or a Tensor (the first dim of this tensor is `batch`)
+    """
     # data_b should contain all data in one microbatch
     data_b = merge_data_list(data_list)
     regroup_data_list = []
@@ -134,7 +152,6 @@ def regroup_data_packing(data_list: List, key_list: List[str], max_train_token: 
     # Get max_bin_size across all dp rank
     torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
     bins_id, bin_seqlen = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
-   # print(f"debugyy bin_size: {len(bins_id)}, sample in each bins: {[sum(bins) for bins in bin_seqlen]}")
     # Prepare train data for each micro batch
     for micro_batch_id, micro_batch_seqlen in zip(bins_id, bin_seqlen):
         data_new = {}
