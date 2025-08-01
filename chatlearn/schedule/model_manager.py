@@ -365,7 +365,7 @@ class ModelManager:
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
                 num_gpus = 1.0 / len(replicas)
-                if isinstance(replica.model, VLLMModule) and replica.vllm_engine is None:
+                if isinstance(replica.model, VLLMModule) and replica.engine is None:
                     num_gpus = num_gpus / 2
                     replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors

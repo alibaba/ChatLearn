@@ -69,10 +69,6 @@ class TorchModule(BaseModule):
         """
         :meta private:
         """
-        # for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
-        #     assert key in args, f"{key} is not set for TorchModule"
-        #     os.environ[key] = str(args[key])
-        # return True
         for key, value in args.items():
             os.environ[key] = str(value)
         return True
