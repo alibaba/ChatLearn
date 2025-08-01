@@ -44,8 +44,6 @@ from .resource_manager import ResourceManager
 from ..utils import future
 
 
-
-
 class ModelManager:
     """ModelManager"""
 
