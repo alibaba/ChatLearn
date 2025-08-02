@@ -48,9 +48,4 @@ def calculate_grpo_loss(
     # check pg_loss nan
     assert not torch.isnan(loss).any(), "pg loss is nan"
 
-    return (
-        loss.contiguous(), 
-        is_positive_clipped, 
-        is_negative_clipped,
-        is_clipped,
-    )
+    return (loss.contiguous(), is_positive_clipped, is_negative_clipped, is_clipped)
