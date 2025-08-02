@@ -101,7 +101,12 @@ class PolicyModel(GPTModel):
             self.compute_language_model_loss(labels, all_token_logits) * -1
         )
 
-        pg_loss = calculate_grpo_loss(
+        (
+            pg_loss, 
+            is_positive_clipped, 
+            is_negative_clipped,
+            is_clipped,
+        ) = calculate_grpo_loss(
             log_probs=forward_logprob,
             old_log_probs=old_logprobs,
             advantages=advantages,
@@ -109,6 +114,7 @@ class PolicyModel(GPTModel):
             pos_clip_ratio=self.module_args.pos_clip_ratio,
             neg_clip_ratio=self.module_args.neg_clip_ratio,
             final_clip_ratio=self.module_args.final_clip_ratio,
+            loss_mask = training_inputs['all_token_loss_mask']
         )
 
         entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).transpose(0, 1)
@@ -124,4 +130,11 @@ class PolicyModel(GPTModel):
             'pg_loss': pg_loss,
             'entropy_loss': entropy_loss,
             'kl_loss': kl_loss,
+            'is_positive_clipped': is_positive_clipped,
+            'is_negative_clipped': is_negative_clipped,
+            'is_clipped': is_clipped,
+            # NOTE: aligned will compute per-token-metric in microbatch and average between microbatch
+            'is_positive_clipped_aligned': is_positive_clipped,
+            'is_negative_clipped_aligned': is_negative_clipped,
+            'is_clipped_aligned': is_clipped,
         }
