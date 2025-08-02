@@ -114,6 +114,7 @@ class PolicyModel(GPTModel):
             pos_clip_ratio=self.module_args.pos_clip_ratio,
             neg_clip_ratio=self.module_args.neg_clip_ratio,
             final_clip_ratio=self.module_args.final_clip_ratio,
+            use_group_sequence_policy=self.module_args.use_group_sequence_policy,
             loss_mask = training_inputs['all_token_loss_mask']
         )
 
