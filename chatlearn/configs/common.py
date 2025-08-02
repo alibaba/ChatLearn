@@ -311,6 +311,9 @@ class PolicyTrainerConfig(BaseModelConfig, FSDPConfig):
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     save_hf: bool = field(default=True)
+    use_group_sequence_policy: bool = field(
+        default=False, metadata={"help": "whether to use group sequence policy optimization"}
+    )
 
 
 @dataclass

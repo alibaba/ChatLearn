@@ -70,6 +70,7 @@ models:
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
+    use_group_sequence_policy: False
     diff_clip_ratio: 10
     final_clip_ratio: 3
   ref_policy:
