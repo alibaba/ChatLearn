@@ -271,7 +271,7 @@ class MegatronPolicyTrainer(MegatronModule):
             loss_reduced_for_metric = {
                 key: (
                     (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
-                    if key.endswith('_aligned') 
+                    if key.endswith('_sample_average') 
                     else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
                 )
                 for i, key in enumerate(keys)
