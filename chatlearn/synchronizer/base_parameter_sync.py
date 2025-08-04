@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
 
-
 class BaseParameterSyncGroup(ABC):
     """The ABC for Parameter Synchronization"""
     def __init__(

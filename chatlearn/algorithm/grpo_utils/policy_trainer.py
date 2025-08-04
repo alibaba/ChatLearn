@@ -1,5 +1,6 @@
 # pylint: skip-file
 import math
+from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
@@ -189,7 +190,11 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            entropy = entropy_from_logits_with_chunking(output.logits)
+            
+            # save memory while not use entropy in loss
+            entropy_context = nullcontext() if self.module_args.entropy_coef > 0 else torch.no_grad()
+            with entropy_context:
+                entropy = entropy_from_logits_with_chunking(output.logits)
 
             if sp_group is not None:
                 logprobs = gather(

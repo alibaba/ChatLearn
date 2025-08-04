@@ -1,6 +1,7 @@
 runtime_args:
   # setup config
   train_backend: megatron
+  rollout_backend: vllm
   exp_name: grpo_megatron
   colocation: [policy,policy_trainer,ref_policy]
   # path config
@@ -69,6 +70,7 @@ models:
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
+    use_group_sequence_policy: False
     diff_clip_ratio: 10
     final_clip_ratio: 3
     packing: true

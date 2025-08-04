@@ -30,7 +30,7 @@ from torch import Tensor
 
 from chatlearn.configs.common import BaseModelConfig
 
-from ..loss_gallery import calculate_grpo_loss
+from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 from .train_helper import entropy_from_tensor_parallel_logits
 
 
@@ -133,16 +133,32 @@ class PolicyModel(GPTModel):
         advantages = training_inputs["advantages"]
 
 
-        pg_loss = calculate_grpo_loss(
-            log_probs=forward_logprob,
-            old_log_probs=old_logprobs,
-            advantages=advantages,
-            diff_clip_ratio=self.module_args.diff_clip_ratio,
-            pos_clip_ratio=self.module_args.pos_clip_ratio,
-            neg_clip_ratio=self.module_args.neg_clip_ratio,
-            final_clip_ratio=self.module_args.final_clip_ratio,
-        )
-
+        if self.module_args.use_group_sequence_policy:
+            (
+                pg_loss, 
+                is_positive_clipped, 
+                is_negative_clipped,
+                is_clipped,
+            ) = calculate_gspo_loss(
+                log_probs=forward_logprob,
+                old_log_probs=old_logprobs,
+                advantages=advantages,
+                diff_clip_ratio=self.module_args.diff_clip_ratio,
+                pos_clip_ratio=self.module_args.pos_clip_ratio,
+                neg_clip_ratio=self.module_args.neg_clip_ratio,
+                final_clip_ratio=self.module_args.final_clip_ratio,
+                loss_mask = training_inputs['all_token_loss_mask']
+            )
+        else:
+            pg_loss = calculate_grpo_loss(
+                log_probs=forward_logprob,
+                old_log_probs=old_logprobs,
+                advantages=advantages,
+                diff_clip_ratio=self.module_args.diff_clip_ratio,
+                pos_clip_ratio=self.module_args.pos_clip_ratio,
+                neg_clip_ratio=self.module_args.neg_clip_ratio,
+                final_clip_ratio=self.module_args.final_clip_ratio
+            )
         entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
         if self.module_args.packing:
             entropy_loss = pad_input(
@@ -161,8 +177,21 @@ class PolicyModel(GPTModel):
         kld = (ratio - kl - 1).contiguous()
         kl_loss = torch.clamp(kld, min=-10, max=10)
 
-        return {
-            'pg_loss': pg_loss,
-            'entropy_loss': entropy_loss,
-            'kl_loss': kl_loss,
-        }
+        if self.module_args.use_group_sequence_policy:
+            return {
+                'pg_loss': pg_loss,
+                'entropy_loss': entropy_loss,
+                'kl_loss': kl_loss,
+                'is_positive_clipped': is_positive_clipped,
+                'is_negative_clipped': is_negative_clipped,
+                'is_clipped': is_clipped,
+                'is_positive_clipped_sample_average': is_positive_clipped,
+                'is_negative_clipped_sample_average': is_negative_clipped,
+                'is_clipped_sample_average': is_clipped,
+            }
+        else:
+            return {
+                'pg_loss': pg_loss,
+                'entropy_loss': entropy_loss,
+                'kl_loss': kl_loss
+            }

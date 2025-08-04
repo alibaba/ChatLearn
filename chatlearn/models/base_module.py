@@ -274,13 +274,13 @@ class BaseModule:
         """
         self._episode_id += 1
 
-    def build_dataset(self, train_prompts, is_eval=False):
+    def build_dataset(self, prompts, is_eval=False):
         """
         Build prompt dataset
 
         Args
         ----
-            train_prompts: [Str]
+            prompts: [Str]
                 A list of prompt string.
         Returns
         -------
@@ -288,13 +288,13 @@ class BaseModule:
                 Dataset with user-defined collate_fn
         """
 
-    def build_all_dataset(self, train_prompts_list, is_eval=False):
+    def build_all_dataset(self, prompts_list, is_eval=False):
         """
         Build all prompt datasets
 
         Args
         ----
-            train_prompts_list: List[List[Str]]
+            prompts_list: List[List[Str]]
                 A list of prompt string lists.
         Returns
         -------
@@ -302,9 +302,9 @@ class BaseModule:
                 A list of Dataset with user-defined collate_fn
         """
         all_datasets = []
-        for train_prompts in train_prompts_list:
+        for prompts in prompts_list:
             all_datasets.append(
-                self.build_dataset(train_prompts, is_eval)
+                self.build_dataset(prompts, is_eval)
             )
         return all_datasets
 

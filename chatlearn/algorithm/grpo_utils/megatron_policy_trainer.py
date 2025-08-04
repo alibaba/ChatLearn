@@ -233,7 +233,6 @@ class MegatronPolicyTrainer(MegatronModule):
         data_iterator = iter(data_list)
 
         self.optimizer.zero_grad()
-
         # Forward pass.
         timers("forward-backward", log_level=1).start(barrier=args.barrier_with_L1_time)
         forward_backward_func = get_forward_backward_func()
@@ -291,13 +290,19 @@ class MegatronPolicyTrainer(MegatronModule):
             # sum across microbatches.
             keys = sorted(list(total_losses.keys()))
             keys.pop(keys.index('num_tokens'))
+            keys.pop(keys.index('num_samples'))
             loss_for_dp_reduce = torch.stack(
                 [sum(total_losses[key]).float() for key in keys] +
-                [sum(total_losses.pop('num_tokens')).float()]
+                [sum(total_losses.pop('num_tokens')).float()] +
+                [sum(total_losses.pop('num_samples')).float()]
             )
             torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group())
             loss_reduced_for_metric = {
-                key: (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
+                key: (
+                    (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
+                    if key.endswith('_sample_average') 
+                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
+                )
                 for i, key in enumerate(keys)
             }
             

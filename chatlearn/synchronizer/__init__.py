@@ -13,15 +13,15 @@
 # limitations under the License.
 # ==============================================================================
 """Parameter Synchronization module"""
-from .parameter_sync import ParameterSyncGroup
-from .parameter_sync_fsdp import FSDP2VllmParameterSyncGroup
+from .parameter_sync import MCoreParameterSyncGroup
+from .parameter_sync_fsdp import FSDPParameterSyncGroup
 from .comm import GeneralCommunicator
 from .mappers import name_to_mapper_cls
 from .planners import get_planner_cls
 
 __all__ = [
-  'ParameterSyncGroup',
-  'FSDP2VllmParameterSyncGroup',
+  'MCoreParameterSyncGroup',
+  'FSDPParameterSyncGroup',
   'GeneralCommunicator',
   'name_to_mapper_cls',
   'get_planner_cls'

@@ -333,16 +333,23 @@ class FSDPModule(TorchModule):
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        rollout_engine = self._runtime_args.rollout_backend
+        if rollout_engine == "sglang":
+            # lazy import sglang
+            # pylint: disable-next=import-outside-toplevel
+            from sglang.srt.utils import MultiprocessingSerializer
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
+        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach() \
-                                            if isinstance(param, DTensor) else param.detach())
+                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                                        if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
+
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()

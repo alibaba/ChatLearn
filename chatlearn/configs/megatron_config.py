@@ -331,3 +331,4 @@ class MegatronPolicyTrainerConfig(
     diff_clip_ratio: float = field(default=10)
     final_clip_ratio: float = field(default=3)
     seed: int = field(default=1234, metadata={"help": "seed"})
+    use_group_sequence_policy: bool = field(default=False)

@@ -24,7 +24,7 @@ from ray.actor import ActorHandle
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
 from chatlearn.models.base_module import BaseModule
-from chatlearn.runtime.dist_actor import DistVLLMActor
+from chatlearn.runtime.dist_actor import DistVLLMActor, DistSGLangActor
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.schedule.model_manager import ModelManager
@@ -520,7 +520,7 @@ class Engine(BaseEngine):
         for _, model in enumerate(self.models):
             replic_0 = model.replicas[0]
             if isinstance(replic_0, DistVLLMActor):
-                future.wait(replic_0.vllm_engine.dump_parameters.remote(dump_path))
+                future.wait(replic_0.engine.dump_parameters.remote(dump_path))
 
     def save_checkpoint(self, episode_id):
         """
@@ -538,8 +538,8 @@ class Engine(BaseEngine):
                 future.wait(refs, return_output=True)
             refs = []
             for i, model in enumerate(self.models[0].replicas):
-                if isinstance(model, DistVLLMActor):
-                    refs.append(model.vllm_engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
+                if isinstance(model, (DistVLLMActor, DistSGLangActor)):
+                    refs.append(model.engine.save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
                 else:
                     refs.append(model.all_actors[0].save_data_checkpoint.remote(i, self.trainer.iteration, episode_id))
             future.get(refs)

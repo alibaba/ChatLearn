@@ -334,7 +334,10 @@ def loss_func(
     for key, loss in losses.items():
         if key not in require_bp_keys:
             loss = loss.detach()
-        final_loss = (loss.float() * loss_mask).sum()
+        if key.endswith('_sample_average'):
+            final_loss = (loss.float() * loss_mask).sum() / (1e-5 + loss_mask.sum())
+        else:
+            final_loss = (loss.float() * loss_mask).sum()
         if key in require_bp_keys:
             total_loss_for_bp = total_loss_for_bp + final_loss
 
@@ -342,6 +345,7 @@ def loss_func(
 
     num_tokens = loss_mask.sum().clone().detach().to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
+    reporting_losses["num_samples"] = torch.ones_like(num_tokens)
     return total_loss_for_bp, num_tokens, reporting_losses
 
 

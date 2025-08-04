@@ -311,6 +311,9 @@ class PolicyTrainerConfig(BaseModelConfig, FSDPConfig):
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     save_hf: bool = field(default=True)
+    use_group_sequence_policy: bool = field(
+        default=False, metadata={"help": "whether to use group sequence policy optimization"}
+    )
 
 
 @dataclass
@@ -321,6 +324,9 @@ class RuntimeConfig(BaseConfig):
     train_backend: str = field(
         default=MISSING,
         metadata={"help": "which train backend to use, one of megatron or fsdp"},
+    )
+    rollout_backend: str = field(
+        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
     )
     exp_name: str = field(
         default="CHATLEARN", metadata={"help": "exp name for each run"}
