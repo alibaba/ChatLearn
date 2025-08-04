@@ -119,8 +119,8 @@ def merge_data_list(data_list: List):
     return merged_data
 
 def regroup_data_packing(
-    data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]], 
-    key_list: List[str], 
+    data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]],
+    key_list: List[str],
     max_train_token: int
 ) -> List[Dict[str, Union[torch.Tensor, List[Any]]]]:
     """Automatically split a list of data into serveral micro-batches according to
