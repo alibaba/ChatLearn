@@ -18,7 +18,7 @@ from typing import Dict
 import torch
 
 from chatlearn import BaseModule
-from chatlearn.utils.rule_reward_score import math
+from chatlearn.utils.rule_reward_score import math, math_dapo
 
 class RuleReward(BaseModule):
     """rule reward"""
@@ -82,5 +82,7 @@ class RuleReward(BaseModule):
     def select_rule_reward_score_fn(self, data_source: str):
         if data_source in ['openai/gsm8k', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25']:
             return math.compute_score
+        elif data_source in ['dapo_17k']:
+            return math_dapo.compute_score
         else:
             raise NotImplementedError
