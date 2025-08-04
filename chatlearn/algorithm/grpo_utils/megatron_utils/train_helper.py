@@ -281,7 +281,7 @@ def loss_func(
     for key, loss in losses.items():
         if key not in require_bp_keys:
             loss = loss.detach()
-        if key.endswith('_aligned'):
+        if key.endswith('_sample_average'):
             final_loss = (loss.float() * loss_mask).sum() / (1e-5 + loss_mask.sum())
         else:
             final_loss = (loss.float() * loss_mask).sum()

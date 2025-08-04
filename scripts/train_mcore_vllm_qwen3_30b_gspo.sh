@@ -55,8 +55,8 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.log_interval=1 \
         models.policy_trainer.optimizer.lr=2e-6 \
         models.policy_trainer.optimizer.min_lr=2e-6 \
-        models.policy_trainer.pos_clip_ratio=0.2 \
-        models.policy_trainer.neg_clip_ratio=0.2 \
+        models.policy_trainer.pos_clip_ratio=1e-3 \
+        models.policy_trainer.neg_clip_ratio=1e-3 \
         models.policy_trainer.use_group_sequence_policy=true \
         models.reward.generation_batch_size=128 \
         models.policy.load=${hf_ckpt_path} \
