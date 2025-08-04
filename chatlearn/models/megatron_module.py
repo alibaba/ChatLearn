@@ -124,6 +124,9 @@ if IS_MEGATRON_SUPPORTED:
             args.bf16 = self.module_args.bf16
             initialize_megatron(parsed_args=args)
 
+            # NOTE: Megatron-Core will override variable_seq_lengths to be False, override it back
+            get_args().variable_seq_lengths = self.module_args.variable_seq_lengths
+
             if self.trainable:
                 # slow down if set jit fusion for inference model
                 set_jit_fusion_options()

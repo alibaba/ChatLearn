@@ -14,9 +14,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict, Any, Union
 
 import torch
+
+from flash_attn.bert_padding import pad_input
+
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -30,6 +33,8 @@ from chatlearn.configs.common import BaseModelConfig
 from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 from .train_helper import entropy_from_tensor_parallel_logits
 
+
+# TODO: replace this class with GPTModel
 class PolicyModel(GPTModel):
     """PolicyModel"""
 
@@ -59,8 +64,7 @@ class PolicyModel(GPTModel):
         inference_params: Optional[BaseInferenceContext] = None,
         loss_mask: Optional[Tensor] = None,
         training_inputs: dict = None,
-    ):
-
+    ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         # untransposed hidden_states or transposed logits with shape [b, s, h]
         hidden_states_or_logits = super().forward(
             input_ids=input_ids,
@@ -91,15 +95,43 @@ class PolicyModel(GPTModel):
                 else hidden_states_or_logits
             )
 
-        # [b s h] => [s b h]
-        all_token_logits = hidden_states_or_logits.transpose(0, 1).contiguous()
+        return self._compute_all_losses(
+            all_token_logits=hidden_states_or_logits.transpose(0, 1).contiguous(),
+            labels=labels,
+            training_inputs=training_inputs
+        )
+
+    def _compute_all_losses(
+        self, 
+        all_token_logits: torch.Tensor, 
+        labels: torch.Tensor, 
+        training_inputs: Dict[str, Any],
+    ) -> Dict[str, torch.Tensor]:
+        """Compute all required losses.
+        
+        Args:
+            all_token_logits (torch.Tensor): logits of input tokens. shape: [s, b, h] or [total_nnz, 1, h]
+            labels (torch.Tensor): labels of input tokens. shape: [s, b] or [total_nnz, 1]
+            training_inputs (Dict[str, Any]): All training inputs.
+        
+        """
+        forward_logprob = (
+            self.compute_language_model_loss(labels, all_token_logits) * -1
+        )
+
+        # NOTE: before loss computation, we need to unpack the packed inputs
+        if self.module_args.packing:
+            forward_logprob = pad_input(
+                forward_logprob[0, :forward_logprob.shape[1] - training_inputs['pad_size']].unsqueeze(-1), 
+                training_inputs['indices'], 
+                training_inputs['ori_batch_size'], 
+                training_inputs['ori_seq_len']
+            ).squeeze(-1)
+
         old_logprobs = training_inputs["old_logprobs"]
         ref_logprobs = training_inputs["ref_logprobs"]
         advantages = training_inputs["advantages"]
 
-        forward_logprob = (
-            self.compute_language_model_loss(labels, all_token_logits) * -1
-        )
 
         if self.module_args.use_group_sequence_policy:
             (
@@ -127,7 +159,16 @@ class PolicyModel(GPTModel):
                 neg_clip_ratio=self.module_args.neg_clip_ratio,
                 final_clip_ratio=self.module_args.final_clip_ratio
             )
-        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).transpose(0, 1)
+        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
+        if self.module_args.packing:
+            entropy_loss = pad_input(
+                entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']], 
+                training_inputs['indices'], 
+                training_inputs['ori_batch_size'], 
+                training_inputs['ori_seq_len']
+            ).squeeze(-1)
+        else:
+            entropy_loss = entropy_loss.transpose(0, 1)
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)

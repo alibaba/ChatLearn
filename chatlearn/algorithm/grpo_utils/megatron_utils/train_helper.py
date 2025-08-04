@@ -1,4 +1,3 @@
-# pylint: skip-file
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,52 +12,35 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-
+"""helper function for megatron forward, including preprocessing and loss helper"""
 import copy
-from typing import Dict
+from typing import Dict, Iterator, Union, List, Any
 from functools import partial
 
 import torch
 from torch import distributed as dist
+import torch.nn.functional as F
+
+from flash_attn.bert_padding import pad_input, unpad_input
 
 from megatron.core import mpu
+from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.num_microbatches_calculator import get_num_microbatches
-from megatron.training import (get_args, get_timers, is_last_rank, get_tokenizer,
-                               print_rank_last)
+from megatron.training import (
+    get_args, get_timers,
+    is_last_rank,
+    get_tokenizer,
+    print_rank_last
+)
 from megatron.training.training import print_datetime
-from megatron.training.utils import (average_losses_across_data_parallel_group,
-                                     get_ltor_masks_and_position_ids,
-                                     report_memory, unwrap_model)
+from megatron.training.utils import (
+    get_ltor_masks_and_position_ids,
+    report_memory,
+    unwrap_model
+)
 
 from chatlearn.utils import to_device
 
-
-def pad_to_max_len(all_tokens_right_padded, max_len, pad_value):
-    pad_length = max_len - all_tokens_right_padded.size(1)
-    if pad_length <= 0:
-        return all_tokens_right_padded
-    # Pad the tensor with zeros on the right side to the desired length
-    padded_tensor = torch.nn.functional.pad(
-        all_tokens_right_padded, (0, pad_length), mode="constant", value=pad_value
-    )
-    return padded_tensor
-
-
-def generate_loss_mask_position_ids(
-    tokens: torch.Tensor, prompt_token_length: list, response_token_length: list
-):
-    # Setup attention mask by prompt token length and response token length
-    loss_mask = torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
-    for i in range(len(prompt_token_length)):
-        loss_mask[
-            i,
-            prompt_token_length[i] : prompt_token_length[i] + response_token_length[i],
-        ] = 1.0
-    _, seq_len = tokens.size()
-    position_ids = torch.arange(seq_len, dtype=torch.long, device=tokens.device)
-    position_ids = position_ids.unsqueeze(0).expand_as(tokens)
-
-    return loss_mask, position_ids
 
 
 def training_log(
@@ -78,6 +60,7 @@ def training_log(
     metric_list=None,
 ):
     """Log training information such as losses, timing, ...."""
+    # pylint: disable=unused-argument, unused-variable
     args = get_args()
     timers = get_timers()
 
@@ -106,7 +89,7 @@ def training_log(
             )
         else:
             value = loss_dict[key].float().sum().item()
-            is_nan = value == float("inf") or value == -float("inf") or value != value
+            is_nan = value == float("inf") or value == -float("inf") or value != value # pylint: disable=comparison-with-itself
             got_nan = got_nan or is_nan
     total_loss_dict[nan_iters_key] = total_loss_dict.get(nan_iters_key, 0) + int(
         got_nan
@@ -208,54 +191,124 @@ def training_log(
     return report_memory_flag
 
 
-def get_batch(batch_data):
-    """Generate a batch"""
-    args = get_args()
+def get_batch(
+    data_iter: Iterator[Dict[str, Union[torch.Tensor, List[Any]]]],
+    is_training: bool,
+    is_packing: bool = False
+) -> Dict[str, Any]:
+    """Build the input data for MCore model based on the raw batch
+    produced by data_iter. If is_training is False, the raw batch
+    should have `all_tokens`; otherwise, the raw batch should
+    also have `prompt_token_length`, `response_token_length`,
+    `ref_logprobs`, `old_logprobs` and `advantages`.
 
-    data_b = next(batch_data)
+    Args:
+        data_iter (Iterator[Dict[str, Union[torch.Tensor, List[Any]]]]):
+        The iterator produced raw batch.
+        is_training (bool): Whether called in training mode.
+    """
+    args = get_args()
+    data_b = next(data_iter)
+
+    tokens = data_b["all_tokens"].long().cuda() # shape: [mbs, seq_length]
+    mbs, seqlen = tokens.shape
     prompt_token_length = to_device("cuda", data_b["prompt_token_length"])
     response_token_length = to_device("cuda", data_b["response_token_length"])
-    ref_logprobs = data_b["ref_logprobs"].float()
-    old_logprobs = data_b["old_logprobs"].float()
-    advantages = data_b["advantages"]
-    tokens_ = data_b["all_tokens"].long()
 
-    max_size = args.seq_length + 1
-    tokens_ = pad_to_max_len(tokens_, max_size, pad_value=get_tokenizer().eod)
+    # TODO: support Context-Parallel later
+    if is_packing:
+        attn_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32)
+        for i, (prompt_length, response_length) in enumerate(
+            zip(prompt_token_length, response_token_length)
+        ):
+            attn_mask_for_unpadding[i, : prompt_length + response_length] = 1
+        (
+            tokens,
+            indices,
+            cu_seqlens,
+            max_seqlen_in_batch,
+            *_
+        ) = unpad_input(tokens.unsqueeze(-1), attn_mask_for_unpadding)
+        tokens = tokens.transpose(0, 1) # [s, b] -> [b, s]
+        # NOTE: sequence-parallel padding, the len of right-padded seq should be divisible by TP & Expert TP
+        pad_size = 0
+        if args.sequence_parallel:
+            divisor = mpu.get_tensor_model_parallel_world_size()
+            total_nnz = tokens.shape[1]
+            pad_size = (divisor - total_nnz % divisor) % divisor
+            tokens = F.pad(tokens, (0, pad_size), value=get_tokenizer().eod)
+            max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)
+            cu_seqlens = torch.cat([
+                cu_seqlens,
+                torch.ones(1, dtype=cu_seqlens.dtype, device=cu_seqlens.device) * tokens.shape[1]
+            ])
 
-    labels = tokens_[:, 1:].contiguous()
-    tokens = tokens_[:, :-1].contiguous()
+        labels = torch.roll(tokens, shifts=-1, dims=1)
 
-    loss_mask, _ = generate_loss_mask_position_ids(
-        tokens, prompt_token_length, response_token_length
-    )
-    loss_mask = loss_mask[:, 1:]
-    loss_mask = pad_to_max_len(loss_mask, args.seq_length, pad_value=0)
+        position_ids = torch.arange(tokens.shape[1], device=tokens.device).view(1, -1)
+        for cu_seqlen in cu_seqlens[1:]:
+            position_ids[:, cu_seqlen:] -= cu_seqlen
 
-    # Get the masks and position ids.
-    attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
-        tokens,
-        get_tokenizer().eod,
-        args.reset_position_ids,
-        args.reset_attention_mask,
-        args.eod_mask_loss,
-    )
 
-    inputs = {
-        "all_tokens": tokens,
-        "all_token_attention_mask": attention_mask,
-        "all_token_position_ids": position_ids,
-        "all_token_loss_mask": loss_mask,
-        "labels": labels,
-        "advantages": advantages,
-        "ref_logprobs": ref_logprobs,
-        "old_logprobs": old_logprobs,
-    }
+        packed_seq_params = PackedSeqParams(
+            qkv_format='thd',
+            cu_seqlens_q=cu_seqlens,
+            cu_seqlens_kv=cu_seqlens,
+            max_seqlen_q=max_seqlen_in_batch,
+            max_seqlen_kv=max_seqlen_in_batch
+        )
 
-    for k, v in inputs.items():
-        inputs[k] = to_device("cuda", v)
-    return inputs
+        input_data = {
+            "all_tokens": tokens,
+            "all_token_attention_mask": None,
+            "all_token_position_ids": position_ids,
+            "labels": labels,
+            'packed_seq_params': packed_seq_params,
+            "ori_seq_len": seqlen,
+            "ori_batch_size": mbs,
+            "indices": indices,
+            "pad_size": pad_size,
+        }
+    else:
+        labels = torch.roll(tokens, shifts=-1, dims=1)
+        # Get the masks and position ids.
+        attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
+            tokens,
+            get_tokenizer().eod,
+            args.reset_position_ids,
+            args.reset_attention_mask,
+            args.eod_mask_loss,
+        )
 
+        input_data = {
+            "all_tokens": tokens,
+            "all_token_attention_mask": attention_mask,
+            "all_token_position_ids": position_ids,
+            "labels": labels,
+            'packed_seq_params': None
+        }
+
+    if is_training:
+        ref_logprobs = data_b["ref_logprobs"].float()
+        old_logprobs = data_b["old_logprobs"].float()
+        advantages = data_b["advantages"]
+
+        loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32)
+        for i, (prompt_length, response_length) in enumerate(
+            zip(prompt_token_length, response_token_length)
+        ):
+            loss_mask[i, prompt_length: prompt_length + response_length] = 1
+
+        input_data.update({
+            "all_token_loss_mask": loss_mask,
+            "advantages": advantages,
+            "ref_logprobs": ref_logprobs,
+            "old_logprobs": old_logprobs,
+        })
+
+    for k, v in input_data.items():
+        input_data[k] = to_device("cuda", v)
+    return input_data
 
 def loss_func(
     inputs: Dict,
@@ -296,74 +349,44 @@ def loss_func(
     return total_loss_for_bp, num_tokens, reporting_losses
 
 
-def forward_step(data_iterator, model):
+def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: bool=False):
     """Forward step."""
 
-    inputs = get_batch(data_iterator)
-
+    inputs = get_batch(
+        data_iterator,
+        is_training=is_training,
+        is_packing=is_packing
+    )
+    # TODO: refactor model.forward to return logits or logprobs, and make
+    # loss computation in loss_func
     output_tensor = model(
         input_ids=inputs["all_tokens"],
         position_ids=inputs["all_token_position_ids"],
         attention_mask=inputs["all_token_attention_mask"],
         labels=inputs["labels"],
-        training_inputs=inputs,
+        training_inputs=inputs if is_training else None,
+        packed_seq_params=inputs['packed_seq_params'] if is_packing else None
     )
 
-    return output_tensor, partial(loss_func, inputs)
+    if is_training:
+        wrapped_loss_func = partial(loss_func, inputs)
+    else:
+        if unwrap_model(model).post_process and is_packing:
+            output_tensor = pad_input(
+                output_tensor[0, :output_tensor.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                inputs['indices'],
+                inputs['ori_batch_size'],
+                inputs['ori_seq_len']
+            ).squeeze(-1)
+        # NOTE: just returns the output tensor (the first argument).
+        wrapped_loss_func = lambda x, **_: x # pylint: disable=unnecessary-lambda-assignment
 
-
-def inference_get_batch(data_iter):
-    """Generate a batch"""
-    args = get_args()
-    data = next(data_iter)
-    tokens_ = data["all_tokens"].long()
-
-    # pad to max seq length or to tp*N
-    max_size = args.seq_length + 1
-    pad_all_tokens = pad_to_max_len(tokens_, max_size, pad_value=get_tokenizer().eod)
-
-    labels = pad_all_tokens[:, 1:]
-    tokens_ = pad_all_tokens[:, :-1]
-
-    attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
-        tokens_,
-        get_tokenizer().eod,
-        args.reset_position_ids,
-        args.reset_attention_mask,
-        args.eod_mask_loss,
-    )
-
-    inputs = {
-        "all_tokens": tokens_,
-        "all_token_attention_mask": attention_mask,
-        "all_token_position_ids": position_ids,
-        "labels": labels,
-    }
-
-    for k, v in inputs.items():
-        inputs[k] = to_device("cuda", v)
-    return inputs
-
-
-def inference_forward_step(data_iterator, model):
-    """Forward step."""
-
-    inputs = inference_get_batch(data_iterator)
-
-    output_tensor = model(
-        input_ids=inputs["all_tokens"],
-        position_ids=inputs["all_token_position_ids"],
-        attention_mask=inputs["all_token_attention_mask"],
-        labels=inputs["labels"],
-    )
-
-    # NOTE: The latter (loss function) just returns the output tensor (the first argument).
-    return output_tensor, lambda x, **_: x
-
+    return output_tensor, wrapped_loss_func
 
 class _VocabParallelEntropy(torch.autograd.Function):
     @staticmethod
     def forward(ctx, logits: torch.Tensor) -> torch.Tensor:
+        # pylint: disable=unused-argument
         # NOTE: force fp32
         vocab_parallel_logits = logits.float() if logits.dtype != torch.float32 else logits.clone()
 
