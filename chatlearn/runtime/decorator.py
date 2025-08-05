@@ -16,6 +16,7 @@
 
 import inspect
 import traceback
+import functools
 
 import torch
 from torch.cuda import nvtx
@@ -31,147 +32,115 @@ from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 from chatlearn.utils.utils import regroup_by_concat_along_batch, slice_by_index_along_batch
 
-def monitor_error(func, func_name):
-    def inner(self, *args, **kwargs):
-        try:
-            return func(self, *args, **kwargs)
-        except Exception as e:
-            self._logger.exception(f"Catch exception ========= in {self.name} {func_name} {e}")
-            exit_actor = ray.get_actor(_EXIT_ACTOR_NAME)
-            traceback_msg =  f"{traceback.format_exc()}"
-            address = self.get_address()
-            ray.get(exit_actor.add_error_node_and_msg.remote(address, traceback_msg))
-            future.wait(self.error_signal.set_address.remote(address))
-            # for other error, we raise in the corresponding workers
-            if self.is_master_node():
-                for line in traceback_msg.split("\n"):
-                    self._logger.exception(line)
-                execute("ray stop")
-                raise
+def monitor_error(func_name):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            try:
+                return func(self, *args, **kwargs)
+            except Exception as e:
+                self._logger.exception(f"Catch exception ========= in {self.name} {func_name} {e}")
+                exit_actor = ray.get_actor(_EXIT_ACTOR_NAME)
+                traceback_msg =  f"{traceback.format_exc()}"
+                address = self.get_address()
+                ray.get(exit_actor.add_error_node_and_msg.remote(address, traceback_msg))
+                future.wait(self.error_signal.set_address.remote(address))
+                # for other error, we raise in the corresponding workers
+                if self.is_master_node():
+                    for line in traceback_msg.split("\n"):
+                        self._logger.exception(line)
+                    execute("ray stop")
+                    raise
 
-    return inner
+        return wrapper
+    return decorator
 
 
-def timeit(func, func_name):
-    def inner(self, *args, **kwargs):
-        if self.runtime_args.nsys:
-            nvtx.range_push(func_name)
-        if self.is_last_rank():
-            # for the class inherited from base, it may call multiple times, so use the first start time
-            if not self.timers(func_name).started_:
-                self.timers(func_name).start()
-            ret = func(self, *args, **kwargs)
-            self.timers(func_name).stop()
-        else:
-            ret = func(self, *args, **kwargs)
-        if self.profiler is not None and self._iteration > 0 and self._iteration <=2 and self.replica_id == 0 \
-            and func_name in ["forward_step", "train_step"]:
-            self.profiler.step()
-        if self.profiler is not None and self._iteration ==3 and self.replica_id == 0 and func_name in ["forward_step", "train_step"]:
-            self.profiler.stop()
-        if self.runtime_args.nsys:
-            nvtx.range_pop()
-        return ret
+def timeit(func_name):
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            if self.runtime_args.nsys:
+                nvtx.range_push(func_name)
+            if self.is_last_rank():
+                # for the class inherited from base, it may call multiple times, so use the first start time
+                if not self.timers(func_name).started_:
+                    self.timers(func_name).start()
+                ret = func(self, *args, **kwargs)
+                self.timers(func_name).stop()
+            else:
+                ret = func(self, *args, **kwargs)
+            if self.profiler is not None and self._iteration > 0 and self._iteration <=2 and self.replica_id == 0 \
+                and func_name in ["forward_step", "train_step"]:
+                self.profiler.step()
+            if self.profiler is not None and self._iteration ==3 and self.replica_id == 0 and func_name in ["forward_step", "train_step"]:
+                self.profiler.stop()
+            if self.runtime_args.nsys:
+                nvtx.range_pop()
+            return ret
 
-    return inner
+        return wrapper
+    return decorator
 
 def split_list(lst, size):
     return [lst[i:i + size] for i in range(0, len(lst), size)]
 
-def split_along_batch(batch, new_batch_size):
-    assert isinstance(batch, (list, tuple, dict)), \
-        "batch type {} is not supported".format(type(batch))
-    if isinstance(batch, (list, tuple)):
-        bs = len(batch[0])
-        keys = range(len(batch))
-    else:
-        bs = len(next(iter(batch.values())))
-        keys = batch.keys()
+def compute_decorator(trainable):
+    def decorator(func):
+        """
+        1. if not trainable, merge a list of dict into one dict, i.e., merge inputs of forward_step.
+        2. split a list of data for data_parallel, this is used for train_step
+        3. convert output to cpu
+        """
+        @functools.wraps(func)
+        def wrapper(self, *args, **kwargs):
+            print("debugyy run into compute decorator")
+            # Get minibatch data of current dp rank
+            data_list = self.data_fetch(args, train_func=trainable)
 
-    accum_bs = 0
-    new_batches = []
-    while accum_bs < bs:
-        if isinstance(batch, (list, tuple)):
-            new_batch = [batch[key][accum_bs:min(accum_bs + new_batch_size, bs)] for key in keys]
-        else:
-            new_batch = {key: batch[key][accum_bs:min(accum_bs + new_batch_size, bs)] for key in keys}
-        accum_bs += new_batch_size
-        new_batches.append(new_batch)
-    return new_batches
+            # Get kwargs for function
+            def get_kwarg(key):
+                return kwargs.pop(key) if key in kwargs else False
+            to_empty_cache = get_kwarg('to_empty_cache')
+            to_onload = get_kwarg('to_onload')
+            to_offload = get_kwarg('to_offload')
+            is_last_batch = get_kwarg('is_last_batch')
+            is_eval = get_kwarg('is_eval')
 
-def concat_along_batch(tensors):
-    batched = {}
-    if tensors[0] is None:
-        return batched
+            # Onload model if needed
+            if to_onload:
+                if isinstance(self, (VLLMModule, SGLangModule)):
+                    self.onload_weights()
+                else:
+                    self.onload()
+            
+            # Run decrated function
+            if 'iteration' in inspect.signature(func).parameters:
+                kwargs["iteration"] = self._iteration
+            args = [data_list]
+            ret = func(self, *args, **kwargs)
+            ret = utils.to_device('cpu', ret)
+            self._iteration += 1
+            # Return result for every rank
+            final_results = ret
 
-    for key in tensors[0].keys():
-        to_batch = [results[key] for results in tensors]
-        if isinstance(to_batch[0], torch.Tensor):
-            batched[key] = torch.concat(to_batch)
-        elif isinstance(to_batch[0], list):
-            batched[key] = []
-            for seq in to_batch:
-                batched[key].extend(seq)
-        else:
-            raise Exception(f"unknown types key: {key} and {type(to_batch[0])} to concat")
+            # Clean up after function
+            if to_empty_cache:
+                if not isinstance(self, (VLLMModule, SGLangModule)):
+                    self.empty_cache()
+            if to_offload:
+                if isinstance(self, (VLLMModule, SGLangModule)) :
+                    if not is_eval:
+                        self.offload_weights()
+                else:
+                    self.offload()
+            # TODO fix consumed samples
+            if is_last_batch and not is_eval:
+                self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
+            return final_results
 
-    return batched
-
-
-def preprocess_compute(func, trainable):
-    """
-    1. if not trainable, merge a list of dict into one dict, i.e., merge inputs of forward_step.
-    2. split a list of data for data_parallel, this is used for train_step
-    3. convert output to cpu
-    """
-
-    def inner(self, *args, **kwargs):
-        # Get minibatch data of current dp rank
-        data_list = self.data_fetch(args, train_func=trainable)
-
-        # Get kwargs for function
-        def get_kwarg(key):
-            return kwargs.pop(key) if key in kwargs else False
-        to_empty_cache = get_kwarg('to_empty_cache')
-        to_onload = get_kwarg('to_onload')
-        to_offload = get_kwarg('to_offload')
-        is_last_batch = get_kwarg('is_last_batch')
-        is_eval = get_kwarg('is_eval')
-
-        # Onload model if needed
-        if to_onload:
-            if isinstance(self, (VLLMModule, SGLangModule)):
-                self.onload_weights()
-            else:
-                self.onload()
-        
-        # Run decrated function
-        if 'iteration' in inspect.signature(func).parameters:
-            kwargs["iteration"] = self._iteration
-        args = [data_list]
-        ret = func(self, *args, **kwargs)
-        ret = utils.to_device('cpu', ret)
-        self._iteration += 1
-        # Return result for every rank
-        final_results = ret
-
-        # Clean up after function
-        if to_empty_cache:
-            if not isinstance(self, (VLLMModule, SGLangModule)):
-                self.empty_cache()
-        if to_offload:
-            if isinstance(self, (VLLMModule, SGLangModule)) :
-                if not is_eval:
-                    self.offload_weights()
-            else:
-                self.offload()
-        # TODO fix consumed samples
-        if is_last_batch and not is_eval:
-            self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
-        return final_results
-
-    return inner
-
+        return wrapper
+    return decorator
 
 def decorate_class_func(cls, func_name, decorator, *args, **kwargs):
     if not hasattr(cls, func_name):

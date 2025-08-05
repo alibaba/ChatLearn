@@ -133,7 +133,7 @@ class Executor:
         Warning: 
         1. In graph, the data is ObjectRef, we can not get the real data.
         2. This function is used at the end of executor, align every queue to have same data size. 
-        3. As the data is ObjectRef, we just regroup ObjectRef in every list item, and actual merge data in !!!decorator.preprocess_compute
+        3. As the data is ObjectRef, we just regroup ObjectRef in every list item, and actual merge data in !!!decorator.compute_decorator
         """
         out_queues = []
         min_qsize = min([ele.qsize() for ele in queues]) # pylint: disable=consider-using-generator
@@ -208,7 +208,7 @@ class Executor:
         """
         re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
         warning: input_queues and output_queues are ray.util.queue.Queue, we can't get real data in executor.
-        will actual merge data in !!!decorator.preprocess_compute
+        will actual merge data in !!!decorator.compute_decorator
         """
         # if this node is the first node, just pass the queues
         if not model_node.input_nodes:

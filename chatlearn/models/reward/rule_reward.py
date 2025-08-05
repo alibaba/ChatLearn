@@ -19,6 +19,7 @@ import torch
 
 from chatlearn import BaseModule
 from chatlearn.utils.rule_reward_score import math
+from chatlearn.runtime.decorator import timeit, compute_decorator
 
 class RuleReward(BaseModule):
     """rule reward"""
@@ -57,8 +58,9 @@ class RuleReward(BaseModule):
             eval_source.append(data_source)
             data_b.update({"rule_reward": reward[-1], "eval_source": eval_source[-1]})
         return data, reward, eval_source
-
-    def forward_step(self, data: Dict, iteration=0) -> Dict:
+    @timeit("rule_reward_forward_step")
+    @compute_decorator(trainable=False)
+    def forward_step(self, data: Dict, iteration=0, **kwargs) -> Dict:
 
         data, reward, eval_source = self._forward_step(data)
 
@@ -70,7 +72,9 @@ class RuleReward(BaseModule):
         self._metric_list.append(train_reward_stats)
         return data
 
-    def eval_forward(self, data: Dict) -> Dict:
+    @timeit("rule_reward_eval_forward_step")
+    @compute_decorator(trainable=False)
+    def eval_forward(self, data: Dict, **kwargs) -> Dict:
 
         return self._forward_step(data)[0]
 

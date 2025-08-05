@@ -35,7 +35,9 @@ from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
+from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
+
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -211,7 +213,9 @@ class FSDPModule(TorchModule):
         if self.sp_size > config.num_key_value_heads:
             assert self.sp_size % config.num_key_value_heads == 0, \
                 "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
-
+    
+    @monitor_error("model_setup")
+    @timeit("model_setup")
     def model_setup(self):
         """
         :meta private:
@@ -396,7 +400,7 @@ class FSDPModule(TorchModule):
 
         if empty_cache:
             torch.cuda.empty_cache()
-
+    @timeit("save_checkpoint")
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
         if dist.get_rank() == 0 and not os.path.exists(save_dir):

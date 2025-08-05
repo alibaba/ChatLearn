@@ -19,7 +19,8 @@ from typing import Dict, List
 import torch
 import torch.nn.functional as F
 import copy
-from chatlearn.data.prompt_dataset import VLLMPromptPipeline
+from chatlearn.data.prompt_dataset import PromptPipeline
+from chatlearn.runtime.decorator import timeit, compute_decorator
 # pylint: disable=ungrouped-imports
 from chatlearn.models.vllm_module import VLLMModule
 
@@ -51,8 +52,10 @@ class VLLMPolicyInference(VLLMModule):
         if outputs is not None:
             rets = self.decode_internal(outputs, data)
             return rets
-
-    def forward_step(self, data, iteration=0):
+    
+    @timeit("vllm_forward_step")
+    @compute_decorator(trainable=False)
+    def forward_step(self, data, iteration=0, **kwargs):
         rets = self._forward_step(data, iteration, False)
         # collect metric
         response_token_length = [ret["response_token_length"] for ret in rets]

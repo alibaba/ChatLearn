@@ -11,6 +11,7 @@ from flash_attn.bert_padding import pad_input, unpad_input
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
 from chatlearn.utils.communication_op import gather, get_sp_parallel_group
+from chatlearn.runtime.decorator import timeit, compute_decorator
 from .loss_gallery import calculate_grpo_loss
 from .trainer_utils import (logprobs_from_logits,
                             entropy_from_logits_with_chunking,
@@ -181,8 +182,10 @@ class PolicyTrainer(FSDPModule):
                         }
                     )
         return response_token_length_total, data_after_process
-
-    def train_step(self, data_list):
+    
+    @timeit("fsdp_train_step")
+    @compute_decorator(trainable=True)
+    def train_step(self, data_list, **kwargs):
         """
         data_list: list of micro batchs [micro_bs0, micro_bs1]
         """
@@ -291,8 +294,10 @@ class PolicyTrainer(FSDPModule):
             "grad_norm": grad_norm,
         }
         self._metric_list.append(train_stats)
-
-    def forward_step(self, data):
+    
+    @timeit("fsdp_forward_step")
+    @compute_decorator(trainable=False)
+    def forward_step(self, data, **kwargs):
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = OLD_TAG
         if OLD_TAG in data[0].keys():
