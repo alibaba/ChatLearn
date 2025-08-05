@@ -338,8 +338,8 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
         seq_len = self.module_args.get("seq_length")
 
-        prompts = query[prompt_key]
-        prompts_token_ids = query[input_ids_key]
+        prompts = [q[prompt_key] for q in query]
+        prompts_token_ids = [q[input_ids_key] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
         for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):

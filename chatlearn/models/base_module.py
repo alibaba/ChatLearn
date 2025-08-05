@@ -41,7 +41,9 @@ from chatlearn.utils.global_vars import set_global_variables
 from chatlearn.utils.logger import logger
 from chatlearn.utils.logger import log_rank_0, debug_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
+from chatlearn.utils.constant import REF_LIST, INDEX_TAG
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
+from chatlearn.utils.utils import regroup_by_concat_along_batch, slice_by_index_along_batch, slice_data_list_by_index
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.common import BaseModelConfig
 
@@ -287,6 +289,36 @@ class BaseModule:
         iteration : int
             local train iteration
         """
+    
+    def _preprocess_impl(self, data):
+        # Preprocess after get list of sample
+        return data
+
+    def data_fetch(self, data_ref, train_func: bool):
+        # Get data from remote dataset
+        data_list = future.get(data_ref)
+        # For data in trainer, data_list is [microbatch0, microbatch1, ...]
+        # For data in environment which is inter-node in graph, data_list is [inque_input_node0, inque_input_node1, ...]
+        if not train_func:
+            batched_data_list = [[] for _ in range(len(data_list))]
+            for idx, data_obj in enumerate(data_list):
+                if isinstance(data_obj, list):
+                    batched_data_list[idx] = data_obj
+                if REF_LIST in data_obj:
+                    for data_slice in data_obj[REF_LIST]:
+                        batched_data_list[idx].extend(data_slice)
+                if INDEX_TAG in data_obj:
+                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], arg_obj[INDEX_TAG])
+            if len(batched_data_list) > 1:
+                # When current node have several input nodes, we need to merge them
+                # Data size for each input node must be same
+                assert len(set([len(input_list) for input_list in batched_data_list])) == 1
+                data_list = [{}.update(single_dict) for single_dict in group for group in zip(*batched_data_list)]
+            else:
+                data_list = batched_data_list[0]
+        return self._preprocess_impl(data_list)
+
+    # def postprocess_data(self, data):
 
     def eval_step(self, data):
         """

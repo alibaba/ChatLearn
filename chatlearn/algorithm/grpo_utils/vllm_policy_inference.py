@@ -18,7 +18,7 @@ from typing import Dict, List
 
 import torch
 import torch.nn.functional as F
-
+import copy
 from chatlearn.data.prompt_dataset import VLLMPromptPipeline
 # pylint: disable=ungrouped-imports
 from chatlearn.models.vllm_module import VLLMModule
@@ -48,22 +48,18 @@ class VLLMPolicyInference(VLLMModule):
     ):  # pylint: disable=unused-argument
         outputs = self.generate_vllm(data, is_eval, iteration=iteration)
 
-        # for get rule reward function
-        data_source_list = data["data_source"]
-        ground_truth_list = data["ground_truth"]
-
         if outputs is not None:
-            rets = self.decode_internal(outputs, data_source_list, ground_truth_list)
+            rets = self.decode_internal(outputs, data)
             return rets
 
     def forward_step(self, data, iteration=0):
         rets = self._forward_step(data, iteration, False)
-        rets["uid"] = data["uid"]
         # collect metric
-        response_token_length = rets["response_token_length"]
-        prompt_token_length = rets["prompt_token_length"]
+        response_token_length = [ret["response_token_length"] for ret in rets]
+        prompt_token_length = [ret["prompt_token_length"] for ret in rets]
         seq_len = [
-            l1 + l2 for l1, l2 in zip(prompt_token_length, response_token_length)
+            ret["response_token_length"] + ret["prompt_token_length"] 
+            for ret in rets
         ]
         clip_ratio = sum(
             1 for l in seq_len if l >= self.module_args.get("seq_length")
@@ -78,55 +74,30 @@ class VLLMPolicyInference(VLLMModule):
         return rets
 
     def decode_internal(
-        self, batched_outputs, data_source_list=None, ground_truth_list=None
+        self, outputs_list, input_data_list
     ):
-        max_tokens_length = self.module_args.get("seq_length")
-        all_tokens = []
-        str_outputs = []
-        prompt_token_ids: list = []
-        prompt_token_length = []
-        response_token_length = []
-        data_sources = []
-        ground_truths = []
-
-        for idx, output in enumerate(batched_outputs):
+        data_output = []
+        for output, input_data in zip(outputs_list, input_data_list):
             num_responses_per_prompt = len(output.outputs)
-            data_source = data_source_list[idx] if data_source_list else ""
-            ground_truth = ground_truth_list[idx] if ground_truth_list else ""
             for res_idx in range(num_responses_per_prompt):
-                # str_prompts.append(output.prompt)
-                prompt_token_ids.append(output.prompt_token_ids)
+                data_obj = copy.deepcopy(input_data)
+                prompt_token_ids = output.prompt_token_ids
                 output_tokens = list(output.outputs[res_idx].token_ids)
-                response_token_length.append(len(output_tokens))
-                prompt_token_length.append(len(output.prompt_token_ids))
-                str_outputs.append(
-                    self.tokenizer.tokenizer.decode(
+                response_token_length = len(output_tokens)
+                prompt_token_length = len(output.prompt_token_ids)
+                str_outputs = self.tokenizer.tokenizer.decode(
                         output_tokens, skip_special_tokens=True
                     )
+                all_tokens = torch.tensor(output.prompt_token_ids + output_tokens)
+                data_obj.update(
+                    {
+                        "prompt_token_ids": prompt_token_ids,
+                        "all_tokens": all_tokens,
+                        "response_token_length": response_token_length,
+                        "prompt_token_length": prompt_token_length,
+                        "str_outputs": str_outputs,
+                    }
                 )
-                data_sources.append(data_source)
-                ground_truths.append(ground_truth)
-                all_tokens.append(torch.tensor(output.prompt_token_ids + output_tokens))
+                data_output.append(data_obj)
 
-        all_tokens = [
-            F.pad(
-                all_token,
-                (0, max_tokens_length - all_token.shape[0]),
-                value=self.tokenizer.tokenizer.pad_token_id,  # just pad_token_id
-            )
-            for all_token in all_tokens
-        ]
-        all_tokens = torch.vstack(all_tokens)
-        print("str_outputs", str_outputs[0])
-        print("data_sources", data_sources[0])
-        print("ground_truth", ground_truths[0])
-
-        return {
-            "all_tokens": all_tokens,
-            "str_outputs": str_outputs,
-            "prompt_token_ids": prompt_token_ids,
-            "prompt_token_length": prompt_token_length,
-            "response_token_length": response_token_length,
-            "data_source": data_sources,
-            "ground_truth": ground_truths,
-        }
+        return data_output

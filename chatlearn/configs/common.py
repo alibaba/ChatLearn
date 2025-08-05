@@ -296,6 +296,9 @@ class PolicyTrainerConfig(BaseModelConfig, FSDPConfig):
     kl_coef: float = field(
         default=0.0, metadata={"help": "kl regularization"}
     )
+    train_micro_batch_size: int = field(
+        default=1, metadata={"help": "train micro batch size"}
+    )
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     save_hf: bool = field(default=True)

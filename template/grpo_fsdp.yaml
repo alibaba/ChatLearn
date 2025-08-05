@@ -42,6 +42,7 @@ models:
       clip_grad: 1
     trainable: True
     generation_batch_size: 8
+    train_micro_batch_size: ${runtime_args.train_micro_batch_size}
     gpu_per_process: 1
     num_gpu: 2
     fsdp_size: ${models.policy_trainer.num_gpu}

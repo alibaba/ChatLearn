@@ -13,7 +13,7 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 """rule reward"""
-from typing import Dict
+from typing import Dict, List
 
 import torch
 
@@ -27,43 +27,38 @@ class RuleReward(BaseModule):
         self.stats = {}
         self._metric_prefix = "rulereward"
 
-    def _forward_step(self, data: Dict) -> torch.Tensor:
-
+    def _forward_step(self, data: List) -> torch.Tensor:
         # str_prompts_list = data["str_prompts"]
-        str_outputs_list = data["str_outputs"]
-        data_source_list = data["data_source"]
-        ground_truth_list = data["ground_truth"]
-        self._logger.info(f"RuleReward _forward_step Num of request: {len(str_outputs_list)}")
+        self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")
 
-        reward_tensor = torch.zeros([len(str_outputs_list), 1], dtype=torch.float32)
+        reward = []
         eval_source = []
 
-        for i, str_output in enumerate(str_outputs_list):
-            data_source = data_source_list[i]
-            ground_truth = ground_truth_list[i]
+        for data_b in data:
+            str_output = data_b["str_outputs"]
+            data_source = data_b["data_source"]
+            ground_truth = data_b["ground_truth"]
             compute_score_fn = self.select_rule_reward_score_fn(data_source)
-            reward_tensor[i] = compute_score_fn(str_output, ground_truth)
+            reward.append(compute_score_fn(str_output, ground_truth))
             eval_source.append(data_source)
-        data["rule_rewards"] = reward_tensor
-        data["eval_source"] = eval_source
-        return data
+            data_b.update({"rule_reward": reward[-1], "eval_source": eval_source[-1]})
+        return data, reward, eval_source
 
     def forward_step(self, data: Dict, iteration=0) -> Dict:
 
-        res_dict = self._forward_step(data)
+        data, reward, eval_source = self._forward_step(data)
 
         # collect stats
-        rule_rewards = res_dict["rule_rewards"]
-        train_reward_score = rule_rewards.mean().item()
+        train_reward_score = sum(reward) / len(reward)
         train_reward_stats = {
             "train_reward_score": train_reward_score,
         }
         self._metric_list.append(train_reward_stats)
-        return res_dict
+        return data
 
     def eval_forward(self, data: Dict) -> Dict:
 
-        return self._forward_step(data)
+        return self._forward_step(data)[0]
 
     def select_rule_reward_score_fn(self, data_source: str):
         if data_source in ['openai/gsm8k', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25']:

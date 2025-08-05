@@ -58,6 +58,9 @@ class FSDPModule(TorchModule):
         self.sp_device_mesh = None
         self.packing = self.module_args.packing
         self.max_token_in_seq = self.module_args.max_token_in_packing
+        self.generate_micro_batch_size = self.module_args.generation_batch_size
+        if self.module_args.trainable:
+            self.train_micro_batch_size = self.module_args.train_micro_batch_size
 
     def get_visible_gpus(self):
         """
@@ -173,7 +176,6 @@ class FSDPModule(TorchModule):
                 )
         dist.barrier()
         return model
-
     @property
     def data_parallel_size(self):
         """

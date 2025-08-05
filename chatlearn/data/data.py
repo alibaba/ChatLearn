@@ -26,7 +26,7 @@ import torch
 from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
 from chatlearn.utils import future
-from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
+from chatlearn.utils.constant import REF_LIST
 from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
 
 
@@ -158,8 +158,7 @@ class StreamDataset:
         data_to_batch = self.replay_buffer.get_samples(start_index, end_index)
         if len(data_to_batch) < self.batch_size:
             data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
-        batched_data = batching(data_to_batch, self._padding_value, self._padding_type)
-        return batched_data
+        return data_to_batch
 
     def iter_fixed(self):
         """
@@ -286,13 +285,14 @@ class EpisodeReplayBuffer:
             raise ValueError("WARN: data queue is empty")
         # get from queue
         data = self.queue.get()
-        merged_data = {}
+        samples = []
         for item in data:
             local_data = future.get(item)
-            if CHATLEARN_REGROUP_TAG in local_data:
-                local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
-            merged_data.update(local_data)
-        samples = split_batch(merged_data)
+            if isinstance(local_data, list):
+                samples.extend(local_data)
+            if REF_LIST in local_data:
+                for data_b in local_data[REF_LIST]:
+                    samples.extend(data_b)
         if self._rollout_batch_size < 0:
             self._rollout_batch_size = len(samples)
         self._buffer += samples

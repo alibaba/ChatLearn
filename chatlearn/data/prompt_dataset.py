@@ -72,6 +72,7 @@ class VLLMPromptPipeline(Dataset):
         return len(self.data)
 
     def collate_fn(self, samples):
+        return samples
         collate_dict = defaultdict(list)
 
         # Loop over the samples and append each tensor value to the corresponding list
