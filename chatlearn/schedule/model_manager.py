@@ -17,32 +17,37 @@
 import concurrent.futures
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
+from typing import Tuple, List
 import time
 
 import ray
 import ray.experimental.state.api
 
+from chatlearn.configs.common import BaseConfig
 from chatlearn.launcher import dlc_utils
+from chatlearn.models.base_module import BaseModule
 from chatlearn.models.fsdp_module import FSDPModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.runtime.decorator import decorate_class_func
-from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error
-from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistModel
-from chatlearn.synchronizer.parameter_sync import ParameterSyncGroup
-from chatlearn.synchronizer.parameter_sync_fsdp import FSDP2VllmParameterSyncGroup
+from chatlearn.models.sglang_module import SGLangModule
+from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error, decorate_class_func
+from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistSGLangActor, DistModel
+from chatlearn.synchronizer import MCoreParameterSyncGroup, FSDPParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.utils.global_vars import set_decorated, is_decorated
+from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
+
 from .port_manager import PortManager
+from .resource_manager import ResourceManager
 from ..utils import future
 
 
 class ModelManager:
     """ModelManager"""
 
-    def __init__(self, models, resouce_manager, global_args):
+    def __init__(self, models: Tuple[BaseModule], resouce_manager: ResourceManager, global_args: BaseConfig):
         self.local_models = models
         self.resouce_manager = resouce_manager
         self.dist_models = []
@@ -53,7 +58,7 @@ class ModelManager:
         self.free_ports = dlc_utils.get_free_ports()[2:]
         self._port_manager = PortManager.remote(self.free_ports)
         self.error_signal = ErrorSignalActor.remote()
-        self.parameter_sync_groups = {}
+        self.parameter_sync_groups: List[BaseParameterSyncGroup]= []
         self._parameter_sync_model_pair = []
         self.model_packs = []
         self.placement_groups = []
@@ -83,6 +88,9 @@ class ModelManager:
     def remote(self) -> list:
         """
         convert model to remote
+        1. create DistModel and DistActor object for every BaseModule
+        2. place every DistActor to specific device
+        3. set environment variables for every DistActor
         """
         logger.info(f"{LOG_START} model_manager start to convert model to remote")
         t1 = time.time()
@@ -99,7 +107,7 @@ class ModelManager:
         total_gpu_required = self._get_total_gpu_required()
         if total_gpu_required > self.resouce_manager.total_gpu:
             raise RuntimeError(f"The number of required gpus for current job is {total_gpu_required}, " + \
-                               f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
+                                f"while the number of applied gpus is {self.resouce_manager.total_gpu}")
         if self.resouce_manager.total_gpu > total_gpu_required:
             logger.warning(f"The number of applied gpus is {self.resouce_manager.total_gpu}, " + \
                            f"while the number of required gpus is {total_gpu_required}, " + \
@@ -109,7 +117,8 @@ class ModelManager:
         logger.info(f"{LOG_START} model_manager convert model to remote, get_total_gpu_required(s):{(t2-t1)}")
         env_list = []
         for group in self.runtime_args.colocation:
-            colocate_models = [self._name2distmodel[name] for name in group]
+            colocate_models: List[DistModel] = [self._name2distmodel[name] for name in group]
+            # it seems very cost time
             self.place_models_to_remote_devices(colocate_models, env_list)
             if len(colocate_models) > 1:
                 set_colocate = []
@@ -121,10 +130,10 @@ class ModelManager:
                 remote_states.add(name)
         t3 = time.time()
         logger.info(f"{LOG_START} model_manager convert model to remote, set_colocate(s):{(t3-t2)}")
-        for model in self.dist_models:
+        for dist_model in self.dist_models:
             # place non-colocate models
-            if model.name not in remote_states:
-                self.place_models_to_remote_devices([model], env_list)
+            if dist_model.name not in remote_states:
+                self.place_models_to_remote_devices([dist_model], env_list)
         self.set_dist_env_concurrent(env_list)
         self.converted = True
         t4 = time.time()
@@ -133,104 +142,77 @@ class ModelManager:
 
     def build_parameter_group(self):
         # set ParameterSyncGroup
+        names = set()
         for src_model, dst_model in self._parameter_sync_model_pair:
+            if (src_model.name, dst_model.name) in names:
+                continue
+            names.add((src_model.name, dst_model.name))
             logger.info(
                 f"start build parameter sync group bewteen {src_model.name} and {dst_model.name}")
-            group_name = self._get_group_name(src_model, dst_model)
-            sync_frequency = self._get_sync_frequency(dst_model)
 
+            sync_frequency = dst_model.module_args.sync_frequency
             if isinstance(self._name2distmodel[src_model.name].replicas[0].model, FSDPModule):
-                sync_group = FSDP2VllmParameterSyncGroup(
+                sync_group = FSDPParameterSyncGroup(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
-                    group_name,
-                    sync_frequency,
-                    self.error_signal
-                )
-            elif self.runtime_args.use_parameter_sync_v2:
-                from chatlearn.synchronizer.v2 import ParameterSyncGroup as V2 # pylint: disable=import-outside-toplevel
-                sync_group = V2(
-                    self._name2distmodel[src_model.name],
-                    self._name2distmodel[dst_model.name],
-                    group_name,
-                    sync_frequency,
-                    self.error_signal
+                    sync_frequency
                 )
             else:
-                sync_group = ParameterSyncGroup(
+                sync_group = MCoreParameterSyncGroup(
                     self._name2distmodel[src_model.name],
                     self._name2distmodel[dst_model.name],
-                    group_name,
-                    sync_frequency,
-                    self.error_signal
+                    sync_frequency
                 )
-            self.parameter_sync_groups[group_name] = sync_group
+            self.parameter_sync_groups.append(sync_group)
 
     def start_error_monitor(self):
-        group_names = list(self.parameter_sync_groups.keys())
+        # TODO：refactor ErrorMonitor
+        group_names = [str(i) for i in range(len(self.parameter_sync_groups))]
         self.error_monitor = ErrorMonitor.remote(self.error_signal, self.dist_models, group_names)
         self.error_monitor.monitor.remote()
 
-    def _get_group_name(self, src_model, dst_model):
-        return src_model.name + "2" + dst_model.name
-
-    def _get_sync_frequency(self, model):
-        return model.parameter_sync_frequency
-
     def set_parameter_sync(self, src_model, tgt_model):
-        group_name = self._get_group_name(src_model, tgt_model)
-        if group_name in self.parameter_sync_groups:
-            logger.warning(f"{group_name} already set, ignore")
-        else:
-            sync_frequency = self._get_sync_frequency(tgt_model)
-            assert sync_frequency >= 0, \
-                f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
-            logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
-            self._parameter_sync_model_pair.append((src_model, tgt_model))
+        # TODO: move the check to arguments
+        sync_frequency = tgt_model.module_args.sync_frequency
+        assert sync_frequency > 0, \
+            f"parameter sync frequency from {src_model.name} to {tgt_model.name} expected tp be greater than 0, while {sync_frequency}."
+        logger.info(f"sync parameters from {src_model.name} to {tgt_model.name} every {sync_frequency} episodes.")
+        self._parameter_sync_model_pair.append((src_model, tgt_model))
 
-    def warmup_collective_topology(self):
-        for _, sync_group in self.parameter_sync_groups.items():
-            sync_group.warmup_groups()
+    def sync_parameters(self, episode_id=0, dryrun=False):
+        """Perform parameter synchronization between pre-defined model-pairs.
 
-    def sync_parameters(self, episode_offset=0, requires_grad=None, validate=False, dryrun=False):
+        Args:
+            episode_id (int, optional): The current episode. Defaults to 0.
+            dryrun (bool, optional): Whether to run in dryrun mode. 
+            Defaults to False.
         """
-        if requires_grad is False, all parameters will be syncronized,
-        this happends when broadcast parameters in the beginning of training,
-        set the parameters of inference same as training
-        """
-        for _, sync_group in self.parameter_sync_groups.items():
-            if sync_group.frequency and \
-                    episode_offset % sync_group.frequency == 0:
-                sync_group: ParameterSyncGroup = sync_group
-
-                # src_model, dst_model type: DistModel
+        for sync_group in self.parameter_sync_groups:
+            if episode_id % sync_group.frequency == 0:
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
                 # onload policy trainer
                 future.wait(src_model.onload(
-                    to_build_grad_buffers=False, to_onload_main_weights=False, to_onload_optimizer_states=False))
+                    to_build_grad_buffers=False,
+                    to_onload_main_weights=False,
+                    to_onload_optimizer_states=False
+                ))
+
+                # TODO: refactor to an general API
                 # onload policy weights
                 refs = []
                 for replica in dst_model.replicas:
-                    refs.append(replica.vllm_engine.onload_weights.remote(tags=['weights']))
+                    refs.append(replica.engine.onload_weights.remote(tags=['weights']))
                 future.wait(refs, return_output=True)
 
-                # parameter sync
-                sync_group.sync(requires_grad, validate, dryrun=dryrun)
-
-                refs = []
-                for replica in dst_model.replicas:
-                    refs.append(replica.call_remote_funcs('release_params_sync_buffers'))
-                for replica in src_model.replicas:
-                    refs.append(replica.call_remote_funcs('release_params_sync_buffers'))
-                future.wait(refs, return_output=True)
-
-                # offload policy trainer
+                # sync param
+                sync_group.sync(dryrun=dryrun)
                 future.wait(src_model.offload())
 
+                # TODO: refactor to an general API
                 # onload policy kv cache
                 refs = []
                 for replica in dst_model.replicas:
-                    refs.append(replica.vllm_engine.onload_weights.remote(tags=['kv_cache']))
+                    refs.append(replica.engine.onload_weights.remote(tags=['kv_cache']))
                 future.wait(refs, return_output=True)
 
     def set_func_decorator(self, model):
@@ -261,11 +243,12 @@ class ModelManager:
             model: BaseModule
         """
         self.set_func_decorator(model)
-        model.finalize()
 
         def actor_type():
             if isinstance(model, VLLMModule):
                 return DistVLLMActor
+            if isinstance(model, SGLangModule):
+                return DistSGLangActor
             if isinstance(model, TorchModule):
                 return DistTorchActor
             return DistActor
@@ -276,20 +259,6 @@ class ModelManager:
                                       replica_id)
             dist_model.add_replica(dist_actor)
         return dist_model
-
-    def _find_param_recv_models(self, models):
-        """
-        find models that recv parameters
-        """
-        if len(models) < 2:
-            return []
-        model_names = [model.name for model in models]
-        models_to_revert = []
-        for model in models:
-            for src, tgt in self._parameter_sync_model_pair:
-                if src.name in model_names and model.name == tgt.name:
-                    models_to_revert.append(model)
-        return models_to_revert
 
     def find_model_packing_strategy(self, models, total_gpu):
         """
@@ -336,7 +305,7 @@ class ModelManager:
                 final_packs.extend(packs_list)
         return final_packs
 
-    def place_gpu_models(self, gpu_models, env_list=None):
+    def place_gpu_models(self, gpu_models: List[DistModel], env_list=None):
         """ place DistModel to gpu
         GPU models: Lis[DistModel]
         """
@@ -353,8 +322,8 @@ class ModelManager:
         for model in gpu_models:
             # TODO: for colocate gpu_per_process > 1, support later
             assert model.gpu_per_process == 1
-        self.model_packs = self.find_model_packing_strategy(gpu_models, max_gpu)
 
+        self.model_packs = self.find_model_packing_strategy(gpu_models, max_gpu)
         for model in gpu_models:
             pack = []
             for pack in self.model_packs:
@@ -394,21 +363,14 @@ class ModelManager:
             group = i // self.resouce_manager.gpu_per_node
             for replica in replicas:
                 num_gpus = 1.0 / len(replicas)
-                if isinstance(replica.model, VLLMModule) and replica.vllm_engine is None:
+                if isinstance(replica.model, VLLMModule) and replica.engine is None:
                     num_gpus = num_gpus / 2
                     replica.create_engine_actor(num_gpus, placement_group, group)
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
                 replica.create_actor(num_gpus, placement_group, group)
-        models_to_revert = self._find_param_recv_models(gpu_models)
         for model in gpu_models:
-            if model in models_to_revert: # pylint: disable=simplifiable-if-statement
-                # Reverse the placement of tgt models, so that shared models not in the same GPU
-                # NCCL limit: NCCL WARN Duplicate GPU detected : rank 1 and rank 0 both on CUDA device
-                # TODO: One GPU task still not work
-                reverse_gpu_placement = True
-            else:
-                reverse_gpu_placement = False
+            reverse_gpu_placement = False
             if env_list is None:
                 for replica in model.replicas:
                     replica.set_dist_env(reverse_gpu_placement)
@@ -474,8 +436,6 @@ class ModelManager:
             concurrent.futures.wait(futures)
 
     def clean(self):
-        for group in self.parameter_sync_groups.values():
-            group.destroy_collective_group()
         for dist_model in self._name2distmodel.values():
             for dist_actor in dist_model.replicas:
                 for actor in dist_actor.all_actors:

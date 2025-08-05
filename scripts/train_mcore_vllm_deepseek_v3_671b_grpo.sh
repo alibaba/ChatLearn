@@ -9,15 +9,15 @@ export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
-export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250328
+export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250624
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
-hf_ckpt_path=${CHATLEARN}/pretrained_models/Moonlight-16B-A3B-Instruct
-mcore_ckpt_path=${CHATLEARN}/pretrained_models/Moonlight-16B-A3B-Instruct-to-mcore
+hf_ckpt_path=${CHATLEARN}/DeepSeek-V3-0324-BF16
+mcore_ckpt_path=${CHATLEARN}/DeepSeek-V3-0324-BF16-to-mcore
 
 
-exp_name="test_moonlight_16b_grpo"
+exp_name="test_dsv3_grpo"
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
@@ -32,14 +32,14 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=50 \
-        runtime_args.sample_per_episode=2048 \
-        runtime_args.train_global_batch_size=2048 \
-        runtime_args.train_micro_batch_size=8 \
+        runtime_args.sample_per_episode=1024 \
+        runtime_args.train_global_batch_size=32 \
+        runtime_args.train_micro_batch_size=1 \
         runtime_args.save_episode_interval=1000000 \
         runtime_args.log_args_dict.enable_tensorboard=true \
         runtime_args.log_args_dict.tensorboard_dir=${output_dir}/tensorboard \
         runtime_args.eval_episode_interval=1 \
-        runtime_args.enable_eval_before_training=true \
+        runtime_args.enable_eval_before_training=false \
         models.policy_trainer.num_gpu=${num_device} \
         models.policy_trainer.bf16=true \
         models.policy_trainer.sequence_parallel=true \
@@ -47,10 +47,12 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.recompute_granularity='selective' \
         models.policy_trainer.train_iters=50 \
         models.policy_trainer.seq_length=2048 \
-        models.policy_trainer.tensor_model_parallel_size=4 \
-        models.policy_trainer.pipeline_model_parallel_size=1 \
-        models.policy_trainer.expert_tensor_parallel_size=4 \
-        models.policy_trainer.expert_model_parallel_size=1 \
+        models.policy_trainer.tensor_model_parallel_size=1 \
+        models.policy_trainer.pipeline_model_parallel_size=16 \
+        models.policy_trainer.expert_model_parallel_size=16 \
+        models.policy_trainer.expert_tensor_parallel_size=1 \
+        models.policy_trainer.decoder_first_pipeline_num_layers=3 \
+        models.policy_trainer.decoder_last_pipeline_num_layers=2 \
         models.policy_trainer.generation_batch_size=128 \
         models.policy_trainer.load=${mcore_ckpt_path} \
         models.policy_trainer.save_interval=1000000 \
@@ -62,7 +64,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.reward.generation_batch_size=128 \
         models.policy.load=${hf_ckpt_path} \
         models.policy.generation_batch_size=128 \
-        models.policy.tensor_model_parallel_size=4 \
+        models.policy.tensor_model_parallel_size=32 \
         models.policy.seq_length=2048 \
         models.policy.max_seq_len_to_capture=2348 \
         models.policy.num_inference_per_prompt=32 \

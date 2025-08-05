@@ -22,6 +22,7 @@ from torch.cuda import nvtx
 import ray
 
 from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import REF_LIST, INDEX_TAG
@@ -139,7 +140,7 @@ def preprocess_compute(func, trainable):
 
         # Onload model if needed
         if to_onload:
-            if isinstance(self, VLLMModule):
+            if isinstance(self, (VLLMModule, SGLangModule)):
                 self.onload_weights()
             else:
                 self.onload()
@@ -156,11 +157,12 @@ def preprocess_compute(func, trainable):
 
         # Clean up after function
         if to_empty_cache:
-            if not isinstance(self, VLLMModule):
+            if not isinstance(self, (VLLMModule, SGLangModule)):
                 self.empty_cache()
         if to_offload:
-            if isinstance(self, VLLMModule):
-                self.offload_weights()
+            if isinstance(self, (VLLMModule, SGLangModule)) :
+                if not is_eval:
+                    self.offload_weights()
             else:
                 self.offload()
         # TODO fix consumed samples

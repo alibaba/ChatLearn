@@ -35,8 +35,6 @@ class TorchModule(BaseModule):
         model name
     """
     # pylint: disable=abstract-method
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
 
     def model_setup(self):
         """
@@ -71,11 +69,9 @@ class TorchModule(BaseModule):
         """
         :meta private:
         """
-        for key in ['RANK', 'MASTER_ADDR', 'MASTER_PORT', 'WORLD_SIZE', 'LOCAL_RANK']:
-            assert key in args, f"{key} is not set for TorchModule"
-            os.environ[key] = str(args[key])
-        self._rank = int(os.environ['RANK'])
-        return 1
+        for key, value in args.items():
+            os.environ[key] = str(value)
+        return True
 
     def get_dist_env(self):
         """
@@ -109,21 +105,6 @@ class TorchModule(BaseModule):
                    self._logger)
         self.timers("empty_cache").stop()
 
-    def check_param_exists(self, names):
-        """
-        check if the given names exists in current model
-        
-        :meta private:
-        """
-        not_exists = []
-        for name in names:
-            if name not in self.named_parameters:
-                not_exists.append(name)
-        if not_exists:
-            log_rank_0(f"parameters not exists: {not_exists} in model {self.name}", self._logger)
-            return False
-        return True
-
     def is_last_rank(self):
         """
         Is last rank.
@@ -136,7 +117,7 @@ class TorchModule(BaseModule):
     def world_size(self):
         return dist.get_world_size()
 
-    def get_torchdist_rank(self):
+    def get_rank(self):
         return dist.get_rank()
 
     def _get_if_not_none(self, to_set: Optional[bool], default: bool) -> bool:

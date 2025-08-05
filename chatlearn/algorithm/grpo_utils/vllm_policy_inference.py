@@ -31,7 +31,7 @@ class VLLMPolicyInference(VLLMModule):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
 
-        prompts_dataset = VLLMPromptPipeline(
+        prompts_dataset = PromptPipeline(
             prompts,
             seq_length,
             self.tokenizer.tokenizer,

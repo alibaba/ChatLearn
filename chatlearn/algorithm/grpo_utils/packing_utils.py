@@ -14,7 +14,7 @@
 # ==============================================================================
 """Packing Utilities"""
 
-from typing import List, Dict
+from typing import List, Dict, Union, Any
 import warnings
 
 import torch
@@ -102,7 +102,22 @@ def regroup_data_from_list(data_all: Dict, data_position: List[int]):
         return [data_all[item] for item in data_position]
 
 
-def regroup_data_packing(data_list: List, max_train_token: int):
+def regroup_data_packing(
+    data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]],
+    max_train_token: int
+) -> List[Dict[str, Union[torch.Tensor, List[Any]]]]:
+    """Automatically split a list of data into serveral micro-batches according to
+    `max_train_token`, used for dynamic-batching. Note that the data in each batch
+    is still not merged into one packed sample.
+
+    Args:
+        data_list (List[Dict[str, Union[torch.Tensor, List[Any]]]]): A list of 
+        PRE-BATCHED data to be regrouped.
+        max_train_token (int): The maximum token num in each batch.
+    
+    Returns:
+        a list of micro-batches. Each micro-batch is a list of samples without batching.
+    """
     # data_b should contain all data in one microbatch
     regroup_data_list = []
     # Get train tokens for whole minibatch

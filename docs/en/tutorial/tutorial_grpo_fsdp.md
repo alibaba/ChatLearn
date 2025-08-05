@@ -35,8 +35,8 @@ You can run the following command to start training:
 Run this command on server with 8 GPUs
 ```bash
 # download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
-bash scripts/train_fsdp_vllm_qwen3_30b_a3b_grpo.sh
+modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
+bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
 ## Using Wandb
@@ -50,8 +50,8 @@ runtime_args.log_args_dict.enable_wandb=True
 runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
 ```
 
-## 模型转化
-Saving FSDP models is time-consuming. Chatlearn provides an offline model conversion feature, which converts FSDP-saved sharded models back into HuggingFace models. The script is as follows:
+## Model Conversion
+Saving FSDP models is time-consuming. Chatlearn provides an offline model conversion feature, which converts FSDP-sharded checkpoints back to HuggingFace format. The script is as follows:
 ```bash
 export CHATLEARN=$(pwd)
 python chatlearn/offline_ckpt_converter.py \

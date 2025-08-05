@@ -23,6 +23,7 @@ from ray.util.queue import Queue
 
 from chatlearn.models.base_module import BaseModule
 from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.model_flow import ModelFlow, ModelNode
 from chatlearn.runtime.dist_actor import DistModel, DistActor
 from chatlearn.utils import future
@@ -163,12 +164,11 @@ class Executor:
                 out_queues.append(out_queue)
         return out_queues
 
-    # pylint: disable-next=unused-argument
     def get_merged_data(self,
                         queues: List[Queue],
                         encode: bool = True,
-                        micro_batch_index: Optional[int] = None,
-                        model_node: Optional[ModelNode] = None,
+                        micro_batch_index: Optional[int] = None, # pylint: disable-next=unused-argument
+                        model_node: Optional[ModelNode] = None, # pylint: disable-next=unused-argument
                         trainable: bool = False
                         ):
         """
@@ -182,7 +182,7 @@ class Executor:
             model_node: related to self.merged_buffer, but don't know where to use
         """
         assert micro_batch_index is None, "micro_batch_index should be None, will be deprecated and removed in future"
-        logger.warning(f"model_node={model_node} and trainable={trainable} is never used, will be deprecated and removed in future")
+        # TODO：remove unused pramater model_node and trainable
         data_list = []
         mb0 = None
         for queue in queues:
@@ -300,11 +300,11 @@ class Executor:
             "to_offload": to_offload
         }
 
-        if isinstance(replica.model, VLLMModule):
-            # for VLLMModule we only to pass data to vllm_engine for every replica
+        if isinstance(replica.model, (VLLMModule, SGLangModule)):
+            # for rollout we only to pass data to engine for every replica
             mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
             assert isinstance(query, list)
-            ret = replica.call_actor_remote_func(replica.vllm_engine, func_name, *query, **kwargs)
+            ret = replica.call_actor_remote_func(replica.engine, func_name, *query, **kwargs)
             # output length is num replica
             output.append((ret, mb))
         else:

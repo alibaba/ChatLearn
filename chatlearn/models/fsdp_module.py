@@ -19,7 +19,6 @@ import gc
 import copy
 from typing import List
 
-import ray
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -48,9 +47,15 @@ class FSDPModule(TorchModule):
     """
     # pylint: disable=abstract-method
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, name: str, args=None, replica_id: int=0):
+        """The chatlearn wrapper for a FSDP model.
 
-        super().__init__(*args, **kwargs)
+        Args:
+            name (str): The name of this module
+            args (Any, optional): The arguments. Defaults to None.
+            replica_id (int, optional): The replica id of this module. Defaults to 0.
+        """
+        super().__init__(name, args=args, replica_id=replica_id)
 
         self.fsdp_size = self.module_args.fsdp_size
         self.sp_size = self.module_args.ulysses_sequence_parallel_size
@@ -62,11 +67,13 @@ class FSDPModule(TorchModule):
         if self.module_args.trainable:
             self.train_micro_batch_size = self.module_args.train_micro_batch_size
 
-    def get_visible_gpus(self):
-        """
-        :meta private:
-        """
-        return ray.get_gpu_ids()
+        assert self.total_gpu > 0, "FSDP requires at least one GPU"
+        # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
+        if not self.trainable:
+            self._num_gpu_per_replica = self.fsdp_size
+            assert self.total_gpu % self._num_gpu_per_replica == 0, \
+                "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
+            self._num_replica = self.total_gpu // self._num_gpu_per_replica
 
     @staticmethod
     def init_fn(x: torch.nn.Module):
@@ -198,15 +205,6 @@ class FSDPModule(TorchModule):
         else:
             return dist.get_rank()
 
-    def tensor_parallel_rank(self):
-        return self.data_parallel_rank
-
-    def pipeline_parallel_rank(self):
-        return 1
-
-    def expert_model_parallel_size(self):
-        return 1
-
     def check_sp_compatibility(self, config):
         assert config.num_attention_heads % self.sp_size == 0, \
             "num_attention_heads must be divisible by sp"
@@ -337,16 +335,23 @@ class FSDPModule(TorchModule):
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        rollout_engine = self._runtime_args.rollout_backend
+        if rollout_engine == "sglang":
+            # lazy import sglang
+            # pylint: disable-next=import-outside-toplevel
+            from sglang.srt.utils import MultiprocessingSerializer
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
+        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach() \
-                                            if isinstance(param, DTensor) else param.detach())
+                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                                        if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
+
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()

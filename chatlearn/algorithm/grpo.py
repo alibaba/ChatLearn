@@ -31,15 +31,16 @@ from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
+from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
 from chatlearn.utils.utils import listdict_to_dictlist
-from chatlearn.utils.megatron_utils import update_cfg
 
 try:
+    from chatlearn.utils.megatron_utils import update_cfg
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
     from configs.megatron_config import (MegatronPolicyTrainerConfig, # pylint: disable=ungrouped-imports
@@ -116,7 +117,9 @@ class GrpoConfig(BaseConfig):
         self.models.policy_trainer = convert_to_dataclass(
             policytrainer_cls, self.models.policy_trainer
         )
-        _config_validate(self)
+
+    def validate(self):
+        return _config_validate(self)
 
 
 class GRPOEvaluator(Evaluator):
@@ -187,7 +190,10 @@ class GrpoAlgorithm(BaseAlgorithm):
         elif self.cfg.runtime_args.train_backend == "megatron":
             policy_trainer = MegatronPolicyTrainer("policy_trainer")
             ref_policy = MegatronPolicyTrainer("ref_policy")
-        policy = VLLMPolicyInference("policy")
+        if self.cfg.runtime_args.rollout_backend == "vllm":
+            policy = VLLMPolicyInference("policy")
+        elif self.cfg.runtime_args.rollout_backend == "sglang":
+            policy = SGLangPolicyInference("policy")
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 

@@ -34,7 +34,7 @@ python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH
 8卡机器运行如下命令
 ```bash
 # 下载模型权重
-modelscope download --model Qwen/Qwen3-8B --local_dir Qwen3-8B
+modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
 bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
@@ -77,7 +77,7 @@ python chatlearn/offline_ckpt_converter.py \
 ```bash
 ray.exceptions.RayChannelTimeoutError: System error: If the execution is expected to take a long time, increase RAY_CGRAPH_get_timeout which is currently 10 seconds. Otherwise, this may indicate that the execution is hanging.
 ```
-检查模型入参：models.policy.tensor_model_parallel_size是否不为1，若tensor_model_parallel_size是否不为1，建议设置models.policy.enforce_eager=True。
+检查模型入参：models.policy.tensor_model_parallel_size是否不为1，若tensor_model_parallel_size不为1，建议设置models.policy.enforce_eager=True。
 ### 为什么在训练时会出现，torch.OutOfMemoryError: CUDA out of memory？
 1. 如果models.policy_trainer.packing=True，尝试降低models.policy_trainer.max_token_in_packing。
 2. 如果models.policy_trainer.packing=False，尝试降低runtime_args.train_micro_batch_size。

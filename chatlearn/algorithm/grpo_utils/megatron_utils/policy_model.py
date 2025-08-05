@@ -14,9 +14,12 @@
 # limitations under the License.
 # ==============================================================================
 
-from typing import Literal, Optional
+from typing import Literal, Optional, Dict, Any, Union
 
 import torch
+
+from flash_attn.bert_padding import pad_input
+
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -27,56 +30,23 @@ from torch import Tensor
 
 from chatlearn.configs.common import BaseModelConfig
 
-from ..loss_gallery import calculate_grpo_loss
+from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 from .train_helper import entropy_from_tensor_parallel_logits
 
+
+# TODO: replace this class with GPTModel
 class PolicyModel(GPTModel):
     """PolicyModel"""
 
-    def __init__(
-        self,
-        config: TransformerConfig,
-        transformer_layer_spec: ModuleSpec,
-        vocab_size: int,
-        max_sequence_length: int,
-        pre_process: bool = True,
-        post_process: bool = True,
-        fp16_lm_cross_entropy: bool = False,
-        parallel_output: bool = True,
-        share_embeddings_and_output_weights: bool = False,
-        position_embedding_type: Literal[
-            "learned_absolute", "rope", "mrope", "none"
-        ] = "learned_absolute",
-        rotary_percent: float = 1.0,
-        rotary_base: int = 10000,
-        rope_scaling: bool = False,
-        rope_scaling_factor: float = 8.0,
-        scatter_embedding_sequence_parallel: bool = True,
-        seq_len_interpolation_factor: Optional[float] = None,
-        mtp_block_spec: Optional[ModuleSpec] = None,
-        module_args: Optional[BaseModelConfig] = None
-    ) -> None:
-        super().__init__(
-            config=config,
-            transformer_layer_spec=transformer_layer_spec,
-            vocab_size=vocab_size,
-            max_sequence_length=max_sequence_length,
-            pre_process=pre_process,
-            post_process=post_process,
-            fp16_lm_cross_entropy=fp16_lm_cross_entropy,
-            parallel_output=parallel_output,
-            share_embeddings_and_output_weights=share_embeddings_and_output_weights,
-            position_embedding_type=position_embedding_type,
-            rotary_percent=rotary_percent,
-            rotary_base=rotary_base,
-            rope_scaling=rope_scaling,
-            rope_scaling_factor=rope_scaling_factor,
-            scatter_embedding_sequence_parallel=scatter_embedding_sequence_parallel,
-            seq_len_interpolation_factor=seq_len_interpolation_factor,
-            mtp_block_spec=mtp_block_spec,
-        )
+    def __init__(self, *args, module_args: Optional[BaseModelConfig] = None, **kwargs):
+        """Create a Megatron-Core Policy Model. For more descriptions, please
+        refer to `megatron.core.models.gpt.GPTModel`
 
-        # chatlearn module args
+        Args:
+            module_args (Optional[BaseModelConfig], optional): Arguments for chatlearn modules.
+            Defaults to None.
+        """
+        super().__init__(*args, **kwargs)
         self.module_args = module_args
 
     def forward(
@@ -94,8 +64,7 @@ class PolicyModel(GPTModel):
         inference_params: Optional[BaseInferenceContext] = None,
         loss_mask: Optional[Tensor] = None,
         training_inputs: dict = None,
-    ):
-
+    ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         # untransposed hidden_states or transposed logits with shape [b, s, h]
         hidden_states_or_logits = super().forward(
             input_ids=input_ids,
@@ -126,27 +95,80 @@ class PolicyModel(GPTModel):
                 else hidden_states_or_logits
             )
 
-        # [b s h] => [s b h]
-        all_token_logits = hidden_states_or_logits.transpose(0, 1).contiguous()
-        old_logprobs = training_inputs["old_logprobs"]
-        ref_logprobs = training_inputs["ref_logprobs"]
-        advantages = training_inputs["advantages"]
+        return self._compute_all_losses(
+            all_token_logits=hidden_states_or_logits.transpose(0, 1).contiguous(),
+            labels=labels,
+            training_inputs=training_inputs
+        )
 
+    def _compute_all_losses(
+        self, 
+        all_token_logits: torch.Tensor, 
+        labels: torch.Tensor, 
+        training_inputs: Dict[str, Any],
+    ) -> Dict[str, torch.Tensor]:
+        """Compute all required losses.
+        
+        Args:
+            all_token_logits (torch.Tensor): logits of input tokens. shape: [s, b, h] or [total_nnz, 1, h]
+            labels (torch.Tensor): labels of input tokens. shape: [s, b] or [total_nnz, 1]
+            training_inputs (Dict[str, Any]): All training inputs.
+        
+        """
         forward_logprob = (
             self.compute_language_model_loss(labels, all_token_logits) * -1
         )
 
-        pg_loss = calculate_grpo_loss(
-            log_probs=forward_logprob,
-            old_log_probs=old_logprobs,
-            advantages=advantages,
-            diff_clip_ratio=self.module_args.diff_clip_ratio,
-            pos_clip_ratio=self.module_args.pos_clip_ratio,
-            neg_clip_ratio=self.module_args.neg_clip_ratio,
-            final_clip_ratio=self.module_args.final_clip_ratio,
-        )
+        # NOTE: before loss computation, we need to unpack the packed inputs
+        if self.module_args.packing:
+            forward_logprob = pad_input(
+                forward_logprob[0, :forward_logprob.shape[1] - training_inputs['pad_size']].unsqueeze(-1), 
+                training_inputs['indices'], 
+                training_inputs['ori_batch_size'], 
+                training_inputs['ori_seq_len']
+            ).squeeze(-1)
 
-        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).transpose(0, 1)
+        old_logprobs = training_inputs["old_logprobs"]
+        ref_logprobs = training_inputs["ref_logprobs"]
+        advantages = training_inputs["advantages"]
+
+
+        if self.module_args.use_group_sequence_policy:
+            (
+                pg_loss, 
+                is_positive_clipped, 
+                is_negative_clipped,
+                is_clipped,
+            ) = calculate_gspo_loss(
+                log_probs=forward_logprob,
+                old_log_probs=old_logprobs,
+                advantages=advantages,
+                diff_clip_ratio=self.module_args.diff_clip_ratio,
+                pos_clip_ratio=self.module_args.pos_clip_ratio,
+                neg_clip_ratio=self.module_args.neg_clip_ratio,
+                final_clip_ratio=self.module_args.final_clip_ratio,
+                loss_mask = training_inputs['all_token_loss_mask']
+            )
+        else:
+            pg_loss = calculate_grpo_loss(
+                log_probs=forward_logprob,
+                old_log_probs=old_logprobs,
+                advantages=advantages,
+                diff_clip_ratio=self.module_args.diff_clip_ratio,
+                pos_clip_ratio=self.module_args.pos_clip_ratio,
+                neg_clip_ratio=self.module_args.neg_clip_ratio,
+                final_clip_ratio=self.module_args.final_clip_ratio
+            )
+        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
+        if self.module_args.packing:
+            entropy_loss = pad_input(
+                entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']], 
+                training_inputs['indices'], 
+                training_inputs['ori_batch_size'], 
+                training_inputs['ori_seq_len']
+            ).squeeze(-1)
+        else:
+            entropy_loss = entropy_loss.transpose(0, 1)
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
@@ -155,8 +177,21 @@ class PolicyModel(GPTModel):
         kld = (ratio - kl - 1).contiguous()
         kl_loss = torch.clamp(kld, min=-10, max=10)
 
-        return {
-            'pg_loss': pg_loss,
-            'entropy_loss': entropy_loss,
-            'kl_loss': kl_loss,
-        }
+        if self.module_args.use_group_sequence_policy:
+            return {
+                'pg_loss': pg_loss,
+                'entropy_loss': entropy_loss,
+                'kl_loss': kl_loss,
+                'is_positive_clipped': is_positive_clipped,
+                'is_negative_clipped': is_negative_clipped,
+                'is_clipped': is_clipped,
+                'is_positive_clipped_sample_average': is_positive_clipped,
+                'is_negative_clipped_sample_average': is_negative_clipped,
+                'is_clipped_sample_average': is_clipped,
+            }
+        else:
+            return {
+                'pg_loss': pg_loss,
+                'entropy_loss': entropy_loss,
+                'kl_loss': kl_loss
+            }

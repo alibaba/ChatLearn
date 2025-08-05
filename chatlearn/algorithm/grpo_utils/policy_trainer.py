@@ -1,5 +1,6 @@
 # pylint: skip-file
 import math
+from contextlib import nullcontext
 
 import torch
 import torch.distributed as dist
@@ -63,11 +64,11 @@ class PolicyTrainer(FSDPModule):
             if self.packing:
                 # Packing data into one batch
                 attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
-                tokens_, indices, cu_seqlens, max_seqlen_in_batch = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
+                tokens_, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
 
-                position_ids, _, _, _ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
-                position_ids = position_ids.permute(1,0).cpu() # For compatible with transformers
+                position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
+                position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
                 # Pad tokens_ to ensure max valid token length meets sp requirements
                 pad_size = 0
                 if self.sp_size > 1:
@@ -203,7 +204,11 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            entropy = entropy_from_logits_with_chunking(output.logits)
+            
+            # save memory while not use entropy in loss
+            entropy_context = nullcontext() if self.module_args.entropy_coef > 0 else torch.no_grad()
+            with entropy_context:
+                entropy = entropy_from_logits_with_chunking(output.logits)
 
             if sp_group is not None:
                 logprobs = gather(

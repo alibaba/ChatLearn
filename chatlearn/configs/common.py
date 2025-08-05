@@ -8,9 +8,9 @@ import warnings
 
 from omegaconf import MISSING
 
-from chatlearn.utils.constant import PARAM_SYNC_COMM_TYPE, RAY_PG_STRATEGY
+from chatlearn.utils.constant import RAY_PG_STRATEGY
 
-
+@dataclass
 class BaseConfig:
     # TODO: Unifying Parameter Access Using dataclass approach
     def __setitem__(self, key, value):
@@ -44,6 +44,9 @@ class BaseConfig:
     def values(self) -> Iterator[Any]:
         """support args.values()"""
         return asdict(self).values()
+
+    def validate(self):
+        return True
 
 
 @dataclass
@@ -167,6 +170,15 @@ class BaseModelConfig(BaseConfig):
     )
     expert_model_parallel_size: int = field(
         default=1, metadata={"help": "expert model parallel size for Megatron-Core"}
+    )
+    expert_tensor_parallel_size: Optional[int] = field(
+        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
+    )
+    virtual_pipeline_model_parallel_size: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "virtual pipeline model parallel size for Megatron-Core"
+        },
     )
     fsdp_size: int = field(default=1, metadata={"help": "FSDP parallel size"})
     ulysses_sequence_parallel_size: int = field(
@@ -302,6 +314,9 @@ class PolicyTrainerConfig(BaseModelConfig, FSDPConfig):
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
     save_hf: bool = field(default=True)
+    use_group_sequence_policy: bool = field(
+        default=False, metadata={"help": "whether to use group sequence policy optimization"}
+    )
 
 
 @dataclass
@@ -312,6 +327,9 @@ class RuntimeConfig(BaseConfig):
     train_backend: str = field(
         default=MISSING,
         metadata={"help": "which train backend to use, one of megatron or fsdp"},
+    )
+    rollout_backend: str = field(
+        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
     )
     exp_name: str = field(
         default="CHATLEARN", metadata={"help": "exp name for each run"}
@@ -420,37 +438,9 @@ class RuntimeConfig(BaseConfig):
     )
 
     # param sync config
-    coalesced_buffer_mb: int = field(
-        default=100, metadata={"help": "coalesce_buffer size in mb"}
-    )
-    concurrent_comm: bool = field(
-        default=True,
-        metadata={
-            "help": "whether concurrent parameter sync or not, for megatron to vllm"
-        },
-    )
-    param_sync_comm_type: str = field(
-        default=PARAM_SYNC_COMM_TYPE.BROADCAST.value,
-        metadata={"help": "parameter sync communication type, broadcast/p2p"},
-    )
-    param_sync_max_workers: Optional[int] = field(
-        default=None, metadata={"help": "parameter sync max workers"}
-    )
-    routed_expert_regrouping_comm_type: str = field(
-        default="alltoall",
-        metadata={
-            "help": "communication type to regroup routed experts, allgather/alltoall"
-        },
-    )
     bucket_size_mb_in_memory_manager: int = field(
         default=1024,
         metadata={"help": "bucket size in the memory manager to reduce peak memory"},
-    )
-    free_sync_collective_group: bool = field(
-        default=False,
-        metadata={
-            "help": "free collective group after parameter synchronization and rebuild before next synchronization"
-        },
     )
     cpu_schedule_strategy: str = field(
         default=RAY_PG_STRATEGY.SPREAD.value,
@@ -459,9 +449,6 @@ class RuntimeConfig(BaseConfig):
                     PACK: All provided bundles are packed onto a single node on a best-effort basis. \
                     SPREAD: Each bundle is spread onto separate nodes on a best-effort basis."
         },
-    )
-    validate_param_sync: bool = field(
-        default=False, metadata={"help": "validate param sync"}
     )
 
     # graph config
@@ -478,9 +465,6 @@ class RuntimeConfig(BaseConfig):
         metadata={
             "help": "[optional] log time and memory per `log_interval` iterations."
         },
-    )
-    use_parameter_sync_v2: bool = field(
-        default=False, metadata={"help": "debug option for v2, will be removed in future when v2 is stable."}
     )
 def _config_validate(cfg):
     # Check batchsize compatibility
@@ -545,3 +529,4 @@ def _config_validate(cfg):
                     runtime_args.sample_per_episode // (models.ref_policy.num_gpu // models.ref_policy.ulysses_sequence_parallel_size) = \
                     {sample_per_episode // ref_fsdp_dp_size}"
                 warnings.warn(warning_message)
+                

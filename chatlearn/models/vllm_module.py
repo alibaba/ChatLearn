@@ -29,7 +29,6 @@ from vllm.executor.ray_utils import RayWorkerWrapper
 
 from chatlearn.utils.constant import CURRENT_VLLM_VERSION, VLLMVersion
 from chatlearn.utils.global_vars import set_vllm_actors
-from chatlearn.utils.vllm_utils import get_pipeline_model_parallel_rank
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
@@ -39,8 +38,29 @@ from .torch_module import TorchModule
 class VLLMModule(TorchModule, RayWorkerWrapper):
     """VLLMModule"""
 
-    def __init__(self, *args, **kwargs):
-        TorchModule.__init__(self, *args)
+    def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
+        """The chatlearn wrapper for a vLLM model.
+
+        Args:
+            name (str): The name of this module
+            args (Any, optional): The arguments passed to ChatLearn. Defaults to None.
+            replica_id (int, optional): The replica id of this module. Defaults to 0.
+            kwargs (Dict[str, Any]): The keyword arguments passed to `RayWorkerWrapper`. 
+        """
+        TorchModule.__init__(self, name, args=args, replica_id=replica_id)
+
+        assert self.total_gpu > 0, "vLLM requires at least one GPU"
+        assert not self.trainable, "vLLM does not support training"
+        # TODO: support expert-model parallel
+        assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of vLLM is not supported"
+        self._num_gpu_per_replica = (
+            self.module_args.tensor_model_parallel_size *
+            self.module_args.pipeline_model_parallel_size
+        )
+        assert self.total_gpu % self._num_gpu_per_replica == 0, \
+            "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
+        self._num_replica = self.total_gpu // self._num_gpu_per_replica
+
         # avoid overwrite methods
         methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
         methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}
@@ -70,28 +90,12 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.set_vllm_pp_layer_partition()
         self._metric_prefix = 'vllm_inference'
 
-    def add_extra_args(self, parser):
-        """
-        Add extra arguments for vllm.
-
-        Args
-        ----
-        parser : ArgumentParser
-            Add extra arguments.
-        """
-        group = parser.add_argument_group(title='vLLM extra arguments')
-        group.add_argument('--distributed-backend', default='nccl',
-                           choices=['nccl', 'gloo'],
-                           help='Which backend to use for distributed training.')
-        group.add_argument('--distributed-timeout-minutes', type=int, default=10,
-                           help='Timeout minutes for torch.distributed.')
-        return parser
     def init_engine_args(self):
         dtype = self.module_args.get("dtype", "bfloat16")
         if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("load_format", LoadFormat.DUMMY)
 
         if self.module_args.get("apply_replica_id_to_seed", True):
             seed = self.module_args.get("seed", 0) + self.replica_id
@@ -138,22 +142,28 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
     def init(self):
         """
-        :meta private:
+        set global variables, initialize distributed env.
+        used in BaseEngine.setup
         """
+        # set global var _ENABLE_CUSTOM_ALL_REDUCE to False
         parallel_state.set_custom_all_reduce(False)
-        initialize_vllm(extra_args_provider=self.add_extra_args,
-                        ignore_unknown_args=True,
-                        args_dict=self.module_args)
+        initialize_vllm(self.module_args)
 
     def setup(self):
-        """Set up tokenizer."""
+        """Set up tokenizer.
+        used in BaseEngine.setup and BaseModule.model_setup
+        """
         super().setup()
         tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
     def setup_vllm(self, workers):
-        if self.llm is not None: # for evaluator
+        """setup vllm engine
+        used in Environment.setup()
+        """
+
+        if self.llm is not None: # for evaluator not setup twice
             return
         # setup vllm engine in rank 0
         os.environ['VLLM_HOST_IP'] = self.get_address()
@@ -163,7 +173,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if self.module_args.get("fp16", False):
             dtype = "float16"
 
-        load_format = self.module_args.get("vllm_load_format", LoadFormat.DUMMY)
+        load_format = self.module_args.get("load_format", LoadFormat.DUMMY)
 
         if self.module_args.get("apply_replica_id_to_seed", True):
             seed = self.module_args.get("seed", 0) + self.replica_id
@@ -202,7 +212,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.offload_weights()
 
     def worker_dump_parameters(self, dump_path_root):
-        tp_rank = self.tensor_parallel_rank()
+        tp_rank = parallel_state.get_tensor_model_parallel_rank()
         model = self.model
         if isinstance(model, list):
             model = model[0]
@@ -211,9 +221,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         if not os.path.exists(dir_path):
             os.makedirs(dir_path)
         self._logger.info(f"dump parameters to {dir_path}")
-        for name, param in self.named_parameters.items():
+        for name, weight in self.model.state_dict().items():
             pt_file = os.path.join(dir_path, name)
-            torch.save(param.data.clone(), pt_file)
+            torch.save(weight.data.clone(), pt_file)
 
     def set_vllm_pp_layer_partition(self):
         pipeline_world_size = self.module_args.pipeline_model_parallel_size
@@ -360,12 +370,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def is_last_rank(self):
         return True
 
-    def num_layers(self):
-        """
-        :meta private:
-        """
-        return self.llm.llm_engine.model_config.hf_config.num_hidden_layers
-
     def peak_memory(self):
         """
         :meta private:
@@ -391,43 +395,20 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def model(self):
         return self._model
 
-    def tensor_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return parallel_state.get_tensor_model_parallel_rank()
-
-    def pipeline_parallel_rank(self):
-        """
-        :meta private:
-        """
-        return get_pipeline_model_parallel_rank()
-
-    def tensor_model_parallel_size(self):
-        return self.tensor_and_expert_model_parallel_size()
-
-    def expert_model_parallel_size(self):
-        return 1
-
-    def tensor_and_expert_model_parallel_size(self):
-        """
-        get tensor_and_expert_model_parallel_size
-        :meta private:
-        """
-        # vLLM not supported to enable expert parallel size
-        # thus: tensor_and_expert_model_parallel_size = tensor_parallel_size
-        return parallel_state.get_tensor_model_parallel_world_size()
+    @property
+    def is_engine(self):
+        return self.llm
 
     def offload_weights(self): # is_param_sync=True
         """
         offload weights
         """
-        if self.module_args.free_gpu_memory.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights and self.is_engine:
             self._logger.info(f"llm_engine.sleep before: {get_full_proc_memory_info('before llm_engine.sleep')}")
             self.llm.sleep()
             self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
 
-    def onload_weights(self, tags: Optional[list[str]] = None): # , is_param_sync=False
+    def onload_weights(self, tags: Optional[list[str]] = None):
         """
         onload weights
         Wake up the engine from sleep mode. See the :meth:`sleep` method
@@ -440,7 +421,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
                 wake_up should be called with all tags (or None) before the
                 engine is used again.
         """
-        if self.module_args.free_gpu_memory.offload_weights:
+        if self.module_args.free_gpu_memory.offload_weights and self.is_engine:
             self._logger.info(f"llm_engine.wake_up before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
             self.llm.wake_up(tags)
             self._logger.info(f"llm_engine.wake_up after: {get_full_proc_memory_info('after llm_engine.wake_up')}")
@@ -452,7 +433,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         simply return all keys
         """
         names = list(self.model.state_dict().keys())
-        self.local_name_to_global_name = {n: n for n in names}
         self.global_name_to_local_name = {n: n for n in names}
         return names
 
