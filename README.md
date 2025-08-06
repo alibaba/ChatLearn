@@ -20,6 +20,7 @@ A flexible and efficient reinforcement learning framework for large language mod
 ---
 
 *Latest News* 🔥
+- [2025/8] We give a reinforcement learning training example for GSPO with Qwen3-30B-A3B based on [Mcore](scripts/train_mcore_vllm_qwen3_30b_gspo.sh)! 🔥
 - [2025/7] We give a reinforcement learning training example for DeepSeek-V3-671B based on [Mcore](scripts/train_mcore_vllm_deepseek_v3_671b_grpo.sh)! 🔥
 - [2025/7] We give reinforcement learning training examples for Qwen3-235B-A22B based on [Mcore](scripts/train_mcore_vllm_qwen3_235b_grpo.sh) and [FSDP2](scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh)! 🔥
 - [2025/7] Training now supports the FSDP2 framework! We support sequence packing, sequence parallelism, and group GEMM for efficient and user-friendly reinforcement learning training! 🔥

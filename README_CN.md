@@ -18,6 +18,7 @@
 ---
 
 *最新进展* 🔥
+- [2025/8] 提供基于[Mcore](scripts/train_mcore_vllm_qwen3_30b_gspo.sh)Qwen3-30B-A3B的GSPO强化学习训练示例!🔥
 - [2025/7] 提供基于[Mcore](scripts/train_mcore_vllm_deepseek_v3_671b_grpo.sh)的DeepSeek-V3-671B强化学习训练示例!🔥
 - [2025/7] 提供基于[Mcore](scripts/train_mcore_vllm_qwen3_235b_grpo.sh)和[FSDP2](scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh)的Qwen3-235B-A22B强化学习训练示例!🔥
 - [2025/7] 训练支持FSDP2框架！提供sequence packing，sequence parallelism，group GEMM支持实现高效易用的强化学习训练!🔥
