@@ -126,11 +126,11 @@ def regroup_data_packing(
         for data_b in data_list
     ]
     # Get bin_packing result
-    bins_id, bin_seqlen = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
+    bins_id, _ = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
     bin_size = torch.tensor(len(bins_id)).cuda()
     # Get max_bin_size across all dp rank
     torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
-    bins_id, bin_seqlen = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
+    bins_id, _ = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
     # Prepare train data for each micro batch
     for micro_batch_id in bins_id:
         regroup_data_list.append([])

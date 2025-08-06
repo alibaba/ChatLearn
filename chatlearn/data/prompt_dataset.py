@@ -73,12 +73,3 @@ class PromptPipeline(Dataset):
 
     def collate_fn(self, samples):
         return samples
-        collate_dict = defaultdict(list)
-
-        # Loop over the samples and append each tensor value to the corresponding list
-        for sample in samples:
-            for key in sample.keys():
-                collate_dict[key].append(sample[key])
-
-        # Return the collate_dict
-        return collate_dict

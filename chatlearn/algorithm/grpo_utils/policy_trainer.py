@@ -195,7 +195,7 @@ class PolicyTrainer(FSDPModule):
 
     @timeit("fsdp_train_step")
     @compute_decorator(trainable=True, rollout=False)
-    def train_step(self, data_list, **kwargs):
+    def train_step(self, data_list, **kwargs): # pylint: disable=unused-argument
         """
         data_list: list of micro batchs [micro_bs0, micro_bs1]
         """
@@ -204,7 +204,6 @@ class PolicyTrainer(FSDPModule):
         pg_loss_list = []
         entropy_loss_list = []
         kl_loss_list = []
-        micro_bs_num = len(data_list)
         sp_group = get_sp_parallel_group()
         response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
         for inputs in data_list:
@@ -307,7 +306,7 @@ class PolicyTrainer(FSDPModule):
 
     @timeit("fsdp_forward_step")
     @compute_decorator(trainable=False, rollout=False)
-    def forward_step(self, data, **kwargs):
+    def forward_step(self, data, **kwargs): # pylint: disable=unused-argument
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = OLD_TAG
         if OLD_TAG in data[0].keys():

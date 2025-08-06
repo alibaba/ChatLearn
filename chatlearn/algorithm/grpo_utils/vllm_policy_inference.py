@@ -55,7 +55,7 @@ class VLLMPolicyInference(VLLMModule):
     
     @timeit("vllm_forward_step")
     @compute_decorator(trainable=False, rollout=True)
-    def forward_step(self, data, iteration=0, **kwargs):
+    def forward_step(self, data, iteration=0, **kwargs): # pylint: disable=unused-argument
         rets = self._forward_step(data, iteration, False)
         # collect metric
         response_token_length = [ret["response_token_length"] for ret in rets]

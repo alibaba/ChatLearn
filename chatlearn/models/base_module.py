@@ -211,7 +211,7 @@ class BaseModule:
             where the first dim of tensor or the len of list equals to batch size
         """
 
-    def train_step(self, data, iteration, **kwargs):
+    def train_step(self, data, **kwargs):
         """
         Perform train_step for one batch, including a list of micro-batches.
 
