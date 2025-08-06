@@ -14,7 +14,6 @@
 # ==============================================================================
 """Trainer"""
 
-import math
 import ray
 from ray.actor import ActorHandle
 

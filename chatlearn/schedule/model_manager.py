@@ -35,7 +35,6 @@ from chatlearn.synchronizer import MCoreParameterSyncGroup, FSDPParameterSyncGro
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
-from chatlearn.utils.global_vars import set_decorated, is_decorated
 from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
 
 from .port_manager import PortManager

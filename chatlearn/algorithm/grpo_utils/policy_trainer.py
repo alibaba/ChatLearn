@@ -27,16 +27,14 @@ from chatlearn import FSDPModule
 from chatlearn.utils import to_device
 from chatlearn.utils.communication_op import gather, get_sp_parallel_group
 from chatlearn.runtime.decorator import timeit, compute_decorator
-from .loss_gallery import calculate_grpo_loss
-from .trainer_utils import (logprobs_from_logits,
+from chatlearn.algorithm.grpo_utils.loss_gallery import calculate_grpo_loss
+from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             entropy_from_logits_with_chunking,
                             sp_split,
                             generate_loss_mask_position_ids,
                             split_microbatch,
                             batching,
                             split_and_unpadding)
-from .packing_utils import regroup_data_packing
-
 
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"
@@ -51,7 +49,7 @@ class PolicyTrainer(FSDPModule):
 
     def preprocess_data_list(self, data_list, training: bool):
         # compute response length sum in train global batch size for token-wise pg loss
-        response_token_length_total = torch.tensor(sum([data["response_token_length"] for data in data_list])).cuda() / self.sp_size
+        response_token_length_total = torch.tensor(sum(data["response_token_length"] for data in data_list)).cuda() / self.sp_size
         dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
         if self.packing:
             microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.max_token_in_seq, packing=self.packing)
@@ -77,7 +75,7 @@ class PolicyTrainer(FSDPModule):
             if self.packing:
                 # Packing data into one batch
                 attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
-                tokens_, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
+                tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
 
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
@@ -194,7 +192,7 @@ class PolicyTrainer(FSDPModule):
                         }
                     )
         return response_token_length_total, data_after_process
-    
+
     @timeit("fsdp_train_step")
     @compute_decorator(trainable=True, rollout=False)
     def train_step(self, data_list, **kwargs):
@@ -219,7 +217,7 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            
+
             # save memory while not use entropy in loss
             entropy_context = nullcontext() if self.module_args.entropy_coef > 0 else torch.no_grad()
             with entropy_context:
@@ -235,14 +233,14 @@ class PolicyTrainer(FSDPModule):
             if self.packing:
                 # Recover packing sequence
                 logprobs = pad_input(
-                    logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                    inputs['indices'], 
-                    inputs['ori_batch_size'], 
+                    logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                    inputs['indices'],
+                    inputs['ori_batch_size'],
                     inputs['ori_seq_len']).squeeze(-1)
                 entropy = pad_input(
-                    entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                    inputs['indices'], 
-                    inputs['ori_batch_size'], 
+                    entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                    inputs['indices'],
+                    inputs['ori_batch_size'],
                     inputs['ori_seq_len']).squeeze(-1)
             else:
                 logprobs_len = logprobs.shape[1]
@@ -286,7 +284,7 @@ class PolicyTrainer(FSDPModule):
             total_loss.backward()
 
 
-        # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor 
+        # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor
         # but results seems not right in torch 2.6.0+cu124
         # grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
         grad_norm = self.fsdp2_clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
@@ -306,7 +304,7 @@ class PolicyTrainer(FSDPModule):
             "grad_norm": grad_norm,
         }
         self._metric_list.append(train_stats)
-    
+
     @timeit("fsdp_forward_step")
     @compute_decorator(trainable=False, rollout=False)
     def forward_step(self, data, **kwargs):
@@ -333,9 +331,9 @@ class PolicyTrainer(FSDPModule):
                 if self.packing:
                     # Recover packing sequence
                     logprobs = pad_input(
-                        logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                        inputs['indices'], 
-                        inputs['ori_batch_size'], 
+                        logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                        inputs['indices'],
+                        inputs['ori_batch_size'],
                         inputs['ori_seq_len']
                     ).squeeze(-1)
                 else:

@@ -33,7 +33,6 @@ from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.constant import REF_LIST, INDEX_TAG
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
-from chatlearn.utils.utils import regroup_by_concat_along_batch, slice_by_index_along_batch, slice_data_list_by_index
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.common import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
@@ -212,7 +211,7 @@ class BaseModule:
             where the first dim of tensor or the len of list equals to batch size
         """
 
-    def train_step(self, data, iteration):
+    def train_step(self, data, iteration, **kwargs):
         """
         Perform train_step for one batch, including a list of micro-batches.
 
@@ -223,7 +222,7 @@ class BaseModule:
         iteration : int
             local train iteration
         """
-    
+
     def _preprocess_impl(self, data):
         # Preprocess after get list of sample
         return data
@@ -246,7 +245,7 @@ class BaseModule:
             if len(batched_data_list) > 1:
                 # When current node have several input nodes, we need to merge them
                 # Data size for each input node must be same
-                assert len(set([len(input_list) for input_list in batched_data_list])) == 1
+                assert len({len(input_list) for input_list in batched_data_list}) == 1
                 data_list = [{k: v for d in group for k, v in d.items()} for group in zip(*batched_data_list)]
             else:
                 data_list = batched_data_list[0]

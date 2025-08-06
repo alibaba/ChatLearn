@@ -132,7 +132,7 @@ def regroup_data_packing(
     torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
     bins_id, bin_seqlen = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
     # Prepare train data for each micro batch
-    for micro_batch_id, micro_batch_seqlen in zip(bins_id, bin_seqlen):
+    for micro_batch_id in bins_id:
         regroup_data_list.append([])
         for sample_id in micro_batch_id:
             packed_sample = data_list[sample_id]

@@ -18,17 +18,13 @@ import inspect
 import traceback
 import functools
 
-import torch
 from torch.cuda import nvtx
 import ray
 
 from chatlearn.utils import future
 from chatlearn.utils import utils
-from chatlearn.utils.constant import REF_LIST, INDEX_TAG
-from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
-from chatlearn.utils.utils import regroup_by_concat_along_batch, slice_by_index_along_batch
 
 def monitor_error(func_name):
     def decorator(func):
@@ -106,7 +102,7 @@ def compute_decorator(trainable, rollout):
                     self.onload_weights()
                 else:
                     self.onload()
-            
+
             # Run decrated function
             if 'iteration' in inspect.signature(func).parameters:
                 kwargs["iteration"] = self._iteration

@@ -1,7 +1,7 @@
 """pg loss"""
-import torch
 from typing import List
 
+import torch
 def calculate_grpo_loss(
     log_probs: torch.Tensor,
     old_log_probs: torch.Tensor,

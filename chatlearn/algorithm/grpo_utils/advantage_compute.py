@@ -1,7 +1,6 @@
 """compute advantage for grpo"""
 from collections import defaultdict
 
-import torch
 import numpy as np
 
 def compute_grpo_adv(episode_replay_buffers):
@@ -18,7 +17,7 @@ def compute_grpo_adv(episode_replay_buffers):
         rewards = np.array([each["rule_reward"] for each in l])
         mean = np.mean(rewards)
         std = np.std(rewards)
-        for i, li in enumerate(l):
+        for li in l:
             li["advantages"] = (li["rule_reward"] - mean) / (std + 1e-5)
         res_buffers.extend(l)
 

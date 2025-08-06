@@ -30,9 +30,8 @@ from chatlearn.utils import future
 from chatlearn.utils.constant import REF_LIST, INDEX_TAG, LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import encode_data, decode_data, FlowParser
+from chatlearn.runtime.utils import encode_data, decode_data, FlowParser
 
-import time
 # pylint: disable=not-callable
 class Executor:
     """Executor"""
@@ -337,7 +336,7 @@ class Executor:
         interval = num_output // num_dp_rank
         # For each dp rank, get the last actor's output
         result = [output[i] for i in range(interval - 1, num_output, interval)]
-        
+
         # Put encoded remote_refs into out_queue to avoid execution
         if isinstance(out_queue, list):
             for oq in out_queue:

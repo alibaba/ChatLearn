@@ -17,8 +17,7 @@ from typing import List, defaultdict
 
 import torch
 import torch.nn.functional as F
-from torch.nn.utils.rnn import pad_sequence
-from .packing_utils import regroup_data_packing
+from chatlearn.algorithm.grpo_utils.packing_utils import regroup_data_packing
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
@@ -92,7 +91,7 @@ def split_microbatch(data_list: List, micro_batch_size: int=None, max_train_toke
 
 def padding_tensor(tensor_list):
     dim_size = len(tensor_list[0].shape)
-    seqlen = max([tensor.shape[0] for tensor in tensor_list])
+    seqlen = max(tensor.shape[0] for tensor in tensor_list)
     pad_size = [seqlen - tensor.shape[0] for tensor in tensor_list]
     # Right pad tensor on dim 0
     batched_tensor = [

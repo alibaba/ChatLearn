@@ -28,7 +28,7 @@ from torch.utils.data import default_collate
 
 from chatlearn.utils import future
 from chatlearn.utils.constant import REF_LIST
-from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
+from chatlearn.utils.utils import map_reduce_metrics
 
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
     data = []
@@ -236,7 +236,7 @@ class StreamDataset:
             self._read_data_complete = num_rollout_batches <= 1
         self.iter = iter(self)
         self._has_next = True
-    
+
     def set_dp_size(self, dp_size:int):
         if self.dp_size is None:
             self.dp_size = dp_size

@@ -17,7 +17,7 @@ import os
 import random
 import gc
 import copy
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import torch
@@ -213,7 +213,7 @@ class FSDPModule(TorchModule):
         if self.sp_size > config.num_key_value_heads:
             assert self.sp_size % config.num_key_value_heads == 0, \
                 "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
-    
+
     @monitor_error("model_setup")
     @timeit("model_setup")
     def model_setup(self):
@@ -371,6 +371,9 @@ class FSDPModule(TorchModule):
         if empty_cache:
             gc.collect()
             torch.cuda.empty_cache()
+
+    def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
+        pass
 
     @torch.no_grad()
     def offload_optimizer_states(self, empty_cache=True):

@@ -19,7 +19,6 @@ from dataclasses import dataclass, field, fields
 from typing import Any
 import traceback
 
-import torch
 from algorithm.base_algo import BaseAlgorithm
 from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
                             PolicyTrainerConfig, RefPolicyConfig,
@@ -37,7 +36,6 @@ from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
-from chatlearn.utils.utils import listdict_to_dictlist
 
 try:
     from chatlearn.utils.megatron_utils import update_cfg

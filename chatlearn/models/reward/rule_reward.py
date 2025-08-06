@@ -48,7 +48,6 @@ class RuleReward(BaseModule):
         self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")
 
         reward = []
-        eval_source = []
 
         for data_b in data:
             str_output = data_b["str_outputs"]
@@ -56,15 +55,13 @@ class RuleReward(BaseModule):
             ground_truth = data_b["ground_truth"]
             compute_score_fn = self.select_rule_reward_score_fn(data_source)
             reward.append(compute_score_fn(str_output, ground_truth))
-            eval_source.append(data_source)
-            data_b.update({"rule_reward": reward[-1], "eval_source": eval_source[-1]})
-        return data, reward, eval_source
+            data_b.update({"rule_reward": reward[-1], "eval_source": data_source})
+        return data, reward
 
     @timeit("rule_reward_forward_step")
     @compute_decorator(trainable=False, rollout=False)
-    def forward_step(self, data: Dict, iteration=0, **kwargs) -> Dict:
-
-        data, reward, eval_source = self._forward_step(data)
+    def forward_step(self, data: Dict, iteration=0, **kwargs) -> Dict: # pylint: disable=unused-argument
+        data, reward = self._forward_step(data)
 
         # collect stats
         train_reward_score = sum(reward) / len(reward)
@@ -76,7 +73,7 @@ class RuleReward(BaseModule):
 
     @timeit("rule_reward_eval_forward_step")
     @compute_decorator(trainable=False, rollout=False)
-    def eval_forward(self, data: Dict, **kwargs) -> Dict:
+    def eval_forward(self, data: Dict, **kwargs) -> Dict: # pylint: disable=unused-argument
 
         return self._forward_step(data)[0]
 
