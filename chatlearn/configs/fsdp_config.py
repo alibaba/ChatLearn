@@ -27,14 +27,13 @@ class FSDPConfig(BaseConfig):
             avoid big reseverd memory in ref and policy trainer worker, expandable_segments should be False \
             while in parameter sync for efficiency"}
     )
-    save_hf: bool = field(default=True, metadata={"help": "whether to save transformer-style checkpoint"})
 
     def _validate_impl(self):
         assert self.num_gpu > 0, "FSDP requires at least one GPU"
         assert self.num_gpu % self.ulysses_sequence_parallel_size == 0, \
             "models.policy_trainer.num_gpu must be divisible by models.policy_trainer.ulysses_sequence_parallel_size"
 
-    def __post_init__(self):
+    def _post_init_impl(self):
         if isinstance(self, BaseModelConfig):
             # NOTE: currently fsdp_size hard-coded
             self.fsdp_size, self.num_replica = self.num_gpu, 1
@@ -50,3 +49,4 @@ class FSDPPolicyTrainerConfig(PolicyTrainerConfig, FSDPConfig):
     gradient_checkpointing: bool = field(
         default=True, metadata={"help": "whether gradient checkpointing"}
     )
+    save_hf: bool = field(default=True, metadata={"help": "whether to save transformer-style checkpoint"})

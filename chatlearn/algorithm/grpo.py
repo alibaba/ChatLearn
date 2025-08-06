@@ -31,7 +31,7 @@ from chatlearn.configs import (
     RuntimeConfig,
     RuntimeEnvConfig
 )
-from chatlearn.configs.fsdp_config import PolicyTrainerConfig, RefPolicyConfig
+from chatlearn.configs.fsdp_config import FSDPPolicyTrainerConfig, FSDPRefPolicyConfig
 
 from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
@@ -111,7 +111,7 @@ class GrpoConfig(BaseConfig):
 
         train_backend = self.runtime_args.train_backend
         if train_backend == "fsdp":
-            refpolicy_cls, policytrainer_cls = RefPolicyConfig, PolicyTrainerConfig
+            refpolicy_cls, policytrainer_cls = FSDPRefPolicyConfig, FSDPPolicyTrainerConfig
         elif train_backend == "megatron":
             refpolicy_cls, policytrainer_cls = (
                 MegatronRefPolicyConfig,
@@ -131,7 +131,7 @@ class GrpoConfig(BaseConfig):
         policy = self.models.policy
         assert sample_per_episode % policy.num_inference_per_prompt == 0, \
         "runtime_args.sample_per_episode must be divisible by models.policy.num_inference_per_prompt"
-        assert sample_per_episode % policy.dp_size == 0, (
+        assert sample_per_episode % policy.replica_dp_size == 0, (
             "runtime_args.sample_per_episode must be divisible by dp_size of policy model"
         )
         models = {
@@ -155,8 +155,8 @@ class GrpoConfig(BaseConfig):
             # fsdp: use micro_batch_size=generation_batch_size
             # we skip these checks currently
 
-            train_global_batch_size_per_dp_rank = runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
-            assert train_global_batch_size_per_dp_rank % runtime_args.train_micro_batch_size == 0, (
+            train_global_batch_size_per_dp_rank = self.runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
+            assert train_global_batch_size_per_dp_rank % self.runtime_args.train_micro_batch_size == 0, (
                 f"sample_per_dp_rank must be divisible by models.{name}.generation_batch_size, "
                 f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; generation_batch_size: {conf.generation_batch_size}"
             )
@@ -266,3 +266,4 @@ class GrpoAlgorithm(BaseAlgorithm):
 
     def validate(self):
         self.cfg.validate()
+        self.cfg.freeze()

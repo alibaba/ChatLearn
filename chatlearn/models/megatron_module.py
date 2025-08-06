@@ -66,6 +66,7 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             args = parse_args(self.add_extra_args, ignore_unknown_args=True)
+            args.train_iters = 1
 
             def try_convert_to_default_type(default_value, value):
                 """Convert value to type(default_value) if possible"""
@@ -89,13 +90,13 @@ if IS_MEGATRON_SUPPORTED:
                     used_names = set()
                 for field in fields(cfg):
                     key = field.name
-                    if key in used_names:
-                        raise ValueError(f"Attempt to pass {key} to Megatron twice")
-                    used_names.add(key)
                     value = getattr(cfg, key)
                     if isinstance(value, BaseConfig):
                         set_megatron_cfg(value, used_names)
                     elif hasattr(args, key):
+                        if key in used_names:
+                            raise ValueError(f"Attempt to pass {key} to Megatron twice")
+                        used_names.add(key)
                         setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
             set_megatron_cfg(self.module_args)
 

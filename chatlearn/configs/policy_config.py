@@ -95,7 +95,7 @@ class PolicyConfig(BaseModelConfig, RolloutConfig):
         assert self.num_gpu % self.num_replica == 0, \
             "The GPUs assigned to megatron model must be divisible by num_replica"   
 
-    def __post_init__(self):
+    def _post_init_impl(self):
         self.num_replica = self.num_gpu // (
             self.tensor_model_parallel_size *
             self.expert_model_parallel_size *

@@ -10,6 +10,9 @@ class BaseConfig:
     )
     def freeze(self):
         self._freeze = True
+        for value in asdict(self).values():
+            if isinstance(value, BaseConfig):
+                value.freeze()
 
     def __setattr__(self, key, value):
         if self._freeze:
@@ -56,12 +59,22 @@ class BaseConfig:
         """valid this config with `_validate_impl` implemented by
         each config class.
         """
-        for config_cls in self.__class__.__mro__[1:]:
+        for config_cls in self.__class__.__mro__:
             if issubclass(config_cls, BaseConfig):
                 config_cls._validate_impl(self)
 
     def _validate_impl(self):
         """valid this config, recursively called in `validate`.
         Should raise Error if failed.
+        """
+        return
+
+    def __post_init__(self):
+        for config_cls in self.__class__.__mro__:
+            if issubclass(config_cls, BaseConfig):
+                config_cls._post_init_impl(self)
+
+    def _post_init_impl(self):
+        """post init implementation
         """
         return

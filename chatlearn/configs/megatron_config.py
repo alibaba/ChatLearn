@@ -186,7 +186,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=1.0, metadata={"help": "rotary_scaling_factor "}
     )
 
-    def __post_init__(self):
+    def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'
 
@@ -284,7 +284,7 @@ class MegatronConfig(BaseConfig):
             assert self.megatron_model_cfg.moe_token_dispatcher_type != 'allgather', \
                 "Dynamic batching cannot be used when token-dispatcher use allgather"
 
-    def __post_init__(self):
+    def _post_init_impl(self):
         if isinstance(self, BaseModelConfig):
             self.num_replica = 1
             if not self.trainable:
@@ -363,5 +363,5 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
         },
     )
 
-    def __post_init__(self):
+    def _validate_impl(self):
         assert self.calculate_per_token_loss, "Per-Token-Loss is required for Training."
