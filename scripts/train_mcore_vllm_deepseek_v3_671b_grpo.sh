@@ -41,6 +41,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.eval_episode_interval=1 \
         runtime_args.enable_eval_before_training=false \
         models.policy_trainer.num_gpu=${num_device} \
+        models.policy_trainer.packing=false \
         models.policy_trainer.bf16=true \
         models.policy_trainer.sequence_parallel=true \
         models.policy_trainer.use_distributed_optimizer=true \
