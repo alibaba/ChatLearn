@@ -1,7 +1,7 @@
 """Config classes for FSDP"""
 from dataclasses import dataclass, field
 
-from .base import BaseConfig, PolicyTrainerConfig, RefPolicyConfig
+from .base import BaseConfig, PolicyTrainerConfig, RefPolicyConfig, BaseModelConfig
 
 
 __all__ = ['FSDPPolicyTrainerConfig', 'FSDPRefPolicyConfig']
@@ -40,9 +40,11 @@ class FSDPConfig(BaseConfig):
             self.fsdp_size, self.num_replica = self.num_gpu, 1
             self.replica_dp_size = self.num_gpu // (self.ulysses_sequence_parallel_size * self.num_replica)
 
+@dataclass
 class FSDPRefPolicyConfig(RefPolicyConfig, FSDPConfig):
     """Config for FSDP reference policy model"""
 
+@dataclass
 class FSDPPolicyTrainerConfig(PolicyTrainerConfig, FSDPConfig):
     """Config for FSDP policy trainer"""
     gradient_checkpointing: bool = field(

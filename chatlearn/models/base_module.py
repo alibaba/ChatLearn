@@ -33,7 +33,7 @@ from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
-from chatlearn.configs.common import BaseModelConfig
+from chatlearn.configs.base import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
 
 

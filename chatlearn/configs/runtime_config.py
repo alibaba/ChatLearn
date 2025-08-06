@@ -4,7 +4,7 @@ from typing import Optional, List
 from omegaconf import MISSING
 
 from chatlearn.utils.constant import RAY_PG_STRATEGY
-from .base_config import BaseConfig
+from .base import BaseConfig
 
 
 __all__ = ['RuntimeConfig', 'RuntimeEnvConfig']

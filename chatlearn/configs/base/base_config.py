@@ -1,6 +1,6 @@
 """Base config class"""
 from dataclasses import asdict, dataclass, field
-
+from typing import Iterator,Tuple, Any
 
 @dataclass
 class BaseConfig:
@@ -40,7 +40,7 @@ class BaseConfig:
         """support args.get(key)"""
         return getattr(self, key, default)
 
-    def items(self) -> Iterator[tuple[str, Any]]:
+    def items(self) -> Iterator[Tuple[str, Any]]:
         """support args.items()"""
         return asdict(self).items()
 

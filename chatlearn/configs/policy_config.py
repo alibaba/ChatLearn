@@ -3,7 +3,7 @@ from dataclasses import dataclass, field
 
 from .base import BaseConfig, BaseModelConfig
 
-
+@dataclass
 class RolloutConfig(BaseConfig):
     """The config for rollout models. Currently this config is
     shared between vLLM and SGLang.

@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 
 from .base_config import BaseConfig
+from .base_model_config import BaseModelConfig
 
 @dataclass
 class OptimizerConfig(BaseConfig):
@@ -30,9 +31,11 @@ class OptimizerConfig(BaseConfig):
         },
     )
 
+@dataclass
 class RefPolicyConfig(BaseModelConfig):
     """Common configs for reference policy model"""
 
+@dataclass
 class RewardConfig(BaseModelConfig):
     """Common configs for reward model"""
 
@@ -51,6 +54,8 @@ class PolicyTrainerConfig(BaseModelConfig):
     )
     pos_clip_ratio: float = field(default=0.2)
     neg_clip_ratio: float = field(default=0.2)
+    diff_clip_ratio: float = field(default=10)
+    final_clip_ratio: float = field(default=3)
     use_group_sequence_policy: bool = field(
         default=False, metadata={"help": "whether to use group sequence policy optimization"}
     )

@@ -30,7 +30,7 @@ try:
 except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
-from chatlearn.configs.common import BaseConfig
+from chatlearn.configs import BaseConfig
 from chatlearn.utils.mappings import build_sharded_info_for_mcore_model
 from .torch_module import TorchModule
 

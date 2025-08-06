@@ -2,6 +2,8 @@
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .base_config import BaseConfig
+
 @dataclass
 class FreeGpuMemoryConfig(BaseConfig):
     """Configs to on"""

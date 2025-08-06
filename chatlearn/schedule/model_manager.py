@@ -23,7 +23,7 @@ import time
 import ray
 import ray.experimental.state.api
 
-from chatlearn.configs.common import BaseConfig
+from chatlearn.configs import BaseConfig
 from chatlearn.launcher import dlc_utils
 from chatlearn.models.base_module import BaseModule
 from chatlearn.models.fsdp_module import FSDPModule

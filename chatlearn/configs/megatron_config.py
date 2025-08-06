@@ -1,5 +1,3 @@
-# pylint: disable=missing-module-docstring
-# pylint: disable=missing-class-docstring
 import math
 from typing import Optional
 from dataclasses import dataclass, field
@@ -9,11 +7,12 @@ from omegaconf import MISSING
 from megatron.training.arguments import moe_freq_type
 from megatron.core.transformer.enums import AttnBackend
 
-from .base import BaseConfig, PolicyTrainerConfig, RefPolicyConfig
+from .base import BaseConfig, PolicyTrainerConfig, RefPolicyConfig, BaseModelConfig
 
 # TODO: deprecate MegatronModelArchitectureConfig as users do not need to pass these values.
 @dataclass
 class MegatronModelArchitectureConfig(BaseConfig):
+    """[Deprecated Warning] architecture configs for megatron model"""
     attention_dropout: float = field(
         default=0.0, metadata={"help": "Post attention dropout probability."}
     )
@@ -197,6 +196,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
 
 @dataclass
 class MegatronConfig(BaseConfig):
+    """configs for megatron model"""
     # NOTE: model parallel config
     tensor_model_parallel_size: int = field(
         default=1, metadata={"help": "tensor model parallel size"}
@@ -225,7 +225,10 @@ class MegatronConfig(BaseConfig):
         metadata={"help": "Enable sequence parallel optimization for mcore"},
     )
     # NOTE: model parallel config
-
+    seq_length: int = field(
+        default=MISSING,
+        metadata={"help": "Maximum sequence length to process."},
+    )
     tokenizer_type: str = field(
         default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
     )
@@ -301,12 +304,13 @@ class MegatronConfig(BaseConfig):
                 self.megatron_model_cfg.moe_token_dispatcher_type = 'alltoall'
 
 
-
+@dataclass
 class MegatronRefPolicyConfig(RefPolicyConfig, MegatronConfig):
-    ...
+    """Configs for megatron reference policy model"""
 
 @dataclass
 class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
+    """Configs for megatron policy trainer model"""
     recompute_granularity: Optional[str] = field(
         default=None,
         metadata={
