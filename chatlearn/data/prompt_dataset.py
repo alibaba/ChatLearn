@@ -1,6 +1,5 @@
 """prompt dataset"""
 
-from collections import defaultdict
 from typing import List, Dict
 
 from torch.utils.data import Dataset
