@@ -306,7 +306,7 @@ class PolicyTrainer(FSDPModule):
 
     @timeit("fsdp_forward_step")
     @compute_decorator(trainable=False, rollout=False)
-    def forward_step(self, data, **kwargs): # pylint: disable=unused-argument
+    def forward_step(self, data, **kwargs): # pylint: disable=unused-argument,arguments-differ
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = OLD_TAG
         if OLD_TAG in data[0].keys():
