@@ -1,7 +1,7 @@
 """compute advantage for grpo"""
 from collections import defaultdict
 
-import torch
+import numpy as np
 
 def compute_grpo_adv(episode_replay_buffers):
     buffers = episode_replay_buffers[-1].buffer
@@ -14,13 +14,11 @@ def compute_grpo_adv(episode_replay_buffers):
 
     res_buffers = []
     for _, l in queryids2samples.items():
-        rewards = [each["rule_rewards"] for each in l]
-        rewards = torch.cat(rewards, dim=0)
-
-        mean = torch.mean(rewards)
-        std = torch.std(rewards)
-        for i, li in enumerate(l):
-            li["advantages"] = (rewards[i] - mean) / (std + 1e-5)
+        rewards = np.array([each["rule_reward"] for each in l])
+        mean = np.mean(rewards)
+        std = np.std(rewards)
+        for li in l:
+            li["advantages"] = (li["rule_reward"] - mean) / (std + 1e-5)
         res_buffers.extend(l)
 
     # Sort samples by original order in buffer

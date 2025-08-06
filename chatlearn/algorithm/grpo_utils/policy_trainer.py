@@ -1,4 +1,19 @@
-# pylint: skip-file
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""FSDP Trainer"""
+
 import math
 from contextlib import nullcontext
 
@@ -11,13 +26,15 @@ from flash_attn.bert_padding import pad_input, unpad_input
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
 from chatlearn.utils.communication_op import gather, get_sp_parallel_group
-from .loss_gallery import calculate_grpo_loss
-from .trainer_utils import (logprobs_from_logits,
+from chatlearn.runtime.decorator import timeit, compute_decorator
+from chatlearn.algorithm.grpo_utils.loss_gallery import calculate_grpo_loss
+from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             entropy_from_logits_with_chunking,
                             sp_split,
-                            generate_loss_mask_position_ids)
-from .packing_utils import regroup_data_packing
-
+                            generate_loss_mask_position_ids,
+                            split_microbatch,
+                            batching,
+                            split_and_unpadding)
 
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"
@@ -30,20 +47,24 @@ class PolicyTrainer(FSDPModule):
         super().setup()
         self._metric_prefix = "policy_trainer"
 
-    def preprocess_data_list(self, data_list, training:bool):
+    def preprocess_data_list(self, data_list, training: bool):
         # compute response length sum in train global batch size for token-wise pg loss
-        response_token_length_total = torch.tensor(sum(sum(data["response_token_length"]) for data in data_list)).cuda() / self.sp_size
+        response_token_length_total = torch.tensor(sum(data["response_token_length"] for data in data_list)).cuda() / self.sp_size
         dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
-
-        minibatch_size_per_rank = len(data_list) * data_list[0]["all_tokens"].size(0)
         if self.packing:
-            # When packing is enabled, data_list will only contain one microbatch
-            # Microbatch will be regrouped
-            if not training:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length"]
+            microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.max_token_in_seq, packing=self.packing)
+        else:
+            if training:
+                microbatch_size = self.train_micro_batch_size
             else:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG]
-            data_list = regroup_data_packing(data_list, regroup_keywords, self.max_token_in_seq)
+                microbatch_size = self.generate_micro_batch_size
+            microbatch_list = split_microbatch(data_list=data_list, micro_batch_size=microbatch_size, packing=self.packing)
+
+        if not training:
+            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "id_in_list"]
+        else:
+            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG, "id_in_list"]
+        data_list = [batching(data_b, regroup_keywords) for data_b in microbatch_list]
 
         data_after_process = []
         for data_b in data_list:
@@ -54,7 +75,7 @@ class PolicyTrainer(FSDPModule):
             if self.packing:
                 # Packing data into one batch
                 attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
-                tokens_, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
+                tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
 
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
@@ -91,8 +112,8 @@ class PolicyTrainer(FSDPModule):
                             "ori_seq_len": ori_seq_len,
                             "ori_batch_size": ori_batch_size,
                             "indices": indices,
-                            "bin_ids": data_b["bin_ids"],
-                            "bin_seqlen": data_b["bin_seqlen"],
+                            "sample_ids": data_b["id_in_list"],
+                            "attention_mask": attn_mask,
                             "pad_size": pad_size,
                         }
                     )
@@ -108,10 +129,10 @@ class PolicyTrainer(FSDPModule):
                             "ori_seq_len": ori_seq_len,
                             "ori_batch_size": ori_batch_size,
                             "indices": indices,
-                            "bin_ids": data_b["bin_ids"],
-                            "bin_seqlen": data_b["bin_seqlen"],
+                            "sample_ids": data_b["id_in_list"],
                             "pad_size": pad_size,
                             "loss_mask": loss_mask,
+                            "attention_mask": attn_mask,
                             "old_logprobs": data_b[OLD_TAG],
                             "ref_logprobs": data_b[REF_TAG],
                             "advantages": data_b["advantages"],
@@ -146,6 +167,8 @@ class PolicyTrainer(FSDPModule):
                             "ori_seq_len": ori_seq_len,
                             "ori_batch_size": ori_batch_size,
                             "labels": labels,
+                            "sample_ids": data_b["id_in_list"],
+                            "attention_mask": attn_mask,
                             "pad_size": pad_size,
                         }
                     )
@@ -160,15 +183,19 @@ class PolicyTrainer(FSDPModule):
                             "ori_batch_size": ori_batch_size,
                             "labels": labels,
                             "pad_size": pad_size,
+                            "sample_ids": data_b["id_in_list"],
                             "loss_mask": loss_mask,
+                            "attention_mask": attn_mask,
                             "old_logprobs": data_b[OLD_TAG],
                             "ref_logprobs": data_b[REF_TAG],
                             "advantages": data_b["advantages"],
                         }
                     )
-        return minibatch_size_per_rank, response_token_length_total, data_after_process
+        return response_token_length_total, data_after_process
 
-    def train_step(self, data_list):
+    @timeit("fsdp_train_step")
+    @compute_decorator(trainable=True, rollout=False)
+    def train_step(self, data_list, **kwargs): # pylint: disable=unused-argument
         """
         data_list: list of micro batchs [micro_bs0, micro_bs1]
         """
@@ -177,9 +204,8 @@ class PolicyTrainer(FSDPModule):
         pg_loss_list = []
         entropy_loss_list = []
         kl_loss_list = []
-        micro_bs_num = len(data_list)
         sp_group = get_sp_parallel_group()
-        minibatch_size_per_rank, response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
+        response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -190,7 +216,7 @@ class PolicyTrainer(FSDPModule):
                 use_cache=False,
             )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
-            
+
             # save memory while not use entropy in loss
             entropy_context = nullcontext() if self.module_args.entropy_coef > 0 else torch.no_grad()
             with entropy_context:
@@ -206,14 +232,14 @@ class PolicyTrainer(FSDPModule):
             if self.packing:
                 # Recover packing sequence
                 logprobs = pad_input(
-                    logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                    inputs['indices'], 
-                    inputs['ori_batch_size'], 
+                    logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                    inputs['indices'],
+                    inputs['ori_batch_size'],
                     inputs['ori_seq_len']).squeeze(-1)
                 entropy = pad_input(
-                    entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                    inputs['indices'], 
-                    inputs['ori_batch_size'], 
+                    entropy[0, :entropy.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                    inputs['indices'],
+                    inputs['ori_batch_size'],
                     inputs['ori_seq_len']).squeeze(-1)
             else:
                 logprobs_len = logprobs.shape[1]
@@ -257,7 +283,7 @@ class PolicyTrainer(FSDPModule):
             total_loss.backward()
 
 
-        # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor 
+        # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor
         # but results seems not right in torch 2.6.0+cu124
         # grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
         grad_norm = self.fsdp2_clip_grad_norm_(self.model.parameters(), max_norm=self.module_args.optimizer.clip_grad).detach().item()
@@ -278,14 +304,14 @@ class PolicyTrainer(FSDPModule):
         }
         self._metric_list.append(train_stats)
 
-    def forward_step(self, data):
-        total_size = data['all_tokens'].shape[0]
-        ori_seq_len = data['all_tokens'].shape[1]
-
-        _, _, data_list = self.preprocess_data_list(data_list=[data], training=False)
+    @timeit("fsdp_forward_step")
+    @compute_decorator(trainable=False, rollout=False)
+    def forward_step(self, data, **kwargs): # pylint: disable=unused-argument,arguments-differ
+        _, data_list = self.preprocess_data_list(data_list=data, training=False)
+        tag = OLD_TAG
+        if OLD_TAG in data[0].keys():
+            tag = REF_TAG
         # Logprobs holder
-        output_logprobs = torch.empty(total_size, ori_seq_len, dtype=torch.bfloat16)
-        token_in_seq = []
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -304,24 +330,18 @@ class PolicyTrainer(FSDPModule):
                 if self.packing:
                     # Recover packing sequence
                     logprobs = pad_input(
-                        logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1), 
-                        inputs['indices'], 
-                        inputs['ori_batch_size'], 
+                        logprobs[0, :logprobs.shape[1] - inputs['pad_size']].unsqueeze(-1),
+                        inputs['indices'],
+                        inputs['ori_batch_size'],
                         inputs['ori_seq_len']
                     ).squeeze(-1)
                 else:
                     logprobs_len = logprobs.shape[1]
                     # Unpad
                     logprobs = F.pad(logprobs, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
-            if self.packing:
-                output_logprobs[torch.tensor(inputs["bin_ids"])] = logprobs.cpu()
-                token_in_seq.append(sum(inputs["bin_seqlen"]))
-            else:
-                output_logprobs = logprobs.cpu()
-        rank_caculate = torch.distributed.get_rank()
-        tag = OLD_TAG
-        if OLD_TAG in data.keys():
-            tag = REF_TAG
-        data.update({tag: output_logprobs})
+            # Turn logprobs tensor into list of tensors
+            logprobs_tensor_list = split_and_unpadding(logprobs, inputs['attention_mask'])
+            for sample_id, logprob in zip(inputs['sample_ids'], logprobs_tensor_list):
+                data[sample_id].update({tag: logprob})
 
         return data

@@ -101,26 +101,9 @@ def regroup_data_from_list(data_all: Dict, data_position: List[int]):
     if isinstance(data_all, list):
         return [data_all[item] for item in data_position]
 
-def merge_data_list(data_list: List):
-    if len(data_list) == 1:
-        return data_list[0]
-    # Extract all data
-    merged_data = {}
-    for key in data_list[0]:
-        merged_data[key] = []
-    for data_all in data_list:
-        for key in data_all:
-            merged_data[key].append(data_all[key])
-    for key in merged_data: # pylint: disable=consider-using-dict-items
-        if isinstance(merged_data[key][0], torch.Tensor):
-            merged_data[key] = torch.cat(merged_data[key], dim=0)
-        elif isinstance(merged_data[key][0], list):
-            merged_data[key] = [item for sub_list in merged_data[key] for item in sub_list]
-    return merged_data
 
 def regroup_data_packing(
     data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]],
-    key_list: List[str],
     max_train_token: int
 ) -> List[Dict[str, Union[torch.Tensor, List[Any]]]]:
     """Automatically split a list of data into serveral micro-batches according to
@@ -130,34 +113,29 @@ def regroup_data_packing(
     Args:
         data_list (List[Dict[str, Union[torch.Tensor, List[Any]]]]): A list of 
         PRE-BATCHED data to be regrouped.
-        key_list (List[str]): The keynames to be returned in the final regrouped batches.
         max_train_token (int): The maximum token num in each batch.
     
     Returns:
-        a list of micro-batches. Each batch is a Dict, mapping key in
-        `key_list` to a List of values or a Tensor (the first dim of this tensor is `batch`)
+        a list of micro-batches. Each micro-batch is a list of samples without batching.
     """
     # data_b should contain all data in one microbatch
-    data_b = merge_data_list(data_list)
     regroup_data_list = []
     # Get train tokens for whole minibatch
     total_token_length = [
-        prompt_len + response_len
-        for prompt_len, response_len
-        in zip(data_b["prompt_token_length"], data_b["response_token_length"])
+        data_b["prompt_token_length"] + data_b["response_token_length"]
+        for data_b in data_list
     ]
     # Get bin_packing result
-    bins_id, bin_seqlen = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
+    bins_id, _ = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
     bin_size = torch.tensor(len(bins_id)).cuda()
     # Get max_bin_size across all dp rank
     torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
-    bins_id, bin_seqlen = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
+    bins_id, _ = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
     # Prepare train data for each micro batch
-    for micro_batch_id, micro_batch_seqlen in zip(bins_id, bin_seqlen):
-        data_new = {}
-        for key in key_list:
-            data_new[key] = regroup_data_from_list(data_b[key], micro_batch_id)
-        data_new["bin_ids"] = micro_batch_id
-        data_new["bin_seqlen"] = micro_batch_seqlen
-        regroup_data_list.append(data_new)
+    for micro_batch_id in bins_id:
+        regroup_data_list.append([])
+        for sample_id in micro_batch_id:
+            packed_sample = data_list[sample_id]
+            packed_sample.update({'id_in_list': sample_id})
+            regroup_data_list[-1].append(packed_sample)
     return regroup_data_list

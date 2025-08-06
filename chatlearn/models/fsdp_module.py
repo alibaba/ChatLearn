@@ -17,7 +17,7 @@ import os
 import random
 import gc
 import copy
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import torch
@@ -35,7 +35,9 @@ from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
+from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
+
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -63,6 +65,9 @@ class FSDPModule(TorchModule):
         self.sp_device_mesh = None
         self.packing = self.module_args.packing
         self.max_token_in_seq = self.module_args.max_token_in_packing
+        self.generate_micro_batch_size = self.module_args.generation_batch_size
+        if self.module_args.trainable:
+            self.train_micro_batch_size = self.module_args.train_micro_batch_size
 
         assert self.total_gpu > 0, "FSDP requires at least one GPU"
         # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
@@ -180,7 +185,6 @@ class FSDPModule(TorchModule):
                 )
         dist.barrier()
         return model
-
     @property
     def data_parallel_size(self):
         """
@@ -210,6 +214,8 @@ class FSDPModule(TorchModule):
             assert self.sp_size % config.num_key_value_heads == 0, \
                 "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
 
+    @monitor_error("model_setup")
+    @timeit("model_setup")
     def model_setup(self):
         """
         :meta private:
@@ -366,6 +372,9 @@ class FSDPModule(TorchModule):
             gc.collect()
             torch.cuda.empty_cache()
 
+    def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
+        pass
+
     @torch.no_grad()
     def offload_optimizer_states(self, empty_cache=True):
         if not self.optimizer.state:
@@ -394,7 +403,7 @@ class FSDPModule(TorchModule):
 
         if empty_cache:
             torch.cuda.empty_cache()
-
+    @timeit("save_checkpoint")
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
         if dist.get_rank() == 0 and not os.path.exists(save_dir):

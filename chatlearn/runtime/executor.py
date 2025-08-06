@@ -27,11 +27,10 @@ from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.model_flow import ModelFlow, ModelNode
 from chatlearn.runtime.dist_actor import DistModel, DistActor
 from chatlearn.utils import future
-from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG, INDEX_TAG, LOG_START
+from chatlearn.utils.constant import REF_LIST, INDEX_TAG, LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
-from .utils import encode_data, decode_data, FlowParser
-
+from chatlearn.runtime.utils import encode_data, decode_data, FlowParser
 
 # pylint: disable=not-callable
 class Executor:
@@ -133,7 +132,7 @@ class Executor:
         Warning: 
         1. In graph, the data is ObjectRef, we can not get the real data.
         2. This function is used at the end of executor, align every queue to have same data size. 
-        3. As the data is ObjectRef, we just regroup ObjectRef in every list item, and actual merge data in !!!decorator.preprocess_compute
+        3. As the data is ObjectRef, we just regroup ObjectRef in every list item, and actual merge data in !!!decorator.compute_decorator
         """
         out_queues = []
         min_qsize = min([ele.qsize() for ele in queues]) # pylint: disable=consider-using-generator
@@ -160,7 +159,7 @@ class Executor:
                     end = start + division
                     # TODO: Refacor this nested var
                     # !!!the data in out_queue is Dict[int, Dict[str, List[ObjectRef]]]]
-                    out_queue.put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
+                    out_queue.put(encode_data(q_idx, {REF_LIST:res_list[start:end]}))
                 out_queues.append(out_queue)
         return out_queues
 
@@ -208,7 +207,7 @@ class Executor:
         """
         re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
         warning: input_queues and output_queues are ray.util.queue.Queue, we can't get real data in executor.
-        will actual merge data in !!!decorator.preprocess_compute
+        will actual merge data in !!!decorator.compute_decorator
         """
         # if this node is the first node, just pass the queues
         if not model_node.input_nodes:
@@ -238,7 +237,7 @@ class Executor:
                     for q_idx in range(out_qsize):
                         start = q_idx * division
                         end = start + division
-                        out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG:res_list[start:end]}))
+                        out_queues[index].put(encode_data(q_idx, {REF_LIST:res_list[start:end]}))
                 else:
                     # Deal with the case where num_producers < num_consumers
                     # TODO: add index for one2many case
@@ -251,7 +250,7 @@ class Executor:
                         start = q_idx // division
                         end = start + 1
                         # q_idx means dp rank
-                        out_queues[index].put(encode_data(q_idx, {CHATLEARN_REGROUP_TAG: res_list[start:end],
+                        out_queues[index].put(encode_data(q_idx, {REF_LIST: res_list[start:end],
                                                               INDEX_TAG: (q_idx % division, division)}))
         return out_queues
 
@@ -335,8 +334,10 @@ class Executor:
             f"the number of dp_ranks ({num_dp_rank}) in a replica."
         )
         interval = num_output // num_dp_rank
+        # For each dp rank, get the last actor's output
         result = [output[i] for i in range(interval - 1, num_output, interval)]
 
+        # Put encoded remote_refs into out_queue to avoid execution
         if isinstance(out_queue, list):
             for oq in out_queue:
                 for res, mb in result:
@@ -344,8 +345,7 @@ class Executor:
         else:
             for res, mb in result:
                 out_queue.put(encode_data(mb, res))
-        # To ensure all Actors are finished synchronously, all remote refs should be returned
-        # note that ray wait does not support tuple type, return a list of list
+        # Get all remote_refs from output, using this list to do ray execution
         remote_refs = [item[0] for item in output]
         return out_queue, remote_refs
 
@@ -415,9 +415,12 @@ class Executor:
             logger.info(f"{LOG_START} Sync {model} in the end of {self.__class__.__name__}")
             self._models_and_results_to_wait.append((model_node, results))
 
-    def compute_loop(self, out_queue, num_batch=None):
+    def compute_loop(self, out_queue: Queue, num_batch=None):
         """
-        compute for all model node in executor
+        Main graph-executor.
+        Following BFS, remote call all functions in the model_flow.
+        For each node in model_flow, the remote call will wait for it's colocated models to finish.
+        Since each node get ObjectRefs as input, we don't need to explicit wait for it's parent node to finish (ray.get will wait).
         """
         for model_group in self.model_flow.flow_topology:
             for model_node in model_group:
@@ -439,7 +442,7 @@ class Executor:
             for model_name in model_names:
                 self.timers(f"{model_name}").start()
             func_name = self.model_flow.model_nodes[0].func_name
-            future.wait(results, f"{model_names} {func_name}")
+            future.wait(results, f"{model_names} {func_name}", True)
             for model_name in model_names:
                 self.timers(f"{model_name}").stop()
             self._models_and_results_to_wait = []
