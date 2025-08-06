@@ -74,7 +74,7 @@ models:
     diff_clip_ratio: 10
     final_clip_ratio: 3
     packing: true
-    max_token_in_packing: 32768
+    max_token_in_packing: ${models.policy_trainer.seq_length}
   ref_policy:
     free_gpu_memory:
       offload_weights: True
