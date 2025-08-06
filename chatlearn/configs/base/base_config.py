@@ -1,5 +1,5 @@
 """Base config class"""
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass
 from typing import Iterator,Tuple, Any
 
 @dataclass

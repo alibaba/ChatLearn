@@ -1,3 +1,4 @@
+"""Config classes from Megatron Model"""
 import math
 from typing import Optional
 from dataclasses import dataclass, field
