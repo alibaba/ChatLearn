@@ -193,6 +193,11 @@ class RuntimeConfig(BaseConfig):
         assert self.sample_per_episode % self.train_global_batch_size == 0, \
             "runtime_args.sample_per_episode must be divisible by runtime_args.train_global_batch_size"            
 
+    def _post_init_impl(self):
+        # TODO: Currently supports single-layer colocation, and need to support more complex scenarios in the future.
+        if self.colocation and isinstance(self.colocation[0], str):
+            self.colocation = [self.colocation]
+
 @dataclass
 class RuntimeEnvConfig(BaseConfig):
     """Runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""

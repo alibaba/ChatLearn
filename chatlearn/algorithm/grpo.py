@@ -266,4 +266,3 @@ class GrpoAlgorithm(BaseAlgorithm):
 
     def validate(self):
         self.cfg.validate()
-        self.cfg.freeze()

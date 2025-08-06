@@ -1,27 +1,11 @@
 """Base config class"""
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from typing import Iterator,Tuple, Any
 
 @dataclass
 class BaseConfig:
     """Base config class"""
-    _freeze: bool = field(
-        default=False, metadata={"help": "If True, this config cannot be modified."}
-    )
-    def freeze(self):
-        self._freeze = True
-        for value in asdict(self).values():
-            if isinstance(value, BaseConfig):
-                value.freeze()
-
-    def __setattr__(self, key, value):
-        if self._freeze:
-            raise ValueError("Attempt to modify a frozen config.")
-        object.__setattr__(self, key, value)
-
     def __setitem__(self, key, value):
-        if self._freeze:
-            raise ValueError("Attempt to modify a frozen config.")
         if hasattr(self, key):
             setattr(self, key, value)
         else:
@@ -29,8 +13,6 @@ class BaseConfig:
 
     def __getitem__(self, key: str):
         """support args[key]"""
-        if self._freeze:
-            raise ValueError("Attempt to modify a frozen config.")
         if hasattr(self, key):
             return getattr(self, key)
         raise KeyError(key)
