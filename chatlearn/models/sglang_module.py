@@ -40,28 +40,11 @@ class SGLangModule(TorchModule):
         """The chatlearn wrapper for a sglang model.
         """
         super().__init__(name, args=args, replica_id=replica_id)
-
-        assert self.total_gpu > 0, "SGLang requires at least one GPU"
-        assert not self.trainable, "SGLang does not support training"
-        # TODO: support expert-model parallel
-        assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of SGLang is not supported"
-        assert self.module_args.pipeline_model_parallel_size == 1, "Pipeline Parallel of SGLang is not supported"
-
-        self._num_gpu_per_replica = (
-            self.module_args.tensor_model_parallel_size
-        )
         self.tensor_model_parallel_size = self.module_args.tensor_model_parallel_size
-
-        assert self.total_gpu % self._num_gpu_per_replica == 0, \
-            "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
-
-        self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
         # get gpu_per_node used for setup sglang
         resource = ray.nodes()[0]['Resources']
         self.gpu_per_node = int(resource['GPU'])
         self.llm = None
-
         self._metric_prefix = 'sglang_inference'
 
 

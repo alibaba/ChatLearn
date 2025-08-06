@@ -66,9 +66,9 @@ class BaseModule:
         self.replica_id = replica_id
         self._is_colocate = False
 
-        # NOTE: the below two attributes may be further calculated by submodule
-        self._num_gpu_per_replica = self.total_gpu
-        self._num_replica = 1
+        # TODO: use values from config later
+        self._num_gpu_per_replica = self.total_gpu // self.module_args.num_replica
+        self._num_replica = self.module_args.num_replica
 
         self._param_ranks = None
         self._named_parameters = None

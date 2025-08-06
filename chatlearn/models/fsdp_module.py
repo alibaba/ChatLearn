@@ -64,14 +64,6 @@ class FSDPModule(TorchModule):
         self.packing = self.module_args.packing
         self.max_token_in_seq = self.module_args.max_token_in_packing
 
-        assert self.total_gpu > 0, "FSDP requires at least one GPU"
-        # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
-        if not self.trainable:
-            self._num_gpu_per_replica = self.fsdp_size
-            assert self.total_gpu % self._num_gpu_per_replica == 0, \
-                "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
-            self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
     @staticmethod
     def init_fn(x: torch.nn.Module):
         if torch.distributed.get_rank() != 0:
