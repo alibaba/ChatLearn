@@ -107,7 +107,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, num_minibsz, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -116,6 +116,8 @@ class StreamDataset:
             self._dynamic_dataset = False
         else:
             self._dynamic_dataset = True
+        self.num_minibsz = num_minibsz
+        self.dp_size = None
         self.batch_size = micro_batch_size
 
         if max_replay_episode < 0:
@@ -155,6 +157,9 @@ class StreamDataset:
         """
         produce_index = 0
         batch_count = 0
+        assert self.dp_size is not None, "dp_size must be set before data fetching"
+        self.batch_size = self._total_samples // self.num_minibsz // self.dp_size
+        #print(f"total sample: {self._total_samples}, minibsz: {self.num_minibsz}, dp_size: {self.dp_size}, offset: {offset}")
         while produce_index < self._total_samples:
             # read from cache
             if len(self.replay_buffer) < self._total_samples:
@@ -194,12 +199,7 @@ class StreamDataset:
 
     def next(self):
         """get next batch"""
-        try:
-            data = next(self.iter)
-            return data
-        except StopIteration:
-            self._has_next = False
-            return None
+        return next(self.iter)
 
     def has_next(self):
         """
@@ -236,9 +236,16 @@ class StreamDataset:
             self._read_data_complete = num_rollout_batches <= 1
         self.iter = iter(self)
         self._has_next = True
+    
+    def set_dp_size(self, dp_size:int):
+        if self.dp_size is None:
+            self.dp_size = dp_size
 
     def episode_replay_buffers(self):
         return self._episode_replay_buffers
+
+    def num_iteration(self):
+        return self.num_minibsz
 
     def total_samples(self):
         return self._total_samples

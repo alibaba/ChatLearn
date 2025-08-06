@@ -1,4 +1,19 @@
-# pylint: skip-file
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+# ==============================================================================
+"""FSDP Trainer"""
+
 import math
 from contextlib import nullcontext
 
@@ -35,9 +50,6 @@ class PolicyTrainer(FSDPModule):
         self._metric_prefix = "policy_trainer"
 
     def preprocess_data_list(self, data_list, training: bool):
-        if training:
-            data_list = data_list[0][0]
-        #print(f"debugyy data_list: {data_list}")
         # compute response length sum in train global batch size for token-wise pg loss
         response_token_length_total = torch.tensor(sum([data["response_token_length"] for data in data_list])).cuda() / self.sp_size
         dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
@@ -184,7 +196,7 @@ class PolicyTrainer(FSDPModule):
         return response_token_length_total, data_after_process
     
     @timeit("fsdp_train_step")
-    @compute_decorator(trainable=True)
+    @compute_decorator(trainable=True, rollout=False)
     def train_step(self, data_list, **kwargs):
         """
         data_list: list of micro batchs [micro_bs0, micro_bs1]
@@ -296,7 +308,7 @@ class PolicyTrainer(FSDPModule):
         self._metric_list.append(train_stats)
     
     @timeit("fsdp_forward_step")
-    @compute_decorator(trainable=False)
+    @compute_decorator(trainable=False, rollout=False)
     def forward_step(self, data, **kwargs):
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = OLD_TAG

@@ -32,6 +32,7 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
+from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
 
 # pylint: disable=unexpected-keyword-arg
@@ -158,6 +159,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
+    @timeit("setup_vllm")
     def setup_vllm(self, workers):
         """setup vllm engine
         used in Environment.setup()

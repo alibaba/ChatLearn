@@ -443,7 +443,7 @@ class Executor:
             for model_name in model_names:
                 self.timers(f"{model_name}").start()
             func_name = self.model_flow.model_nodes[0].func_name
-            future.wait(results, f"{model_names} {func_name}")
+            future.wait(results, f"{model_names} {func_name}", True)
             for model_name in model_names:
                 self.timers(f"{model_name}").stop()
             self._models_and_results_to_wait = []

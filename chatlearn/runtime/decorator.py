@@ -1,4 +1,4 @@
-# Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
+# Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -22,8 +22,6 @@ import torch
 from torch.cuda import nvtx
 import ray
 
-from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.utils import future
 from chatlearn.utils import utils
 from chatlearn.utils.constant import REF_LIST, INDEX_TAG
@@ -85,7 +83,7 @@ def timeit(func_name):
 def split_list(lst, size):
     return [lst[i:i + size] for i in range(0, len(lst), size)]
 
-def compute_decorator(trainable):
+def compute_decorator(trainable, rollout):
     def decorator(func):
         """
         1. if not trainable, merge a list of dict into one dict, i.e., merge inputs of forward_step.
@@ -94,22 +92,17 @@ def compute_decorator(trainable):
         """
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
-            print("debugyy run into compute decorator")
-            # Get minibatch data of current dp rank
             data_list = self.data_fetch(args, train_func=trainable)
-
             # Get kwargs for function
-            def get_kwarg(key):
-                return kwargs.pop(key) if key in kwargs else False
-            to_empty_cache = get_kwarg('to_empty_cache')
-            to_onload = get_kwarg('to_onload')
-            to_offload = get_kwarg('to_offload')
-            is_last_batch = get_kwarg('is_last_batch')
-            is_eval = get_kwarg('is_eval')
+            to_empty_cache = kwargs.pop('to_empty_cache', False)
+            to_onload = kwargs.pop('to_onload', False)
+            to_offload = kwargs.pop('to_offload', False)
+            is_last_batch = kwargs.pop('is_last_batch', False)
+            is_eval = kwargs.pop('is_eval', False)
 
             # Onload model if needed
             if to_onload:
-                if isinstance(self, (VLLMModule, SGLangModule)):
+                if rollout:
                     self.onload_weights()
                 else:
                     self.onload()
@@ -125,11 +118,12 @@ def compute_decorator(trainable):
             final_results = ret
 
             # Clean up after function
+            # TODO, remove
             if to_empty_cache:
-                if not isinstance(self, (VLLMModule, SGLangModule)):
+                if not rollout:
                     self.empty_cache()
             if to_offload:
-                if isinstance(self, (VLLMModule, SGLangModule)) :
+                if rollout:
                     if not is_eval:
                         self.offload_weights()
                 else:

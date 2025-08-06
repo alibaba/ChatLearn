@@ -52,17 +52,7 @@ class Trainer(Executor):
 
     def next_batch(self):
 
-        batches = []
-        for _ in range(self.num_micro_batch_per_dp):
-            data = self._data_loader.next.remote()
-            if future.get(self._data_loader.has_next.remote()):
-                batches.append(data)
-        if not batches:
-            return
-        else:
-            if len(batches) < self.num_micro_batch_per_dp:
-                batches += batches[:self.num_micro_batch_per_dp - len(batches)]
-            return batches
+        return self._data_loader.next.remote()
 
     # pylint: disable=unused-argument
     def num_iteration(self, model=None) -> int:
@@ -71,8 +61,8 @@ class Trainer(Executor):
         """
         # Given that we have incorporated support for replay buffer and dynamic reward outputs,
         # the number of training data batches per episode may differ, hence we dynamically determine the total number of batches per episode.
-        _sample_per_episode = ray.get(self._data_loader.total_samples.remote())
-        return math.ceil(_sample_per_episode / self.args.train_global_batch_size)
+        _num_iteration = ray.get(self._data_loader.num_iteration.remote())
+        return _num_iteration
 
     @property
     def data_parallel_size(self) -> int:
@@ -92,6 +82,7 @@ class Trainer(Executor):
         self.num_micro_batch_per_dp = self.args.train_global_batch_size // self.args.train_micro_batch_size // self.data_parallel_size
         _num_training_iteration = self.num_iteration()
         self._batch_per_episode = _num_training_iteration
+        future.wait(self._data_loader.set_dp_size.remote(self.data_parallel_size))
         for epoch in range(self.args.num_training_epoch):
 
             # shuffle data

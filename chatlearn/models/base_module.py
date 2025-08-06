@@ -247,9 +247,11 @@ class BaseModule:
                 # When current node have several input nodes, we need to merge them
                 # Data size for each input node must be same
                 assert len(set([len(input_list) for input_list in batched_data_list])) == 1
-                data_list = [{}.update(single_dict) for single_dict in group for group in zip(*batched_data_list)]
+                data_list = [{k: v for d in group for k, v in d.items()} for group in zip(*batched_data_list)]
             else:
                 data_list = batched_data_list[0]
+        else:
+            data_list = data_list[0]
         return self._preprocess_impl(data_list)
 
     # def postprocess_data(self, data):

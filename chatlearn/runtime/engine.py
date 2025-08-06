@@ -160,7 +160,7 @@ class BaseEngine:
         summaries = future.get(refs)
         for key, value in e2e_time_dict.items():
             e2e_time_dict[key] = {'e2e': value}
-
+        
         logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
             summary_str, summary_dict = summary[-1] if isinstance(summary, list) else summary
@@ -428,6 +428,7 @@ class Engine(BaseEngine):
 
         data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
+            self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size,
             self.runtime_args.train_micro_batch_size,
             self.runtime_args.max_replay_episode,
             self.runtime_args.replay_episode_offset

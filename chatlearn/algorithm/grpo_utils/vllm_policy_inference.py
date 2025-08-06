@@ -54,7 +54,7 @@ class VLLMPolicyInference(VLLMModule):
             return rets
     
     @timeit("vllm_forward_step")
-    @compute_decorator(trainable=False)
+    @compute_decorator(trainable=False, rollout=True)
     def forward_step(self, data, iteration=0, **kwargs):
         rets = self._forward_step(data, iteration, False)
         # collect metric
