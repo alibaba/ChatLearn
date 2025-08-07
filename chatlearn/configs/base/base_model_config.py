@@ -63,7 +63,6 @@ class BaseModelConfig(BaseConfig):
     load: Optional[str] = field(default=None, metadata={"help": "path to model weight."})
     seed: int = field(default=1234, metadata={"help": "random seed"})
 
-    # TODO: do we require a user-defined save_dir?
     replica_dp_size: Optional[int] = field(
         default=None,
         metadata={"help": "The data parallel size in the replica. Maybe None if not needed."}

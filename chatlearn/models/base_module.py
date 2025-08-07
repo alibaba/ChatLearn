@@ -66,7 +66,6 @@ class BaseModule:
         self.replica_id = replica_id
         self._is_colocate = False
 
-        # TODO: use values from config later
         self._num_gpu_per_replica = self.total_gpu // self.module_args.num_replica
         self._num_replica = self.module_args.num_replica
 
