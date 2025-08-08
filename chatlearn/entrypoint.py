@@ -106,9 +106,9 @@ class ChatlearnLauncher:
                         value = parser(value)
                     OmegaConf.update(external_cfg, keyname, value)
                 cfg = OmegaConf.merge(cfg, external_cfg) # include $
-            cfg = OmegaConf.to_object(cfg) # real cfg
-            cfg.validate()
-            instance = algo_cls(cfg)
+            cfg = OmegaConf.to_object(cfg) # real cfg from template and user input
+            instance = algo_cls(cfg) # algo may update cfg
+            instance.validate()
             instance.run()
 
 

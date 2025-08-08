@@ -43,6 +43,7 @@ from chatlearn.utils import to_device
 
 
 
+# TODO: simplify this function
 def training_log(
     loss_dict,
     total_loss_dict,
@@ -107,7 +108,7 @@ def training_log(
     iter_dict = {}
     consumed_train_samples_dict = {}
     # Tensorboard values.
-    if (iteration % args.tensorboard_log_interval == 0) and is_last_rank():
+    if is_last_rank():
 
         for key in loss_dict:
             iter_dict[f"{name}/{key}"] = loss_dict[key]
@@ -132,61 +133,60 @@ def training_log(
                 params_norm
             )
 
-    if iteration % args.log_interval == 0:
-        elapsed_time = 0
-        elapsed_time_per_iteration = elapsed_time / total_iterations
-        if args.log_timers_to_tensorboard:
-            iter_dict[f"{name}/" + "iteration-time"] = elapsed_time_per_iteration
+    elapsed_time = 0
+    elapsed_time_per_iteration = elapsed_time / total_iterations
+    if args.log_timers_to_tensorboard:
+        iter_dict[f"{name}/" + "iteration-time"] = elapsed_time_per_iteration
 
-        log_string = " iteration {:8d}/{:8d} |".format(iteration, args.train_iters)
-        log_string += " consumed samples: {:12d} |".format(args.consumed_train_samples)
-        log_string += " elapsed time per iteration (ms): {:.1f} |".format(
-            elapsed_time_per_iteration * 1000.0
-        )
-        log_string += " learning rate: {:.3E} |".format(learning_rate)
-        log_string += " global batch size: {:5d} |".format(batch_size)
+    log_string = " iteration {:8d}/infinity |".format(iteration)
+    log_string += " consumed samples: {:12d} |".format(args.consumed_train_samples)
+    log_string += " elapsed time per iteration (ms): {:.1f} |".format(
+        elapsed_time_per_iteration * 1000.0
+    )
+    log_string += " learning rate: {:.3E} |".format(learning_rate)
+    log_string += " global batch size: {:5d} |".format(batch_size)
 
-        for key in total_loss_dict:
-            if key not in [advanced_iters_key, skipped_iters_key, nan_iters_key]:
-                avg = total_loss_dict[key].item() / float(
-                    max(1, total_loss_dict[advanced_iters_key])
-                )
-                if avg > 0.0:
-                    log_string += " {}: {:.6E} |".format(key, avg)
+    for key in total_loss_dict:
+        if key not in [advanced_iters_key, skipped_iters_key, nan_iters_key]:
+            avg = total_loss_dict[key].item() / float(
+                max(1, total_loss_dict[advanced_iters_key])
+            )
+            if avg > 0.0:
+                log_string += " {}: {:.6E} |".format(key, avg)
 
-                total_loss_dict[key] = torch.cuda.FloatTensor([0.0])
-        log_string += " loss scale: {:.1f} |".format(loss_scale)
+            total_loss_dict[key] = torch.cuda.FloatTensor([0.0])
+    log_string += " loss scale: {:.1f} |".format(loss_scale)
 
-        if grad_norm is not None:
-            log_string += " grad norm: {:.3f} |".format(grad_norm)
+    if grad_norm is not None:
+        log_string += " grad norm: {:.3f} |".format(grad_norm)
 
-        if more_grad_norm is not None:
-            for k in more_grad_norm:
-                log_string += "{} grad norm: {:.3f} |".format(k, more_grad_norm[k])
+    if more_grad_norm is not None:
+        for k in more_grad_norm:
+            log_string += "{} grad norm: {:.3f} |".format(k, more_grad_norm[k])
 
-        log_string += " number of nan iterations: {:3d} |".format(
-            total_loss_dict[nan_iters_key]
-        )
-        total_loss_dict[advanced_iters_key] = 0
-        total_loss_dict[skipped_iters_key] = 0
-        total_loss_dict[nan_iters_key] = 0
-        print_rank_last(log_string)
-        if report_memory_flag and learning_rate > 0.0:
-            report_memory("(after {} iterations)".format(iteration))
-            report_memory_flag = False
-        print_datetime("Logger")
+    log_string += " number of nan iterations: {:3d} |".format(
+        total_loss_dict[nan_iters_key]
+    )
+    total_loss_dict[advanced_iters_key] = 0
+    total_loss_dict[skipped_iters_key] = 0
+    total_loss_dict[nan_iters_key] = 0
+    print_rank_last(log_string)
+    if report_memory_flag and learning_rate > 0.0:
+        report_memory("(after {} iterations)".format(iteration))
+        report_memory_flag = False
+    print_datetime("Logger")
 
-        if not torch.distributed.is_initialized() or torch.distributed.get_rank() == (
-            torch.distributed.get_world_size() - 1
-        ):
-            wandb_dicts = {}
-            wandb_dicts.update(stats)
-            wandb_dicts.update(iter_dict)
-            wandb_dict_copy = copy.deepcopy(wandb_dicts)
-            if metric_list is None:
-                metric_list = [wandb_dict_copy]
-            else:
-                metric_list.append(wandb_dict_copy)
+    if not torch.distributed.is_initialized() or torch.distributed.get_rank() == (
+        torch.distributed.get_world_size() - 1
+    ):
+        wandb_dicts = {}
+        wandb_dicts.update(stats)
+        wandb_dicts.update(iter_dict)
+        wandb_dict_copy = copy.deepcopy(wandb_dicts)
+        if metric_list is None:
+            metric_list = [wandb_dict_copy]
+        else:
+            metric_list.append(wandb_dict_copy)
 
     return report_memory_flag
 

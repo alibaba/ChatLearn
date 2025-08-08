@@ -21,12 +21,18 @@ import traceback
 
 import torch
 from algorithm.base_algo import BaseAlgorithm
-from configs.common import (BaseConfig, BaseModelConfig, PolicyConfig,
-                            PolicyTrainerConfig, RefPolicyConfig,
-                            RuntimeConfig, RuntimeEnvConfig, _config_validate)
 
 import chatlearn
 from chatlearn import Engine
+from chatlearn.configs import (
+    BaseConfig,
+    RewardConfig,
+    PolicyConfig,
+    RuntimeConfig,
+    RuntimeEnvConfig
+)
+from chatlearn.configs.fsdp_config import FSDPPolicyTrainerConfig, FSDPRefPolicyConfig
+
 from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
@@ -43,8 +49,10 @@ try:
     from chatlearn.utils.megatron_utils import update_cfg
     from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
         MegatronPolicyTrainer
-    from configs.megatron_config import (MegatronPolicyTrainerConfig, # pylint: disable=ungrouped-imports
-                                         MegatronRefPolicyConfig)
+    from chatlearn.configs.megatron_config import (
+        MegatronPolicyTrainerConfig,
+        MegatronRefPolicyConfig
+    )
 except Exception:
     traceback.print_exc()
     print("please set megatron path for running megatron backend")
@@ -56,8 +64,8 @@ class GrpoModelConfig(BaseConfig):
     policy: PolicyConfig = field(
         default_factory=PolicyConfig, metadata={"help": "Policy config."}
     )
-    reward: BaseModelConfig = field(
-        default_factory=BaseModelConfig, metadata={"help": "Reward config."}
+    reward: RewardConfig = field(
+        default_factory=RewardConfig, metadata={"help": "Reward config."}
     )
     ref_policy: Any = field(
         default=None,
@@ -103,7 +111,7 @@ class GrpoConfig(BaseConfig):
 
         train_backend = self.runtime_args.train_backend
         if train_backend == "fsdp":
-            refpolicy_cls, policytrainer_cls = RefPolicyConfig, PolicyTrainerConfig
+            refpolicy_cls, policytrainer_cls = FSDPRefPolicyConfig, FSDPPolicyTrainerConfig
         elif train_backend == "megatron":
             refpolicy_cls, policytrainer_cls = (
                 MegatronRefPolicyConfig,
@@ -118,8 +126,41 @@ class GrpoConfig(BaseConfig):
             policytrainer_cls, self.models.policy_trainer
         )
 
-    def validate(self):
-        return _config_validate(self)
+    def _validate_impl(self):
+        sample_per_episode = self.runtime_args.sample_per_episode
+        policy = self.models.policy
+        assert sample_per_episode % policy.num_inference_per_prompt == 0, \
+        "runtime_args.sample_per_episode must be divisible by models.policy.num_inference_per_prompt"
+        assert sample_per_episode % policy.replica_dp_size == 0, (
+            "runtime_args.sample_per_episode must be divisible by dp_size of policy model"
+        )
+        models = {
+            'policy_trainer': self.models.policy_trainer,
+            'ref_policy': self.models.ref_policy
+        }
+        for name, conf in models.items():
+            assert sample_per_episode % (conf.num_replica * conf.replica_dp_size) == 0, (
+                f"runtime_args.sample_per_episode must be divisible by models.{name}.num_replica times models.{name}.replica_dp_size, "
+                f"but {name} got num_replica: {conf.num_replica}; replica_dp_size: {conf.replica_dp_size}"
+            )
+            sample_per_dp_rank = sample_per_episode // (conf.num_replica * conf.replica_dp_size)
+            assert sample_per_dp_rank % conf.generation_batch_size == 0, (
+                f"sample_per_dp_rank must be divisible by models.{name}.generation_batch_size, "
+                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; generation_batch_size: {conf.generation_batch_size}"
+            )
+
+            # TODO: add checks after dataflow refactorization
+            # NOTE: each rank will get `generation_batch_size` samples, and then:
+            # mcore: use micro_batch_size=train_micro_batch_size
+            # fsdp: use micro_batch_size=generation_batch_size
+            # we skip these checks currently
+
+            train_global_batch_size_per_dp_rank = self.runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
+            assert train_global_batch_size_per_dp_rank % self.runtime_args.train_micro_batch_size == 0, (
+                f"sample_per_dp_rank must be divisible by models.{name}.generation_batch_size, "
+                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; generation_batch_size: {conf.generation_batch_size}"
+            )
+
 
 
 class GRPOEvaluator(Evaluator):
@@ -222,3 +263,6 @@ class GrpoAlgorithm(BaseAlgorithm):
         engine.evaluator.set_dataset(eval_data)
         engine.set_replay_sample_manager(compute_grpo_adv)
         engine.learn()
+
+    def validate(self):
+        self.cfg.validate()

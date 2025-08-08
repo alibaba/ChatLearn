@@ -26,7 +26,7 @@ from megatron.core.transformer.moe.moe_layer import MoELayer
 from megatron.core.transformer.moe.experts import TEGroupedMLP
 from megatron.training.utils import unwrap_model
 
-from chatlearn.configs.common import PolicyConfig
+from chatlearn.configs import PolicyConfig
 from chatlearn.configs.megatron_config import MegatronPolicyTrainerConfig
 from chatlearn.utils.mappings import ShardedTensorInfo
 
