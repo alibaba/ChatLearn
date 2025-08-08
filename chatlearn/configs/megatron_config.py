@@ -1,5 +1,5 @@
-# pylint: disable=missing-module-docstring
-# pylint: disable=missing-class-docstring
+"""Config classes from Megatron Model"""
+import math
 from typing import Optional
 from dataclasses import dataclass, field
 
@@ -8,11 +8,12 @@ from omegaconf import MISSING
 from megatron.training.arguments import moe_freq_type
 from megatron.core.transformer.enums import AttnBackend
 
-from chatlearn.configs.common import BaseConfig, BaseModelConfig, OptimizerConfig
+from .base import BaseConfig, PolicyTrainerConfig, RefPolicyConfig, BaseModelConfig
 
-
+# TODO: deprecate MegatronModelArchitectureConfig as users do not need to pass these values.
 @dataclass
 class MegatronModelArchitectureConfig(BaseConfig):
+    """[Deprecated Warning] architecture configs for megatron model"""
     attention_dropout: float = field(
         default=0.0, metadata={"help": "Post attention dropout probability."}
     )
@@ -124,7 +125,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     )
     q_lora_rank: Optional[int] = field(
         default=None,
-        metadata={"help": "Rank of Key and Value tensors' low rank representation."},
+        metadata={"help": "Rank of Query tensors' low rank representation."},
     )
     kv_lora_rank: int = field(
         default=32,
@@ -173,7 +174,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=False, metadata={"help": "Enable overlapping between shared expert computations and dispatcher communications."}
     )
     moe_router_load_balancing_type: str = field(
-        default="aux_loss",
+        default="none",
         metadata={"help": "moe_router_load_balancing_type"},
     )
     bias_swiglu_fusion: bool = field(
@@ -186,54 +187,131 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=1.0, metadata={"help": "rotary_scaling_factor "}
     )
 
+    def _post_init_impl(self):
+        if self.moe_aux_loss_coeff == 0:
+            self.moe_router_load_balancing_type = 'none'
+
+        if self.multi_latent_attention:
+            self.kv_channels = None # not used for MLA?
+
 
 @dataclass
-class MegatronTrainConfig(BaseConfig):
+class MegatronConfig(BaseConfig):
+    """configs for megatron model"""
+    # NOTE: model parallel config
+    tensor_model_parallel_size: int = field(
+        default=1, metadata={"help": "tensor model parallel size"}
+    )
+
+    pipeline_model_parallel_size: int = field(
+        default=1, metadata={"help": "pipeline model parallel size"}
+    )
+    context_parallel_size: int = field(
+        default=1, metadata={"help": "pipeline model parallel size"}
+    )
+    expert_model_parallel_size: int = field(
+        default=1, metadata={"help": "expert model parallel size for Megatron-Core"}
+    )
     expert_tensor_parallel_size: Optional[int] = field(
         default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
     )
+    virtual_pipeline_model_parallel_size: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "virtual pipeline model parallel size for Megatron-Core"
+        },
+    )
+    sequence_parallel: bool = field(
+        default=True,
+        metadata={"help": "Enable sequence parallel optimization for mcore"},
+    )
+    # NOTE: model parallel config
+    seq_length: int = field(
+        default=MISSING,
+        metadata={"help": "Maximum sequence length to process."},
+    )
+    tokenizer_type: str = field(
+        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
+    )
+    tokenizer_model: Optional[str] = field(
+        default=None, metadata={"help": "pretrained model name or path. If None, use cfg.load instead"}
+    )
+    megatron_model_cfg: MegatronModelArchitectureConfig = field(
+        default_factory=MegatronModelArchitectureConfig,
+        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
+    )
+
     decoder_first_pipeline_num_layers: Optional[int] = field(
         default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
     )
     decoder_last_pipeline_num_layers: Optional[int] = field(
         default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
     )
-    load: str = field(default=MISSING, metadata={"help": "path to train model"})
-    save: str = field(default=MISSING, metadata={"help": "path to save model"})
-    tokenizer_type: str = field(
-        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
-    )
-    tokenizer_model: Optional[str] = field(
-        default=None, metadata={"help": "pretrained model name or path"}
-    )
-    seq_length: int = field(
-        default=MISSING,
-        metadata={"help": "Maximum sequence length to process."},
-    )
-    save_interval: int = field(
-        default=MISSING,
-        metadata={"help": "Number of iterations between persistent checkpoint saves."},
-    )
-    log_interval: int = field(
-        default=1,
-        metadata={
-            "help": "[optional] log time and memory per `log_interval` iterations."
-        },
-    )
-    train_iters: int = field(
-        default=MISSING,
-        metadata={"help": "Total number of iterations to train over all"},
+    moe_router_force_load_balancing: bool = field(
+        default=False, metadata={"help": "moe_router_force_load_balancing."}
     )
     bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
-    use_checkpoint_opt_param_scheduler: bool = field(
-        default=True,
-        metadata={
-            "help": "Use checkpoint to set the values of the scheduler \
-                       (learning rate, warmup iterations, minimum learning \
-                       rate, maximum number of iterations, and decay style \
-                       from checkpoint and ignore input arguments."
-        },
+
+    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
+        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
     )
+    variable_seq_lengths: bool = field(
+        default=False, metadata={"help": "If dynamic batching is used, this option should be True"}
+    )
+
+    # NOTE: deprecate these 5 options
+    async_tensor_model_parallel_allreduce: bool = field(
+        default=False, metadata={"help": "async_tensor_model_parallel_allreduce."}
+    )
+    overlap_p2p_comm: bool = field(
+        default=False, metadata={"help": "When True some of the peer to peer communication for pipeline parallelism will overlap with computation。"}
+    )
+    batch_p2p_comm: bool = field(
+        default=False, metadata={"help": "Use batch_isend_irecv instead of individual isend/irecv calls."}
+    )
+    deallocate_pipeline_outputs: bool = field(
+        default=False, metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
+    )
+    attention_softmax_in_fp32: bool = field(
+        default=True, metadata={"help": "attention_softmax_in_fp32."}
+    )
+    # NOTE: deprecate these 5 options
+
+    def _validate_impl(self):
+        assert self.num_gpu > 0, "Megatron-Core requires at least one GPU"
+        assert self.num_gpu % self.num_replica == 0, \
+                    "The GPUs assigned to megatron model must be divisible by num_replica"
+        if self.variable_seq_lengths:
+            assert self.megatron_model_cfg.moe_token_dispatcher_type != 'allgather', \
+                "Dynamic batching cannot be used when token-dispatcher use allgather"
+
+    def _post_init_impl(self):
+        if isinstance(self, BaseModelConfig):
+            self.num_replica = 1
+            if not self.trainable:
+                etp_size = self.expert_tensor_parallel_size if self.expert_tensor_parallel_size is not None else 1
+                self.num_replica = self.num_gpu // (math.lcm(
+                    self.tensor_model_parallel_size * self.context_parallel_size,
+                    etp_size * self.expert_model_parallel_size
+                ) * self.pipeline_model_parallel_size)
+            self.replica_dp_size = self.num_gpu // (
+                self.num_replica *
+                self.tensor_model_parallel_size *
+                self.context_parallel_size *
+                self.pipeline_model_parallel_size
+            )
+            self.variable_seq_lengths = self.packing
+            if self.variable_seq_lengths and self.megatron_model_cfg.num_experts is None:
+                self.megatron_model_cfg.moe_token_dispatcher_type = 'alltoall'
+
+
+@dataclass
+class MegatronRefPolicyConfig(RefPolicyConfig, MegatronConfig):
+    """Configs for megatron reference policy model"""
+
+@dataclass
+class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
+    """Configs for megatron policy trainer model"""
     recompute_granularity: Optional[str] = field(
         default=None,
         metadata={
@@ -241,10 +319,6 @@ class MegatronTrainConfig(BaseConfig):
             It is supported at two granularities 1) full: whole transformer layer is recomputed, \
             2) selective: submodules set in --recompute-modules are recomputed, default is core_attn."
         },
-    )
-    sequence_parallel: bool = field(
-        default=False,
-        metadata={"help": "Enable sequence parallel optimization for mcore"},
     )
     use_distributed_optimizer: bool = field(
         default=False,
@@ -254,6 +328,27 @@ class MegatronTrainConfig(BaseConfig):
         default=True,
         metadata={"help": "Do not load optimizer when loading checkpoint."},
     )
+    calculate_per_token_loss: bool = field(
+        default=True,
+        metadata={
+            "help": "Whether cross entropy loss is calculated over the actual number of non-padded tokens in the \
+             global batch, versus the default behavior of assuming all tokens are non-padded. Should be True for RL training."
+        },
+    )
+    gradient_accumulation_fusion: bool = field(
+        default=False, metadata={"help": "If true, fuses weight gradient accumulation to GEMMs. Requires the custom CUDA extension \
+            fused_weight_gradient_mlp_cuda module.."}
+    )
+    use_checkpoint_opt_param_scheduler: bool = field(
+        default=True,
+        metadata={
+            "help": "Use checkpoint to set the values of the scheduler \
+                       (learning rate, warmup iterations, minimum learning \
+                       rate, maximum number of iterations, and decay style \
+                       from checkpoint and ignore input arguments."
+        },
+    )
+
     no_load_rng: bool = field(
         default=True,
         metadata={"help": "Do not load rng state when loading checkpoint."},
@@ -268,86 +363,6 @@ class MegatronTrainConfig(BaseConfig):
             "help": "Load model for finetuning. Do not load optimizer or rng state from checkpoint and set iteration to 0."
         },
     )
-    optimizer: OptimizerConfig = field(
-        default_factory=OptimizerConfig, metadata={"help": "optimizer config"}
-    )
-    moe_router_force_load_balancing: bool = field(
-        default=False, metadata={"help": "Force load balancing with random logits for MoE router, supports naive topk \
-    and group-limited topk."}
-    )
-    gradient_accumulation_fusion: bool = field(
-        default=False, metadata={"help": "If true, fuses weight gradient accumulation to GEMMs. Requires the custom CUDA extension \
-            fused_weight_gradient_mlp_cuda module.."}
-    )
-    async_tensor_model_parallel_allreduce: bool = field(
-        default=False, metadata={"help": "async_tensor_model_parallel_allreduce."}
-    )
-    overlap_p2p_comm: bool = field(
-        default=False, metadata={"help": "When True some of the peer to peer communication for pipeline parallelism will overlap with computation。"}
-    )
-    batch_p2p_comm: bool = field(
-        default=False, metadata={"help": "Use batch_isend_irecv instead of individual isend/irecv calls."}
-    )
-    deallocate_pipeline_outputs: bool = field(
-        default=False, metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
-    )
-    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
-        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
-    )
-    attention_softmax_in_fp32: bool = field(
-        default=True, metadata={"help": "attention_softmax_in_fp32."}
-    )
 
-
-@dataclass
-class MegatronRefPolicyConfig(BaseModelConfig):
-    """RefPolicyConfig"""
-    megatron_model_cfg: MegatronModelArchitectureConfig = field(
-        default_factory=MegatronModelArchitectureConfig,
-        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
-    )
-    load: str = field(default=MISSING, metadata={"help": "path to reference model"})
-    seed: int = field(default=1234, metadata={"help": "seed"})
-    sequence_parallel: bool = field(
-        default=True,
-        metadata={"help": "Enable sequence parallel optimization for mcore"},
-    )
-    seq_length: int = field(
-        default=MISSING,
-        metadata={"help": "Maximum sequence length to process."},
-    )
-    tokenizer_type: str = field(
-        default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
-    )
-    tokenizer_model: Optional[str] = field(
-        default=None, metadata={"help": "pretrained model name or path"}
-    )
-    bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
-    expert_tensor_parallel_size: Optional[int] = field(
-        default=None, metadata={"help": "expert tensor parallel size for Megatron-Core"}
-    )
-    decoder_first_pipeline_num_layers: Optional[int] = field(
-        default=None, metadata={"help": "The number of transformer layers on the first pipeline stage of the decoder."}
-    )
-    decoder_last_pipeline_num_layers: Optional[int] = field(
-        default=None, metadata={"help": "The number of transformer layers on the last pipeline stage of the decoder."}
-    )
-    moe_router_force_load_balancing: bool = field(
-        default=False, metadata={"help": "moe_router_force_load_balancing."}
-    )
-
-
-@dataclass
-class MegatronPolicyTrainerConfig(
-    BaseModelConfig, MegatronTrainConfig
-):
-    """PolicyTrainerConfig"""
-    megatron_model_cfg: MegatronModelArchitectureConfig = field(
-        default_factory=MegatronModelArchitectureConfig,
-        metadata={"help": "cfg for megatron model architecture, should in megatron's arguments"}
-    )
-    pos_clip_ratio: float = field(default=0.2)
-    neg_clip_ratio: float = field(default=0.2)
-    diff_clip_ratio: float = field(default=10)
-    final_clip_ratio: float = field(default=3)
-    seed: int = field(default=1234, metadata={"help": "seed"})
+    def _validate_impl(self):
+        assert self.calculate_per_token_loss, "Per-Token-Loss is required for Training."

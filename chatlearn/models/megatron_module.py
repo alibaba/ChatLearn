@@ -13,8 +13,10 @@
 # ==============================================================================
 """Megatron module"""
 import re
-import math
 from dataclasses import fields
+from typing import Dict
+
+import inspect
 import torch
 
 try:
@@ -28,7 +30,7 @@ try:
 except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
-from chatlearn.configs.common import BaseConfig
+from chatlearn.configs import BaseConfig
 from chatlearn.utils.mappings import build_sharded_info_for_mcore_model
 from .torch_module import TorchModule
 
@@ -48,29 +50,6 @@ if IS_MEGATRON_SUPPORTED:
 
     class MegatronModule(TorchModule):
         """MegatronModule is the class for Alignment Megatron models."""
-
-        def __init__(self, name: str, args=None, replica_id: int=0):
-            """The chatlearn wrapper for a Megatron model.
-
-            Args:
-                name (str): The name of this module
-                args (Any, optional): The arguments. Defaults to None.
-                replica_id (int, optional): The replica id of this module. Defaults to 0.
-            """
-            super().__init__(name, args=args, replica_id=replica_id)
-            assert self.total_gpu > 0, "Megatron-Core requires at least one GPU"
-            # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
-            if not self.trainable:
-                # NOTE: LCM(TP x CP, ETP x EP) x PP, currently only allow CP = 1
-                self._num_gpu_per_replica = math.lcm(
-                    self.module_args.tensor_model_parallel_size * 1,
-                    self.module_args.expert_tensor_parallel_size *
-                    self.module_args.expert_model_parallel_size
-                ) * self.module_args.pipeline_model_parallel_size
-                assert self.total_gpu % self._num_gpu_per_replica == 0, \
-                    "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
-                self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
         def add_extra_args(self, parser):
             """
             Add extra arguments for megatron.
@@ -87,6 +66,7 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             args = parse_args(self.add_extra_args, ignore_unknown_args=True)
+            args.train_iters = 1
 
             def try_convert_to_default_type(default_value, value):
                 """Convert value to type(default_value) if possible"""
@@ -101,17 +81,22 @@ if IS_MEGATRON_SUPPORTED:
                         pass
                 return value
 
-            def set_megatron_cfg(cfg: BaseConfig):
+            def set_megatron_cfg(cfg: BaseConfig, used_names: set=None):
                 """
                 set chatlearn cfg to megatron args
                 will not set BaseConfig and key not in megatron args
                 """
+                if used_names is None:
+                    used_names = set()
                 for field in fields(cfg):
                     key = field.name
                     value = getattr(cfg, key)
                     if isinstance(value, BaseConfig):
-                        set_megatron_cfg(value)
+                        set_megatron_cfg(value, used_names)
                     elif hasattr(args, key):
+                        if key in used_names:
+                            raise ValueError(f"Attempt to pass {key} to Megatron twice")
+                        used_names.add(key)
                         setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
             set_megatron_cfg(self.module_args)
 
@@ -120,6 +105,9 @@ if IS_MEGATRON_SUPPORTED:
             args.global_batch_size = self.runtime_args.train_global_batch_size
             args.bf16 = self.module_args.bf16
             initialize_megatron(parsed_args=args)
+
+            # NOTE: Megatron-Core will override variable_seq_lengths to be False, override it back
+            get_args().variable_seq_lengths = self.module_args.variable_seq_lengths
 
             if self.trainable:
                 # slow down if set jit fusion for inference model
@@ -140,20 +128,18 @@ if IS_MEGATRON_SUPPORTED:
                     self.module_args.free_gpu_memory.free_grad_buffers or \
                     self.module_args.free_gpu_memory.offload_optimizer_states:
                     self._memory_manager = TrainerMemoryManager(
-                        self.megatron_model(),
+                        self.model,
                         self.optimizer,
-                        self.megatron_args.use_distributed_optimizer,
-                        self.megatron_args.accumulate_allreduce_grads_in_fp32,
-                        self.megatron_args.params_dtype,
                         self.runtime_args.bucket_size_mb_in_memory_manager,
                     )
                     self.offload()
             else:
                 assert hasattr(self, "model")
-                self.megatron_model().eval()
+                for model_chunk in self.model:
+                    model_chunk.eval()
                 if self.module_args.free_gpu_memory.offload_weights:
                     self._memory_manager = InferenceMemoryManager(
-                        self.megatron_model(),
+                        self.model,
                         self.runtime_args.bucket_size_mb_in_memory_manager,
                     )
                     self.offload()
@@ -179,14 +165,6 @@ if IS_MEGATRON_SUPPORTED:
             """
             return mpu.get_data_parallel_rank()
 
-        def megatron_model(self):
-            if isinstance(self.model, list):
-                assert len(self.model) == 1
-                model = self.model[0]
-            else:
-                model = self.model
-            return model
-
         def save_checkpoint(self, iteration):
             """
             save checkpoint at `iteration`
@@ -194,6 +172,7 @@ if IS_MEGATRON_SUPPORTED:
 
             :meta private:
             """
+            get_args().save = f"{self.runtime_args.output_dir}/save_model/{self.name}"
             save_checkpoint_and_time(
                 iteration,
                 self.model,
@@ -264,65 +243,79 @@ if IS_MEGATRON_SUPPORTED:
             """generate a global name for each parameter in the model
             (just name of PP1EP1)
             """
-            self.local_name_to_global_name = {}
             self.global_name_to_local_name = {}
-            model_config = unwrap_model(self.megatron_model()).config
-            # TODO: `get_transformer_layer_offset()` requires `vp_stage` in the future
-            offset = get_transformer_layer_offset(model_config)
-            if model_config.num_moe_experts is not None:
-                ep_rank = mpu.get_expert_model_parallel_rank()
-                ep_size = mpu.get_expert_model_parallel_world_size()
-                num_local_experts = model_config.num_moe_experts // ep_size
-
             # NOTE: this regex is for model with TEGroupedGEMM
             # SequentialMLP or GroupedMLP is not supported
             regex = re.compile(r"(.*)decoder.layers\.(\d+)\.([a-z0-9_.]+)([\._])([a-z]+)([0-9]*)")
-            for name, maybe_tensor in self.megatron_model().state_dict_for_save_checkpoint().items():
-                if not isinstance(maybe_tensor, torch.Tensor):
-                    continue
-                match = regex.match(name)
-                if match is None:
-                    self.local_name_to_global_name[name] = name
-                    self.global_name_to_local_name[name] = name
-                    continue
+            for vp_stage, model_chunk in enumerate(self.model):
+                model_config = unwrap_model(model_chunk).config
+                if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
+                    offset = get_transformer_layer_offset(model_config, vp_stage=vp_stage)
+                else:
+                    if len(self.model) > 1:
+                        mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
+                    offset = get_transformer_layer_offset(model_config)
+                    if len(self.model) > 1:
+                        mpu.set_virtual_pipeline_model_parallel_rank(None)
+                if model_config.num_moe_experts is not None:
+                    ep_rank = mpu.get_expert_model_parallel_rank()
+                    ep_size = mpu.get_expert_model_parallel_world_size()
+                    num_local_experts = model_config.num_moe_experts // ep_size
 
-                layer_idx = int(match.group(2)) + offset
-                expert_id = ''
-                if len(match.group(6)) > 0:
-                    expert_id = int(match.group(6)) + num_local_experts * ep_rank
-                global_name = f"{match.group(1)}decoder.layers.{layer_idx}.{match.group(3)}{match.group(4)}{match.group(5)}{expert_id}"
-                self.local_name_to_global_name[name] = global_name
-                self.global_name_to_local_name[global_name] = name
-            return list(self.local_name_to_global_name.values())
+                for name, maybe_tensor in model_chunk.state_dict_for_save_checkpoint().items():
+                    if not isinstance(maybe_tensor, torch.Tensor):
+                        continue
+                    match = regex.match(name)
+                    local_name = f"{vp_stage}-{name}"
+                    if match is None:
+                        self.global_name_to_local_name[name] = local_name
+                        continue
+
+                    layer_idx = int(match.group(2)) + offset
+                    expert_id = ''
+                    if len(match.group(6)) > 0:
+                        expert_id = int(match.group(6)) + num_local_experts * ep_rank
+                    global_name = f"{match.group(1)}decoder.layers.{layer_idx}.{match.group(3)}{match.group(4)}{match.group(5)}{expert_id}"
+                    self.global_name_to_local_name[global_name] = local_name
+            return list(self.global_name_to_local_name.keys())
 
         @torch.no_grad()
         def get_parameter_metadata(self, key_type: str='param_id'):
             """Collect parameter shape info of this rank
             """
             infos = {}
-            for name, sharded_info in build_sharded_info_for_mcore_model(
-                unwrap_model(self.megatron_model())
-            ).items():
-                param_id = self.local_name_to_param_id[name]
-                sharded_info.param_id = param_id
-                if key_type == 'param_id':
-                    infos[param_id] = sharded_info
-                elif key_type == 'local_name':
-                    infos[name] = sharded_info
-                else:
-                    raise ValueError(f"Unsupport key_type: {key_type}")
+            # NOTE: encode local_name: "{vp_stage}-{weight_name}"
+            for vp_stage, model_chunk in enumerate(self.model):
+                for name, sharded_info in build_sharded_info_for_mcore_model(
+                    unwrap_model(model_chunk)
+                ).items():
+                    local_name = f"{vp_stage}-{name}"
+                    param_id = self.local_name_to_param_id[local_name]
+                    sharded_info.param_id = param_id
+                    if key_type == 'param_id':
+                        infos[param_id] = sharded_info
+                    elif key_type == 'local_name':
+                        infos[local_name] = sharded_info
+                    else:
+                        raise ValueError(f"Unsupport key_type: {key_type}")
             return infos
 
-        def get_param_id_to_parameters(self):
+        def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
+            """For all weights in the model of this rank, generate a mapping that maps
+            global param id to the corresponding weight. Should be called only after
+            calling `set_param_ids`. Used for parameter syhchornizing.
+            """
             param_id_to_parameters = {}
-            for name, weight in (
-                unwrap_model(self.megatron_model())
-                .state_dict_for_save_checkpoint()
-                .items()
-            ):
-                if name not in self.local_name_to_param_id:
-                    continue
-                param_id_to_parameters[self.local_name_to_param_id[name]] = weight
+            for vp_stage, model_chunk in enumerate(self.model):
+                for name, weight in (
+                    unwrap_model(model_chunk)
+                    .state_dict_for_save_checkpoint()
+                    .items()
+                ):
+                    local_name = f"{vp_stage}-{name}"
+                    if local_name not in self.local_name_to_param_id:
+                        continue
+                    param_id_to_parameters[self.local_name_to_param_id[local_name]] = weight
             return param_id_to_parameters
 
 else:

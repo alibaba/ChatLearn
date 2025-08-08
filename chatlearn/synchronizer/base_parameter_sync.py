@@ -21,7 +21,6 @@ if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
 
-
 class BaseParameterSyncGroup(ABC):
     """The ABC for Parameter Synchronization"""
     def __init__(
@@ -30,6 +29,14 @@ class BaseParameterSyncGroup(ABC):
         dst_model: 'DistModel',
         frequency: int,
     ):
+        """Manage Parameter Synchronization between source and destination models.
+
+        Args:
+            src_model (DistModel): The source distmodel, only MegatronModel is supported.
+            dst_model (DistModel): The destination distmodel, only vLLM backend is supported.
+            frequency (int): The synchronization frequency of this group. Should be a positve
+            integer.
+        """
         self.src_model, self.dst_model = src_model, dst_model
         self.frequency = frequency
 

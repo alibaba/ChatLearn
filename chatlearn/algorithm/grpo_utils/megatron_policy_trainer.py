@@ -16,7 +16,8 @@
 import inspect
 import os
 from contextlib import nullcontext
-from typing import Union
+from functools import partial
+from typing import Union, Dict, Any, Sequence
 from collections import defaultdict
 
 import torch
@@ -24,8 +25,11 @@ from megatron.core import mpu
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.enums import ModelType
 from megatron.core.models.gpt.gpt_layer_specs import (
-    get_gpt_decoder_block_spec, get_gpt_layer_local_spec,
-    get_gpt_layer_with_transformer_engine_spec, get_gpt_mtp_block_spec)
+    get_gpt_decoder_block_spec, 
+    get_gpt_layer_local_spec,
+    get_gpt_layer_with_transformer_engine_spec, 
+    get_gpt_mtp_block_spec
+)
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.core.transformer.spec_utils import import_module
@@ -34,15 +38,21 @@ from megatron.training import get_args, get_model, get_timers, print_rank_0, get
 from megatron.training.arguments import core_transformer_config_from_args
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training.training import setup_model_and_optimizer
-from megatron.training.utils import (calc_params_l2_norm,
-                                     logical_and_across_model_parallel_group)
+from megatron.training.utils import (
+    calc_params_l2_norm,
+    logical_and_across_model_parallel_group
+)
 from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
 import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
-    PolicyModel, forward_step, inference_forward_step,
-    training_log)
+    PolicyModel, 
+    forward_step, 
+    training_log
+)
+
+from .packing_utils import regroup_data_packing
 
 REF_TAG = "ref_logprobs"
 OLD_TAG = "old_logprobs"
@@ -203,20 +213,39 @@ class MegatronPolicyTrainer(MegatronModule):
     def train_step(self, data_list):
         args = get_args()
         timers = get_timers()
-        self.model[0].module.train()
+        for model_chunk in self.model:
+            model_chunk.module.train()
+
+        num_microbatches = get_num_microbatches()
+        if self.module_args.packing:
+            # NOTE: When packing is enabled, data_list will only contain one microbatch
+            # Microbatch will be regrouped
+            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG]
+            # NOTE: only key in regroup_keywords will be returned
+            data_list = regroup_data_packing(data_list, regroup_keywords, self.module_args.max_token_in_packing)
+            num_microbatches = len(data_list)
+            if args.micro_batch_size != 1:
+                raise ValueError("micro_batch_size is not 1 when sequence packing is enabled!")
+        elif num_microbatches != len(data_list):
+            raise ValueError(f"The number of microbatches should be equal to the number of data. "
+                             f"But got {get_num_microbatches()} and {len(data_list)}")
+            
         data_iterator = iter(data_list)
 
         self.optimizer.zero_grad()
-
         # Forward pass.
         timers("forward-backward", log_level=1).start(barrier=args.barrier_with_L1_time)
         forward_backward_func = get_forward_backward_func()
 
         losses_reduced = forward_backward_func(
-            forward_step_func=forward_step,
+            forward_step_func=partial(
+                forward_step, 
+                is_training=True, 
+                is_packing=self.module_args.packing
+            ),
             data_iterator=data_iterator,
             model=self.model,
-            num_microbatches=get_num_microbatches(),
+            num_microbatches=num_microbatches,
             seq_length=args.seq_length,
             micro_batch_size=args.micro_batch_size,
             decoder_seq_length=args.decoder_seq_length,
@@ -239,7 +268,7 @@ class MegatronPolicyTrainer(MegatronModule):
         # Update learning rate.
         if update_successful:
             increment = (
-                get_num_microbatches() * args.micro_batch_size * args.data_parallel_size
+                num_microbatches * args.micro_batch_size * args.data_parallel_size
             )
             self.opt_param_scheduler.step(increment=increment)
             skipped_iter = 0
@@ -261,13 +290,19 @@ class MegatronPolicyTrainer(MegatronModule):
             # sum across microbatches.
             keys = sorted(list(total_losses.keys()))
             keys.pop(keys.index('num_tokens'))
+            keys.pop(keys.index('num_samples'))
             loss_for_dp_reduce = torch.stack(
                 [sum(total_losses[key]).float() for key in keys] +
-                [sum(total_losses.pop('num_tokens')).float()]
+                [sum(total_losses.pop('num_tokens')).float()] +
+                [sum(total_losses.pop('num_samples')).float()]
             )
             torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group())
             loss_reduced_for_metric = {
-                key: (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
+                key: (
+                    (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
+                    if key.endswith('_sample_average') 
+                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
+                )
                 for i, key in enumerate(keys)
             }
             
@@ -276,7 +311,7 @@ class MegatronPolicyTrainer(MegatronModule):
         self.args.consumed_train_samples += (
             mpu.get_data_parallel_world_size()
             * self.args.micro_batch_size
-            * get_num_microbatches()
+            * num_microbatches
         )
 
         # Logging.
@@ -304,7 +339,7 @@ class MegatronPolicyTrainer(MegatronModule):
         self.report_memory_flag = report_memory_flag
 
     @torch.no_grad()
-    def forward_step(self, data):
+    def forward_step(self, data: Dict[str, Sequence[Any]]):
         """Do an inference forward step. Only for computation of old_logprobs and ref_logprobs.
 
         Args:
@@ -314,15 +349,28 @@ class MegatronPolicyTrainer(MegatronModule):
             data (Dict[str, Any]): If this is the last rank of the replica, the output logprobs will be
              updated into the dict, otherwise do NOTHING.
         """
-        for model_module in self.model:
-            model_module.eval()
-        num_microbatches, data_iter = self._chunk_global_batch_into_micro_batch(data)
+        for model_chunk in self.model:
+            model_chunk.eval()
 
+        if self.module_args.packing:
+            # NOTE: When packing is enabled, data_list will only contain one microbatch
+            # Microbatch will be regrouped
+            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length"]
+            # NOTE: only key in regroup_keywords will be returned
+            data_list = regroup_data_packing([data], regroup_keywords, self.module_args.max_token_in_packing)
+            num_microbatches = len(data_list)
+            data_iter = iter(data_list)
+        else:
+            num_microbatches, data_iter = self._chunk_global_batch_into_micro_batch(data)
         # NOTE: internal computation
         args = get_args()
         forward_backward_func = get_forward_backward_func()
         forward_data_store: List[Any] = forward_backward_func(
-            forward_step_func=inference_forward_step,
+            forward_step_func=partial(
+                forward_step, 
+                is_training=False, 
+                is_packing=self.module_args.packing
+            ),
             data_iterator=data_iter,
             model=self.model,
             num_microbatches=num_microbatches,
@@ -333,13 +381,21 @@ class MegatronPolicyTrainer(MegatronModule):
             collect_non_loss_data=True,  # set True to hack the forward_step_func
         )  # shape: [num_microbatches, *]
 
-        for model_module in self.model:
-            model_module.train()
+        for model_chunk in self.model:
+            model_chunk.train()
         if not mpu.is_pipeline_last_stage():
             return
         # trainable is True --> policy trainer; False --> PolicyReference
         tag = OLD_TAG if self.trainable else REF_TAG
         logprobs = -torch.cat(forward_data_store, dim=0)
+        if self.module_args.packing:
+            # NOTE: if packing is enabled, logprobs is re-ordered by bin_ids, we should mapping back
+            # NOTE: full_bin_ids[k] indicates k-th logprob is the logprobs of full_bin_ids[k]-th sample
+            full_bin_ids = [idx for inputs in data_list for idx in inputs['bin_ids']]
+            # NOTE: inversed_mapping[k] indicates k-th sample has inversed_mapping[k]-th logprob
+            inversed_mapping = [item[1] for item in sorted([(v, k) for k, v in enumerate(full_bin_ids)])]
+            logprobs = logprobs[inversed_mapping]
+
         assert (
             tag not in data
         ), f"The {tag} is already computed in this batch, old_value: {data[tag]}, new_value: {logprobs}"
@@ -353,6 +409,10 @@ class MegatronPolicyTrainer(MegatronModule):
         generation_batch_size = self.module_args.generation_batch_size
         micro_batch_size = args.micro_batch_size
         num_microbatches = generation_batch_size // micro_batch_size
+
+        assert len(list(data_dict.values())[0]) == generation_batch_size, \
+            f"Expect data dict has `{generation_batch_size}` samples, " \
+            f"but got {len(list(data_dict.values())[0])} samples"
 
         def _data_iter(data_dict):
             for i in range(num_microbatches):

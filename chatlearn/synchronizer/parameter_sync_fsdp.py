@@ -21,8 +21,8 @@ from chatlearn.utils import future
 from .base_parameter_sync import BaseParameterSyncGroup
 
 
-class FSDP2VllmParameterSyncGroup(BaseParameterSyncGroup):
-    """fsdp to vllm parameter sync group"""
+class FSDPParameterSyncGroup(BaseParameterSyncGroup):
+    """fsdp to vllm or sglang parameter sync group"""
 
     def sync(self, dryrun: bool=False):
         """Perform parameter synchronization on this group. If `dryrun` is True,

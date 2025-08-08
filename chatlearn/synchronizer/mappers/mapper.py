@@ -16,6 +16,7 @@
 from collections import defaultdict
 from typing import List, Dict, Tuple, TYPE_CHECKING
 
+import inspect
 import torch
 from torch import nn
 
@@ -25,7 +26,7 @@ from megatron.core.transformer.moe.moe_layer import MoELayer
 from megatron.core.transformer.moe.experts import TEGroupedMLP
 from megatron.training.utils import unwrap_model
 
-from chatlearn.configs.common import PolicyConfig
+from chatlearn.configs import PolicyConfig
 from chatlearn.configs.megatron_config import MegatronPolicyTrainerConfig
 from chatlearn.utils.mappings import ShardedTensorInfo
 
@@ -68,13 +69,10 @@ class MegatronVLLMMapper:
         """
         # NOTE: the model in one megatron rank is always a list of GPTModel
         # (length > 1 when VPP is enabled).
-        self.model: List['GPTModel'] = [unwrap_model(model.megatron_model())]
-        if len(self.model) != 1 or getattr(self.model[0], 'vp_stage', None) is not None:
-            raise NotImplementedError("Currently, the mapper does not support VPP")
+        self.model: List['GPTModel'] = unwrap_model(model.model)
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args
         self._dst_model_config = dst_model_config
-        assert self._dst_model_config.expert_model_parallel_size == 1, "Currently EP > 1 is not supported"
-        self._src_name_to_param_ids = model.local_name_to_param_id
+        assert self._dst_model_config.expert_model_parallel_size == 1, "Currently vLLM EP > 1 is not supported"
         self._src_name_to_metadata = model.get_parameter_metadata(key_type='local_name')
 
     def generate_sync_mapping(
@@ -113,41 +111,45 @@ class MegatronVLLMMapper:
         dst model
         """
         mapping = {}
-        for vpp_index, model in enumerate(self.model):
-            if len(self.model) > 1:
-                mpu.set_virtual_pipeline_model_parallel_rank(vpp_index)
+        for vp_stage, model in enumerate(self.model):
+            if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
+                layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
+            else:
+                if len(self.model) > 1:
+                    mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
+                layer_offset = get_transformer_layer_offset(model.config)
+                if len(self.model) > 1:
+                    mpu.set_virtual_pipeline_model_parallel_rank(None)
 
-            layer_offset = get_transformer_layer_offset(model.config)
             if model.mtp_process:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
             if model.pre_process:
                 mapping.update(self._map_preprocess_layer(
                     model.embedding,
-                    src_prefix="embedding.",
+                    src_prefix=f"{vp_stage}-embedding.",
                     dst_prefix="model.",
                 ))
+
             for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
                 global_layer_id = layer_offset + layer_idx
                 mapping.update(self._map_decoder_layer(
                     model.decoder.layers[layer_idx],
-                    src_prefix=f"decoder.layers.{layer_idx}.",
+                    src_prefix=f"{vp_stage}-decoder.layers.{layer_idx}.",
                     dst_prefix=f"model.layers.{global_layer_id}.",
                 ))
             if model.post_process:
                 mapping.update(self._map_norm_layer(
                     model.decoder.final_layernorm,
-                    src_prefix="decoder.final_layernorm.",
+                    src_prefix=f"{vp_stage}-decoder.final_layernorm.",
                     dst_prefix="model.norm.",
                 ))
                 if not model.share_embeddings_and_output_weights:
                     mapping.update(self._map_postprocess_layer(
                         model.output_layer,
-                        src_prefix="output_layer.",
+                        src_prefix=f"{vp_stage}-output_layer.",
                         dst_prefix="",
                     ))
 
-            if len(self.model) > 1:
-                mpu.set_virtual_pipeline_model_parallel_rank(None)
         return mapping
 
     def _map_norm_layer(self, module: nn.Module, src_prefix: str='', dst_prefix: str='', *, is_norm_layer: bool=True):

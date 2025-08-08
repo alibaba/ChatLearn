@@ -234,8 +234,6 @@ class RuntimeConfig(BaseConfig):
     train_global_batch_size: int = None
     #: [required] save checkpoint per `save_episode_interval` episodes.
     save_episode_interval: int = None
-    #: [optional] log time and memory per `log_interval` iterations.
-    log_interval: int = 1
     #: [required]: data_path for dataset or a List of data_path for different kind of datasets
     data_path: Optional[Union[List[str], str]] = None
     #: [optional]: the ratio for each kind of data_path in a training episode, default: None
@@ -314,10 +312,6 @@ class RuntimeConfig(BaseConfig):
         """
         :meta private:
         """
-        for key in self._args_dict:
-            if key == "save_interval":
-                raise Exception("save_interval is deprecated, please use save_episode_interval to save checkpoints")
-
 
 class RuntimeEnvConfig(BaseConfig):
     """Runtime env config, you can refer https://docs.ray.io/en/latest/ray-core/handling-dependencies.html for more information."""

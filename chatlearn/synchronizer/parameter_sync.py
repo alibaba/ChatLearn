@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 patch_ray()
 
 
-class ParameterSyncGroup(BaseParameterSyncGroup):
+class MCoreParameterSyncGroup(BaseParameterSyncGroup):
     """The core implementation of parameter synchronization."""
     def __init__(self, src_model: 'DistModel', dst_model: 'DistModel', frequency: int):
         """Manage Parameter Synchronization between source and destination models.
@@ -41,7 +41,8 @@ class ParameterSyncGroup(BaseParameterSyncGroup):
         Args:
             src_model (DistModel): The source distmodel, only MegatronModel is supported.
             dst_model (DistModel): The destination distmodel, only vLLM backend is supported.
-            group_name (str): The tag of this parameter sync group. (Unused)
+            frequency (int): The synchronization frequency of this group. Should be a positve
+            integer.
         """
         super().__init__(src_model, dst_model, frequency)
         self._initialized = False

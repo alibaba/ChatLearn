@@ -41,7 +41,7 @@ except ImportError:
     HAVE_MEGATRON = False
 
 
-def _prepare_metadata(module: nn.Module):
+def _prepare_metadata(prefix: str, module: nn.Module):
     if not HAVE_MEGATRON:
         raise SystemError("Cannot call this function without megatron")
     results = {}
@@ -61,15 +61,28 @@ def _prepare_metadata(module: nn.Module):
             tp_rank = mpu.get_tensor_model_parallel_rank()
             tp_size = mpu.get_tensor_model_parallel_world_size()
         else:
+            # NOTE: The parallel_mode of TELinear will be None in below cases:
+            # 1. duplicated
+            # 2. already handled in megatron: explicit_expert_comm, shared_expert_overlap
             parallel_mode = module.parallel_mode
+            if parallel_mode is None:
+                if prefix.find('linear_fc1') != -1:
+                    parallel_mode = 'column'
+                elif prefix.find('linear_fc2') != -1:
+                    parallel_mode = 'row'
             use_bias = module.use_bias
             if module.tp_group is None:
-                tp_rank, tp_size = None, None
-                if parallel_mode != 'duplicated':
+                tp_rank, tp_size = 0, 1
+                if module.parallel_mode is not None:
+                    raise ValueError(f"Suppose module {prefix} to have tp_group initialized!")
+                # NOTE: identify `explicit_expert_comm` by module name
+                if parallel_mode is not None:
                     # explicit_expert_comm is True, thus in expert
                     tp_rank = mpu.get_expert_tensor_parallel_rank()
                     tp_size = mpu.get_expert_tensor_parallel_world_size()
+                # NOTE: otherwise duplicated linear
             else:
+                # NOTE: shared_experts have tp_group
                 tp_rank, tp_size = module.tp_group.rank(), module.tp_group.size()
         w, h = module.weight.shape
         if parallel_mode == 'row':
@@ -80,10 +93,14 @@ def _prepare_metadata(module: nn.Module):
             axis_fragmentations=(tp_size, 1)
             global_offset=(tp_rank, 0)
             global_shape=(w * tp_size, h)
-        else:
+        elif tp_size == 1:
             axis_fragmentations=(1, 1)
             global_offset=(0, 0)
             global_shape=(w, h)
+        else:
+            if parallel_mode is None:
+                parallel_mode = 'none'
+            raise ValueError(f"Cannot identify module {prefix}, got parallel mode {parallel_mode} and tp_size {tp_size}")
         results['weight'] = ShardedTensorInfo(
             dtype=module.weight.dtype,
             global_shape=global_shape,
@@ -179,6 +196,6 @@ def build_sharded_info_for_mcore_model(
     for prefix, submodule in model.named_modules():
         if model.share_embeddings_and_output_weights and prefix == 'output_layer':
             continue
-        for weight_name, sharded_info in _prepare_metadata(submodule).items():
+        for weight_name, sharded_info in _prepare_metadata(prefix, submodule).items():
             infos[f"{prefix}.{weight_name}"] = sharded_info
     return infos

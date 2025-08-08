@@ -64,14 +64,6 @@ class FSDPModule(TorchModule):
         self.packing = self.module_args.packing
         self.max_token_in_seq = self.module_args.max_token_in_packing
 
-        assert self.total_gpu > 0, "FSDP requires at least one GPU"
-        # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
-        if not self.trainable:
-            self._num_gpu_per_replica = self.fsdp_size
-            assert self.total_gpu % self._num_gpu_per_replica == 0, \
-                "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
-            self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
     @staticmethod
     def init_fn(x: torch.nn.Module):
         if torch.distributed.get_rank() != 0:
@@ -342,16 +334,23 @@ class FSDPModule(TorchModule):
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        rollout_engine = self._runtime_args.rollout_backend
+        if rollout_engine == "sglang":
+            # lazy import sglang
+            # pylint: disable-next=import-outside-toplevel
+            from sglang.srt.utils import MultiprocessingSerializer
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
+        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = reduce_tensor(param.full_tensor().detach() \
-                                            if isinstance(param, DTensor) else param.detach())
+                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                                        if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
+
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()

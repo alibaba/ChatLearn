@@ -33,7 +33,7 @@ from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
-from chatlearn.configs.common import BaseModelConfig
+from chatlearn.configs.base import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
 
 
@@ -66,9 +66,8 @@ class BaseModule:
         self.replica_id = replica_id
         self._is_colocate = False
 
-        # NOTE: the below two attributes may be further calculated by submodule
-        self._num_gpu_per_replica = self.total_gpu
-        self._num_replica = 1
+        self._num_gpu_per_replica = self.total_gpu // self.module_args.num_replica
+        self._num_replica = self.module_args.num_replica
 
         self._param_ranks = None
         self._named_parameters = None
@@ -274,13 +273,13 @@ class BaseModule:
         """
         self._episode_id += 1
 
-    def build_dataset(self, train_prompts, is_eval=False):
+    def build_dataset(self, prompts, is_eval=False):
         """
         Build prompt dataset
 
         Args
         ----
-            train_prompts: [Str]
+            prompts: [Str]
                 A list of prompt string.
         Returns
         -------
@@ -288,13 +287,13 @@ class BaseModule:
                 Dataset with user-defined collate_fn
         """
 
-    def build_all_dataset(self, train_prompts_list, is_eval=False):
+    def build_all_dataset(self, prompts_list, is_eval=False):
         """
         Build all prompt datasets
 
         Args
         ----
-            train_prompts_list: List[List[Str]]
+            prompts_list: List[List[Str]]
                 A list of prompt string lists.
         Returns
         -------
@@ -302,9 +301,9 @@ class BaseModule:
                 A list of Dataset with user-defined collate_fn
         """
         all_datasets = []
-        for train_prompts in train_prompts_list:
+        for prompts in prompts_list:
             all_datasets.append(
-                self.build_dataset(train_prompts, is_eval)
+                self.build_dataset(prompts, is_eval)
             )
         return all_datasets
 
@@ -658,7 +657,11 @@ class BaseModule:
         assert len(gpu_ids) == 1, "Not Supported"
         return f"{node_id}-{gpu_ids[0]}"
 
-    def get_param_id_to_parameters(self):
+    def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
+        """For all weights in the model of this rank, generate a mapping that maps
+        global param id to the corresponding weight. Should be called only after
+        calling `set_param_ids`. Used for parameter syhchornizing.
+        """
         raise NotImplementedError("mapping param id to parameters is not implemented")
 
     def set_synchronizer(
