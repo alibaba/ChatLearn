@@ -45,7 +45,6 @@ class FSDP2VllmParameterSyncGroup(BaseParameterSyncGroup):
             src_rank: gpu_id_to_dst_rank[src_gpu_id]
             for src_rank, src_gpu_id in src_rank_to_gpu_id.items()
         }
-
         param_name_list = ray.get(src_model.get_actor(0).get_fsdp_param_name.remote())
         for param_name in param_name_list:
             refs = []

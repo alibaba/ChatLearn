@@ -82,8 +82,11 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self._model = None
         self.llm = None
         self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
+
         if self.model_config.architectures[0] == "Qwen3MoeForCausalLM":
             self.param_update_fn = self.update_weights_from_ipc_handles_qwen3_moe
+        elif self.model_config.architectures[0] == "Qwen2_5_VLForConditionalGeneration":
+            self.param_update_fn = self.update_weights_from_ipc_handles_qwenvl
         else:
             self.param_update_fn = self.update_weights_from_ipc_handles_naive
 
@@ -150,9 +153,17 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
     def setup(self):
         """Set up tokenizer."""
         super().setup()
+
         tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
+
+        if '<|vision_start|>' in tokenizer.additional_special_tokens:
+            # processor is needed for qwenvl
+            from transformers import AutoProcessor
+            self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=True)
+        else:
+            self.processor = None
 
     def setup_vllm(self, workers):
         if self.llm is not None: # for evaluator
@@ -196,6 +207,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
             swap_space=self.module_args.get("swap_space", 16))
+        
         self.offload_weights()
 
     def dump_parameters(self, dump_path_root):
@@ -317,10 +329,18 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             else:
                 self.model.load_weights([(name, reconstructed_tensor)])
 
+    def update_weights_from_ipc_handles_qwenvl(self, reduce_data):
+        for name, reduced in reduce_data.items():
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor = rebuild_func(*rebuild_args)
+            
+            self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
+
     def update_weights_from_ipc_handles_naive(self, reduce_data):
         for name, reduced in reduce_data.items():
             rebuild_func, rebuild_args = reduced
             reconstructed_tensor = rebuild_func(*rebuild_args)
+            
             self.model.load_weights([(name, reconstructed_tensor)])
 
     def update_weights_from_ipc_handles(self, reduce_data):

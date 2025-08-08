@@ -29,7 +29,7 @@ from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_
 from torch.multiprocessing.reductions import reduce_tensor
 from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
-from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig
+from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, AutoModelForImageTextToText
 
 from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
@@ -163,12 +163,21 @@ class FSDPModule(TorchModule):
 
     def create_model(self, model_path: str , torch_dtype: torch.dtype, meta_init: bool) -> nn.Module:
         if not meta_init:
-            model = AutoModelForCausalLM.from_pretrained(
-                pretrained_model_name_or_path=model_path,
-                torch_dtype=torch_dtype,
-                attn_implementation="flash_attention_2",
-                trust_remote_code=True,
-            )
+            model_config = AutoConfig.from_pretrained(model_path)
+            if "Qwen2_5_VLForConditionalGeneration" in model_config.architectures:
+                model = AutoModelForImageTextToText.from_pretrained(
+                    pretrained_model_name_or_path=model_path,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=True
+                )
+            else:
+                model = AutoModelForCausalLM.from_pretrained(
+                    pretrained_model_name_or_path=model_path,
+                    torch_dtype=torch_dtype,
+                    attn_implementation="flash_attention_2",
+                    trust_remote_code=True,
+                )
         else:
             model_config = AutoConfig.from_pretrained(model_path)
             with torch.device('meta'):

@@ -30,13 +30,26 @@ class VLLMPolicyInference(VLLMModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
+        assert len(prompts)>0, 'Dataset is empty'
 
-        prompts_dataset = VLLMPromptPipeline(
-            prompts,
-            seq_length,
-            self.tokenizer.tokenizer,
-            enable_thinking=self.module_args.get("enable_thinking", False),
-        )
+        breakpoint()
+        if 'images' in prompts[0].keys():
+            from chatlearn.data.vl_prompt_dataset import VLLMPromptPipeline
+            prompts_dataset = VLLMPromptPipeline(
+                prompts,
+                seq_length,
+                self.tokenizer.tokenizer,
+                self.processor,
+                enable_thinking=self.module_args.get("enable_thinking", False),
+            )
+        else:
+            from chatlearn.data.prompt_dataset import VLLMPromptPipeline
+            prompts_dataset = VLLMPromptPipeline(
+                prompts,
+                seq_length,
+                self.tokenizer.tokenizer,
+                enable_thinking=self.module_args.get("enable_thinking", False),
+            )
 
         return prompts_dataset
 
