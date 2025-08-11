@@ -237,12 +237,12 @@ class PolicyTrainer(FSDPModule):
 
             # kl loss
             kl = inputs["ref_logprobs"] - logprobs
+            kl = torch.masked_select(kl, inputs["loss_mask"].bool())
             ratio = torch.exp(kl)
             assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
             assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
             kld = (ratio - kl - 1).contiguous()
             kl_loss = torch.clamp(kld, min=-10, max=10)
-            kl_loss = torch.masked_select(kl_loss, inputs["loss_mask"].bool())
             kl_loss_mean = torch.sum(kl_loss) / response_token_length_total * self.fsdp_size
 
             # compute backward loss
