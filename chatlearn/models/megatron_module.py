@@ -49,6 +49,7 @@ if IS_MEGATRON_SUPPORTED:
 
     class MegatronModule(TorchModule):
         """MegatronModule is the class for Alignment Megatron models."""
+        # pylint: disable=abstract-method
         def add_extra_args(self, parser):
             """
             Add extra arguments for megatron.

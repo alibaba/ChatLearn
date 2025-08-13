@@ -53,7 +53,6 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
         self.plan = None # results of make_plan(), for debugging
         self.timers = Timers()
 
-
     def initialize(self):
         """Intialize the synchronizer. The sync plan is built and validated.
         We assume that the model is static during training process, i.e. no

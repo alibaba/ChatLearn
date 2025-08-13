@@ -228,7 +228,11 @@ class GeneralCommunicator:
             return
 
         for iter_idx in range(len(self.plan)):
-            self.model.update_weights_from_buckets(self.all2all_sync_step(iter_idx))
+            recv_buckets = self.all2all_sync_step(iter_idx)
+            self.model.update_weights_from_buckets(recv_buckets)
+            for bucket in recv_buckets:
+                if bucket is not None:
+                    bucket.buffer = None
             self.release_ipc_resources()
 
     @torch.no_grad()

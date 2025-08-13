@@ -208,10 +208,25 @@ class MegatronVLLMSyncPlanner(BasePlanner):
         mem_infos: Dict[int, Tuple[int, int]],
         max_memory_fraction: float=0.8
     ):
-        # NOTE: Convert to iterations, which means each rank will know how
-        # it will send/recv to others. In ChatLearn, different models are
-        # on different actors, thus each SyncIteration will either have an
-        # empty send_buckets or recv_buckets
+        """Build iterations from unbucketized plan according to the
+        given memory constraints.
+        
+        Args:
+            unbucketized_plan (Dict[int, Dict[Ranks, List[ShardedTensorInfo]]]): 
+            The unbucketized comm plan.
+            src_rank_to_gpu_id (Dict[int, int]): map ranks of source model to 
+            physical GPU ID.
+            dst_rank_to_gpu_id (Dict[int, int]): map ranks of destination model 
+            to physical GPU ID.
+            mem_infos (Dict[int, Tuple[int, int]]): The used memory and 
+            total memory for each physical GPU.
+            max_memory_fraction (float, optional): The maximum ratio of planner 
+            could use. Defaults to 0.8.
+
+        Returns:
+            sender_plan (Dict[int, List[SyncIteration]]): The plan of senders.
+            receiver_plan (Dict[int, List[SyncIteration]]): The plan of receivers.
+        """
         bucketized_plan = self.bucketize(unbucketized_plan, bucket_size=self.bucket_size)
         return self._convert_to_iterations(
             bucketized_plan,
