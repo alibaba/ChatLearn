@@ -18,7 +18,6 @@ from collections import defaultdict
 from itertools import chain
 from typing import Dict, List, Tuple, TYPE_CHECKING, Any
 
-from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from chatlearn.utils.mappings import ShardedTensorInfo
@@ -32,7 +31,6 @@ from .base_planner import BasePlanner
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
-patch_ray()
 
 class MegatronVLLMSyncPlanner(BasePlanner):
     """Generate the sync plan based on the given sync mapping. The plan is 

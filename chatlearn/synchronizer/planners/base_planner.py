@@ -19,7 +19,6 @@ from typing import Dict, List, Tuple, TYPE_CHECKING, Any
 
 import numpy as np
 
-from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
 from chatlearn.utils.timer import Timers
@@ -33,7 +32,6 @@ from chatlearn.synchronizer.structs import (
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
-patch_ray()
 
 class BasePlanner:
     """Generate the sync plan based on the given sync mapping. The plan is 

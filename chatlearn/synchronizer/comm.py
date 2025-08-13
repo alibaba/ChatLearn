@@ -19,7 +19,6 @@ import torch
 from torch import distributed as dist
 from torch.multiprocessing.reductions import reduce_tensor
 
-from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from .structs import (
     SynchronizerType,
@@ -27,7 +26,6 @@ from .structs import (
     SyncIteration
 )
 
-patch_ray()
 
 if TYPE_CHECKING:
     from chatlearn.models.base_module import BaseModule
