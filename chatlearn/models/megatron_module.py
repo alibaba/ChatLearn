@@ -300,23 +300,26 @@ if IS_MEGATRON_SUPPORTED:
                         raise ValueError(f"Unsupport key_type: {key_type}")
             return infos
 
-        def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
-            """For all weights in the model of this rank, generate a mapping that maps
-            global param id to the corresponding weight. Should be called only after
-            calling `set_param_ids`. Used for parameter syhchornizing.
-            """
-            param_id_to_parameters = {}
-            for vp_stage, model_chunk in enumerate(self.model):
-                for name, weight in (
-                    unwrap_model(model_chunk)
-                    .state_dict_for_save_checkpoint()
-                    .items()
-                ):
-                    local_name = f"{vp_stage}-{name}"
-                    if local_name not in self.local_name_to_param_id:
-                        continue
-                    param_id_to_parameters[self.local_name_to_param_id[local_name]] = weight
-            return param_id_to_parameters
+    def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
+        param_id_to_parameters = {}
+        for vp_stage, model_chunk in enumerate(self.model):
+            for name, weight in (
+                unwrap_model(model_chunk)
+                .state_dict_for_save_checkpoint()
+                .items()
+            ):
+                local_name = f"{vp_stage}-{name}"
+                if local_name not in self.local_name_to_param_id:
+                    continue
+                param_id_to_parameters[self.local_name_to_param_id[local_name]] = weight
+
+        self.param_id_to_parameters = param_id_to_parameters
+        self.synchronizer.parameter_sync()
+        self.param_id_to_parameters = None
+
 
 else:
     class MegatronModule(TorchModule):
