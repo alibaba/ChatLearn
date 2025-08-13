@@ -28,7 +28,7 @@ from megatron.core.transformer.transformer_config import TransformerConfig
 from megatron.training import get_args
 from torch import Tensor
 
-from chatlearn.configs.common import BaseModelConfig
+from chatlearn.configs.base import BaseModelConfig
 
 from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 from .train_helper import entropy_from_tensor_parallel_logits
@@ -172,6 +172,7 @@ class PolicyModel(GPTModel):
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
+        ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
         assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()

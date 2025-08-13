@@ -50,18 +50,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         """
         TorchModule.__init__(self, name, args=args, replica_id=replica_id)
 
-        assert self.total_gpu > 0, "vLLM requires at least one GPU"
-        assert not self.trainable, "vLLM does not support training"
-        # TODO: support expert-model parallel
-        assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of vLLM is not supported"
-        self._num_gpu_per_replica = (
-            self.module_args.tensor_model_parallel_size *
-            self.module_args.pipeline_model_parallel_size
-        )
-        assert self.total_gpu % self._num_gpu_per_replica == 0, \
-            "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
-        self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
         # avoid overwrite methods
         methods_class1 = {method[0] for method in inspect.getmembers(TorchModule, predicate=inspect.isfunction)}
         methods_class2 = {method[0] for method in inspect.getmembers(RayWorkerWrapper, predicate=inspect.isfunction)}

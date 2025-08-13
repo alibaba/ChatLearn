@@ -23,7 +23,7 @@ import time
 import ray
 import ray.experimental.state.api
 
-from chatlearn.configs.common import BaseConfig
+from chatlearn.configs import BaseConfig
 from chatlearn.launcher import dlc_utils
 from chatlearn.models.base_module import BaseModule
 from chatlearn.models.fsdp_module import FSDPModule
@@ -61,10 +61,6 @@ class ModelManager:
         self.model_packs = []
         self.placement_groups = []
 
-        # TODO: Currently supports single-layer colocation, and need to support more complex scenarios in the future.
-        if self.runtime_args.colocation and \
-            isinstance(self.runtime_args.colocation[0], str):
-            self.runtime_args.colocation = [self.runtime_args.colocation]
 
     def _get_total_gpu_required(self):
         total_gpu = 0

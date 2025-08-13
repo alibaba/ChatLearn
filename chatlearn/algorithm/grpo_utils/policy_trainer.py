@@ -256,22 +256,20 @@ class PolicyTrainer(FSDPModule):
             )
 
             pg_loss = torch.masked_select(loss, inputs["loss_mask"].bool())
-            pg_loss_list.append(pg_loss)
 
             # entropy loss
             entropy_loss = torch.masked_select(entropy, inputs["loss_mask"].bool())
             entropy_loss_mean = torch.sum(entropy_loss) / response_token_length_total * self.fsdp_size
-            entropy_loss_list.append(entropy_loss)
+
             # kl loss
             kl = inputs["ref_logprobs"] - logprobs
+            kl = torch.masked_select(kl, inputs["loss_mask"].bool())
             ratio = torch.exp(kl)
             assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
             assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
             kld = (ratio - kl - 1).contiguous()
             kl_loss = torch.clamp(kld, min=-10, max=10)
-            kl_loss = torch.masked_select(kl_loss, inputs["loss_mask"].bool())
             kl_loss_mean = torch.sum(kl_loss) / response_token_length_total * self.fsdp_size
-            kl_loss_list.append(kl_loss)
 
             # compute backward loss
             pg_loss_mean = torch.sum(pg_loss) / response_token_length_total * self.fsdp_size
@@ -282,6 +280,9 @@ class PolicyTrainer(FSDPModule):
                 total_loss = total_loss + self.module_args.kl_coef * kl_loss_mean
             total_loss.backward()
 
+            pg_loss_list.append(pg_loss.detach())
+            entropy_loss_list.append(entropy_loss.detach())
+            kl_loss_list.append(kl_loss.detach())
 
         # refs to https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html#gradient-clipping-and-optimizer-with-dtensor
         # but results seems not right in torch 2.6.0+cu124
@@ -292,9 +293,9 @@ class PolicyTrainer(FSDPModule):
         self.optimizer.zero_grad()
 
         # collect metric
-        pg_loss = (torch.sum(torch.cat(pg_loss_list)) / response_token_length_total * self.fsdp_size).detach().item()
-        kl_loss = torch.mean(torch.cat(kl_loss_list)).detach().item()
-        entropy_loss = torch.mean(torch.cat(entropy_loss_list)).detach().item()
+        pg_loss = (torch.sum(torch.cat(pg_loss_list)) / response_token_length_total * self.fsdp_size).item()
+        kl_loss = torch.mean(torch.cat(kl_loss_list)).item()
+        entropy_loss = torch.mean(torch.cat(entropy_loss_list)).item()
 
         train_stats = {
             "pg_loss": pg_loss,

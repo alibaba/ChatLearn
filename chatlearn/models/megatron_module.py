@@ -13,7 +13,6 @@
 # ==============================================================================
 """Megatron module"""
 import re
-import math
 from dataclasses import fields
 from typing import Dict
 
@@ -31,7 +30,7 @@ try:
 except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
-from chatlearn.configs.common import BaseConfig
+from chatlearn.configs import BaseConfig
 from chatlearn.utils.mappings import build_sharded_info_for_mcore_model
 from .torch_module import TorchModule
 
@@ -52,30 +51,6 @@ if IS_MEGATRON_SUPPORTED:
     class MegatronModule(TorchModule):
         """MegatronModule is the class for Alignment Megatron models."""
 
-        def __init__(self, name: str, args=None, replica_id: int=0):
-            """The chatlearn wrapper for a Megatron model.
-
-            Args:
-                name (str): The name of this module
-                args (Any, optional): The arguments. Defaults to None.
-                replica_id (int, optional): The replica id of this module. Defaults to 0.
-            """
-            super().__init__(name, args=args, replica_id=replica_id)
-            assert self.total_gpu > 0, "Megatron-Core requires at least one GPU"
-            # NOTE: Only the replicas of non-trainable model will be managed by ChatLearn
-            if not self.trainable:
-                # NOTE: LCM(TP x CP, ETP x EP) x PP, currently only allow CP = 1
-                self._num_gpu_per_replica = math.lcm(
-                    self.module_args.tensor_model_parallel_size * 1,
-                    self.module_args.expert_tensor_parallel_size *
-                    self.module_args.expert_model_parallel_size
-                ) * self.module_args.pipeline_model_parallel_size
-                assert self.total_gpu % self._num_gpu_per_replica == 0, \
-                    "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
-                self._num_replica = self.total_gpu // self._num_gpu_per_replica
-
-            self.num_train_global_batch = self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size
-
         def add_extra_args(self, parser):
             """
             Add extra arguments for megatron.
@@ -92,6 +67,7 @@ if IS_MEGATRON_SUPPORTED:
             :meta private:
             """
             args = parse_args(self.add_extra_args, ignore_unknown_args=True)
+            args.train_iters = 1
 
             def try_convert_to_default_type(default_value, value):
                 """Convert value to type(default_value) if possible"""
@@ -106,17 +82,22 @@ if IS_MEGATRON_SUPPORTED:
                         pass
                 return value
 
-            def set_megatron_cfg(cfg: BaseConfig):
+            def set_megatron_cfg(cfg: BaseConfig, used_names: set=None):
                 """
                 set chatlearn cfg to megatron args
                 will not set BaseConfig and key not in megatron args
                 """
+                if used_names is None:
+                    used_names = set()
                 for field in fields(cfg):
                     key = field.name
                     value = getattr(cfg, key)
                     if isinstance(value, BaseConfig):
-                        set_megatron_cfg(value)
+                        set_megatron_cfg(value, used_names)
                     elif hasattr(args, key):
+                        if key in used_names:
+                            raise ValueError(f"Attempt to pass {key} to Megatron twice")
+                        used_names.add(key)
                         setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
             set_megatron_cfg(self.module_args)
 
@@ -128,6 +109,8 @@ if IS_MEGATRON_SUPPORTED:
 
             # NOTE: Megatron-Core will override variable_seq_lengths to be False, override it back
             get_args().variable_seq_lengths = self.module_args.variable_seq_lengths
+
+            self.num_train_global_batch = self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size
 
             if self.trainable:
                 # slow down if set jit fusion for inference model
@@ -192,6 +175,7 @@ if IS_MEGATRON_SUPPORTED:
 
             :meta private:
             """
+            get_args().save = f"{self.runtime_args.output_dir}/save_model/{self.name}"
             save_checkpoint_and_time(
                 iteration,
                 self.model,
