@@ -22,8 +22,8 @@ ChatLearn 使用文档
 
    tutorial/data
    tutorial/run
-   tutorial/tutorial_llama2
-   tutorial/tutorial_qwen
+   tutorial/tutorial_grpo_fsdp
+   tutorial/tutorial_grpo_mcore
    tutorial/evaluator
    tutorial/continue_train
    tutorial/custom_model_flow
