@@ -13,7 +13,6 @@
 # limitations under the License.
 # ==============================================================================
 """Sync parameters"""
-from copy import deepcopy
 from collections import defaultdict
 from itertools import chain
 from typing import Dict, List, Tuple, TYPE_CHECKING, Any
@@ -26,7 +25,6 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.structs import (
-    SynchronizerType,
     Ranks,
     BucketInfo,
     SyncIteration
@@ -145,7 +143,7 @@ class BasePlanner:
         mem_infos: Dict[int, Tuple[int, int]],
         max_memory_fraction: float=0.8
     ) -> Tuple[Dict[int, List[SyncIteration]], Any]:
-        ...
+        raise NotImplementedError("build_iteration should be implemented in subclasses")
 
 
     def make_unbucketized_plan(self):

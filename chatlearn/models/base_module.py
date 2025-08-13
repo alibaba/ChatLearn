@@ -659,7 +659,7 @@ class BaseModule:
         return self.synchronizer.parameter_sync()
 
     def post_parameter_sync(self):
-        pass
+        """Release resources after parameter synchronization."""
 
     def get_gpu_info(self):
         """return a unique string to identify the GPU"""

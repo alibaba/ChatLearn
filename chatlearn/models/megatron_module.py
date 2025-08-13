@@ -14,7 +14,6 @@
 """Megatron module"""
 import re
 from dataclasses import fields
-from typing import Dict
 
 import inspect
 import torch

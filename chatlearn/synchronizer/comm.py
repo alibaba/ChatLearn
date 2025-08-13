@@ -230,7 +230,7 @@ class GeneralCommunicator:
         for iter_idx in range(len(self.plan)):
             self.model.update_weights_from_buckets(self.all2all_sync_step(iter_idx))
             self.release_ipc_resources()
-        
+
     @torch.no_grad()
     def release_ipc_resources(self):
         """Release the IPC handles in the reverse order"""

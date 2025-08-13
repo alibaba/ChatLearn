@@ -18,12 +18,9 @@ from collections import defaultdict
 from itertools import chain
 from typing import Dict, List, Tuple, TYPE_CHECKING, Any
 
-import numpy as np
-
 from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger
-from chatlearn.utils.timer import Timers
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.structs import (
     SynchronizerType,
