@@ -229,5 +229,10 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
             self.dst_model.call_func_on_all_workers('parameter_sync')
         )
         future.wait(refs, return_output=True)
+        refs = (
+            self.src_model.call_func_on_all_workers('post_parameter_sync') +
+            self.dst_model.call_func_on_all_workers('post_parameter_sync')
+        )
+        future.wait(refs, return_output=True)
         self.timers("communication").stop()
         logger.info(f"finish parameter synchronization | {self.timers.log(names=['communication'])}")

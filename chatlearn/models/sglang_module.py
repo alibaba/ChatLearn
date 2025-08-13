@@ -16,7 +16,7 @@
 import warnings
 import os
 import math
-from typing import Optional, List
+from typing import Optional, List, Optional, TYPE_CHECKING
 import copy
 
 import ray
@@ -33,6 +33,9 @@ try:
 except Exception:
     warnings.warn("SGLang is not installed.")
 
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
+    
 class SGLangModule(TorchModule):
     """SGLangModule"""
 

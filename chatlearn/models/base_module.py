@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """base module"""
-from typing import Dict
+from typing import Dict, List, Optional, TYPE_CHECKING
 from itertools import cycle
 from pathlib import Path
 import math
@@ -35,6 +35,9 @@ from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.base import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
+
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
 
 
 class BaseModule:
@@ -655,6 +658,9 @@ class BaseModule:
             raise ValueError("Synchronizer is not initialized.")
         return self.synchronizer.parameter_sync()
 
+    def post_parameter_sync(self):
+        pass
+
     def get_gpu_info(self):
         """return a unique string to identify the GPU"""
         node_id = ray.get_runtime_context().get_node_id()
@@ -677,5 +683,5 @@ class BaseModule:
     def get_mem_info(self):
         return torch.cuda.mem_get_info()
 
-    def update_weights_from_buckets(self, buckets: List[Optional[BucketInfo]]):
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
         raise NotImplementedError("update_weights_from_buckets is not implemented")

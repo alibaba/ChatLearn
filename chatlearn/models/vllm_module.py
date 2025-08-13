@@ -16,7 +16,7 @@
 
 import inspect
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List, TYPE_CHECKING
 import copy
 
 import torch
@@ -33,6 +33,9 @@ from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
 from .torch_module import TorchModule
+
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
 
 # pylint: disable=unexpected-keyword-arg
 class VLLMModule(TorchModule, RayWorkerWrapper):
@@ -453,7 +456,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self.synchronizer.parameter_sync()
         self.param_id_to_parameters = None
 
-    def update_weights_from_buckets(self, buckets: List[Optional[BucketInfo]]):
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
         for bucket in buckets:
             if bucket is None:
                 continue
@@ -461,7 +464,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             if bucket.buffer is None:
                 raise ValueError("Attempt to read from a bucket without buffer")
             for offset, sharded_tensor_info in bucket.recv_layout:
-                shard = sharded_tensor_info.index(self.param_id_to_param[sharded_tensor_info.param_id])
+                shard = sharded_tensor_info.index(self.param_id_to_parameters[sharded_tensor_info.param_id])
                 comm_dtype = sharded_tensor_info.dtype
                 numel = shard.numel()
                 byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
