@@ -13,10 +13,12 @@ def compute_grpo_adv(episode_replay_buffers):
         sample_id += 1
 
     res_buffers = []
+    # TODO: torch and numpy have difference result, not knowing 
     for _, l in queryids2samples.items():
         rewards = np.array([each["rule_reward"] for each in l])
         mean = np.mean(rewards)
         std = np.std(rewards)
+
         for li in l:
             li["advantages"] = (li["rule_reward"] - mean) / (std + 1e-5)
         res_buffers.extend(l)

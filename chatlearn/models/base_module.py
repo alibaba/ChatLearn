@@ -32,7 +32,7 @@ from chatlearn.utils.logger import logger
 from chatlearn.utils.logger import log_rank_0, setup_logger
 from chatlearn.utils.timer import Timers
 from chatlearn.utils.constant import REF_LIST, INDEX_TAG
-from chatlearn.utils.utils import get_host_addr, map_reduce_metrics
+from chatlearn.utils.utils import get_host_addr, map_reduce_metrics, slice_data_list_by_index
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.common import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
@@ -241,7 +241,7 @@ class BaseModule:
                     for data_slice in data_obj[REF_LIST]:
                         batched_data_list[idx].extend(data_slice)
                 if INDEX_TAG in data_obj:
-                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], arg_obj[INDEX_TAG])
+                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], data_obj[INDEX_TAG])
             if len(batched_data_list) > 1:
                 # When current node have several input nodes, we need to merge them
                 # Data size for each input node must be same

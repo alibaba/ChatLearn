@@ -325,11 +325,11 @@ def slice_data_list_by_index(batched_input: List[Dict[str, Any]], index):
     total_length = len(batched_input)
     slice_id = index[0]
     total_slice = index[1]
-    slice_size = total_length // index[1]
+    slice_size = total_length // total_slice
     # When total_length % total_slice != 0, Remaining data will be append to last slice to avoid droping data
     reminder = total_length % total_slice
     start_index = slice_id * slice_size
-    end_index = start_index + slice_size if slice_id < total_slice - 1 else start_index + slice_size + reminder
+    end_index = start_index + slice_size if slice_id != total_slice - 1 else start_index + slice_size + reminder
     return batched_input[start_index : end_index]
 
 def listdict_to_dictlist(ld, list_extend=True):

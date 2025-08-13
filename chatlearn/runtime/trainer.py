@@ -74,11 +74,8 @@ class Trainer(Executor):
 
     def train(self, episode: int):
         """
-        num_micro_batch_per_dp(int): The number of iterations required for each micro-batch in data parallelism (DP)
         _num_training_iteration(int): The number of times the model is updated per episode
-        
         """
-        self.num_micro_batch_per_dp = self.args.train_global_batch_size // self.args.train_micro_batch_size // self.data_parallel_size
         _num_training_iteration = self.num_iteration()
         self._batch_per_episode = _num_training_iteration
         future.wait(self._data_loader.set_dp_size.remote(self.data_parallel_size))

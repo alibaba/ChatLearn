@@ -125,7 +125,7 @@ def compute_decorator(trainable, rollout):
                 else:
                     self.offload()
             # TODO fix consumed samples
-            if is_last_batch and not is_eval:
+            if not is_eval:
                 self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
             return final_results
 

@@ -104,7 +104,9 @@ def regroup_data_from_list(data_all: Dict, data_position: List[int]):
 
 def regroup_data_packing(
     data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]],
-    max_train_token: int
+    process_group_list: List[Any],
+    max_train_token: int,
+    offset: int
 ) -> List[Dict[str, Union[torch.Tensor, List[Any]]]]:
     """Automatically split a list of data into serveral micro-batches according to
     `max_train_token`, used for dynamic-batching. Note that the data in each batch
@@ -128,14 +130,15 @@ def regroup_data_packing(
     # Get bin_packing result
     bins_id, _ = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
     bin_size = torch.tensor(len(bins_id)).cuda()
-    # Get max_bin_size across all dp rank
-    torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
-    bins_id, _ = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
+    # # Get max_bin_size across all dp rank
+    if len(process_group_list > 0) and process_group_list[0] is None:
+        torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
+        bins_id, _ = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
     # Prepare train data for each micro batch
     for micro_batch_id in bins_id:
         regroup_data_list.append([])
         for sample_id in micro_batch_id:
             packed_sample = data_list[sample_id]
-            packed_sample.update({'id_in_list': sample_id})
+            packed_sample.update({'id_in_list': sample_id + offset})
             regroup_data_list[-1].append(packed_sample)
     return regroup_data_list

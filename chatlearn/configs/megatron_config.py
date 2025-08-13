@@ -265,6 +265,9 @@ class MegatronTrainConfig(BaseConfig):
     async_tensor_model_parallel_allreduce: bool = field(
         default=False, metadata={"help": "async_tensor_model_parallel_allreduce."}
     )
+    train_micro_batch_size: int = field(
+        default=MISSING, metadata={"help": "[required] training micro batch size."}
+    )
     overlap_p2p_comm: bool = field(
         default=False, metadata={"help": "When True some of the peer to peer communication for pipeline parallelism will overlap with computation。"}
     )

@@ -74,6 +74,8 @@ if IS_MEGATRON_SUPPORTED:
                     "The GPUs assigned to this model must be divisible by num_gpu_per_replica"
                 self._num_replica = self.total_gpu // self._num_gpu_per_replica
 
+            self.num_train_global_batch = self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size
+
         def add_extra_args(self, parser):
             """
             Add extra arguments for megatron.
