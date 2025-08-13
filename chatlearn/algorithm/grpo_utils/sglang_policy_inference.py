@@ -24,8 +24,8 @@ from chatlearn.models.sglang_module import SGLangModule
 
 
 class SGLangPolicyInference(SGLangModule):
-    """sglang rollout
-    """
+    """sglang rollout"""
+    # pylint: disable=abstract-method
     def build_dataset(self, prompts: List[Dict], is_eval=False):
 
         seq_length = self.module_args.get("seq_length")

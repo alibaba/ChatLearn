@@ -76,7 +76,6 @@ class GeneralCommunicator:
         """
         self.model = model
         self.plan: List[SyncIteration] = local_plan
-        self.param_id_to_param = None
         self.type = synchronizer_type
 
         # NOTE: rank represents the rank of the colocated actor in the PG
@@ -119,7 +118,7 @@ class GeneralCommunicator:
                 # dtype to be shard_info.dtype (the original dtype of the weight)
                 # to avoid potential issue.
                 shard = shard_info.index(
-                    self.param_id_to_param[shard_info.param_id].to(shard_info.dtype)
+                    self.model.param_id_to_parameters[shard_info.param_id].to(shard_info.dtype)
                 ).view(dtype=torch.uint8)
                 bucket_info.buffer[offset:offset + shard_info.size].view(shard.shape).copy_(shard)
             for rank in ranks.values:
@@ -222,9 +221,7 @@ class GeneralCommunicator:
         parameter buckets from sender, then update its parameters with
         the payloads in the buckets.
         """
-        if self.type in [SynchronizerType.SEND, SynchronizerType.RECV]:
-            self.param_id_to_param = self.model.get_param_id_to_parameters()
-        else:
+        if self.type == SynchronizerType.FORWARD:
             raise NotImplementedError("Forwarder is not supported yet")
 
         if self.type != SynchronizerType.RECV:
@@ -232,9 +229,9 @@ class GeneralCommunicator:
 
         for iter_idx in range(len(self.plan)):
             recv_buckets = self.all2all_sync_step(iter_idx)
+            self.model.update_weights_from_buckets(recv_buckets)
             for bucket in recv_buckets:
                 if bucket is not None:
-                    self._load_from_bucket(bucket)
                     bucket.buffer = None
             self.release_ipc_resources()
 
@@ -248,29 +245,6 @@ class GeneralCommunicator:
             )
         else:
             torch.cuda.ipc_collect()
-
-    @torch.no_grad()
-    def release_resources(self):
-        """Release all local resources"""
-        self.param_id_to_param = None
-
-    def _load_from_bucket(self, bucket: BucketInfo):
-        """Copy parameters from a bucket to local parameters
-
-        Args:
-            bucket (BucketInfo): The bucket to load from
-        """
-        offset = 0
-        if bucket.buffer is None:
-            raise ValueError("Attempt to read from a bucket without buffer")
-        for offset, sharded_tensor_info in bucket.recv_layout:
-            shard = sharded_tensor_info.index(self.param_id_to_param[sharded_tensor_info.param_id])
-            comm_dtype = sharded_tensor_info.dtype
-            numel = shard.numel()
-            byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
-            # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
-            shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
-            offset += numel * comm_dtype.itemsize
 
     def _build_p2p_ops(
         self,

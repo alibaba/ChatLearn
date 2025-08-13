@@ -16,7 +16,7 @@
 
 import inspect
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List, TYPE_CHECKING
 import copy
 
 import torch
@@ -33,6 +33,9 @@ from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
 from .torch_module import TorchModule
+
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
 
 # pylint: disable=unexpected-keyword-arg
 class VLLMModule(TorchModule, RayWorkerWrapper):
@@ -438,10 +441,33 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             infos[param_id] = sharded_info
         return infos
 
-    def get_param_id_to_parameters(self):
+    @torch.no_grad()
+    def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
         param_id_to_parameters = {}
         for name, weight in self.model.state_dict().items():
             if name not in self.local_name_to_param_id:
                 continue
             param_id_to_parameters[self.local_name_to_param_id[name]] = weight
-        return param_id_to_parameters
+
+        self.param_id_to_parameters = param_id_to_parameters
+        self.synchronizer.parameter_sync()
+        self.param_id_to_parameters = None
+
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        for bucket in buckets:
+            if bucket is None:
+                continue
+            offset = 0
+            if bucket.buffer is None:
+                raise ValueError("Attempt to read from a bucket without buffer")
+            for offset, sharded_tensor_info in bucket.recv_layout:
+                shard = sharded_tensor_info.index(self.param_id_to_parameters[sharded_tensor_info.param_id])
+                comm_dtype = sharded_tensor_info.dtype
+                numel = shard.numel()
+                byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
+                # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
+                shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+                offset += numel * comm_dtype.itemsize
