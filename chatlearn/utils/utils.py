@@ -285,7 +285,7 @@ def regroup_by_concat_along_batch(data: List[Dict[str, Union[torch.Tensor, List[
                 max_dim_1 = max([ele.shape[1] for ele in to_batch]) # pylint: disable=consider-using-generator
                 pad_value = 0.0 if to_batch[0].dtype in [torch.float32, torch.float16, torch.bfloat16] else 0
                 value = [
-                    torch.nn.functionalF.pad(
+                    torch.nn.functional.F.pad(
                         ele,
                         (0, max_dim_1 - ele.shape[1]),
                         value=pad_value,
