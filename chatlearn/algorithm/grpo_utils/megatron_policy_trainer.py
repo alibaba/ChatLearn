@@ -240,10 +240,10 @@ class MegatronPolicyTrainer(MegatronModule):
             process_group_list = [
                 group
                 for group in [
-                    mpu.get_data_parallel_group(check_initialized=False),
-                    mpu.get_expert_data_parallel_group(check_initialized=False),
+                    mpu.get_model_parallel_group(check_initialized=False),
+                    mpu.get_expert_model_parallel_group(check_initialized=False),
                 ]
-                if group is not None
+                if group is not None and group.size() > 1
             ]
             microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.module_args.max_token_in_packing, process_group_list=process_group_list, packing=self.module_args.packing)
         else:
@@ -377,17 +377,17 @@ class MegatronPolicyTrainer(MegatronModule):
         """
         for model_chunk in self.model:
             model_chunk.eval()
-
+        tag = OLD_TAG if self.trainable else REF_TAG
         # Split minibatch to microbatches and batching
         if self.module_args.packing:
             # Get process group for bin_size communication
             process_group_list = [
                 group
                 for group in [
-                    mpu.get_data_parallel_group(check_initialized=False),
-                    mpu.get_expert_data_parallel_group(check_initialized=False),
+                    mpu.get_model_parallel_group(check_initialized=False),
+                    mpu.get_expert_model_parallel_group(check_initialized=False),
                 ]
-                if group is not None
+                if group is not None and group.size() > 1
             ]
             # Split by num_train_global_batch first
             microbatch_list = []
@@ -429,7 +429,6 @@ class MegatronPolicyTrainer(MegatronModule):
             return
 
         # trainable is True --> policy trainer; False --> PolicyReference
-        tag = OLD_TAG if self.trainable else REF_TAG
 
         # update data for each sample in list
         for logprobs, data_b in zip(forward_data_store, data_list):

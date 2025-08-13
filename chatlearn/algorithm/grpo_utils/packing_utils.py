@@ -128,12 +128,14 @@ def regroup_data_packing(
         for data_b in data_list
     ]
     # Get bin_packing result
-    bins_id, _ = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
+    bins_id, bin_seqlen_before = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
     bin_size = torch.tensor(len(bins_id)).cuda()
-    # # Get max_bin_size across all dp rank
-    if len(process_group_list > 0) and process_group_list[0] is None:
-        torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX)
-        bins_id, _ = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
+    # Get max_bin_size across all rank in same model replica
+    # For megatron, all_reduce along mp group first and emp group second
+    # For FSDP, all_reduce along defualt group
+    for pg in process_group_list:
+        torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX, group=pg)
+    bins_id, bin_seqlen_after = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size.cpu().item())
     # Prepare train data for each micro batch
     for micro_batch_id in bins_id:
         regroup_data_list.append([])
