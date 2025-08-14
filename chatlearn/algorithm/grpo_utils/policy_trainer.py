@@ -40,9 +40,9 @@ class PolicyTrainer(FSDPModule):
             # When packing is enabled, data_list will only contain one microbatch
             # Microbatch will be regrouped
             if not training:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length"]
+                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "prompt_position_ids"]
             else:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG]
+                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG, "prompt_position_ids"]
             data_list = regroup_data_packing(data_list, regroup_keywords, self.max_token_in_seq)
 
         data_after_process = []
@@ -50,10 +50,11 @@ class PolicyTrainer(FSDPModule):
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
+            prompt_position_ids = data_b["prompt_position_ids"]
             ori_batch_size, ori_seq_len = tokens_.size()
             if self.packing:
                 # Packing data into one batch
-                attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+                attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, prompt_position_ids)
                 tokens_, indices, cu_seqlens, max_seqlen_in_batch, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
 
@@ -118,7 +119,7 @@ class PolicyTrainer(FSDPModule):
                         }
                     )
             else:
-                attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+                attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, prompt_position_ids)
                 pad_size = 0
                 if self.sp_size > 1:
                     # Pad inputs to ensure seq_len is divisible by sp_size
@@ -183,6 +184,9 @@ class PolicyTrainer(FSDPModule):
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
+
+            # data = torch.arange(0, 2048, dtype=torch.int64)
+            # position_ids_fake = data.view(1, 1, 2048).repeat(3, 64, 1)
             output = self.model(
                 input_ids=inputs["all_tokens"],
                 attention_mask=None,
@@ -279,6 +283,7 @@ class PolicyTrainer(FSDPModule):
         self._metric_list.append(train_stats)
 
     def forward_step(self, data):
+
         total_size = data['all_tokens'].shape[0]
         ori_seq_len = data['all_tokens'].shape[1]
 
@@ -286,6 +291,9 @@ class PolicyTrainer(FSDPModule):
         # Logprobs holder
         output_logprobs = torch.empty(total_size, ori_seq_len, dtype=torch.bfloat16)
         token_in_seq = []
+
+        # data = torch.arange(0, 2048, dtype=torch.int64)
+        # position_ids_fake = data.view(1, 1, 2048).repeat(3, 64, 1)
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)

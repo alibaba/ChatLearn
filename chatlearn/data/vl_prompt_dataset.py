@@ -5,9 +5,10 @@ from typing import List, Dict
 
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoProcessor
+from chatlearn.data.vision_utils import process_image, process_video, postprocess_data
 import re
 
-class VLLMPromptPipeline(Dataset):
+class PromptPipeline(Dataset):
     """
     process vl data in this format
     {
@@ -56,31 +57,41 @@ class VLLMPromptPipeline(Dataset):
             messages = self._build_messages(data_item)
 
             model_inputs = {}
-            if self.processor is not None:
-                from chatlearn.data.vision_utils import process_image, process_video, postprocess_data
+            
+            assert self.processor is not None
 
-                raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
-                # multi_modal_data = {}
+            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            # multi_modal_data = {}
 
-                images = None
-                if self.image_key in data_item and data_item.get(self.image_key, None) is not None:
-                    images = [process_image(image) for image in data_item.pop(self.image_key)]
+            images = None
+            if self.image_key in data_item and data_item.get(self.image_key, None) is not None:
+                images = [process_image(image) for image in data_item.pop(self.image_key)]
 
-                    # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
-                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                    # multi_modal_data["image"] = images
+                # due to the image key is "image" instead of "images" in vllm, we need to use "image" here
+                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+                # multi_modal_data["image"] = images
 
-                videos = None
-                if self.video_key in data_item and data_item.get(self.video_key, None) is not None:
-                    videos = [process_video(video) for video in data_item.pop(self.video_key)]
+            videos = None
+            if self.video_key in data_item and data_item.get(self.video_key, None) is not None:
+                videos = [process_video(video) for video in data_item.pop(self.video_key)]
 
-                    # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
-                    # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
-                    # multi_modal_data["video"] = [video.numpy() for video in videos]
+                # due to the video key is "video" instead of "videos" in vllm, we need to use "video" here
+                # link: https://github.com/vllm-project/vllm/blob/3c545c0c3b98ee642373a308197d750d0e449403/vllm/multimodal/parse.py#L205
+                # multi_modal_data["video"] = [video.numpy() for video in videos]
 
-                model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
-                input_ids = model_inputs.pop("input_ids")
-                attention_mask = model_inputs.pop("attention_mask")
+            # TODO support video. Only images are supported now.
+            multi_modal_data = {'image':images}
+            mm_processor_kwargs = {'fps': []}
+
+            model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
+        
+            # model_inputs = self.processor(text=[raw_prompt], images=None, videos=None, return_tensors="pt")
+            input_ids = model_inputs.pop("input_ids")
+            attention_mask = model_inputs.pop("attention_mask")
+
+            # text only for vllm
+            # model_inputs = self.processor(text=[raw_prompt], images=None, videos=None, return_tensors="pt")
+            raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
             # input_ids, attention_mask = postprocess_data(
             #     input_ids=input_ids,
@@ -109,11 +120,14 @@ class VLLMPromptPipeline(Dataset):
 
             processed_data = {
                 "input_ids": input_ids[0].tolist(),
+                "raw_input_ids": raw_input_ids,
                 "prompt": raw_prompt,
                 "attention_mask": attention_mask[0].tolist(),
                 "position_ids": position_ids[0].tolist(),
                 "data_source": data_source,
                 "ground_truth": ground_truth,
+                "multi_modal_data": multi_modal_data,
+                "mm_processor_kwargs": mm_processor_kwargs
             }
 
             # ori

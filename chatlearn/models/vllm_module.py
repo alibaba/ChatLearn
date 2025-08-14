@@ -353,23 +353,48 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
         # preprocess query
         prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
-        input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
+        if 'multi_modal_data' in query:
+            input_ids_key = "raw_input_ids"
+        else:
+            input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
         seq_len = self.module_args.get("seq_length")
 
         prompts = query[prompt_key]
         prompts_token_ids = query[input_ids_key]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
-        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
+
+        llm_inputs = []
+       
+        for prompt_id, (prompt, prompt_token_ids_item) in enumerate(zip(prompts, prompts_token_ids)):
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item.max_tokens = max_tokens
             sampling_params.append(sampling_param_item)
 
-        outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
+            if 'multi_modal_data' in query:
+                llm_inputs.append(
+                    {
+                        "multi_modal_data": query['multi_modal_data'][prompt_id],
+                        "mm_processor_kwargs": query['mm_processor_kwargs'][prompt_id],
+                        "prompt_token_ids": prompt_token_ids_item,
+                    }
+                )
+            else:
+                llm_inputs.append(
+                    {
+                        "prompt_token_ids": prompt_token_ids_item,
+                    }
+                )
+
+        outputs = self.llm.generate(llm_inputs,
                                     sampling_params = sampling_params,
                                     use_tqdm = True)
+        
+        # outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
+        #                             sampling_params = sampling_params,
+        #                             use_tqdm = True)
 
         # save stage outputs for resume.
         self.save_stage_outputs(is_eval, outputs, iteration)

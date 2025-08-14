@@ -16,7 +16,7 @@ latex2sympy2==1.9.0
 # qwenvl
 mathruler
 pylatexenc
-qwenvl_utils
+qwen_vl_utils
 # install apex if you needed
 #   git clone https://github.com/NVIDIA/apex
 #   cd apex

@@ -432,7 +432,11 @@ class FSDPModule(TorchModule):
                 self.tokenizer.save_pretrained(hf_path)
 
                 with torch.device("meta"):
-                    save_model = AutoModelForCausalLM.from_config(model_config, torch_dtype=torch.bfloat16)
+                    
+                    if "Qwen2_5_VLForConditionalGeneration" in model_config.architectures:
+                        save_model = AutoModelForImageTextToText.from_config(model_config, torch_dtype=torch.bfloat16)
+                    else:
+                        save_model = AutoModelForCausalLM.from_config(model_config, torch_dtype=torch.bfloat16)
                 save_model.to_empty(device="cpu")
                 save_model.save_pretrained(hf_path, state_dict=model_state_dict)
             torch.distributed.barrier()
