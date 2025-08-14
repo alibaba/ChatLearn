@@ -172,6 +172,7 @@ class PolicyModel(GPTModel):
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
+        ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
         assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()
