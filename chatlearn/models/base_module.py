@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """base module"""
-from typing import Dict
+from typing import Dict, List, Optional, TYPE_CHECKING
 from itertools import cycle
 from pathlib import Path
 import math
@@ -36,6 +36,9 @@ from chatlearn.utils.utils import get_host_addr, map_reduce_metrics, slice_data_
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.base import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
+
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
 
 
 class BaseModule:
@@ -677,11 +680,19 @@ class BaseModule:
             v: global_name_to_param_id[k]
             for k, v in self.global_name_to_local_name.items()
         }
+        self.param_id_to_local_name = {
+            global_name_to_param_id[k]: v
+            for k, v in self.global_name_to_local_name.items()
+        }
 
     def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
         if self.synchronizer is None:
             raise ValueError("Synchronizer is not initialized.")
         return self.synchronizer.parameter_sync()
+
+    def post_parameter_sync(self):
+        """Release resources after parameter synchronization."""
 
     def get_gpu_info(self):
         """return a unique string to identify the GPU"""
@@ -689,13 +700,6 @@ class BaseModule:
         gpu_ids = ray.get_gpu_ids()
         assert len(gpu_ids) == 1, "Not Supported"
         return f"{node_id}-{gpu_ids[0]}"
-
-    def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
-        """For all weights in the model of this rank, generate a mapping that maps
-        global param id to the corresponding weight. Should be called only after
-        calling `set_param_ids`. Used for parameter syhchornizing.
-        """
-        raise NotImplementedError("mapping param id to parameters is not implemented")
 
     def set_synchronizer(
         self,
@@ -711,3 +715,6 @@ class BaseModule:
 
     def get_mem_info(self):
         return torch.cuda.mem_get_info()
+
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        raise NotImplementedError("update_weights_from_buckets is not implemented")

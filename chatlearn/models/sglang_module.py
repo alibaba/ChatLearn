@@ -16,7 +16,7 @@
 import warnings
 import os
 import math
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 import copy
 
 import ray
@@ -33,8 +33,12 @@ try:
 except Exception:
     warnings.warn("SGLang is not installed.")
 
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
+
 class SGLangModule(TorchModule):
     """SGLangModule"""
+    # pylint: disable=abstract-method
 
     def __init__(self, name: str, args=None, replica_id: int=0):
         """The chatlearn wrapper for a sglang model.
@@ -270,8 +274,6 @@ class SGLangModule(TorchModule):
                 self.weight_onloaded = True
         torch.cuda.synchronize()
 
-    def get_param_id_to_parameters(self):
-        pass
 
     @property
     def is_engine(self):
