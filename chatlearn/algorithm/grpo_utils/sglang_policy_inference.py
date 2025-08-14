@@ -16,7 +16,6 @@
 from typing import Dict, List
 
 import torch
-import torch.nn.functional as F
 
 from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import timeit, compute_decorator
@@ -60,7 +59,7 @@ class SGLangPolicyInference(SGLangModule):
         response_token_length = [ret["response_token_length"] for ret in rets]
         prompt_token_length = [ret["prompt_token_length"] for ret in rets]
         seq_len = [
-            ret["response_token_length"] + ret["prompt_token_length"] 
+            ret["response_token_length"] + ret["prompt_token_length"]
             for ret in rets
         ]
         clip_ratio = sum(
