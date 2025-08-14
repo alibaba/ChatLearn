@@ -635,8 +635,8 @@ class BaseModule:
     # NOTE: the following APIs are for updated parameter synchronization.
     def set_mapper(self, mapper_name: str, dst_model_config: BaseModelConfig):
         self.mapper = name_to_mapper_cls(mapper_name)(
-            dst_model_config,
-            self
+            dst_model_config=dst_model_config,
+            model=self
         )
 
     def generate_sync_mapping(self, dst_name_to_metadata):

@@ -16,16 +16,17 @@
 import warnings
 import os
 import math
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Dict
 import copy
 
 import ray
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_huggingface_model
 from .torch_module import TorchModule
 
 try:
@@ -278,3 +279,76 @@ class SGLangModule(TorchModule):
     @property
     def is_engine(self):
         return self.llm and self.llm.tokenizer_manager is not None
+
+    def map_local_param_name_to_global(self):
+        model_config = AutoConfig.from_pretrained(self.module_args['load'])
+        with torch.device('meta'):
+            meta_model = AutoModelForCausalLM.from_config(
+                model_config,
+                trust_remote_code=True
+            )
+        names = list(meta_model.state_dict().keys())
+        self.global_name_to_local_name = {n: n for n in names}
+        return names
+
+    @torch.no_grad()
+    def get_parameter_metadata(self) -> Dict[str, ShardedTensorInfo]:
+        """Collect parameter shape info of this rank
+        """
+        if self.local_name_to_param_id is None:
+            raise ValueError("Call set_param_id before call this function")
+
+        model_config = AutoConfig.from_pretrained(self.module_args['load'])
+        with torch.device('meta'):
+            meta_model = AutoModelForCausalLM.from_config(
+                model_config,
+                trust_remote_code=True
+            )
+        infos = {}
+        for name, sharded_info in build_sharded_info_for_huggingface_model(meta_model).items():
+            param_id = self.local_name_to_param_id[name]
+            sharded_info.param_id = param_id
+            infos[param_id] = sharded_info
+        return infos
+
+    def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
+        self.param_id_to_metadata = self.get_parameter_metadata()
+        self.synchronizer.parameter_sync()
+        self.param_id_to_metadata = None
+
+    @torch.no_grad()
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        # pylint: disable-next=import-outside-toplevel
+        from sglang.srt.utils import MultiprocessingSerializer
+        params_to_update: Dict[str, torch.Tensor] = {}
+        for bucket in buckets:
+            if bucket is None:
+                continue
+            offset = 0
+            if bucket.buffer is None:
+                raise ValueError("Attempt to read from a bucket without buffer")
+            for offset, sharded_tensor_info in bucket.recv_layout:
+                param_id = sharded_tensor_info.param_id
+                param_name = self.param_id_to_local_name[param_id]
+                if param_name not in params_to_update:
+                    shard_info = self.param_id_to_metadata[param_id]
+                    params_to_update[param_name] = torch.empty(
+                        shard_info.global_shape,
+                        dtype=shard_info.dtype,
+                        device='cuda'
+                    )
+                weight = params_to_update[param_name]
+                shard = sharded_tensor_info.index(weight)
+                comm_dtype = sharded_tensor_info.dtype
+                numel = shard.numel()
+                byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
+                # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
+                shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+                offset += numel * comm_dtype.itemsize
+
+        for name, weight in params_to_update.items():
+            params_to_update[name] = MultiprocessingSerializer.serialize(weight)
+        self.update_weights_from_ipc_handles(params_to_update)

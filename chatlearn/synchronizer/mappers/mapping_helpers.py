@@ -13,7 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 """helper function to map layout between MCore and vLLM"""
-from typing import List, Tuple, Optional
+import math
+from dataclasses import dataclass
+from typing import List, Tuple, Optional, Literal
 from itertools import chain
 
 from chatlearn.utils.mappings import ShardedTensorInfo
@@ -46,9 +48,30 @@ def process_normal_tensor(
         ) for tensor_part_info in sharded_info.fragment(dst_tp_size, axis)
     ]
 
+def _build_gate_up_layout(src_tp_size: int, dst_tp_size: int):
+    """
+    build layout with 2 * lcm(src_tp, dst_tp) chunks
+    """
+    n_chunks = math.lcm(src_tp_size, dst_tp_size)
+    flatten = lambda x: list(chain.from_iterable(x)) # pylint: disable=unnecessary-lambda-assignment
+    mcore_layout = flatten([
+        [ f"g{c_id + tp_rank * (n_chunks // src_tp_size)}" for c_id in range(n_chunks // src_tp_size) ] +
+        [ f"u{c_id + tp_rank * (n_chunks // src_tp_size)}" for c_id in range(n_chunks // src_tp_size) ]
+        for tp_rank in range(src_tp_size)
+    ])
+
+    vllm_layout = flatten([
+        [ f"g{c_id + tp_rank * (n_chunks // dst_tp_size)}" for c_id in range(n_chunks // dst_tp_size) ] +
+        [ f"u{c_id + tp_rank * (n_chunks // dst_tp_size)}" for c_id in range(n_chunks // dst_tp_size) ]
+        for tp_rank in range(dst_tp_size)
+    ])
+
+    return mcore_layout, vllm_layout
+
 def process_gate_up_tensor(
     sharded_info: ShardedTensorInfo,
-    dst_tp_size: int
+    dst_tp_size: int,
+    proj_type: Literal['gate_up_proj', 'gate_proj', 'up_proj']
 ) -> List[Tuple[ShardedTensorInfo, ...]]:
     """The weight/bias of gate_up_proj is represent
 
@@ -62,60 +85,53 @@ def process_gate_up_tensor(
     """
     src_tp_rank = sharded_info.global_offset[0]
     src_tp_size = sharded_info.axis_fragmentations[0]
-    intermediates = ShardedTensorInfo.from_global_shape(
-        sharded_info.global_shape
-    ).fragment(src_tp_size * 2)
 
-    gate_mappings, up_mappings = [], []
-    for gate_part in intermediates[src_tp_rank].fragment(dst_tp_size * 2):
-        dst_tp_rank = gate_part.global_offset[0]
-        gate_mappings.append((
-            (
-                gate_part
-                .refragment(src_tp_size * 2)
-                .map_to_frag_id(src_tp_rank * 2)
-                .refragment(src_tp_size)
-            ),
-            (
-                gate_part
-                .map_to_frag_id(dst_tp_rank * 2)
-                .refragment(dst_tp_size)
-            ),
+    mcore_layout, vllm_layout = _build_gate_up_layout(src_tp_size, dst_tp_size)
+    mcore_id_to_frags = {
+        part.global_offset[0]: part.refragment(src_tp_size)
+        for part in sharded_info.fragment(math.lcm(src_tp_size, dst_tp_size) * 2)
+    }
+    if proj_type == 'gate_up_proj':
+        n_chunks = math.lcm(src_tp_size, dst_tp_size) * 2
+        full_dst_info = ShardedTensorInfo.from_global_shape(sharded_info.global_shape)
+    else:
+        n_chunks = math.lcm(src_tp_size, dst_tp_size)
+        full_dst_info = ShardedTensorInfo.from_global_shape(
+            (sharded_info.global_shape[0] // 2, ) + sharded_info.global_shape[1:]
+        )
+    
+    results = []
+    for chunk_idx, dst_part in enumerate(full_dst_info.fragment(n_chunks)):
+        if proj_type == 'gate_up_proj':
+            chunk_name = vllm_layout[chunk_idx]
+        else:
+            chunk_name = f"{proj_type[:1]}{chunk_idx}"
+        mcore_idx = mcore_layout.index(chunk_name)
+        if mcore_idx not in mcore_id_to_frags:
+            continue
+        results.append((
+            mcore_id_to_frags[mcore_idx],
+            dst_part.refragment(dst_tp_size)
         ))
-    for up_part in intermediates[src_tp_size + src_tp_rank].fragment(dst_tp_size * 2):
-        dst_tp_rank = up_part.global_offset[0] - dst_tp_size
-        up_mappings.append((
-            (
-                up_part
-                .refragment(src_tp_size * 2)
-                .map_to_frag_id(src_tp_rank * 2 + 1)
-                .refragment(src_tp_size)
-            ),
-            (
-                up_part
-                .map_to_frag_id(dst_tp_rank * 2 + 1)
-                .refragment(dst_tp_size)
-            ),
-        ))
-    return __maybe_merge(gate_mappings + up_mappings)
+    return __maybe_merge(results)
 
-def _build_frag_mapping(
+
+def _build_qkv_layout(
     num_heads: int,
     num_query_group: int,
     dst_tp_size: int
 ):
-    """Generate a mapping between mcore qkv heads
-    and vllm qkv heads.
+    """Generate a mapping between mcore qkv heads (mix-style qkv)
+    and vllm qkv heads (no mix-style qkv).
 
     Mcore layout of first dim per tp rank when
     nh=24, ng=8, tp=4, nq=3: [q q q k v q q q k v],
     while vLLM: [q q q q q q k k v v]
 
     Args:
-        num_heads (int): _description_
-        num_query_group (int): _description_
-        src_tp_size (int): _description_
-        dst_tp_size (int): _description_
+        num_heads (int): The num of attention heads
+        num_query_group (int): The num of query groups
+        dst_tp_size (int): The dst tensor parallel size
     """
     flatten = lambda x: list(chain.from_iterable(x)) # pylint: disable=unnecessary-lambda-assignment
     nq = num_heads // num_query_group
@@ -139,50 +155,54 @@ def _build_frag_mapping(
             [f"k{r_id * num_query_group // dst_tp_size}", f"v{r_id * num_query_group // dst_tp_size}"]
             for r_id in range(dst_tp_size)
         ])
-    return {
-        x: mcore_layout.index(n) for x, n in enumerate(vllm_layout)
-    }
+    return mcore_layout, vllm_layout
+
 
 def process_qkv_tensor(
     sharded_info: ShardedTensorInfo,
     num_heads: int,
     num_query_groups: Optional[int],
-    dst_tp_size: int
+    dst_tp_size: int,
+    proj_type: Literal['qkv_proj', 'q_proj', 'k_proj', 'v_proj']
 ) -> List[Tuple[ShardedTensorInfo, ...]]:
-    """Process qkv weight/bias to generate shard mapping.
+    """Process qkv weight/bias to generate shard mapping. 
 
     Args:
-        sharded_info (ShardedTensorInfo): _description_
-        num_heads (int): _description_
-        num_query_group (int): _description_
-        dst_tp_size (int): _description_
-
+        sharded_info (ShardedTensorInfo): The sharded info representing megatron mixed qkv 
+        num_heads (int): The number of attention heads
+        num_query_group (int): The number of query groups
+        dst_tp_size (int): The target tensor parallel size
+        proj_type (Literal['qkv_proj', 'q_proj', 'k_proj', 'v_proj']): the projection type
     """
     if num_query_groups is None:
         num_query_groups = num_heads
     if num_query_groups % dst_tp_size != 0 and dst_tp_size % num_query_groups != 0:
         raise ValueError(f"num_query_groups {num_query_groups} must be divisible or multiple by dst_tp_size {dst_tp_size}")
+    head_dim = sharded_info.global_shape[0] // (num_heads + 2 * num_query_groups)
     src_tp_size = sharded_info.axis_fragmentations[0]
     src_global_shape = sharded_info.global_shape
-    vllm_id_to_mcore_id = _build_frag_mapping(
-        num_heads,
-        num_query_groups,
-        dst_tp_size
-    )
 
+    mcore_layout, vllm_layout = _build_qkv_layout(num_heads, num_query_groups, dst_tp_size)
     mcore_id_to_frags = {
         part.global_offset[0]: part.refragment(src_tp_size)
         for part in sharded_info.fragment(num_query_groups * (2 + num_heads // num_query_groups))
     }
 
-    head_dim = sharded_info.global_shape[0] // (num_heads + 2 * num_query_groups)
-    total_heads = num_heads + 2 * num_query_groups * max(1, dst_tp_size // num_query_groups)
-
+    if proj_type == 'qkv_proj':
+        n_heads = num_heads + 2 * num_query_groups * max(1, dst_tp_size // num_query_groups)
+    elif proj_type == 'q_proj':
+        n_heads = num_heads
+    else:
+        n_heads = num_query_groups * max(1, dst_tp_size // num_query_groups)
+    full_dst_info = ShardedTensorInfo.from_global_shape((n_heads * head_dim, ) + src_global_shape[1:])
+    
     results = []
-    for vllm_idx, dst_part in enumerate(ShardedTensorInfo.from_global_shape(
-        (total_heads * head_dim, ) + src_global_shape[1:]
-    ).fragment(total_heads)):
-        mcore_idx = vllm_id_to_mcore_id[vllm_idx]
+    for head_idx, dst_part in enumerate(full_dst_info.fragment(n_heads)):
+        if proj_type == 'qkv_proj':
+            head_name = vllm_layout[head_idx]
+        else:
+            head_name = f"{proj_type[:1]}{head_idx}" # q0 / k1 / v2, etc.
+        mcore_idx = mcore_layout.index(head_name)
         if mcore_idx not in mcore_id_to_frags:
             continue
         results.append((
@@ -221,3 +241,18 @@ def __maybe_merge(mappings: List[Tuple[ShardedTensorInfo, ShardedTensorInfo]], a
         ShardedTensorInfo.concat([item[1] for item in to_be_merged], axis)
     ))
     return results
+
+@dataclass(frozen=True)
+class VLLM_HELPERS:
+    merge_gate_up = True
+    merge_qkv = True
+    merge_expert = True
+    skip_tied_output_layer = True
+
+
+@dataclass(frozen=True)
+class HF_HELPERS:
+    merge_gate_up = False
+    merge_qkv = False
+    merge_expert = False
+    skip_tied_output_layer = False

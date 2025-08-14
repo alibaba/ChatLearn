@@ -14,7 +14,7 @@
 # ==============================================================================
 """Mapper for Megatron to vLLM"""
 from collections import defaultdict
-from typing import List, Dict, Tuple, TYPE_CHECKING
+from typing import List, Dict, Tuple, TYPE_CHECKING, Literal
 
 import inspect
 import torch
@@ -33,7 +33,9 @@ from chatlearn.utils.mappings import ShardedTensorInfo
 from .mapping_helpers import (
     process_normal_tensor,
     process_gate_up_tensor,
-    process_qkv_tensor
+    process_qkv_tensor,
+    VLLM_HELPERS,
+    HF_HELPERS
 )
 
 if TYPE_CHECKING:
@@ -54,6 +56,8 @@ class MegatronVLLMMapper:
         self,
         dst_model_config: PolicyConfig,
         model: 'MegatronModule',
+        *,
+        mapper_config: Literal[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
     ):
         """The Mapper for Megatron to vLLM sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
@@ -67,12 +71,10 @@ class MegatronVLLMMapper:
                 be sychronized
             model (MegatronModule): The source Megatron Module
         """
-        # NOTE: the model in one megatron rank is always a list of GPTModel
-        # (length > 1 when VPP is enabled).
         self.model: List['GPTModel'] = unwrap_model(model.model)
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args
         self._dst_model_config = dst_model_config
-        assert self._dst_model_config.expert_model_parallel_size == 1, "Currently vLLM EP > 1 is not supported"
+        self._mapper_config = mapper_config
         self._src_name_to_metadata = model.get_parameter_metadata(key_type='local_name')
 
     def generate_sync_mapping(
@@ -143,7 +145,10 @@ class MegatronVLLMMapper:
                     src_prefix=f"{vp_stage}-decoder.final_layernorm.",
                     dst_prefix="model.norm.",
                 ))
-                if not model.share_embeddings_and_output_weights:
+                if not (
+                    self._mapper_config.skip_tied_output_layer and 
+                    model.share_embeddings_and_output_weights
+                ):
                     mapping.update(self._map_postprocess_layer(
                         model.output_layer,
                         src_prefix=f"{vp_stage}-output_layer.",
@@ -231,10 +236,15 @@ class MegatronVLLMMapper:
         if module.shared_experts is not None:
             if module.shared_experts.use_shared_expert_gate:
                 mapping.update(self._inner_map_for_full_shape(f"{src_prefix}shared_experts.gate_weight", f"{dst_prefix}shared_expert_gate.weight"))
+            # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert` 
+            # `shared_experts`: DeepSeek-V2, DeepSeek-V3, etc.
+            # `shared_expert`: Qwen2-MoE, LLaMA-4, etc.
+            hf_config = AutoConfig.from_pretrained(self._dst_model_config.load, trust_remote_code=True)
+            shared_expert_key = 'shared_experts' if hasattr(hf_config, 'n_shared_experts') else 'shared_expert'
             mapping.update(self._map_mlp(
                 module.shared_experts,
                 src_prefix=f"{src_prefix}shared_experts.",
-                dst_prefix=f"{dst_prefix}shared_experts."
+                dst_prefix=f"{dst_prefix}{shared_expert_key}."
             ))
         return mapping
 
@@ -242,10 +252,17 @@ class MegatronVLLMMapper:
         mapping = {}
         if not module.config.gated_linear_unit:
             raise NotImplementedError("Parameter Sync w/o GatedLinear is not supported")
-        mapping.update(self._inner_map_for_gate_up_proj(
-            f"{src_prefix}linear_fc1.weight",
-            f"{dst_prefix}gate_up_proj.weight"
-        ))
+        dst_names = ['gate_proj', 'up_proj']
+        if self._mapper_config.merge_gate_up:
+            dst_names = ['gate_up_proj']
+
+        for dst_name in dst_names:
+            mapping.update(self._inner_map_for_gate_up_proj(
+                f"{src_prefix}linear_fc1.weight",
+                f"{dst_prefix}{dst_name}.weight",
+                proj_type=dst_name
+            ))
+
         mapping.update(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_fc2.weight",
             f"{dst_prefix}down_proj.weight",
@@ -262,19 +279,37 @@ class MegatronVLLMMapper:
         global_expert_id_end = num_experts // src_ep_size * (src_ep_rank + 1)
         mapping = {}
         for local_expert_id, global_expert_id in enumerate(range(global_expert_id_start, global_expert_id_end)):
-            mapping.update(self._inner_map_for_gate_up_proj(
-                f"{src_prefix}linear_fc1.weight{local_expert_id}",
-                f"{dst_prefix}w13_weight",
-                global_expert_id=global_expert_id,
-                num_experts=num_experts
-            ))
-            mapping.update(self._inner_map_for_tensor_parallel(
-                f"{src_prefix}linear_fc2.weight{local_expert_id}",
-                f"{dst_prefix}w2_weight",
-                global_expert_id=global_expert_id,
-                num_experts=num_experts,
-                mapping_type='row'
-            ))
+            if self._mapper_config.merge_expert:
+                if not self._mapper_config.merge_gate_up:
+                    raise NotImplementedError("merge_expert w/o merge_gate_up is not implemented.")
+                mapping.update(self._inner_map_for_gate_up_proj(
+                    f"{src_prefix}linear_fc1.weight{local_expert_id}",
+                    f"{dst_prefix}w13_weight",
+                    proj_type='gate_up_proj',
+                    global_expert_id=global_expert_id,
+                    num_experts=num_experts
+                ))
+                mapping.update(self._inner_map_for_tensor_parallel(
+                    f"{src_prefix}linear_fc2.weight{local_expert_id}",
+                    f"{dst_prefix}w2_weight",
+                    global_expert_id=global_expert_id,
+                    num_experts=num_experts,
+                    mapping_type='row'
+                ))
+            else:
+                if self._mapper_config.merge_gate_up:
+                    raise NotImplementedError("no merge_expert w/ merge_gate_up is not implemented.")
+                for dst_name in ['gate_proj', 'up_proj']:
+                    mapping.update(self._inner_map_for_gate_up_proj(
+                        f"{src_prefix}linear_fc1.weight{local_expert_id}",
+                        f"{dst_prefix}experts.{global_expert_id}.{dst_name}.weight",
+                        proj_type=dst_name,
+                    ))
+                mapping.update(self._inner_map_for_tensor_parallel(
+                    f"{src_prefix}linear_fc2.weight{local_expert_id}",
+                    f"{dst_prefix}experts.{global_expert_id}.{down_proj}.weight",
+                    mapping_type='row'
+                ))
         return mapping
 
     def _map_mla_selfattn(self, module: 'MLASelfAttention', src_prefix: str='', dst_prefix: str=''):
@@ -335,15 +370,23 @@ class MegatronVLLMMapper:
             mapping.update(self._map_norm_layer(module.q_layernorm, f"{src_prefix}q_layernorm.", f"{dst_prefix}q_norm."))
             mapping.update(self._map_norm_layer(module.k_layernorm, f"{src_prefix}k_layernorm.", f"{dst_prefix}k_norm."))
 
-        mapping.update(self._inner_map_for_qkv_proj(
-            f"{src_prefix}linear_qkv.weight",
-            f"{dst_prefix}qkv_proj.weight",
-        ))
-        if self._src_arch.add_qkv_bias:
+        dst_names = ['q_proj', 'k_proj', 'v_proj']
+        if self._mapper_config.merge_qkv:
+            dst_names = ['qkv_proj']
+
+        for dst_name in dst_names:
             mapping.update(self._inner_map_for_qkv_proj(
-                f"{src_prefix}linear_qkv.bias",
-                f"{dst_prefix}qkv_proj.bias",
+                f"{src_prefix}linear_qkv.weight",
+                f"{dst_prefix}{dst_name}.weight",
+                proj_type=dst_name
             ))
+            if self._src_arch.add_qkv_bias:
+                mapping.update(self._inner_map_for_qkv_proj(
+                    f"{src_prefix}linear_qkv.bias",
+                    f"{dst_prefix}{dst_name}.bias",
+                    proj_type=dst_name
+                ))
+
         mapping.update(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_proj.weight",
             f"{dst_prefix}o_proj.weight",
@@ -409,13 +452,14 @@ class MegatronVLLMMapper:
             src_info.copy(): [dst_info.copy()]
         }
 
-    def _inner_map_for_gate_up_proj(self, src_key: str, dst_key: str, *, global_expert_id: int=None, num_experts: int=None):
+    def _inner_map_for_gate_up_proj(self, src_key: str, dst_key: str, proj_type: str, *, global_expert_id: int=None, num_experts: int=None):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = {}
         for src_meta, dst_meta in process_gate_up_tensor(
             src_info,
             self._dst_model_config.tensor_model_parallel_size,
+            proj_type=proj_type
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
@@ -428,7 +472,7 @@ class MegatronVLLMMapper:
             mapping[src_meta] = [dst_meta]
         return mapping
 
-    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str):
+    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = defaultdict(list)
@@ -437,6 +481,7 @@ class MegatronVLLMMapper:
             self._src_arch.num_attention_heads,
             self._src_arch.num_query_groups,
             self._dst_model_config.tensor_model_parallel_size,
+            proj_type=proj_type
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
