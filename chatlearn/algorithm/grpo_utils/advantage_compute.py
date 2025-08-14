@@ -13,7 +13,7 @@ def compute_grpo_adv(episode_replay_buffers):
         sample_id += 1
 
     res_buffers = []
-    # TODO: torch and numpy have difference result, not knowing 
+    # TODO: torch and numpy have difference result, not knowing consequence
     for _, l in queryids2samples.items():
         rewards = np.array([each["rule_reward"] for each in l])
         mean = np.mean(rewards)

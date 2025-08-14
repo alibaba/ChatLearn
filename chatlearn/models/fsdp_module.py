@@ -364,9 +364,6 @@ class FSDPModule(TorchModule):
             gc.collect()
             torch.cuda.empty_cache()
 
-    def get_param_id_to_parameters(self) -> Dict[int, torch.Tensor]:
-        pass
-
     @torch.no_grad()
     def offload_optimizer_states(self, empty_cache=True):
         if not self.optimizer.state:

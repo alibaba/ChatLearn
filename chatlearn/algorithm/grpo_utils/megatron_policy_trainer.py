@@ -238,12 +238,8 @@ class MegatronPolicyTrainer(MegatronModule):
         # Split minibatch to microbatches and batching
         if self.module_args.packing:
             process_group_list = [
-                group
-                for group in [
-                    mpu.get_model_parallel_group(check_initialized=False),
-                    mpu.get_expert_model_parallel_group(check_initialized=False),
-                ]
-                if group is not None and group.size() > 1
+                mpu.get_model_parallel_group(check_initialized=False),
+                mpu.get_expert_model_parallel_group(check_initialized=False),
             ]
             microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.module_args.max_token_in_packing, process_group_list=process_group_list, packing=self.module_args.packing)
         else:
@@ -382,12 +378,8 @@ class MegatronPolicyTrainer(MegatronModule):
         if self.module_args.packing:
             # Get process group for bin_size communication
             process_group_list = [
-                group
-                for group in [
-                    mpu.get_model_parallel_group(check_initialized=False),
-                    mpu.get_expert_model_parallel_group(check_initialized=False),
-                ]
-                if group is not None and group.size() > 1
+                mpu.get_model_parallel_group(check_initialized=False),
+                mpu.get_expert_model_parallel_group(check_initialized=False),
             ]
             # Split by num_train_global_batch first
             microbatch_list = []

@@ -76,9 +76,6 @@ def timeit(func_name):
         return wrapper
     return decorator
 
-def split_list(lst, size):
-    return [lst[i:i + size] for i in range(0, len(lst), size)]
-
 def compute_decorator(trainable, rollout):
     def decorator(func):
         """
@@ -103,7 +100,7 @@ def compute_decorator(trainable, rollout):
                 else:
                     self.onload()
 
-            # Run decrated function
+            # Run decorated function
             if 'iteration' in inspect.signature(func).parameters:
                 kwargs["iteration"] = self._iteration
             args = [data_list]

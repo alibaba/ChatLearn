@@ -337,14 +337,15 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self.llm.wake_up()
 
         # preprocess query
-        prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
-        input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
-        seq_len = self.module_args.get("seq_length")
+        prompt_key = "prompt"
+        input_ids_key = "input_ids"
+        seq_len = self.module_args.seq_length
 
         prompts = [q[prompt_key] for q in query]
         prompts_token_ids = [q[input_ids_key] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
+
         for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"

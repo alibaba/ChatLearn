@@ -69,7 +69,13 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: L
 
     return attn_mask, loss_mask, position_ids
 
-def split_microbatch(data_list: List, micro_batch_size: int=None, max_train_token: int=None, process_group_list: List[Any] = [None], offset: int=0, packing: bool=False):
+def split_microbatch(
+    data_list: List,
+    micro_batch_size: int=None,
+    max_train_token: int=None,
+    process_group_list: List[Any] = None,
+    offset: int=0, packing: bool=False
+    ):
     assert micro_batch_size is not None or max_train_token is not None, \
         "At least one of micro_batch_size or max_train_token should be specified"
     if packing:

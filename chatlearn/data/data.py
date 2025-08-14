@@ -159,7 +159,7 @@ class StreamDataset:
         batch_count = 0
         assert self.dp_size is not None, "dp_size must be set before data fetching"
         self.batch_size = self._total_samples // self.num_minibsz // self.dp_size
-        #print(f"total sample: {self._total_samples}, minibsz: {self.num_minibsz}, dp_size: {self.dp_size}, offset: {offset}")
+
         while produce_index < self._total_samples:
             # read from cache
             if len(self.replay_buffer) < self._total_samples:

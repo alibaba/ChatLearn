@@ -15,10 +15,11 @@
 # ==============================================================================
 """vllm policy inference"""
 from typing import Dict, List
+import copy
 
 import torch
 import torch.nn.functional as F
-import copy
+
 from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import timeit, compute_decorator
 # pylint: disable=ungrouped-imports
@@ -102,5 +103,8 @@ class VLLMPolicyInference(VLLMModule):
                     }
                 )
                 data_output.append(data_obj)
+        print("str_outputs", data_output[0]["str_outputs"])
+        print("data_sources", data_output[0]["data_source"])
+        print("ground_truth", data_output[0]["ground_truth"])
 
         return data_output

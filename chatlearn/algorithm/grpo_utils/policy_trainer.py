@@ -42,7 +42,6 @@ OLD_TAG = "old_logprobs"
 
 class PolicyTrainer(FSDPModule):
     """policy trainer"""
-
     def setup(self):
         super().setup()
         self._metric_prefix = "policy_trainer"
@@ -304,11 +303,14 @@ class PolicyTrainer(FSDPModule):
         }
         self._metric_list.append(train_stats)
 
+    def update_weights_from_buckets(self, buckets):
+        pass
+
     @timeit("fsdp_forward_step")
     @compute_decorator(trainable=False, rollout=False)
     def forward_step(self, data, **kwargs): # pylint: disable=unused-argument,arguments-differ
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
-        tag = OLD_TAG
+        tag = OLD_TAG if self.trainable else REF_TAG
         if OLD_TAG in data[0].keys():
             tag = REF_TAG
         # Logprobs holder
