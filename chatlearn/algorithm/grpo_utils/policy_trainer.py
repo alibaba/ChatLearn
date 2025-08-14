@@ -101,8 +101,7 @@ class PolicyTrainer(FSDPModule):
                 else:
                     tokens = tokens_
                     labels = torch.roll(tokens, shifts=-1, dims=1)
-                #micro_batch_seqlen = [prompt_len + response_len for prompt_len, response_len in zip(prompt_token_length, response_token_length)]
-                #attention_mask = prepare_packing_attn_mask(micro_batch_seqlen, dtype=torch.get_default_dtype(), pad_size=pad_size)
+
                 if not training:
                     data_after_process.append(
                         {

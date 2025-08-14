@@ -76,8 +76,8 @@ def bin_packing_fix_bin(seq_len_list: List[int], bin_size: int):
         bins_seqlen[best_bin_index].append(value)
     # sort bins by seqlen in  single bin
     bins_seqlen_sum = [sum(bin_seqlen) for bin_seqlen in bins_seqlen]
-    sorted_bin = sorted(zip(bins_seqlen_sum, bins_id))
-    sorted_binseq = sorted(zip(bins_seqlen_sum, bins_seqlen))
+    sorted_bin = sorted(zip(bins_seqlen_sum, bins_id), reverse=True)
+    sorted_binseq = sorted(zip(bins_seqlen_sum, bins_seqlen), reverse=True)
     _, bins_id = zip(*sorted_bin)
     _, bins_seqlen = zip(*sorted_binseq)
     return list(bins_id), list(bins_seqlen)
