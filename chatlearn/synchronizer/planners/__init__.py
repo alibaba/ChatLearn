@@ -19,6 +19,14 @@ if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
 def get_planner_cls(src_model: 'DistModel', dst_model: 'DistModel'):
-    # pylint: disable=unused-argument, import-outside-toplevel
-    from .planner import MegatronVLLMSyncPlanner
-    return MegatronVLLMSyncPlanner
+    # pylint: disable=import-outside-toplevel
+    src_type = src_model.runtime_args.train_backend
+    dst_type = dst_model.runtime_args.rollout_backend
+    if src_type == 'megatron' and dst_type == 'vllm':
+        from .shard_planner import ShardwiseSyncPlanner
+        return ShardwiseSyncPlanner
+    elif src_type == 'megatron' and dst_type == 'sglang':
+        from .tensor_planner import TensorwisePlanner
+        return TensorwisePlanner
+    else:
+        raise NotImplementedError(f"Unsupported src/dst model combination: {src_type}-{dst_type}")
