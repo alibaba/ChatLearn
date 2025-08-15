@@ -3,7 +3,7 @@ from collections import defaultdict
 
 import numpy as np
 
-def compute_grpo_adv(episode_replay_buffers):
+def compute_grpo_adv(episode_replay_buffers: List[Dict[str, Any]]):
     buffers = episode_replay_buffers[-1].buffer
     queryids2samples = defaultdict(list)
     sample_id = 0

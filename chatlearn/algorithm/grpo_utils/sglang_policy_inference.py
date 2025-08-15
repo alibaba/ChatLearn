@@ -52,7 +52,7 @@ class SGLangPolicyInference(SGLangModule):
 
     @timeit("sglang_forward_step")
     @compute_decorator(trainable=False, rollout=True)
-    def forward_step(self, data, iteration=0, **kwargs): # pylint: disable=unused-argument
+    def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
 
         rets = self._forward_step(data, iteration, False)
         # collect metric
@@ -75,8 +75,8 @@ class SGLangPolicyInference(SGLangModule):
         return rets
 
     def decode_internal(
-        self, batched_outputs: List[Dict], input_data_list
-    ):
+        self, batched_outputs: List[Dict[str, Any]], input_data_list: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         data_output = []
         for output, input_data in zip(batched_outputs, input_data_list):
             prompt_token_ids = input_data["input_ids"]

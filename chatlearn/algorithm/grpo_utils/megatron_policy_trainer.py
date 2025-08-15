@@ -219,7 +219,7 @@ class MegatronPolicyTrainer(MegatronModule):
     @timeit("megatron_train_step")
     @monitor_error("megatron_train_step")
     @compute_decorator(trainable=True, rollout=False)
-    def train_step(self, data_list, **kwargs):
+    def train_step(self, data_list: List[Dict[str, Any]], **kwargs):
         """Do an train step.
 
         Args:
@@ -356,7 +356,7 @@ class MegatronPolicyTrainer(MegatronModule):
     @monitor_error("megatron_forward_step")
     @compute_decorator(trainable=False, rollout=False)
     @torch.no_grad()
-    def forward_step(self, data: List[Dict[str, Sequence[Any]]], **kwargs):
+    def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]:
         """Do an inference forward step. Only for computation of old_logprobs and ref_logprobs.
 
         Args:

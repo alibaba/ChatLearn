@@ -75,12 +75,12 @@ class PolicyTrainer(FSDPModule):
         labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
         return tokens, labels, position_ids, pad_size
 
-    def preprocess_data_list(self, data_list, training: bool):
+    def preprocess_data_list(self, data_list: List[Dict[str, Any]], training: bool):
         # compute response length sum in train global batch size for token-wise pg loss
         response_token_length_total = torch.tensor(sum(data["response_token_length"] for data in data_list)).cuda() / self.sp_size
         dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
 
-        # Split microbatch into 
+        # Split minibathc into microbatchs
         if self.packing:
             microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.max_token_in_seq, packing=self.packing)
         else:
@@ -90,6 +90,7 @@ class PolicyTrainer(FSDPModule):
                 microbatch_size = self.generate_micro_batch_size
             microbatch_list = split_microbatch(data_list=data_list, micro_batch_size=microbatch_size, packing=self.packing)
 
+        # Batching
         data_list = [batching(data_b) for data_b in microbatch_list]
 
         data_after_process = []
@@ -147,7 +148,7 @@ class PolicyTrainer(FSDPModule):
     @timeit("fsdp_train_step")
     @monitor_error("fsdp_train_step")
     @compute_decorator(trainable=True, rollout=False)
-    def train_step(self, data_list, **kwargs): # pylint: disable=unused-argument
+    def train_step(self, data_list: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument
         """
         data_list: list of micro batchs [micro_bs0, micro_bs1]
         """
@@ -260,7 +261,7 @@ class PolicyTrainer(FSDPModule):
     @timeit("fsdp_forward_step")
     @monitor_error("fsdp_forward_step")
     @compute_decorator(trainable=False, rollout=False)
-    def forward_step(self, data: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument,arguments-differ
+    def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument,arguments-differ
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = "old_logprobs" if self.trainable else "ref_logprobs"
         # Logprobs holder

@@ -348,6 +348,9 @@ class FSDPModule(TorchModule):
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
 
+    def update_weights_from_buckets(self, buckets):
+        pass
+
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()

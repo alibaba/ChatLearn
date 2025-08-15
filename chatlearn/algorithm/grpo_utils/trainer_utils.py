@@ -14,7 +14,7 @@
 # ==============================================================================
 """Trainer Utilities"""
 from collections import defaultdict
-from typing import List, Any
+from typing import List, Any, Dict
 import math
 
 import torch
@@ -108,7 +108,7 @@ def padding_tensor(tensor_list):
     ]
     return torch.stack(batched_tensor)
 
-def batching(data_list):
+def batching(data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     if len(data_list) == 0:
         return None
 
@@ -119,7 +119,7 @@ def batching(data_list):
             batched_data[key] = padding_tensor(batched_data[key])
     return batched_data
 
-def split_and_unpadding(input_tensor, attention_mask):
+def split_and_unpadding(input_tensor: torch.Tensor, attention_mask: torch.Tensor) -> List[torch.Tensor]:
     valid_seq = torch.sum(attention_mask, dim=-1).cpu().tolist()
     tensor_list = [
         input_tensor[i, :valid_seq[i]] for i in range(input_tensor.shape[0])

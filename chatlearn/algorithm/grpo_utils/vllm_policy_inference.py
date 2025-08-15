@@ -14,7 +14,7 @@
 # limitations under the License.
 # ==============================================================================
 """vllm policy inference"""
-from typing import Dict, List
+from typing import Dict, List, Any
 import copy
 
 import torch
@@ -56,7 +56,7 @@ class VLLMPolicyInference(VLLMModule):
     
     @timeit("vllm_forward_step")
     @compute_decorator(trainable=False, rollout=True)
-    def forward_step(self, data, iteration=0, **kwargs): # pylint: disable=unused-argument
+    def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
         rets = self._forward_step(data, iteration, False)
         # collect metric
         response_token_length = [ret["response_token_length"] for ret in rets]
@@ -78,8 +78,8 @@ class VLLMPolicyInference(VLLMModule):
         return rets
 
     def decode_internal(
-        self, outputs_list, input_data_list
-    ):
+        self, outputs_list: List[Dict[str, Any]], input_data_list: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
         data_output = []
         for output, input_data in zip(outputs_list, input_data_list):
             num_responses_per_prompt = len(output.outputs)
