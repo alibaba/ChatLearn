@@ -245,8 +245,11 @@ def get_batch(
         labels = torch.roll(tokens, shifts=-1, dims=1)
 
         position_ids = torch.arange(tokens.shape[1], device=tokens.device).view(1, -1)
+
+        prev_cu_seqlen = 0
         for cu_seqlen in cu_seqlens[1:]:
-            position_ids[:, cu_seqlen:] -= cu_seqlen
+            position_ids[:, cu_seqlen:] -= cu_seqlen - prev_cu_seqlen
+            prev_cu_seqlen = cu_seqlen
 
 
         packed_seq_params = PackedSeqParams(
@@ -298,6 +301,7 @@ def get_batch(
         ):
             loss_mask[i, prompt_length: prompt_length + response_length] = 1
         loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
+
         input_data.update({
             "all_token_loss_mask": loss_mask,
             "advantages": advantages,
