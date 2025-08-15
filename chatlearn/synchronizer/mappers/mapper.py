@@ -50,8 +50,8 @@ if TYPE_CHECKING:
     from chatlearn.models.megatron_module import MegatronModule
 
 
-class MegatronVLLMMapper:
-    """MegatronVLLMMapper"""
+class MegatronMapper:
+    """MegatronMapper"""
     def __init__(
         self,
         dst_model_config: PolicyConfig,
@@ -59,17 +59,19 @@ class MegatronVLLMMapper:
         *,
         mapper_config: Literal[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
     ):
-        """The Mapper for Megatron to vLLM sync. In each remote Megatron Actor,
+        """The Mapper for Megatron sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
-        between src and dst.
+        between src and dst. Currently, the mapper supports mapping 
+        MCore Model to vLLM or HF Model.
 
-        WARNING: Currently, the mapper assumes that the weights name of same
+        WARNING: The mapper assumes that the weights name of same
         submodules in different vLLM models are still same.
 
         Args:
             dst_model_config (PolicyConfig): The config of target model to
                 be sychronized
             model (MegatronModule): The source Megatron Module
+            mapper_config (Literal[VLLM_HELPERS, HF_HELPERS]): The mapping mode.
         """
         self.model: List['GPTModel'] = unwrap_model(model.model)
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args

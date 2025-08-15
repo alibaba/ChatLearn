@@ -21,7 +21,6 @@ if TYPE_CHECKING:
 
 def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
     # pylint: disable=unused-argument
-    # TODO: rename this
     src_type = src_model.runtime_args.train_backend
     dst_type = dst_model.runtime_args.rollout_backend
     if src_type == 'megatron' and dst_type == 'vllm':
@@ -35,13 +34,9 @@ def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
 def name_to_mapper_cls(mapper_name: str):
     # pylint: disable=import-outside-toplevel
     from .mapping_helpers import VLLM_HELPERS, HF_HELPERS
-    if mapper_name == "MegatronVLLMMapper":
-        # TODO: rename this
-        from .mapper import MegatronVLLMMapper
-        return partial(MegatronVLLMMapper, mapper_config=VLLM_HELPERS)
-    elif mapper_name == "MegatronSGLangMapper":
-        # TODO: rename this
-        from .mapper import MegatronVLLMMapper
-        return partial(MegatronVLLMMapper, mapper_config=HF_HELPERS)
+    if mapper_name in ["MegatronVLLMMapper", "MegatronSGLangMapper"]:
+        from .mapper import MegatronMapper
+        helper_mappings = {"MegatronVLLMMapper": VLLM_HELPERS, "MegatronSGLangMapper": HF_HELPERS}
+        return partial(MegatronMapper, mapper_config=helper_mappings[mapper_name])
     else:
         raise ValueError(f"Unrecognized Mapper {mapper_name}")
