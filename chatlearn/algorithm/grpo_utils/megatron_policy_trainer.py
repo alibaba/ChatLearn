@@ -296,10 +296,11 @@ class MegatronPolicyTrainer(MegatronModule):
                 [sum(total_losses.pop('num_tokens')).float()] +
                 [sum(total_losses.pop('num_samples')).float()]
             )
-            torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group())
+            torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group(with_context_parallel=True))
+            cp_size = mpu.get_context_parallel_world_size()
             loss_reduced_for_metric = {
                 key: (
-                    (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
+                    (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item() * cp_size
                     if key.endswith('_sample_average') 
                     else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
                 )

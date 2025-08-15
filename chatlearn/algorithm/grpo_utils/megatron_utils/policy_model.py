@@ -20,6 +20,7 @@ import torch
 
 from flash_attn.bert_padding import pad_input
 
+from megatron.core import mpu
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
@@ -121,12 +122,22 @@ class PolicyModel(GPTModel):
 
         # NOTE: before loss computation, we need to unpack the packed inputs
         if self.module_args.packing:
-            forward_logprob = pad_input(
-                forward_logprob[0, :forward_logprob.shape[1] - training_inputs['pad_size']].unsqueeze(-1), 
-                training_inputs['indices'], 
-                training_inputs['ori_batch_size'], 
-                training_inputs['ori_seq_len']
-            ).squeeze(-1)
+            if mpu.get_context_parallel_world_size() == 1:
+                forward_logprob = pad_input(
+                    forward_logprob[0, :forward_logprob.shape[1] - training_inputs['pad_size']].unsqueeze(-1), 
+                    training_inputs['indices'], 
+                    training_inputs['ori_batch_size'], 
+                    training_inputs['ori_seq_len']
+                ).squeeze(-1)
+            elif mpu.get_context_parallel_world_size() > 1:
+                attention_mask = training_inputs["all_token_attention_mask"]> 0.5
+                forward_logprob = pad_input(
+                    forward_logprob[0][attention_mask].unsqueeze(-1), 
+                    training_inputs['indices'], 
+                    training_inputs['ori_batch_size'], 
+                    training_inputs['ori_seq_len']
+                ).squeeze(-1)
+                
 
         old_logprobs = training_inputs["old_logprobs"]
         ref_logprobs = training_inputs["ref_logprobs"]
@@ -161,12 +172,22 @@ class PolicyModel(GPTModel):
             )
         entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
         if self.module_args.packing:
-            entropy_loss = pad_input(
-                entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']], 
-                training_inputs['indices'], 
-                training_inputs['ori_batch_size'], 
-                training_inputs['ori_seq_len']
-            ).squeeze(-1)
+            if mpu.get_context_parallel_world_size() == 1:
+                entropy_loss = pad_input(
+                    entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']], 
+                    training_inputs['indices'], 
+                    training_inputs['ori_batch_size'], 
+                    training_inputs['ori_seq_len']
+                ).squeeze(-1)
+            elif mpu.get_context_parallel_world_size() > 1:
+                attention_mask = training_inputs["all_token_attention_mask"]> 0.5
+                entropy_loss = pad_input(
+                    entropy_loss[:entropy_loss.shape[0]][attention_mask], 
+                    training_inputs['indices'], 
+                    training_inputs['ori_batch_size'], 
+                    training_inputs['ori_seq_len']
+                ).squeeze(-1)
+
         else:
             entropy_loss = entropy_loss.transpose(0, 1)
 
