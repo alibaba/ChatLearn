@@ -24,10 +24,10 @@ from chatlearn.models.sglang_module import SGLangModule
 
 
 class SGLangPolicyInference(SGLangModule):
-    """sglang rollout
-    """
+    """sglang rollout"""
+    # pylint: disable=abstract-method
     def build_dataset(self, prompts: List[Dict], is_eval=False):
-        # prompts seems like the total data set by engine.set_dataset(dataset)
+
         seq_length = self.module_args.get("seq_length")
 
         prompts_dataset = PromptPipeline(

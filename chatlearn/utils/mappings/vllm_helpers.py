@@ -137,10 +137,10 @@ def _prepare_metadata(module: nn.Module):
 def build_sharded_info_for_vllm_model(
     model: nn.Module
 ) -> Dict[str, ShardedTensorInfo]:
-    """build sharded tensor info from GPTModel
+    """build sharded tensor info from vLLM Model
 
     Args:
-        model (GPTModel): The given model
+        model (vLLMModel): The given vLLM model
 
     Returns:
         Dict[str, ShardedTensorInfo]: A dict maps local parameter
