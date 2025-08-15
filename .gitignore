@@ -14,3 +14,7 @@ dist/
 docs/zh/api/doc/*.rst
 *._*py
 .vscode/
+
+dataset/
+pretrained_models/
+*.log

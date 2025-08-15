@@ -30,13 +30,25 @@ class VLLMPolicyInference(VLLMModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
+        assert len(prompts)>0, 'Dataset is empty'
 
-        prompts_dataset = PromptPipeline(
-            prompts,
-            seq_length,
-            self.tokenizer.tokenizer,
-            enable_thinking=self.module_args.get("enable_thinking", False),
-        )
+        if 'images' in prompts[0].keys():
+            from chatlearn.data.vl_prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                seq_length,
+                self.tokenizer.tokenizer,
+                self.processor,
+                enable_thinking=self.module_args.get("enable_thinking", False),
+            )
+        else:
+            from chatlearn.data.prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                seq_length,
+                self.tokenizer.tokenizer,
+                enable_thinking=self.module_args.get("enable_thinking", False),
+            )
 
         return prompts_dataset
 
@@ -47,13 +59,12 @@ class VLLMPolicyInference(VLLMModule):
         self, data, iteration, is_eval
     ):  # pylint: disable=unused-argument
         outputs = self.generate_vllm(data, is_eval, iteration=iteration)
-
         # for get rule reward function
         data_source_list = data["data_source"]
         ground_truth_list = data["ground_truth"]
-
+        prompt_position_ids_list = data.get("position_ids", None)
         if outputs is not None:
-            rets = self.decode_internal(outputs, data_source_list, ground_truth_list)
+            rets = self.decode_internal(outputs, data_source_list, ground_truth_list, prompt_position_ids_list)
             return rets
 
     def forward_step(self, data, iteration=0):
@@ -78,7 +89,7 @@ class VLLMPolicyInference(VLLMModule):
         return rets
 
     def decode_internal(
-        self, batched_outputs, data_source_list=None, ground_truth_list=None
+        self, batched_outputs, data_source_list=None, ground_truth_list=None, prompt_position_ids_list=None
     ):
         max_tokens_length = self.module_args.get("seq_length")
         all_tokens = []
@@ -88,11 +99,12 @@ class VLLMPolicyInference(VLLMModule):
         response_token_length = []
         data_sources = []
         ground_truths = []
-
+        prompts_position_ids = []
         for idx, output in enumerate(batched_outputs):
             num_responses_per_prompt = len(output.outputs)
             data_source = data_source_list[idx] if data_source_list else ""
             ground_truth = ground_truth_list[idx] if ground_truth_list else ""
+            prompt_position_ids = prompt_position_ids_list[idx] if prompt_position_ids_list else []
             for res_idx in range(num_responses_per_prompt):
                 # str_prompts.append(output.prompt)
                 prompt_token_ids.append(output.prompt_token_ids)
@@ -106,6 +118,7 @@ class VLLMPolicyInference(VLLMModule):
                 )
                 data_sources.append(data_source)
                 ground_truths.append(ground_truth)
+                prompts_position_ids.append(prompt_position_ids)
                 all_tokens.append(torch.tensor(output.prompt_token_ids + output_tokens))
 
         all_tokens = [
@@ -129,4 +142,5 @@ class VLLMPolicyInference(VLLMModule):
             "response_token_length": response_token_length,
             "data_source": data_sources,
             "ground_truth": ground_truths,
+            "prompt_position_ids": prompts_position_ids
         }

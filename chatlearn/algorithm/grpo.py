@@ -201,7 +201,8 @@ class GRPOEngine(Engine):
         def env_compute_flow(batch):
             policy_out = policy.forward_step(batch)
             old_logprobs_out = policy_trainer.forward_step(policy_out)
-            ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
+            # ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
+            ref_logprobs_out = policy_trainer.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
             return reward_out
 
@@ -247,7 +248,7 @@ class GrpoAlgorithm(BaseAlgorithm):
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 
-        # get train and evaluation data
+        # get train and evaluation data 
         train_data_path_list = [
             item.strip() for item in self.cfg.runtime_args.data_path.split(",")
         ]
@@ -257,7 +258,7 @@ class GrpoAlgorithm(BaseAlgorithm):
             item.strip() for item in self.cfg.runtime_args.eval_data_path.split(",")
         ]
         eval_data = read_data_path_list(eval_data_path_list)
-
+        
         # put data in engine._all_datasets
         engine.set_dataset(train_data)
         engine.evaluator.set_dataset(eval_data)

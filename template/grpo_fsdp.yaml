@@ -3,7 +3,7 @@ runtime_args:
   train_backend: fsdp
   rollout_backend: vllm
   exp_name: grpo_fsdp
-  colocation: [policy,policy_trainer,ref_policy]
+  colocation: [policy,policy_trainer]
   # path config
   output_dir: your_output_dir
   data_path: your_data_path
