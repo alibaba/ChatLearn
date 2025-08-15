@@ -18,7 +18,7 @@ import importlib
 from enum import Enum
 
 # Regroup
-CHATLEARN_REGROUP_TAG = "chatlearn_regroup_tag"
+REF_LIST = "ref_list"
 INDEX_TAG = "data_index"
 
 LOG_START = "chatlearn_log"

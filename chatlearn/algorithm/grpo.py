@@ -19,7 +19,6 @@ from dataclasses import dataclass, field, fields
 from typing import Any
 import traceback
 
-import torch
 from algorithm.base_algo import BaseAlgorithm
 
 import chatlearn
@@ -43,7 +42,6 @@ from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
-from chatlearn.utils.utils import listdict_to_dictlist
 
 try:
     from chatlearn.utils.megatron_utils import update_cfg
@@ -167,22 +165,13 @@ class GRPOEvaluator(Evaluator):
     """GRPOEvaluator"""
 
     def post_process(self, results, eval_info):
-        # results Dict[List]
-        results = results["reward"]
-        results = listdict_to_dictlist(results)
-        # convert list[tensor(n,1)] to list[float]
-        rule_rewards = results.get("rule_rewards", [])
-        data_source = results.get("eval_source", [])
-        rule_rewards_flatten = torch.cat(rule_rewards).squeeze().tolist()
-
-        data_source_to_id_map = defaultdict(list)
-        for i, source in enumerate(data_source):
-            data_source_to_id_map[source].append(i)
-
-        eval_reward_stats = {}
-        for key, ids in data_source_to_id_map.items():
-            selected = [rule_rewards_flatten[i] for i in ids]
-            eval_reward_stats["eval_"+key] = sum(selected) / len(selected)
+        eval_reward_stats = defaultdict(list)
+        for batch in results["reward"]:
+            for result in batch:
+                key = result["eval_source"]
+                eval_reward_stats["eval_"+key].append(result["rule_reward"])
+        for key in eval_reward_stats:
+            eval_reward_stats[key] = sum(eval_reward_stats[key]) / len(eval_reward_stats[key])
         self._metric_list.append(eval_reward_stats)
 
         return results

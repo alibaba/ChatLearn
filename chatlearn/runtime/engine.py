@@ -428,6 +428,7 @@ class Engine(BaseEngine):
 
         data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
+            self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size,
             self.runtime_args.train_micro_batch_size,
             self.runtime_args.max_replay_episode,
             self.runtime_args.replay_episode_offset
