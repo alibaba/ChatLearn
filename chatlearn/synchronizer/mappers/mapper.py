@@ -61,7 +61,7 @@ class MegatronMapper:
     ):
         """The Mapper for Megatron sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
-        between src and dst. Currently, the mapper supports mapping 
+        between src and dst. Currently, the mapper supports mapping
         MCore Model to vLLM or HF Model.
 
         WARNING: The mapper assumes that the weights name of same
@@ -94,7 +94,7 @@ class MegatronMapper:
             dict is the plan including all local parameters to be synchronized. The
             mapper will ensure that the key of mapping for each mapping type is
             non-overlapping and can merge into the full state dict of this rank.
-            For most cases, the length of dst shards list is 1, except for GQA with 
+            For most cases, the length of dst shards list is 1, except for GQA with
             large vLLM TP.
         """
         self._dst_name_to_metadata = dst_name_to_metadata
@@ -148,7 +148,7 @@ class MegatronMapper:
                     dst_prefix="model.norm.",
                 ))
                 if not (
-                    self._mapper_config.skip_tied_output_layer and 
+                    self._mapper_config.skip_tied_output_layer and
                     model.share_embeddings_and_output_weights
                 ):
                     mapping.update(self._map_postprocess_layer(
@@ -238,7 +238,7 @@ class MegatronMapper:
         if module.shared_experts is not None:
             if module.shared_experts.use_shared_expert_gate:
                 mapping.update(self._inner_map_for_full_shape(f"{src_prefix}shared_experts.gate_weight", f"{dst_prefix}shared_expert_gate.weight"))
-            # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert` 
+            # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert`
             # `shared_experts`: DeepSeek-V2, DeepSeek-V3, etc.
             # `shared_expert`: Qwen2-MoE, LLaMA-4, etc.
             hf_config = AutoConfig.from_pretrained(self._dst_model_config.load, trust_remote_code=True)

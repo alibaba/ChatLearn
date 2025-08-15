@@ -15,92 +15,25 @@
 """Sync parameters"""
 from copy import deepcopy
 from collections import defaultdict
-from itertools import chain
-from typing import Dict, List, Tuple, TYPE_CHECKING, Any
+from typing import Dict, List, Tuple, TYPE_CHECKING
 
-import numpy as np
-
-from chatlearn.utils import future
-from chatlearn.utils.logger import logger
-from chatlearn.utils.timer import Timers
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.synchronizer.structs import (
-    SynchronizerType,
     Ranks,
-    BucketInfo,
     SyncIteration
 )
 
 from .base_planner import BasePlanner
+
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
 
 
 
-class PerTensorPlanner(BasePlanner):
+class TensorwisePlanner(BasePlanner):
     """Generate a plan that ensure each dst parameter will be synchronized in one
     iteration.
     """
-
-    def setup_synchronizer(
-        self,
-        src_model: 'DistModel',
-        dst_model: 'DistModel',
-        plan: Any,
-    ):
-        """Generate the final synchronization plan and setup synchronizer
-        for the actual parameter synchronization.
-
-        Args:
-            src_model (DistModel): The source dist model to be synchronized.
-            dst_model (DistModel): The dst dist model to be synchronized.
-            plan (...): The plan returned by `self.make_plan()`
-        """
-        # NOTE: find colocated actors between src_model and dst_model
-        self.timers("prepare-metadata").start()
-        src_gpus = future.wait(src_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
-        dst_gpus = future.wait(dst_model.call_func_on_all_workers('get_gpu_info'), return_output=True)
-        if set(src_gpus) != set(dst_gpus):
-            raise NotImplementedError(
-                'The source and destination model in partial colocated/ no colocated mode is not supported. '
-            )
-        comm_ranks = future.wait(src_model.call_func_on_all_workers('get_rank'), return_output=True)
-
-        src_rank_to_gpu_id = dict(zip(chain.from_iterable(src_model.all_actor_ids), src_gpus))
-        dst_rank_to_gpu_id = dict(zip(chain.from_iterable(dst_model.all_actor_ids), dst_gpus))
-        gpu_id_to_dst_rank = dict(zip(dst_gpus, chain.from_iterable(dst_model.all_actor_ids)))
-        gpu_id_to_src_rank = dict(zip(src_gpus, chain.from_iterable(src_model.all_actor_ids)))
-
-        sender_plan, recver_plan = plan
-
-        # replace recver_ranks in all send_buckets with colocated MCore comm rank
-        for rank, send_iterations in sender_plan.items():
-            for send_iteration in send_iterations:
-                for send_bucket, recv_ranks in send_iteration.send_buckets.items():
-                    # dst_rank -> gpu_id -> src_rank -> comm_rank
-                    src_ranks = [gpu_id_to_src_rank[dst_rank_to_gpu_id[rank]] for rank in recv_ranks.values]
-                    send_iteration.send_buckets[send_bucket] = Ranks(
-                        [comm_ranks[src_rank] for src_rank in src_ranks]
-                    )
-
-        # replace sender_rank in all recv_buckets with MCore comm rank
-        for rank, recv_iterations in recver_plan.items():
-            for recv_iteration in recv_iterations:
-                for recv_bucket, src_rank in recv_iteration.recv_buckets.items():
-                    recv_iteration.recv_buckets[recv_bucket] = comm_ranks[src_rank]
-
-        # NOTE: finally, register synchronizer for each actor
-        self.timers("register-synchronizer").start()
-        self._register_synchronizer(
-            src_model,
-            dst_model,
-            src_rank_to_gpu_id,
-            gpu_id_to_dst_rank,
-            sender_plan,
-            recver_plan,
-        )
-        self.timers("register-synchronizer").stop()
-        logger.info(f"finish setup synchronizer | {self.timers.log()}")
 
     def _check_constraint(
         self,
@@ -118,7 +51,7 @@ class PerTensorPlanner(BasePlanner):
 
             # NOTE: 1. sender can send two shards only if receivers of these two shards are same.
             if (
-                any((sender, recver) in self.is_busy for recver in receivers.values) and 
+                any((sender, recver) in self.is_busy for recver in receivers.values) and
                 receivers not in self.receiver_group[sender]
             ):
                 return False, None
@@ -126,7 +59,7 @@ class PerTensorPlanner(BasePlanner):
             # NOTE: 2. The bucket for the receiver group cannot exceed bucket size limit
             if self.allocated_bucket_size[sender][receivers] + shard.size > self.bucket_size:
                 return False, None
-            
+
             if sender not in receivers.values:
                 required_mem[self.src_rank_to_gpu_id[sender]] += shard.size
 
@@ -147,9 +80,10 @@ class PerTensorPlanner(BasePlanner):
         dst_rank_to_gpu_id: Dict[int, int],
         mem_infos: Dict[int, Tuple[int, int]],
         max_memory_fraction: float=0.8
-    ) -> Tuple[Dict[int, List[SyncIteration]], Any]:
-        """Given a bucketized plan, convert it to a list of iterations.
-
+    ) -> List[Dict[int, List[SyncIteration]]]:
+        """Build iterations from unbucketized plan according to the
+        given memory constraints.
+        
         Args:
             unbucketized_plan (Dict[int, Dict[Ranks, List[ShardedTensorInfo]]]): 
             The unbucketized comm plan.
@@ -181,8 +115,8 @@ class PerTensorPlanner(BasePlanner):
                     continue
                 is_added.add(dst_param.param_id)
                 dst_param_id_to_src_params[dst_param.param_id].append(src_param)
-        
-        src_shard_to_sender = dict()
+
+        src_shard_to_sender = {}
         for sender, plan_per_rank in unbucketized_plan.items():
             for shards in plan_per_rank.values():
                 for shard in shards:
@@ -229,7 +163,7 @@ class PerTensorPlanner(BasePlanner):
                             self.is_busy.add((sender, receiver))
                         self.receiver_group[sender].add(receivers)
                         collected_shards[sender][receivers].append(shard)
-       
+
             if len(self.is_busy) == 0:
                 raise RuntimeError(
                     f"Not enough memory to apply the plan with max_memory_fraction {max_memory_fraction}."
@@ -259,46 +193,3 @@ class PerTensorPlanner(BasePlanner):
                         recver_plan[receiver_rank][iteration_idx].recv_buckets[buckets[0]] = sender_rank
 
         return sender_plan, recver_plan
-
-    def _register_synchronizer(
-        self,
-        src_model,
-        dst_model,
-        src_rank_to_gpu_id,
-        gpu_id_to_dst_rank,
-        sender_plan,
-        recver_plan,
-    ):
-        refs = []
-        for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
-            dst_rank = gpu_id_to_dst_rank[src_gpu_id]
-            for send_iteration, recv_iteration in zip(
-                sender_plan[src_rank],
-                recver_plan[dst_rank]
-            ):
-                # NOTE: MCore actors perform all2all should know both
-                # send_buckets/recv_buckets
-                send_iteration.recv_buckets = recv_iteration.recv_buckets
-
-            src_actor = src_model.get_actor(src_rank)
-            refs.append(src_actor.set_synchronizer.remote(
-                synchronizer_name = 'general',
-                local_plan = sender_plan[src_rank],
-                synchronizer_type = SynchronizerType.SEND,
-                in_process_group = True
-            ))
-        future.wait(refs, return_output=True)
-        # NOTE: setup synchronizer of dst actors, assign `param_provider` handle
-        refs = []
-        for src_rank, src_gpu_id in src_rank_to_gpu_id.items():
-            dst_rank = gpu_id_to_dst_rank[src_gpu_id]
-            dst_actor = dst_model.get_actor(dst_rank)
-            refs.append(dst_actor.set_synchronizer.remote(
-                synchronizer_name = 'general',
-                local_plan = recver_plan[dst_rank],
-                synchronizer_type = SynchronizerType.RECV,
-                in_process_group = False,
-                colocate_handle = src_model.get_actor(src_rank).call_synchronizer_func
-            ))
-        future.wait(refs, return_output=True)
-

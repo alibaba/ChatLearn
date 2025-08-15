@@ -23,12 +23,10 @@ def get_planner_cls(src_model: 'DistModel', dst_model: 'DistModel'):
     src_type = src_model.runtime_args.train_backend
     dst_type = dst_model.runtime_args.rollout_backend
     if src_type == 'megatron' and dst_type == 'vllm':
-        # TODO: rename this class
-        from .planner import MegatronVLLMSyncPlanner
-        return MegatronVLLMSyncPlanner
+        from .shard_planner import ShardwiseSyncPlanner
+        return ShardwiseSyncPlanner
     elif src_type == 'megatron' and dst_type == 'sglang':
-        # TODO: rename this class
-        from .per_tensor_planner import PerTensorPlanner
-        return PerTensorPlanner
+        from .tensor_planner import TensorwisePlanner
+        return TensorwisePlanner
     else:
         raise NotImplementedError(f"Unsupported src/dst model combination: {src_type}-{dst_type}")

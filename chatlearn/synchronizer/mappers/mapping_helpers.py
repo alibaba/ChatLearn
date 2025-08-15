@@ -76,14 +76,13 @@ def process_gate_up_tensor(
     """The weight/bias of gate_up_proj is represent
 
     Args:
-        sharded_info (ShardedTensorInfo): The ShardedTensorInfo of the 
+        sharded_info (ShardedTensorInfo): The ShardedTensorInfo of the
         input tensor from gate up proj layer
         dst_tp_size (int): the vLLM tp_size
 
     Returns:
         List[Tuple[ShardedTensorInfo, ...]]: The layout mapping.
     """
-    src_tp_rank = sharded_info.global_offset[0]
     src_tp_size = sharded_info.axis_fragmentations[0]
 
     mcore_layout, vllm_layout = _build_gate_up_layout(src_tp_size, dst_tp_size)
@@ -99,7 +98,7 @@ def process_gate_up_tensor(
         full_dst_info = ShardedTensorInfo.from_global_shape(
             (sharded_info.global_shape[0] // 2, ) + sharded_info.global_shape[1:]
         )
-    
+
     results = []
     for chunk_idx, dst_part in enumerate(full_dst_info.fragment(n_chunks)):
         if proj_type == 'gate_up_proj':
@@ -165,10 +164,10 @@ def process_qkv_tensor(
     dst_tp_size: int,
     proj_type: Literal['qkv_proj', 'q_proj', 'k_proj', 'v_proj']
 ) -> List[Tuple[ShardedTensorInfo, ...]]:
-    """Process qkv weight/bias to generate shard mapping. 
+    """Process qkv weight/bias to generate shard mapping.
 
     Args:
-        sharded_info (ShardedTensorInfo): The sharded info representing megatron mixed qkv 
+        sharded_info (ShardedTensorInfo): The sharded info representing megatron mixed qkv
         num_heads (int): The number of attention heads
         num_query_group (int): The number of query groups
         dst_tp_size (int): The target tensor parallel size
@@ -195,7 +194,7 @@ def process_qkv_tensor(
     else:
         n_heads = num_query_groups * max(1, dst_tp_size // num_query_groups)
     full_dst_info = ShardedTensorInfo.from_global_shape((n_heads * head_dim, ) + src_global_shape[1:])
-    
+
     results = []
     for head_idx, dst_part in enumerate(full_dst_info.fragment(n_heads)):
         if proj_type == 'qkv_proj':
@@ -244,6 +243,7 @@ def __maybe_merge(mappings: List[Tuple[ShardedTensorInfo, ShardedTensorInfo]], a
 
 @dataclass(frozen=True)
 class VLLM_HELPERS:
+    """The mapper configs for vllm"""
     merge_gate_up = True
     merge_qkv = True
     merge_expert = True
@@ -252,6 +252,7 @@ class VLLM_HELPERS:
 
 @dataclass(frozen=True)
 class HF_HELPERS:
+    """The mapper configs for huggingface/sglang"""
     merge_gate_up = False
     merge_qkv = False
     merge_expert = False
