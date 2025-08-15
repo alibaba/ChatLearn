@@ -16,6 +16,7 @@
 
 import math
 from contextlib import nullcontext
+from typing import List, Dict, Any
 
 import torch
 import torch.distributed as dist
@@ -26,7 +27,7 @@ from flash_attn.bert_padding import pad_input, unpad_input
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
 from chatlearn.utils.communication_op import gather, get_sp_parallel_group
-from chatlearn.runtime.decorator import timeit, compute_decorator
+from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn.algorithm.grpo_utils.loss_gallery import calculate_grpo_loss
 from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             entropy_from_logits_with_chunking,
@@ -36,20 +37,50 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             batching,
                             split_and_unpadding)
 
-REF_TAG = "ref_logprobs"
-OLD_TAG = "old_logprobs"
-
-
 class PolicyTrainer(FSDPModule):
     """policy trainer"""
     def setup(self):
         super().setup()
         self._metric_prefix = "policy_trainer"
 
+    def split_and_padding(self, tokens: torch.Tensor, position_ids: torch.Tensor):
+        """
+        Preprocess tokens and position_ids given sp_size.
+        Tokens and position_ids will be:
+            - padded to integer multiple of sp_size
+            - split into sp_size splits on seq_len dim
+        Args:
+            tokens (torch.Tensor): tokens with shape [bsz, seqlen]
+            position_ids (torch.Tensor): position_ids with shape [bsz, seqlen]
+        Returns:
+            tokens (torch.Tensor): tokens for current local rank
+            labels (torch.Tensor): tokens for current local rank
+            position_ids (torch.Tensor): tokens for current local rank
+            pad_size (int): pad_size for padding
+        """
+        # Pad inputs to ensure seq_len is divisible by sp_size
+        valid_len = tokens.shape[1]
+        pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
+
+        # Pad tokens and position_ids, transfomers only need this two inputs
+        tokens = F.pad(tokens, (0, pad_size), value=self.tokenizer.pad_token_id)
+        position_ids = F.pad(position_ids,(0, pad_size), value=valid_len)
+
+        labels = torch.roll(tokens, shifts=-1, dims=1)
+
+        # Split tensor by sp_size
+        sp_group = get_sp_parallel_group()
+        sp_local_rank = dist.get_rank(sp_group)
+        tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+        labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
+        return tokens, labels, position_ids, pad_size
+
     def preprocess_data_list(self, data_list, training: bool):
         # compute response length sum in train global batch size for token-wise pg loss
         response_token_length_total = torch.tensor(sum(data["response_token_length"] for data in data_list)).cuda() / self.sp_size
         dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
+
+        # Split microbatch into 
         if self.packing:
             microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.max_token_in_seq, packing=self.packing)
         else:
@@ -59,139 +90,62 @@ class PolicyTrainer(FSDPModule):
                 microbatch_size = self.generate_micro_batch_size
             microbatch_list = split_microbatch(data_list=data_list, micro_batch_size=microbatch_size, packing=self.packing)
 
-        if not training:
-            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "id_in_list"]
-        else:
-            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG, "id_in_list"]
-        data_list = [batching(data_b, regroup_keywords) for data_b in microbatch_list]
+        data_list = [batching(data_b) for data_b in microbatch_list]
 
         data_after_process = []
         for data_b in data_list:
+            data_obj = {}
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
             ori_batch_size, ori_seq_len = tokens_.size()
+            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+            indices = None
             if self.packing:
                 # Packing data into one batch
-                attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
                 tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
 
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
                 position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
-                # Pad tokens_ to ensure max valid token length meets sp requirements
-                pad_size = 0
-                if self.sp_size > 1:
-                    # Pad inputs to ensure seq_len is divisible by sp_size
-                    valid_len = tokens_.shape[1]
-                    pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
 
-                    # Pad tokens and position_ids, transfomers only need this two inputs
-                    tokens = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
-                    position_ids = F.pad(position_ids,(0, pad_size), value=pad_size)
-
-                    labels = torch.roll(tokens, shifts=-1, dims=1)
-
-                    # Split tensor by sp_size
-                    sp_group = get_sp_parallel_group()
-                    sp_local_rank = dist.get_rank(sp_group)
-                    tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
-                    labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
-                else:
-                    tokens = tokens_
-                    labels = torch.roll(tokens, shifts=-1, dims=1)
-
-                if not training:
-                    data_after_process.append(
-                        {
-                            "all_tokens": tokens,
-                            "position_ids": position_ids,
-                            "labels": labels,
-                            "ori_seq_len": ori_seq_len,
-                            "ori_batch_size": ori_batch_size,
-                            "indices": indices,
-                            "sample_ids": data_b["id_in_list"],
-                            "attention_mask": attn_mask,
-                            "pad_size": pad_size,
-                        }
-                    )
-                else:
-                    loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
-                    # The last token should always be masket out
-                    loss_mask[:, -1] = 0
-                    data_after_process.append(
-                        {
-                            "all_tokens": tokens,
-                            "position_ids": position_ids,
-                            "labels": labels,
-                            "ori_seq_len": ori_seq_len,
-                            "ori_batch_size": ori_batch_size,
-                            "indices": indices,
-                            "sample_ids": data_b["id_in_list"],
-                            "pad_size": pad_size,
-                            "loss_mask": loss_mask,
-                            "attention_mask": attn_mask,
-                            "old_logprobs": data_b[OLD_TAG],
-                            "ref_logprobs": data_b[REF_TAG],
-                            "advantages": data_b["advantages"],
-                        }
-                    )
+            if self.sp_size > 1:
+                # Pad inputs to ensure seq_len is divisible by sp_size
+                tokens, labels, position_ids, pad_size = self.split_and_padding(tokens_, position_ids)
             else:
-                attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
                 pad_size = 0
-                if self.sp_size > 1:
-                    # Pad inputs to ensure seq_len is divisible by sp_size
-                    valid_len = tokens_.shape[1]
-                    pad_size = math.ceil(valid_len / self.sp_size) * self.sp_size - valid_len
-
-                    tokens = F.pad(tokens_, (0, pad_size), value=self.tokenizer.pad_token_id)
-                    position_ids = F.pad(position_ids, (0, pad_size), value=pad_size)
-
-                    labels = torch.roll(tokens_, shifts=-1, dims=1)
-
-                    # Split tensor by sp_size
-                    sp_group = get_sp_parallel_group()
-                    sp_local_rank = dist.get_rank(sp_group)
-                    tokens = sp_split(input_tensor=tokens, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
-                    labels = sp_split(input_tensor=labels, split_dim=1, sp_size=self.sp_size, sp_local_rank=sp_local_rank)
-                else:
-                    tokens = tokens_
-                    labels = torch.roll(tokens, shifts=-1, dims=1)
-                if not training:
-                    data_after_process.append(
-                        {
-                            "all_tokens": tokens,
-                            "position_ids": position_ids,
-                            "ori_seq_len": ori_seq_len,
-                            "ori_batch_size": ori_batch_size,
-                            "labels": labels,
-                            "sample_ids": data_b["id_in_list"],
-                            "attention_mask": attn_mask,
-                            "pad_size": pad_size,
-                        }
-                    )
-                else:
-                    loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
-                    loss_mask[:, -1] = 0
-                    data_after_process.append(
-                        {
-                            "all_tokens": tokens,
-                            "position_ids": position_ids,
-                            "ori_seq_len": ori_seq_len,
-                            "ori_batch_size": ori_batch_size,
-                            "labels": labels,
-                            "pad_size": pad_size,
-                            "sample_ids": data_b["id_in_list"],
-                            "loss_mask": loss_mask,
-                            "attention_mask": attn_mask,
-                            "old_logprobs": data_b[OLD_TAG],
-                            "ref_logprobs": data_b[REF_TAG],
-                            "advantages": data_b["advantages"],
-                        }
-                    )
+                tokens = tokens_
+                labels = torch.roll(tokens, shifts=-1, dims=1)
+            data_obj.update(
+                {
+                    "all_tokens": tokens,
+                    "position_ids": position_ids,
+                    "labels": labels,
+                    "ori_seq_len": ori_seq_len,
+                    "indices": indices,
+                    "ori_batch_size": ori_batch_size,
+                    "sample_ids": data_b["id_in_list"],
+                    "attention_mask": attn_mask,
+                    "pad_size": pad_size,
+                }
+            )
+            if training:
+                loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
+                # The last token should always be masket out
+                loss_mask[:, -1] = 0
+                data_obj.update(
+                    {
+                        "loss_mask": loss_mask,
+                        "old_logprobs": data_b["old_logprobs"],
+                        "ref_logprobs": data_b["ref_logprobs"],
+                        "advantages": data_b["advantages"],
+                    }
+                )
+            data_after_process.append(data_obj)
         return response_token_length_total, data_after_process
 
     @timeit("fsdp_train_step")
+    @monitor_error("fsdp_train_step")
     @compute_decorator(trainable=True, rollout=False)
     def train_step(self, data_list, **kwargs): # pylint: disable=unused-argument
         """
@@ -303,16 +257,12 @@ class PolicyTrainer(FSDPModule):
         }
         self._metric_list.append(train_stats)
 
-    def update_weights_from_buckets(self, buckets):
-        pass
-
     @timeit("fsdp_forward_step")
+    @monitor_error("fsdp_forward_step")
     @compute_decorator(trainable=False, rollout=False)
-    def forward_step(self, data, **kwargs): # pylint: disable=unused-argument,arguments-differ
+    def forward_step(self, data: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument,arguments-differ
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
-        tag = OLD_TAG if self.trainable else REF_TAG
-        if OLD_TAG in data[0].keys():
-            tag = REF_TAG
+        tag = "old_logprobs" if self.trainable else "ref_logprobs"
         # Logprobs holder
         for inputs in data_list:
             for k, v in inputs.items():

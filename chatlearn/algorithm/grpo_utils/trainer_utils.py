@@ -15,6 +15,7 @@
 """Trainer Utilities"""
 from collections import defaultdict
 from typing import List, Any
+import math
 
 import torch
 import torch.nn.functional as F
@@ -85,14 +86,14 @@ def split_microbatch(
         # Calculate num_micro_batch, add 1 to avoid dropping data
         # Slice data_list evenly with micro batch size
         mini_batch_size = len(data_list)
-        num_micro_batch = mini_batch_size // micro_batch_size + 1
+        num_micro_batch = math.ceil(mini_batch_size / micro_batch_size)
         micro_batches = [[] for _ in range(num_micro_batch)]
         for i in range(num_micro_batch):
             start_idx = i * micro_batch_size
             end_idx = min((i+1) * micro_batch_size, mini_batch_size)
             for sample_id in range(start_idx, end_idx):
-                data_list[i].update({'id_in_list': sample_id})
-                micro_batches[i].append(data_list[i])
+                data_list[sample_id].update({'id_in_list': sample_id})
+                micro_batches[i].append(data_list[sample_id])
 
         return micro_batches
 
@@ -107,9 +108,12 @@ def padding_tensor(tensor_list):
     ]
     return torch.stack(batched_tensor)
 
-def batching(data_list, key_list):
+def batching(data_list):
+    if len(data_list) == 0:
+        return None
+
     batched_data = defaultdict(list)
-    for key in key_list:
+    for key in data_list[0]:
         batched_data[key] = [data[key] for data in data_list]
         if isinstance(batched_data[key][0], torch.Tensor):
             batched_data[key] = padding_tensor(batched_data[key])

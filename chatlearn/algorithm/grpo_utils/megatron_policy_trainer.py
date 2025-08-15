@@ -64,10 +64,6 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (
     split_and_unpadding
 )
 
-REF_TAG = "ref_logprobs"
-OLD_TAG = "old_logprobs"
-
-
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
 
@@ -245,8 +241,7 @@ class MegatronPolicyTrainer(MegatronModule):
         else:
             microbatch_list = split_microbatch(data_list=data_list, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)
 
-        regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG]
-        data_list = [batching(data_b, regroup_keywords) for data_b in microbatch_list]
+        data_list = [batching(data_b) for data_b in microbatch_list]
 
         num_microbatches = len(data_list)
         data_iterator = iter(data_list)
@@ -365,15 +360,15 @@ class MegatronPolicyTrainer(MegatronModule):
         """Do an inference forward step. Only for computation of old_logprobs and ref_logprobs.
 
         Args:
-            data_list List[Dict[str, Sequence[Any]]: List of data with size of sample_per_episode // data_parallel_size.
+            data List[Dict[str, Sequence[Any]]: List of data with size of sample_per_episode // data_parallel_size.
 
         Returns:
-            data_list List[Dict[str, Sequence[Any]]: If this is the last rank of the replica, the output logprobs will be
+            data List[Dict[str, Sequence[Any]]: If this is the last rank of the replica, the output logprobs will be
              updated into the each dict in list, otherwise do NOTHING.
         """
         for model_chunk in self.model:
             model_chunk.eval()
-        tag = OLD_TAG if self.trainable else REF_TAG
+        tag = "old_logprobs" if self.trainable else "ref_logprobs"
         # Split minibatch to microbatches and batching
         if self.module_args.packing:
             # Get process group for bin_size communication
@@ -391,8 +386,7 @@ class MegatronPolicyTrainer(MegatronModule):
         else:
             microbatch_list = split_microbatch(data_list=data, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)
 
-        regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "id_in_list", "uid"]
-        data_list = [batching(data_b, regroup_keywords) for data_b in microbatch_list]
+        data_list = [batching(data_b) for data_b in microbatch_list]
 
         num_microbatches = len(data_list)
         data_iter = iter(data_list)
@@ -426,7 +420,6 @@ class MegatronPolicyTrainer(MegatronModule):
         for logprobs, data_b in zip(forward_data_store, data_list):
             attn_mask, *_ = generate_loss_mask_position_ids(data_b["all_tokens"].long(), data_b["prompt_token_length"], data_b["response_token_length"])
             logprobs_tensor_list = split_and_unpadding(-logprobs, attn_mask)
-            sample_id_in_batch = data_b["uid"]
             for sample_id, logprob in zip(data_b['id_in_list'], logprobs_tensor_list):
                 data[sample_id].update({tag: logprob})
 

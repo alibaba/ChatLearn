@@ -238,8 +238,7 @@ class StreamDataset:
         self._has_next = True
 
     def set_dp_size(self, dp_size:int):
-        if self.dp_size is None:
-            self.dp_size = dp_size
+        self.dp_size = dp_size
 
     def episode_replay_buffers(self):
         return self._episode_replay_buffers
