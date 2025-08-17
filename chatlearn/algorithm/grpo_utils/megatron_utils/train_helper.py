@@ -34,6 +34,7 @@ from megatron.training import (
 )
 from megatron.training.training import print_datetime
 from megatron.training.utils import (
+    get_batch_on_this_cp_rank,
     get_ltor_masks_and_position_ids,
     report_memory,
     unwrap_model
@@ -207,7 +208,7 @@ def training_log(
     return report_memory_flag
 
 
-def get_batch_on_this_cp_rank(all_tokens, prompt_token_length, response_token_length):
+def pack_and_slice_batch_on_this_cp_rank(all_tokens, prompt_token_length, response_token_length):
     mbs, ori_seqlen = all_tokens.shape
     attn_mask_for_unpadding = torch.zeros_like(all_tokens, dtype=torch.int32)
     for i, (prompt_length, response_length) in enumerate(
@@ -301,7 +302,7 @@ def get_batch(
         ):
             attn_mask_for_unpadding[i, : prompt_length + response_length] = 1
 
-        if args.sequence_parallel and mpu.get_context_parallel_world_size() == 1:
+        if mpu.get_context_parallel_world_size() == 1:
             # all_tokens: [9, 2048], attn_mask_for_unpadding: [9, 2048], unpad_tokens: [7851, 1], indices: [7851]
             # cu_seqlens: [10]->tensor([   0, 2048, 3761, 4801, 5610, 6230, 6773, 7233, 7591, 7851]
             # max_seqlen_in_batch: 2048
@@ -352,14 +353,14 @@ def get_batch(
                 "indices": indices,
                 "pad_size": pad_size,
             }
-        elif args.sequence_parallel and mpu.get_context_parallel_world_size() >1:
+        elif mpu.get_context_parallel_world_size() >1:
             cp_size = mpu.get_context_parallel_world_size()
 
             input_ids_rmpad, attn_mask_rmpad, cu_seqlens_padded, chunked_cu_seqlens_padded, max_seqlen_in_batch = \
-                get_batch_on_this_cp_rank(all_tokens, prompt_token_length, response_token_length)
+                pack_and_slice_batch_on_this_cp_rank(all_tokens, prompt_token_length, response_token_length)
 
             labels_rmpad, _, _, _, _ = \
-                get_batch_on_this_cp_rank(torch.roll(all_tokens, shifts=-1, dims=1), prompt_token_length, response_token_length)
+                pack_and_slice_batch_on_this_cp_rank(torch.roll(all_tokens, shifts=-1, dims=1), prompt_token_length, response_token_length)
 
             packed_seq_params = PackedSeqParams(qkv_format='thd',
                                                 cu_seqlens_q=cu_seqlens_padded,
@@ -399,23 +400,55 @@ def get_batch(
 
 
     else:
-        labels = torch.roll(tokens, shifts=-1, dims=1)
-        # Get the masks and position ids.
-        attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
-            tokens,
-            get_tokenizer().eod,
-            args.reset_position_ids,
-            args.reset_attention_mask,
-            args.eod_mask_loss,
-        )
+        if mpu.get_context_parallel_world_size() == 1:
+            labels = torch.roll(all_tokens, shifts=-1, dims=1)
+            # Get the masks and position ids.
+            attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
+                all_tokens,
+                get_tokenizer().eod,
+                args.reset_position_ids,
+                args.reset_attention_mask,
+                args.eod_mask_loss,
+            )
 
-        input_data = {
-            "all_tokens": tokens,
-            "all_token_attention_mask": attention_mask,
-            "all_token_position_ids": position_ids,
-            "labels": labels,
-            'packed_seq_params': None
-        }
+            input_data = {
+                "all_tokens": all_tokens,
+                "all_token_attention_mask": attention_mask,
+                "all_token_position_ids": position_ids,
+                "labels": labels,
+                'packed_seq_params': None
+            }
+        elif mpu.get_context_parallel_world_size() >1:
+            all_tokens = data_b["all_tokens"].long().cuda()
+            #labels = torch.roll(all_tokens, shifts=-1, dims=1)
+            loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32, device=all_tokens.device)
+            for i, (prompt_length, response_length) in enumerate(
+                zip(prompt_token_length, response_token_length)
+            ):
+                loss_mask[i, prompt_length: prompt_length + response_length] = 1
+            input_data = {
+                "all_tokens": all_tokens,
+                "loss_mask": loss_mask
+            }
+            input_data_split = get_batch_on_this_cp_rank(input_data)
+            # Get the masks and position ids.
+            attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
+                input_data_split["all_tokens"],
+                get_tokenizer().eod,
+                args.reset_position_ids,
+                args.reset_attention_mask,
+                args.eod_mask_loss,
+            )
+            labels = torch.roll(input_data_split["all_tokens"], shifts=-1, dims=1)
+
+            input_data = {
+                "all_tokens": input_data_split['all_tokens'],
+                "all_token_attention_mask": attention_mask,
+                "all_token_loss_mask": input_data_split['loss_mask'],
+                "all_token_position_ids": position_ids,
+                "labels": labels,
+                'packed_seq_params': None
+            }
 
     if is_training:
         ref_logprobs = data_b["ref_logprobs"].float()
@@ -432,16 +465,20 @@ def get_batch(
             loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
 
         elif mpu.get_context_parallel_world_size() > 1:
-            loss_mask = input_data['all_token_loss_mask']
-            attention_mask = input_data["all_token_attention_mask"]> 0.5
-            loss_mask = pad_input(
-                loss_mask[0][attention_mask].unsqueeze(-1),
-                input_data['indices'], 
-                input_data['ori_batch_size'], 
-                input_data['ori_seq_len']
-            ).squeeze(-1)
+            if is_packing:
+                loss_mask = input_data['all_token_loss_mask']
+                attention_mask = input_data["all_token_attention_mask"]> 0.5
+                loss_mask = pad_input(
+                    loss_mask[0][attention_mask].unsqueeze(-1),
+                    input_data['indices'], 
+                    input_data['ori_batch_size'], 
+                    input_data['ori_seq_len']
+                ).squeeze(-1)
 
-            #loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
+                loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
+            else:
+                loss_mask = input_data['all_token_loss_mask']
+                loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
 
         input_data.update({
             "all_token_loss_mask": loss_mask,
