@@ -39,12 +39,6 @@ ChatLearn Documentation
 
 .. toctree::
    :maxdepth: 1
-   :caption: API Documentation
-
-   api/index
-
-.. toctree::
-   :maxdepth: 1
    :caption: FAQ
 
    faq

@@ -41,13 +41,6 @@ ChatLearn 使用文档
 
 .. toctree::
    :maxdepth: 1
-   :caption: API 文档
-
-   api/index
-
-
-.. toctree::
-   :maxdepth: 1
    :caption: 常见问题
 
    faq
