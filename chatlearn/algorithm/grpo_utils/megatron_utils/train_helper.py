@@ -86,7 +86,7 @@ def training_log(
     for key in loss_dict:
         if not skipped_iter:
             total_loss_dict[key] = (
-                total_loss_dict.get(key, torch.cuda.FloatTensor([0.0])) + loss_dict[key]
+                total_loss_dict.get(key, torch.tensor([0.0], dtype=torch.float32, device='cuda')) + loss_dict[key]
             )
         else:
             value = loss_dict[key].float().sum().item()
@@ -151,8 +151,7 @@ def training_log(
             avg = total_loss_dict[key].item() / float(
                 max(1, total_loss_dict[advanced_iters_key])
             )
-            if avg > 0.0:
-                log_string += " {}: {:.6E} |".format(key, avg)
+            log_string += " {}: {:.6E} |".format(key, avg)
 
             total_loss_dict[key] = torch.cuda.FloatTensor([0.0])
     log_string += " loss scale: {:.1f} |".format(loss_scale)
@@ -246,8 +245,11 @@ def get_batch(
         labels = torch.roll(tokens, shifts=-1, dims=1)
 
         position_ids = torch.arange(tokens.shape[1], device=tokens.device).view(1, -1)
+
+        prev_cu_seqlen = 0
         for cu_seqlen in cu_seqlens[1:]:
-            position_ids[:, cu_seqlen:] -= cu_seqlen
+            position_ids[:, cu_seqlen:] -= cu_seqlen - prev_cu_seqlen
+            prev_cu_seqlen = cu_seqlen
 
 
         packed_seq_params = PackedSeqParams(
@@ -270,6 +272,16 @@ def get_batch(
             "pad_size": pad_size,
         }
     else:
+        pad_size = 0
+        pad_token = get_tokenizer().eod
+        if not args.variable_seq_lengths:
+            pad_size = args.seq_length - tokens.shape[1]
+        else:
+            divisor = mpu.get_tensor_model_parallel_world_size()
+            total_nnz = tokens.shape[1]
+            pad_size = (divisor - total_nnz % divisor) % divisor
+
+        tokens = F.pad(tokens, (0, pad_size), value=pad_token)
         labels = torch.roll(tokens, shifts=-1, dims=1)
         # Get the masks and position ids.
         attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
@@ -285,7 +297,8 @@ def get_batch(
             "all_token_attention_mask": attention_mask,
             "all_token_position_ids": position_ids,
             "labels": labels,
-            'packed_seq_params': None
+            'packed_seq_params': None,
+            "pad_size": pad_size,
         }
 
     if is_training:
@@ -298,6 +311,7 @@ def get_batch(
             zip(prompt_token_length, response_token_length)
         ):
             loss_mask[i, prompt_length: prompt_length + response_length] = 1
+        loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
 
         input_data.update({
             "all_token_loss_mask": loss_mask,

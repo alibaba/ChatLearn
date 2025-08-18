@@ -26,6 +26,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer
 
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.runtime.decorator import timeit
 from .torch_module import TorchModule
 
 try:
@@ -84,6 +85,7 @@ class SGLangModule(TorchModule):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
+    @timeit("setup_sglang")
     def setup_sglang(self):
 
         if self.llm is not None: # for evaluator not setup twice
@@ -176,8 +178,9 @@ class SGLangModule(TorchModule):
             prompt_key = "prompt"
             input_ids_key = "input_ids"
             seq_len = self.module_args.seq_length
-            prompts = query[prompt_key]
-            prompts_token_ids = query[input_ids_key]
+
+            prompts = [q[prompt_key] for q in query]
+            prompts_token_ids = [q[input_ids_key] for q in query]
             sampling_param = self._get_sampling_params(is_eval)
             sampling_params = []
 

@@ -59,3 +59,6 @@ class PolicyTrainerConfig(BaseModelConfig):
     use_group_sequence_policy: bool = field(
         default=False, metadata={"help": "whether to use group sequence policy optimization"}
     )
+    train_micro_batch_size: int = field(
+        default=1, metadata={"help": "train microbatch size for gradient accumulation"}
+    )
