@@ -395,6 +395,7 @@ class FSDPModule(TorchModule):
 
         if empty_cache:
             torch.cuda.empty_cache()
+
     @timeit("save_checkpoint")
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"

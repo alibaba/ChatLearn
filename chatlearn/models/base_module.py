@@ -255,8 +255,6 @@ class BaseModule:
             data_list = data_list[0]
         return self._preprocess_impl(data_list)
 
-    # def postprocess_data(self, data):
-
     def eval_step(self, data):
         """
         Perform eval_step for one batch
