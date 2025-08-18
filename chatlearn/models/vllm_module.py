@@ -32,6 +32,7 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
+from chatlearn.runtime.decorator import timeit
 from .torch_module import TorchModule
 
 if TYPE_CHECKING:
@@ -149,6 +150,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
+    @timeit("setup_vllm")
     def setup_vllm(self, workers):
         """setup vllm engine
         used in Environment.setup()
@@ -335,14 +337,15 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self.llm.wake_up()
 
         # preprocess query
-        prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
-        input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
-        seq_len = self.module_args.get("seq_length")
+        prompt_key = "prompt"
+        input_ids_key = "input_ids"
+        seq_len = self.module_args.seq_length
 
-        prompts = query[prompt_key]
-        prompts_token_ids = query[input_ids_key]
+        prompts = [q[prompt_key] for q in query]
+        prompts_token_ids = [q[input_ids_key] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
+
         for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"

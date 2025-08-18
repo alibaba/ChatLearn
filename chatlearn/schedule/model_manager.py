@@ -30,13 +30,11 @@ from chatlearn.models.fsdp_module import FSDPModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.models.sglang_module import SGLangModule
-from chatlearn.runtime.decorator import timeit, preprocess_compute, monitor_error, decorate_class_func
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistSGLangActor, DistModel
 from chatlearn.synchronizer import MCoreParameterSyncGroup, FSDPParameterSyncGroup
 from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
-from chatlearn.utils.global_vars import set_decorated, is_decorated
 from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
 
 from .port_manager import PortManager
@@ -211,26 +209,6 @@ class ModelManager:
                     refs.append(replica.engine.onload_weights.remote(tags=['kv_cache']))
                 future.wait(refs, return_output=True)
 
-    def set_func_decorator(self, model):
-        if is_decorated(model.name):
-            return
-        call_funcs = model.call_funcs
-
-        model_cls = model.__class__
-        for func_name in call_funcs:
-            trainable = func_name in model.trainable_funcs
-            decorate_class_func(model_cls, func_name, preprocess_compute, trainable)
-
-        for func_name in ["save_checkpoint", "model_setup"] + call_funcs:
-            decorate_class_func(model_cls, func_name, timeit, func_name)
-
-        # public user function
-        # TODO: use decorator to annotate
-        for func_name in ["save_checkpoint", "model_setup", "onload", "offload", "build_dataset",
-                          "_build_dataloader", "generate_vllm", "init"] + call_funcs:
-            decorate_class_func(model_cls, func_name, monitor_error, func_name)
-        set_decorated(model.name)
-
     def _to_dist_model(self, model):
         """
         Convert one model to DistActor and place it to devices
@@ -238,8 +216,6 @@ class ModelManager:
         Args:
             model: BaseModule
         """
-        self.set_func_decorator(model)
-
         def actor_type():
             if isinstance(model, VLLMModule):
                 return DistVLLMActor

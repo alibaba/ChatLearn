@@ -1,6 +1,5 @@
 """prompt dataset"""
 
-from collections import defaultdict
 from typing import List, Dict
 
 from torch.utils.data import Dataset
@@ -72,12 +71,4 @@ class PromptPipeline(Dataset):
         return len(self.data)
 
     def collate_fn(self, samples):
-        collate_dict = defaultdict(list)
-
-        # Loop over the samples and append each tensor value to the corresponding list
-        for sample in samples:
-            for key in sample.keys():
-                collate_dict[key].append(sample[key])
-
-        # Return the collate_dict
-        return collate_dict
+        return samples

@@ -13,12 +13,12 @@
 # limitations under the License.
 # ==============================================================================
 """sglang rollout"""
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import torch
-import torch.nn.functional as F
 
 from chatlearn.data.prompt_dataset import PromptPipeline
+from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.models.sglang_module import SGLangModule
 
 
@@ -50,15 +50,17 @@ class SGLangPolicyInference(SGLangModule):
             rets = self.decode_internal(outputs, data)
             return rets
 
-    def forward_step(self, data, iteration=0):
+    @timeit("sglang_forward_step")
+    @compute_decorator(trainable=False, rollout=True)
+    def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
 
         rets = self._forward_step(data, iteration, False)
-        rets["uid"] = data["uid"]
         # collect metric
-        response_token_length = rets["response_token_length"]
-        prompt_token_length = rets["prompt_token_length"]
+        response_token_length = [ret["response_token_length"] for ret in rets]
+        prompt_token_length = [ret["prompt_token_length"] for ret in rets]
         seq_len = [
-            l1 + l2 for l1, l2 in zip(prompt_token_length, response_token_length)
+            ret["response_token_length"] + ret["prompt_token_length"]
+            for ret in rets
         ]
         clip_ratio = sum(
             l >= self.module_args.get("seq_length") for l in seq_len
@@ -73,55 +75,30 @@ class SGLangPolicyInference(SGLangModule):
         return rets
 
     def decode_internal(
-        self, batched_outputs: List[Dict], input_data
-    ):
-        data_source_list = input_data["data_source"]
-        ground_truth_list = input_data["ground_truth"]
-        max_tokens_length = self.module_args.get("seq_length")
-        all_tokens = []
-        str_outputs = []
-        prompt_token_ids: list = input_data["input_ids"]
-        prompt_token_length = []
-        response_token_length = []
-        data_sources = []
-        ground_truths = []
-        for idx, output in enumerate(batched_outputs):
-            data_source = data_source_list[idx] if data_source_list else ""
-            data_sources.append(data_source)
-
-            ground_truth = ground_truth_list[idx] if ground_truth_list else ""
-            ground_truths.append(ground_truth)
-            prompt_token = input_data['input_ids'][idx]
+        self, batched_outputs: List[Dict[str, Any]], input_data_list: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        data_output = []
+        for output, input_data in zip(batched_outputs, input_data_list):
+            prompt_token_ids = input_data["input_ids"]
             output_tokens = output['output_ids']
-
-            response_token_length.append(output['meta_info']['completion_tokens'])
-            prompt_token_length.append(output['meta_info']['prompt_tokens'])
-            str_outputs.append(
-                self.tokenizer.tokenizer.decode(
+            response_token_length = output['meta_info']['completion_tokens']
+            prompt_token_length = output['meta_info']['prompt_tokens']
+            str_outputs = self.tokenizer.tokenizer.decode(
                     output_tokens, skip_special_tokens=True
                 )
+            all_tokens = torch.tensor(prompt_token_ids + output_tokens)
+            input_data.update(
+                {
+                    "prompt_token_ids": prompt_token_ids,
+                    "all_tokens": all_tokens,
+                    "response_token_length": response_token_length,
+                    "prompt_token_length": prompt_token_length,
+                    "str_outputs": str_outputs,
+                }
             )
-            all_tokens.append(torch.tensor(prompt_token + output_tokens))
+            data_output.append(input_data)
 
-        all_tokens = [
-            F.pad(
-                all_token,
-                (0, max_tokens_length - all_token.shape[0]),
-                value=self.tokenizer.tokenizer.pad_token_id,  # just pad_token_id
-            )
-            for all_token in all_tokens
-        ]
-        all_tokens = torch.vstack(all_tokens)
-        print("str_outputs", str_outputs[0])
-        print("data_sources", data_sources[0])
-        print("ground_truth", ground_truths[0])
-
-        return {
-            "all_tokens": all_tokens,
-            "str_outputs": str_outputs,
-            "prompt_token_ids": prompt_token_ids,
-            "prompt_token_length": prompt_token_length,
-            "response_token_length": response_token_length,
-            "data_source": data_sources,
-            "ground_truth": ground_truths,
-        }
+        print("str_outputs", data_output[0]["str_outputs"])
+        print("data_sources", data_output[0]["data_source"])
+        print("ground_truth", data_output[0]["ground_truth"])
+        return data_output
