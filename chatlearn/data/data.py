@@ -28,8 +28,8 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import default_collate
 
 from chatlearn.utils import future
-from chatlearn.utils.constant import CHATLEARN_REGROUP_TAG
-from chatlearn.utils.utils import regroup_by_concat_along_batch, map_reduce_metrics
+from chatlearn.utils.constant import REF_LIST
+from chatlearn.utils.utils import map_reduce_metrics
 
 def read_data_path_list(data_path_list: List[str]):
     data = []
@@ -112,7 +112,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, num_minibsz, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -121,6 +121,8 @@ class StreamDataset:
             self._dynamic_dataset = False
         else:
             self._dynamic_dataset = True
+        self.num_minibsz = num_minibsz
+        self.dp_size = None
         self.batch_size = micro_batch_size
 
         if max_replay_episode < 0:
@@ -151,8 +153,7 @@ class StreamDataset:
         data_to_batch = self.replay_buffer.get_samples(start_index, end_index)
         if len(data_to_batch) < self.batch_size:
             data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
-        batched_data = batching(data_to_batch)
-        return batched_data
+        return data_to_batch
 
     def iter_fixed(self):
         """
@@ -161,6 +162,9 @@ class StreamDataset:
         """
         produce_index = 0
         batch_count = 0
+        assert self.dp_size is not None, "dp_size must be set before data fetching"
+        self.batch_size = self._total_samples // self.num_minibsz // self.dp_size
+
         while produce_index < self._total_samples:
             # read from cache
             if len(self.replay_buffer) < self._total_samples:
@@ -200,12 +204,7 @@ class StreamDataset:
 
     def next(self):
         """get next batch"""
-        try:
-            data = next(self.iter)
-            return data
-        except StopIteration:
-            self._has_next = False
-            return None
+        return next(self.iter)
 
     def has_next(self):
         """
@@ -243,8 +242,14 @@ class StreamDataset:
         self.iter = iter(self)
         self._has_next = True
 
+    def set_dp_size(self, dp_size:int):
+        self.dp_size = dp_size
+
     def episode_replay_buffers(self):
         return self._episode_replay_buffers
+
+    def num_iteration(self):
+        return self.num_minibsz
 
     def total_samples(self):
         return self._total_samples
@@ -279,13 +284,14 @@ class EpisodeReplayBuffer:
             raise ValueError("WARN: data queue is empty")
         # get from queue
         data = self.queue.get()
-        merged_data = {}
+        samples = []
         for item in data:
             local_data = future.get(item)
-            if CHATLEARN_REGROUP_TAG in local_data:
-                local_data = regroup_by_concat_along_batch(local_data[CHATLEARN_REGROUP_TAG])
-            merged_data.update(local_data)
-        samples = split_batch(merged_data)
+            if isinstance(local_data, list):
+                samples.extend(local_data)
+            if REF_LIST in local_data:
+                for data_b in local_data[REF_LIST]:
+                    samples.extend(data_b)
         if self._rollout_batch_size < 0:
             self._rollout_batch_size = len(samples)
         self._buffer += samples

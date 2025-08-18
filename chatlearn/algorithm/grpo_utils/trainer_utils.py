@@ -13,10 +13,13 @@
 # limitations under the License.
 # ==============================================================================
 """Trainer Utilities"""
-from typing import List
+from collections import defaultdict
+from typing import List, Any, Dict
+import math
 
 import torch
 import torch.nn.functional as F
+from chatlearn.algorithm.grpo_utils.packing_utils import regroup_data_packing
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
@@ -24,7 +27,7 @@ def entropy_from_logits(logits: torch.Tensor):
     entropy = torch.logsumexp(logits, dim=-1) - torch.sum(pd * logits, dim=-1)
     return entropy
 
-def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 128):
+def entropy_from_logits_with_chunking(logits: torch.Tensor, chunk_size: int = 512):
     """Memory-efficient entropy calculation with chunking.
     logits shape: (batch_size, seq_len, dimension)
     entropy shape: (batch_size, seq_len)
@@ -84,3 +87,59 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: L
                     start_value, start_value + (seq_len - len(sublist))
                 )
     return attn_mask, loss_mask, position_ids
+
+def split_microbatch(
+    data_list: List,
+    micro_batch_size: int=None,
+    max_train_token: int=None,
+    process_group_list: List[Any] = None,
+    offset: int=0, packing: bool=False
+    ):
+    assert micro_batch_size is not None or max_train_token is not None, \
+        "At least one of micro_batch_size or max_train_token should be specified"
+    if packing:
+        # Using bin packing to slice minibatch
+        return regroup_data_packing(data_list, process_group_list, max_train_token, offset)
+    else:
+        # Calculate num_micro_batch, add 1 to avoid dropping data
+        # Slice data_list evenly with micro batch size
+        mini_batch_size = len(data_list)
+        num_micro_batch = math.ceil(mini_batch_size / micro_batch_size)
+        micro_batches = [[] for _ in range(num_micro_batch)]
+        for i in range(num_micro_batch):
+            start_idx = i * micro_batch_size
+            end_idx = min((i+1) * micro_batch_size, mini_batch_size)
+            for sample_id in range(start_idx, end_idx):
+                data_list[sample_id].update({'id_in_list': sample_id})
+                micro_batches[i].append(data_list[sample_id])
+
+        return micro_batches
+
+def padding_tensor(tensor_list):
+    dim_size = len(tensor_list[0].shape)
+    seqlen = max(tensor.shape[0] for tensor in tensor_list)
+    pad_size = [seqlen - tensor.shape[0] for tensor in tensor_list]
+    # Right pad tensor on dim 0
+    batched_tensor = [
+        F.pad(tensor_list[i], (0, 0) * (dim_size - 1) + (0, pad_size[i]))
+        for i in range(len(tensor_list))
+    ]
+    return torch.stack(batched_tensor)
+
+def batching(data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
+    if len(data_list) == 0:
+        return None
+
+    batched_data = defaultdict(list)
+    for key in data_list[0]:
+        batched_data[key] = [data[key] for data in data_list]
+        if isinstance(batched_data[key][0], torch.Tensor):
+            batched_data[key] = padding_tensor(batched_data[key])
+    return batched_data
+
+def split_and_unpadding(input_tensor: torch.Tensor, attention_mask: torch.Tensor) -> List[torch.Tensor]:
+    valid_seq = torch.sum(attention_mask, dim=-1).cpu().tolist()
+    tensor_list = [
+        input_tensor[i, :valid_seq[i]] for i in range(input_tensor.shape[0])
+    ]
+    return tensor_list

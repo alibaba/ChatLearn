@@ -16,7 +16,7 @@
 import warnings
 import os
 import math
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 import copy
 
 import ray
@@ -26,6 +26,7 @@ from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer
 
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.runtime.decorator import timeit
 from .torch_module import TorchModule
 
 try:
@@ -33,8 +34,12 @@ try:
 except Exception:
     warnings.warn("SGLang is not installed.")
 
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
+
 class SGLangModule(TorchModule):
     """SGLangModule"""
+    # pylint: disable=abstract-method
 
     def __init__(self, name: str, args=None, replica_id: int=0):
         """The chatlearn wrapper for a sglang model.
@@ -80,6 +85,7 @@ class SGLangModule(TorchModule):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
+    @timeit("setup_sglang")
     def setup_sglang(self):
 
         if self.llm is not None: # for evaluator not setup twice
@@ -172,8 +178,9 @@ class SGLangModule(TorchModule):
             prompt_key = "prompt"
             input_ids_key = "input_ids"
             seq_len = self.module_args.seq_length
-            prompts = query[prompt_key]
-            prompts_token_ids = query[input_ids_key]
+
+            prompts = [q[prompt_key] for q in query]
+            prompts_token_ids = [q[input_ids_key] for q in query]
             sampling_param = self._get_sampling_params(is_eval)
             sampling_params = []
 
@@ -270,8 +277,6 @@ class SGLangModule(TorchModule):
                 self.weight_onloaded = True
         torch.cuda.synchronize()
 
-    def get_param_id_to_parameters(self):
-        pass
 
     @property
     def is_engine(self):

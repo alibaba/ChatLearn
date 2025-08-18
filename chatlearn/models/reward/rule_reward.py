@@ -13,14 +13,18 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 """rule reward"""
-from typing import Dict
+from typing import Dict, List
 
 import torch
 
 from chatlearn import BaseModule
 from chatlearn.utils.rule_reward_score import math
+<<<<<<< HEAD
 from chatlearn.utils.rule_reward_score import geo3k
 
+=======
+from chatlearn.runtime.decorator import timeit, compute_decorator
+>>>>>>> upstream/main
 
 class RuleReward(BaseModule):
     """rule reward"""
@@ -39,47 +43,44 @@ class RuleReward(BaseModule):
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
 
+    @timeit("rule_reward_setup")
     def setup(self):
         self.stats = {}
         self._metric_prefix = "rulereward"
 
-    def _forward_step(self, data: Dict) -> torch.Tensor:
-
+    def _forward_step(self, data: List) -> torch.Tensor:
         # str_prompts_list = data["str_prompts"]
-        str_outputs_list = data["str_outputs"]
-        data_source_list = data["data_source"]
-        ground_truth_list = data["ground_truth"]
-        self._logger.info(f"RuleReward _forward_step Num of request: {len(str_outputs_list)}")
+        self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")
 
-        reward_tensor = torch.zeros([len(str_outputs_list), 1], dtype=torch.float32)
-        eval_source = []
+        reward = []
 
-        for i, str_output in enumerate(str_outputs_list):
-            data_source = data_source_list[i]
-            ground_truth = ground_truth_list[i]
+        for data_b in data:
+            str_output = data_b["str_outputs"]
+            data_source = data_b["data_source"]
+            ground_truth = data_b["ground_truth"]
             compute_score_fn = self.select_rule_reward_score_fn(data_source)
-            reward_tensor[i] = compute_score_fn(str_output, ground_truth)
-            eval_source.append(data_source)
-        data["rule_rewards"] = reward_tensor
-        data["eval_source"] = eval_source
-        return data
+            reward.append(compute_score_fn(str_output, ground_truth))
+            data_b.update({"rule_reward": reward[-1], "eval_source": data_source})
+        return data, reward
 
-    def forward_step(self, data: Dict, iteration=0) -> Dict:
-
-        res_dict = self._forward_step(data)
+    @timeit("rule_reward_forward_step")
+    @compute_decorator(trainable=False, rollout=False)
+    def forward_step(self, data: Dict, iteration=0, **kwargs) -> Dict: # pylint: disable=unused-argument
+        data, reward = self._forward_step(data)
 
         # collect stats
-        rule_rewards = res_dict["rule_rewards"]
-        train_reward_score = rule_rewards.mean().item()
+        train_reward_score = sum(reward) / len(reward)
         train_reward_stats = {
             "train_reward_score": train_reward_score,
         }
         self._metric_list.append(train_reward_stats)
-        return res_dict
+        return data
 
-    def eval_forward(self, data: Dict) -> Dict:
+    @timeit("rule_reward_eval_forward_step")
+    @compute_decorator(trainable=False, rollout=False)
+    def eval_forward(self, data: Dict, **kwargs) -> Dict: # pylint: disable=unused-argument
 
-        return self._forward_step(data)
+        return self._forward_step(data)[0]
 
     def select_rule_reward_score_fn(self, data_source: str):
         if data_source in ['openai/gsm8k', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25']:

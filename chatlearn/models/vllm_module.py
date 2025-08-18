@@ -16,7 +16,7 @@
 
 import inspect
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List, TYPE_CHECKING
 import copy
 
 import torch
@@ -32,7 +32,11 @@ from chatlearn.utils.global_vars import set_vllm_actors
 from chatlearn.utils.vllm_utils import initialize_vllm
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo, build_sharded_info_for_vllm_model
+from chatlearn.runtime.decorator import timeit
 from .torch_module import TorchModule
+
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
 
 # pylint: disable=unexpected-keyword-arg
 class VLLMModule(TorchModule, RayWorkerWrapper):
@@ -150,6 +154,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
+<<<<<<< HEAD
         if '<|vision_start|>' in tokenizer.additional_special_tokens:
             # processor is needed for qwenvl
             from transformers import AutoProcessor
@@ -157,6 +162,9 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         else:
             self.processor = None
 
+=======
+    @timeit("setup_vllm")
+>>>>>>> upstream/main
     def setup_vllm(self, workers):
         """setup vllm engine
         used in Environment.setup()
@@ -352,21 +360,31 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self.llm.wake_up()
 
         # preprocess query
+<<<<<<< HEAD
         prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
         if 'multi_modal_data' in query:
             input_ids_key = "raw_input_ids"
         else:
             input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
         seq_len = self.module_args.get("seq_length")
+=======
+        prompt_key = "prompt"
+        input_ids_key = "input_ids"
+        seq_len = self.module_args.seq_length
+>>>>>>> upstream/main
 
-        prompts = query[prompt_key]
-        prompts_token_ids = query[input_ids_key]
+        prompts = [q[prompt_key] for q in query]
+        prompts_token_ids = [q[input_ids_key] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
 
+<<<<<<< HEAD
         llm_inputs = []
        
         for prompt_id, (prompt, prompt_token_ids_item) in enumerate(zip(prompts, prompts_token_ids)):
+=======
+        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
+>>>>>>> upstream/main
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
             sampling_param_item = copy.deepcopy(sampling_param)
@@ -483,10 +501,33 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             infos[param_id] = sharded_info
         return infos
 
-    def get_param_id_to_parameters(self):
+    @torch.no_grad()
+    def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
         param_id_to_parameters = {}
         for name, weight in self.model.state_dict().items():
             if name not in self.local_name_to_param_id:
                 continue
             param_id_to_parameters[self.local_name_to_param_id[name]] = weight
-        return param_id_to_parameters
+
+        self.param_id_to_parameters = param_id_to_parameters
+        self.synchronizer.parameter_sync()
+        self.param_id_to_parameters = None
+
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        for bucket in buckets:
+            if bucket is None:
+                continue
+            offset = 0
+            if bucket.buffer is None:
+                raise ValueError("Attempt to read from a bucket without buffer")
+            for offset, sharded_tensor_info in bucket.recv_layout:
+                shard = sharded_tensor_info.index(self.param_id_to_parameters[sharded_tensor_info.param_id])
+                comm_dtype = sharded_tensor_info.dtype
+                numel = shard.numel()
+                byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
+                # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
+                shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+                offset += numel * comm_dtype.itemsize

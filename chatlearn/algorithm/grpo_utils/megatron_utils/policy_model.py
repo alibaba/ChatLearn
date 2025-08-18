@@ -120,9 +120,10 @@ class PolicyModel(GPTModel):
         )
 
         # NOTE: before loss computation, we need to unpack the packed inputs
+        forward_logprob = forward_logprob[:, :forward_logprob.shape[1] - training_inputs['pad_size']]
         if self.module_args.packing:
             forward_logprob = pad_input(
-                forward_logprob[0, :forward_logprob.shape[1] - training_inputs['pad_size']].unsqueeze(-1), 
+                forward_logprob.permute(1, 0), 
                 training_inputs['indices'], 
                 training_inputs['ori_batch_size'], 
                 training_inputs['ori_seq_len']
@@ -159,10 +160,12 @@ class PolicyModel(GPTModel):
                 neg_clip_ratio=self.module_args.neg_clip_ratio,
                 final_clip_ratio=self.module_args.final_clip_ratio
             )
+
         entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
+        entropy_loss = entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']]
         if self.module_args.packing:
             entropy_loss = pad_input(
-                entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']], 
+                entropy_loss, 
                 training_inputs['indices'], 
                 training_inputs['ori_batch_size'], 
                 training_inputs['ori_seq_len']
@@ -172,6 +175,7 @@ class PolicyModel(GPTModel):
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
+        ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
         assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()

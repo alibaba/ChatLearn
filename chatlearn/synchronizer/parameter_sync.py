@@ -50,9 +50,8 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
         self.src_param_ids, self.dst_param_ids = None, None
         # contains the metadata of each rank, Dict[int, List[ShardedTensorInfo]]
         self.src_metadatas, self.dst_metadatas = None, None
-        self.sync_plan: List[SyncIteration] = None
+        self.plan = None # results of make_plan(), for debugging
         self.timers = Timers()
-
 
     def initialize(self):
         """Intialize the synchronizer. The sync plan is built and validated.
@@ -111,12 +110,12 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
             dict(zip(itertools.chain.from_iterable(self.src_model.all_actor_ids), results)),
             self.dst_metadatas,
         )
-        self.bucketized_plan = planner.make_plan()
+        self.plan = planner.make_plan(self.src_model, self.dst_model)
         self.timers("generate-plan").stop()
 
         # NOTE: Can we find a way to validate plan before actual comm starts?
         self.timers("setup-synchronizer").start()
-        planner.setup_synchronizer(self.src_model, self.dst_model, self.bucketized_plan)
+        planner.setup_synchronizer(self.src_model, self.dst_model, self.plan)
         self.timers("setup-synchronizer").stop()
         self._initialized = True
         logger.info(f"finish parameter sync initialization | {self.timers.log()}")
@@ -229,16 +228,9 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
             self.dst_model.call_func_on_all_workers('parameter_sync')
         )
         future.wait(refs, return_output=True)
-
         refs = (
-            self.src_model.call_func_on_all_workers(
-                'call_synchronizer_func', 
-                'release_resources'
-            ) +
-            self.dst_model.call_func_on_all_workers(
-                'call_synchronizer_func', 
-                'release_resources'
-            )
+            self.src_model.call_func_on_all_workers('post_parameter_sync') +
+            self.dst_model.call_func_on_all_workers('post_parameter_sync')
         )
         future.wait(refs, return_output=True)
         self.timers("communication").stop()
