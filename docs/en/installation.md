@@ -1,28 +1,41 @@
-# Environment and Code Setup
+# Environment and Code Preparation
 
-1. Docker Image Preparation
+## 1. Image Preparation
 
-It is recommended to refer to `https://github.com/alibaba/ChatLearn/tree/master/docker/torch/Dockerfile.torch2.3.0` for preparing the docker image.
-If you're training on the PAI DLC/DSW environment, we suggest using the pre-built image provided below:
+ChatLearn supports vLLM and SGLang as backend frameworks for Rollout generation. Depending on the chosen Rollout backend, you can select the appropriate Docker image for your experiments.
+
+### vLLM
+
+You can prepare the image by referring to [Dockerfile.torch2.6.0.vllm085](https://github.com/alibaba/ChatLearn/blob/main/docker/torch/Dockerfile.torch2.6.0.vllm085). Alternatively, you can directly pull and use the following image:
 
 ```bash
-registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:2.4.0-gpu-py3.10-cu12.5-ngc24.06-ubuntu22.04
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.6.0-vllm0.8.5-ubuntu24.04-cuda12.6-py312
 ```
 
-2. Code Preparation: Users need to download the ChatLearn framework code.
+### SGLang
 
-```
-# Clone ChatLearn code
+We will provide SGLang-related Docker images in the future.
+
+## 2. Code Preparation
+
+```bash
+# Download ChatLearn code
 git clone https://github.com/alibaba/ChatLearn.git
 ```
 
-3. If you need to run the alignment training program based on the Megatron-LM framework, you also need to download the `Megatron-LM` code.
+If you choose Megatron as the training framework, you need to download [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch).
 
-```
-# Clone Megatron-LM
-git clone https://github.com/NVIDIA/Megatron-LM.git
-git checkout core_r0.8.0
+```bash
+# Download Megatron-LM
+git clone --recurse-submodules https://github.com/alibaba/Pai-Megatron-Patch.git
 ```
 
-> [!NOTE]
-> If you are using Megatron-LM version `core_r0.8.0`, you may encounter an issue in converting checkpoints: `ValueError: Default process group has not been initialized, please make sure to call init_process_group`. Please refer to the solution in the [FAQ: Failure when converting checkpoint](faq.md#failure-when-converting-checkpoint).
+> If you encounter network connectivity issues with GitHub, you can alternatively download our pre-prepared `Pai-Megatron-Patch` archive using the following command:  
+`wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar && tar -xvf Pai-Megatron-Patch.tar`
+
+## 3. Running Reinforcement Learning Experiments
+
+ChatLearn supports FSDP and Megatron as training backends. Please refer to the following tutorials for detailed instructions:
+
+- [End-to-End GRPO Training with FSDP](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp.md)
+- [End-to-End GRPO Training with Mcore](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_mcore.md)
