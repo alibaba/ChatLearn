@@ -157,8 +157,8 @@ class GrpoConfig(BaseConfig):
 
             train_global_batch_size_per_dp_rank = self.runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
             assert train_global_batch_size_per_dp_rank % self.runtime_args.train_micro_batch_size == 0, (
-                f"sample_per_dp_rank must be divisible by models.{name}.generation_batch_size, "
-                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; generation_batch_size: {conf.generation_batch_size}"
+                f"sample_per_dp_rank must be divisible by runtime_args.train_micro_batch_size, "
+                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; train_micro_batch_size: {self.runtime_args.train_micro_batch_size}"
             )
 
 
