@@ -19,10 +19,16 @@ ChatLearn Documentation
    :maxdepth: 1
    :caption: Tutorial
 
-   tutorial/data
    tutorial/tutorial_grpo_fsdp
    tutorial/tutorial_grpo_mcore
+   tutorial/multinode_train
    tutorial/continue_train
+
+.. toctree::
+   :maxdepth: 1
+   :caption: Customized Task
+
+   customized_task/data
 
 .. toctree::
    :maxdepth: 1
