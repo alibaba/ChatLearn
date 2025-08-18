@@ -21,7 +21,6 @@ ChatLearn 使用文档
    :caption: 使用教程
 
    tutorial/data
-   tutorial/run
    tutorial/tutorial_grpo_fsdp
    tutorial/tutorial_grpo_mcore
    tutorial/evaluator

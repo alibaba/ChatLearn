@@ -20,7 +20,6 @@ ChatLearn Documentation
    :caption: Tutorial
 
    tutorial/data
-   tutorial/run
    tutorial/tutorial_grpo_fsdp
    tutorial/tutorial_grpo_mcore
    tutorial/evaluator
