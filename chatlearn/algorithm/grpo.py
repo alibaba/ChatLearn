@@ -201,8 +201,7 @@ class GRPOEngine(Engine):
         def env_compute_flow(batch):
             policy_out = policy.forward_step(batch)
             old_logprobs_out = policy_trainer.forward_step(policy_out)
-            # ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
-            ref_logprobs_out = policy_trainer.forward_step(old_logprobs_out)
+            ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
             return reward_out
 

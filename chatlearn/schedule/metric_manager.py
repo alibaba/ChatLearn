@@ -73,7 +73,7 @@ class MetricManager:
                 'id': self.runtime_args.log_args_dict['wandb_id'],
                 'name': self.runtime_args.log_args_dict['wandb_name'],
                 'resume': self.runtime_args.log_args_dict['wandb_resume'],
-                'config': self.global_args,
+                'config': self.global_args
             }
             logger.info(f"WANDB_ARGS: {wandb_kwargs}")
             wandb.init(**wandb_kwargs)

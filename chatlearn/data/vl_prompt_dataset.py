@@ -88,6 +88,8 @@ class PromptPipeline(Dataset):
             # model_inputs = self.processor(text=[raw_prompt], images=None, videos=None, return_tensors="pt")
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
+            image_grid_thw = model_inputs.get("image_grid_thw")
+            pixel_values = model_inputs.get("pixel_values")
 
             # text only for vllm
             # model_inputs = self.processor(text=[raw_prompt], images=None, videos=None, return_tensors="pt")
@@ -103,17 +105,24 @@ class PromptPipeline(Dataset):
 
             if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
                 from chatlearn.models.patches.transformers.qwen2_vl import get_rope_index
-
-                position_ids = [
-                    get_rope_index(
+                position_ids, rope_deltas = get_rope_index(
                         self.processor,
-                        input_ids=input_ids[0],
+                        input_ids=input_ids,
                         image_grid_thw=model_inputs.get("image_grid_thw"),
                         video_grid_thw=model_inputs.get("video_grid_thw"),
                         second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                        attention_mask=attention_mask[0],
-                    )
-                ]  # (1, 3, seq_len)
+                        attention_mask=attention_mask,
+                )
+                # position_ids = [
+                #     get_rope_index(
+                #         self.processor,
+                #         input_ids=input_ids[0],
+                #         image_grid_thw=model_inputs.get("image_grid_thw"),
+                #         video_grid_thw=model_inputs.get("video_grid_thw"),
+                #         second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                #         attention_mask=attention_mask[0],
+                #     )
+                # ]  # (1, 3, seq_len)
 
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
@@ -123,33 +132,16 @@ class PromptPipeline(Dataset):
                 "raw_input_ids": raw_input_ids,
                 "prompt": raw_prompt,
                 "attention_mask": attention_mask[0].tolist(),
-                "position_ids": position_ids[0].tolist(),
+                "position_ids": position_ids.squeeze().tolist(),
+                "rope_deltas": rope_deltas,
                 "data_source": data_source,
                 "ground_truth": ground_truth,
                 "multi_modal_data": multi_modal_data,
-                "mm_processor_kwargs": mm_processor_kwargs
+                "mm_processor_kwargs": mm_processor_kwargs,
+                "pixel_values": pixel_values,
+                "image_grid_thw": image_grid_thw
             }
 
-            # ori
-            # prompt = data_item["prompt"]
-            # data_source = data_item.get("data_source", "")
-            # ground_truth = data_item["reward_model"]["ground_truth"]
-
-            # if isinstance(prompt, list):
-            #     prompt = self.tokenizer.apply_chat_template(
-            #         prompt,
-            #         tokenize=False,
-            #         add_generation_prompt=True,
-            #         enable_thinking=enable_thinking,
-            #     )
-            # input_ids = self.tokenizer.encode(prompt)
-            # processed_data = {
-            #     "input_ids": input_ids,
-            #     "prompt": prompt,
-            #     "data_source": data_source,
-            #     "ground_truth": ground_truth,
-            # }
-            
             if seq_length > len(input_ids[0]):
                 self.data.append(processed_data)
     

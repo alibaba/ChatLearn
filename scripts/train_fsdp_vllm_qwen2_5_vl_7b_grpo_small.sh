@@ -8,10 +8,10 @@ export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
 export RAY_DEDUP_LOGS=1
 
+# Generate a random string
 RANDOM_STRING=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
 
-export exp_name=qwen2-5-vl-grpo-7b-packing-${RANDOM_STRING}
-
+export exp_name=qwen2-5-vl-grpo-7b-${RANDOM_STRING}
 export MODEL_PATH=/mnt/data/xinyi.zxy/retrieval/models/qwen/Qwen2.5-VL-7B-Instruct
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
@@ -22,14 +22,14 @@ python chatlearn/entrypoint.py grpo \
         runtime_args.num_episode=200 \
         runtime_args.sample_per_episode=512 \
         runtime_args.train_global_batch_size=512 \
-        runtime_args.train_micro_batch_size=64 \
+        runtime_args.train_micro_batch_size=8 \
         runtime_args.save_episode_interval=5 \
         runtime_args.eval_episode_interval=5 \
         runtime_args.enable_eval_before_training=True \
         runtime_args.log_args_dict.enable_wandb=False \
-        runtime_args.log_args_dict.wandb_project=your_wandb_project \
+        runtime_args.log_args_dict.wandb_project=zxy_qenvl_chatlearn \
         models.policy_trainer.num_gpu=${num_device} \
-        models.policy_trainer.packing=True \
+        models.policy_trainer.packing=False \
         models.policy_trainer.meta_init=False \
         models.policy_trainer.groupgemm=False \
         models.policy_trainer.generation_batch_size=64 \
@@ -42,9 +42,9 @@ python chatlearn/entrypoint.py grpo \
         models.policy.generation_batch_size=64 \
         models.policy.enforce_eager=False \
         models.policy.tensor_model_parallel_size=1 \
-        models.policy.seq_length=2048 \
+        models.policy.seq_length=1024 \
         models.policy.max_seq_len_to_capture=2348 \
-        models.policy.num_inference_per_prompt=32 \
+        models.policy.num_inference_per_prompt=4 \
         models.policy.gpu_memory_utilization=0.85 \
         models.policy.enable_thinking=False \
         models.reward.generation_batch_size=256 \

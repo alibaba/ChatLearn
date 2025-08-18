@@ -63,8 +63,12 @@ class VLLMPolicyInference(VLLMModule):
         data_source_list = data["data_source"]
         ground_truth_list = data["ground_truth"]
         prompt_position_ids_list = data.get("position_ids", None)
+        rope_deltas_list = data.get("rope_deltas", None)
+        pixel_value_list = data.get("pixel_values", None)
+        image_grid_thw_list = data.get("image_grid_thw", None)
+
         if outputs is not None:
-            rets = self.decode_internal(outputs, data_source_list, ground_truth_list, prompt_position_ids_list)
+            rets = self.decode_internal(outputs, data_source_list, ground_truth_list, prompt_position_ids_list, rope_deltas_list, pixel_value_list, image_grid_thw_list)
             return rets
 
     def forward_step(self, data, iteration=0):
@@ -89,7 +93,7 @@ class VLLMPolicyInference(VLLMModule):
         return rets
 
     def decode_internal(
-        self, batched_outputs, data_source_list=None, ground_truth_list=None, prompt_position_ids_list=None
+        self, batched_outputs, data_source_list=None, ground_truth_list=None, prompt_position_ids_list=None, rope_deltas_list=None, pixel_value_list=None, image_grid_thw_list=None
     ):
         max_tokens_length = self.module_args.get("seq_length")
         all_tokens = []
@@ -100,11 +104,15 @@ class VLLMPolicyInference(VLLMModule):
         data_sources = []
         ground_truths = []
         prompts_position_ids = []
+        prompts_rope_deltas = []
+
         for idx, output in enumerate(batched_outputs):
             num_responses_per_prompt = len(output.outputs)
             data_source = data_source_list[idx] if data_source_list else ""
             ground_truth = ground_truth_list[idx] if ground_truth_list else ""
             prompt_position_ids = prompt_position_ids_list[idx] if prompt_position_ids_list else []
+            prompt_rope_deltas = rope_deltas_list[idx] if rope_deltas_list else []
+
             for res_idx in range(num_responses_per_prompt):
                 # str_prompts.append(output.prompt)
                 prompt_token_ids.append(output.prompt_token_ids)
@@ -119,6 +127,7 @@ class VLLMPolicyInference(VLLMModule):
                 data_sources.append(data_source)
                 ground_truths.append(ground_truth)
                 prompts_position_ids.append(prompt_position_ids)
+                prompts_rope_deltas.append(prompt_rope_deltas)
                 all_tokens.append(torch.tensor(output.prompt_token_ids + output_tokens))
 
         all_tokens = [
@@ -142,5 +151,8 @@ class VLLMPolicyInference(VLLMModule):
             "response_token_length": response_token_length,
             "data_source": data_sources,
             "ground_truth": ground_truths,
-            "prompt_position_ids": prompts_position_ids
+            "prompt_position_ids": prompts_position_ids,
+            "prompt_rope_deltas": prompts_rope_deltas,
+            "pixel_values": pixel_value_list,
+            "image_grid_thw": image_grid_thw_list
         }

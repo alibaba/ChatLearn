@@ -40,17 +40,22 @@ class PolicyTrainer(FSDPModule):
             # When packing is enabled, data_list will only contain one microbatch
             # Microbatch will be regrouped
             if not training:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "prompt_position_ids"]
+                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "prompt_position_ids", "prompt_rope_deltas"]
             else:
-                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG, "prompt_position_ids"]
+                regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG, "prompt_position_ids", "prompt_rope_deltas"]
             data_list = regroup_data_packing(data_list, regroup_keywords, self.max_token_in_seq)
 
         data_after_process = []
+
         for data_b in data_list:
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
             prompt_position_ids = data_b["prompt_position_ids"]
+            prompt_rope_deltas = data_b["prompt_rope_deltas"]
+            pixel_values = data_b["pixel_values"]
+            image_grid_thw = data_b["image_grid_thw"]
+            breakpoint()
             ori_batch_size, ori_seq_len = tokens_.size()
             if self.packing:
                 # Packing data into one batch
@@ -95,6 +100,7 @@ class PolicyTrainer(FSDPModule):
                             "bin_ids": data_b["bin_ids"],
                             "bin_seqlen": data_b["bin_seqlen"],
                             "pad_size": pad_size,
+                            "prompt_rope_deltas": prompt_rope_deltas
                         }
                     )
                 else:
@@ -116,10 +122,13 @@ class PolicyTrainer(FSDPModule):
                             "old_logprobs": data_b[OLD_TAG],
                             "ref_logprobs": data_b[REF_TAG],
                             "advantages": data_b["advantages"],
+                            "prompt_rope_deltas": prompt_rope_deltas
                         }
                     )
             else:
                 attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, prompt_position_ids)
+                pixel_values = torch.cat(pixel_values, dim=0)
+                image_grid_thw = torch.cat(image_grid_thw, dim=0)
                 pad_size = 0
                 if self.sp_size > 1:
                     # Pad inputs to ensure seq_len is divisible by sp_size
@@ -148,6 +157,9 @@ class PolicyTrainer(FSDPModule):
                             "ori_batch_size": ori_batch_size,
                             "labels": labels,
                             "pad_size": pad_size,
+                            "prompt_rope_deltas": prompt_rope_deltas,
+                            "pixel_values": pixel_values,
+                            "image_grid_thw": image_grid_thw
                         }
                     )
                 else:
@@ -165,6 +177,7 @@ class PolicyTrainer(FSDPModule):
                             "old_logprobs": data_b[OLD_TAG],
                             "ref_logprobs": data_b[REF_TAG],
                             "advantages": data_b["advantages"],
+                            "prompt_rope_deltas": prompt_rope_deltas
                         }
                     )
         return minibatch_size_per_rank, response_token_length_total, data_after_process
@@ -181,18 +194,29 @@ class PolicyTrainer(FSDPModule):
         micro_bs_num = len(data_list)
         sp_group = get_sp_parallel_group()
         minibatch_size_per_rank, response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
+        
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
 
             # data = torch.arange(0, 2048, dtype=torch.int64)
             # position_ids_fake = data.view(1, 1, 2048).repeat(3, 64, 1)
-            output = self.model(
-                input_ids=inputs["all_tokens"],
-                attention_mask=None,
-                position_ids=inputs["position_ids"],
-                use_cache=False,
-            )
+            if len(inputs['prompt_rope_deltas'])>0 and len(inputs['prompt_rope_deltas'][0])>0:
+                output = self.model(
+                    input_ids=inputs['all_tokens'],
+
+                    attention_mask=None,#inputs['attention_mask'],
+                    position_ids=inputs['position_ids'],
+                    use_cache=False,
+                    rope_deltas=torch.tensor(inputs['prompt_rope_deltas']).squeeze(dim=1)
+                )
+            else:
+                output = self.model(
+                    input_ids=inputs['all_tokens'],
+                    attention_mask=None,#inputs['attention_mask'],
+                    position_ids=inputs['position_ids'],
+                    use_cache=False
+                )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
             
             # save memory while not use entropy in loss
@@ -298,12 +322,21 @@ class PolicyTrainer(FSDPModule):
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
-                output = self.model(
-                    input_ids=inputs['all_tokens'],
-                    attention_mask=None,#inputs['attention_mask'],
-                    position_ids=inputs['position_ids'],
-                    use_cache=False
-                )
+                if len(inputs['prompt_rope_deltas'])>0 and len(inputs['prompt_rope_deltas'][0])>0:
+                    output = self.model(
+                        input_ids=inputs['all_tokens'],
+                        attention_mask=None,#inputs['attention_mask'],
+                        position_ids=inputs['position_ids'],
+                        use_cache=False,
+                        rope_deltas=torch.tensor(inputs['prompt_rope_deltas']).unsqueeze(dim=1)
+                    )
+                else:
+                    output = self.model(
+                        input_ids=inputs['all_tokens'],
+                        attention_mask=None,#inputs['attention_mask'],
+                        position_ids=inputs['position_ids'],
+                        use_cache=False
+                    )
                 sp_group = get_sp_parallel_group()
                 logprobs = logprobs_from_logits(output.logits, inputs["labels"])
                 if sp_group is not None:
