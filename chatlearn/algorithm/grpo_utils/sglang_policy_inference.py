@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """sglang rollout"""
-from typing import Dict, List
+from typing import Dict, List, Any
 
 import torch
 

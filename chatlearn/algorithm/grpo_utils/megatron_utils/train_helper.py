@@ -86,7 +86,7 @@ def training_log(
     for key in loss_dict:
         if not skipped_iter:
             total_loss_dict[key] = (
-                total_loss_dict.get(key, torch.cuda.FloatTensor([0.0])) + loss_dict[key]
+                total_loss_dict.get(key, torch.tensor([0.0], dtype=torch.float32, device='cuda')) + loss_dict[key]
             )
         else:
             value = loss_dict[key].float().sum().item()
@@ -272,6 +272,16 @@ def get_batch(
             "pad_size": pad_size,
         }
     else:
+        pad_size = 0
+        pad_token = get_tokenizer().eod
+        if not args.variable_seq_lengths:
+            pad_size = args.seq_length - tokens.shape[1]
+        else:
+            divisor = mpu.get_tensor_model_parallel_world_size()
+            total_nnz = tokens.shape[1]
+            pad_size = (divisor - total_nnz % divisor) % divisor
+
+        tokens = F.pad(tokens, (0, pad_size), value=pad_token)
         labels = torch.roll(tokens, shifts=-1, dims=1)
         # Get the masks and position ids.
         attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
@@ -287,7 +297,8 @@ def get_batch(
             "all_token_attention_mask": attention_mask,
             "all_token_position_ids": position_ids,
             "labels": labels,
-            'packed_seq_params': None
+            'packed_seq_params': None,
+            "pad_size": pad_size,
         }
 
     if is_training:

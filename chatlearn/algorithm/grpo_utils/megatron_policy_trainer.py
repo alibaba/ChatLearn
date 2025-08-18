@@ -366,6 +366,7 @@ class MegatronPolicyTrainer(MegatronModule):
             data List[Dict[str, Sequence[Any]]: If this is the last rank of the replica, the output logprobs will be
              updated into the each dict in list, otherwise do NOTHING.
         """
+        args = get_args()
         for model_chunk in self.model:
             model_chunk.eval()
         tag = "old_logprobs" if self.trainable else "ref_logprobs"
