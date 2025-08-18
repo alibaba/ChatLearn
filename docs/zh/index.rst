@@ -27,7 +27,6 @@ ChatLearn 使用文档
    tutorial/evaluator
    tutorial/continue_train
    tutorial/custom_model_flow
-   tutorial/ems
 
 .. toctree::
    :maxdepth: 1
