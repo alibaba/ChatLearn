@@ -30,15 +30,6 @@ ChatLearn 使用文档
    tutorial/ems
    tutorial/profile
 
-
-.. toctree::
-   :maxdepth: 1
-   :caption: 编程接口
-
-   programming
-   config_yaml
-   advanced
-
 .. toctree::
    :maxdepth: 1
    :caption: 常见问题

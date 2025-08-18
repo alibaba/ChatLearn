@@ -31,14 +31,6 @@ ChatLearn Documentation
 
 .. toctree::
    :maxdepth: 1
-   :caption: Programming
-
-   programming
-   config_yaml
-   advanced
-
-.. toctree::
-   :maxdepth: 1
    :caption: FAQ
 
    faq
