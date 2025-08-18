@@ -22,9 +22,7 @@ ChatLearn Documentation
    tutorial/data
    tutorial/tutorial_grpo_fsdp
    tutorial/tutorial_grpo_mcore
-   tutorial/evaluator
    tutorial/continue_train
-   tutorial/custom_model_flow
 
 .. toctree::
    :maxdepth: 1
