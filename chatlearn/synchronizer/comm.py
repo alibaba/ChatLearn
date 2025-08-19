@@ -20,6 +20,7 @@ from torch import distributed as dist
 from torch.multiprocessing.reductions import reduce_tensor
 
 from chatlearn.utils import future
+from chatlearn.utils.logger import logger
 from .structs import (
     SynchronizerType,
     BucketInfo,
@@ -186,10 +187,13 @@ class GeneralCommunicator:
         send_buckets, this_rank_bucket = self.prepare_send_buckets(iter_idx)
         recv_buckets = self.prepare_recv_buckets(iter_idx, world_size=self.world_size)
         ops = self._build_p2p_ops(send_buckets, recv_buckets)
+        torch.cuda.synchronize()
         if len(ops) > 0:
             reqs = dist.batch_isend_irecv(ops)
             for req in reqs:
                 req.wait()
+            torch.cuda.synchronize()
+        dist.barrier()
         recv_buckets[self.rank] = this_rank_bucket
         if self.type == SynchronizerType.RECV:
             # receiver only need to update on the local actor, thus
@@ -261,6 +265,7 @@ class GeneralCommunicator:
                         peer=recv_rank
                     )
                 )
+                logger.debug(f"RANK {dist.get_rank()} -> RANK {recv_rank}: send {send_bucket.size} bytes")
         for send_rank, recv_bucket in enumerate(recv_buckets):
             if recv_bucket is not None:
                 recv_ops.append(
@@ -270,4 +275,5 @@ class GeneralCommunicator:
                         peer=send_rank
                     )
                 )
+                logger.debug(f"RANK {dist.get_rank()} <- RANK {send_rank}: recv {recv_bucket.size} bytes")
         return send_ops + recv_ops

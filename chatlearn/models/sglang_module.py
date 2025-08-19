@@ -17,6 +17,7 @@ import warnings
 import os
 import math
 from typing import Optional, List, TYPE_CHECKING, Dict
+from itertools import batched
 import copy
 
 import ray
@@ -323,7 +324,7 @@ class SGLangModule(TorchModule):
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
         # pylint: disable-next=import-outside-toplevel
         from sglang.srt.utils import MultiprocessingSerializer
-        params_to_update: Dict[str, torch.Tensor] = {}
+        param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:
                 continue
@@ -331,24 +332,44 @@ class SGLangModule(TorchModule):
             if bucket.buffer is None:
                 raise ValueError("Attempt to read from a bucket without buffer")
             for offset, sharded_tensor_info in bucket.recv_layout:
-                param_id = sharded_tensor_info.param_id
-                param_name = self.param_id_to_local_name[param_id]
-                if param_name not in params_to_update:
-                    shard_info = self.param_id_to_metadata[param_id]
-                    params_to_update[param_name] = torch.empty(
-                        shard_info.global_shape,
-                        dtype=shard_info.dtype,
-                        device='cuda'
-                    )
-                weight = params_to_update[param_name]
-                shard = sharded_tensor_info.index(weight)
-                comm_dtype = sharded_tensor_info.dtype
-                numel = shard.numel()
-                byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
-                # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
-                shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
-                offset += numel * comm_dtype.itemsize
+                if sharded_tensor_info.param_id not in param_id_to_update:
+                    param_id_to_update.add(sharded_tensor_info.param_id)
 
-        for name, weight in params_to_update.items():
-            params_to_update[name] = MultiprocessingSerializer.serialize(weight)
-        self.update_weights_from_ipc_handles(params_to_update)
+        # TODO: Since SGLang v0.5.0rc1, we can use _update_weights_from_flattened_bucket
+        # to reduce num of IPC handles. Fix later
+        # NOTE: Chunk to (CUDA_IPC_WARN_AFTER_X_BLOCKS_IN_LIMBO // 2) weights per-call
+        # see: https://github.com/pytorch/pytorch/blob/d8d589bd3ac7a426ca21377f3d5c318e5e8ac055/torch/csrc/CudaIPCTypes.cpp#L100
+        for param_ids in batched(param_id_to_update, n=500):
+            params_to_update: Dict[str, torch.Tensor] = {}
+            for bucket in buckets:
+                if bucket is None:
+                    continue
+                offset = 0
+                for offset, sharded_tensor_info in bucket.recv_layout:
+                    param_id = sharded_tensor_info.param_id
+                    if param_id not in param_ids:
+                        continue
+                    param_name = self.param_id_to_local_name[param_id]
+                    if param_name not in params_to_update:
+                        shard_info = self.param_id_to_metadata[param_id]
+                        params_to_update[param_name] = torch.empty(
+                            shard_info.global_shape,
+                            dtype=shard_info.dtype,
+                            device='cuda'
+                        )
+                    weight = params_to_update[param_name]
+                    shard = sharded_tensor_info.index(weight)
+                    comm_dtype = sharded_tensor_info.dtype
+                    numel = shard.numel()
+                    byte_data = bucket.buffer[offset: offset + numel * comm_dtype.itemsize]
+                    # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
+                    shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+                    offset += numel * comm_dtype.itemsize
+            for name, weight in params_to_update.items():
+                params_to_update[name] = MultiprocessingSerializer.serialize(weight)
+            self.update_weights_from_ipc_handles(params_to_update)
+            del params_to_update
+
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()

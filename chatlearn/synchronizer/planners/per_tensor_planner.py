@@ -108,13 +108,16 @@ class PerTensorPlanner(BasePlanner):
         budgets_this_iter,
         src_shard_to_sender
     ):
+        allocated_bucket_size = deepcopy(self.allocated_bucket_size)
         required_mem = {k: 0 for k in budgets_this_iter}
         for shard in shards:
             sender = src_shard_to_sender[shard]
             receivers = Ranks(tuple(self.src_param_to_dst_ranks[shard]))
 
             for receiver in receivers.values:
-                required_mem[self.dst_rank_to_gpu_id[receiver]] += shard.size
+                # NOTE: Per-Tensor-Sync requires to merge shards of weights on receivers,
+                # leading to an extra copy
+                required_mem[self.dst_rank_to_gpu_id[receiver]] += 2 * shard.size
 
             # NOTE: 1. sender can send two shards only if receivers of these two shards are same.
             if (
@@ -124,20 +127,17 @@ class PerTensorPlanner(BasePlanner):
                 return False, None
 
             # NOTE: 2. The bucket for the receiver group cannot exceed bucket size limit
-            if self.allocated_bucket_size[sender][receivers] + shard.size > self.bucket_size:
+            if allocated_bucket_size[sender][receivers] + shard.size > self.bucket_size:
                 return False, None
             
+            allocated_bucket_size[sender][receivers] += shard.size
             if sender not in receivers.values:
                 required_mem[self.src_rank_to_gpu_id[sender]] += shard.size
 
         if not all(required_mem[k] <= budgets_this_iter[k] for k in required_mem):
             return False, None
 
-        for shard in shards:
-            sender = src_shard_to_sender[shard]
-            receivers = Ranks(tuple(self.src_param_to_dst_ranks[shard]))
-            self.allocated_bucket_size[sender][receivers] += shard.size
-
+        self.allocated_bucket_size = allocated_bucket_size
         return True, required_mem
 
     def build_iteration(
@@ -242,7 +242,7 @@ class PerTensorPlanner(BasePlanner):
         collected_shards_list: List[Dict[int, Dict[Ranks, List[ShardedTensorInfo]]]],
     ) -> Tuple[Dict[int, List[SyncIteration]], ...]:
         n_iterations = len(collected_shards_list)
-        sender_plan = defaultdict(list)
+        sender_plan = defaultdict(lambda: [SyncIteration() for _ in range(n_iterations)])
         recver_plan = defaultdict(lambda: [SyncIteration() for _ in range(n_iterations)])
         for iteration_idx, collected_shards in enumerate(collected_shards_list):
             for sender_rank, plan_per_rank in self.bucketize(
@@ -251,10 +251,7 @@ class PerTensorPlanner(BasePlanner):
             ).items():
                 for receivers, buckets in plan_per_rank.items():
                     assert len(buckets) == 1, "Expect only one bucket for each receiver group"
-                    sender_plan[sender_rank].append(SyncIteration(
-                        send_buckets={buckets[0]: receivers},
-                        recv_buckets={},
-                    ))
+                    sender_plan[sender_rank][iteration_idx].send_buckets[buckets[0]] = receivers
                     for receiver_rank in receivers.values:
                         recver_plan[receiver_rank][iteration_idx].recv_buckets[buckets[0]] = sender_rank
 

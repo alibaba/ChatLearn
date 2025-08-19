@@ -77,6 +77,7 @@ class MegatronMapper:
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args
         self._dst_model_config = dst_model_config
         self._mapper_config = mapper_config
+        self._dst_tp_size = 1 if mapper_config.force_full_model else self._dst_model_config.tensor_model_parallel_size
         self._src_name_to_metadata = model.get_parameter_metadata(key_type='local_name')
 
     def generate_sync_mapping(
@@ -304,12 +305,12 @@ class MegatronMapper:
                 for dst_name in ['gate_proj', 'up_proj']:
                     mapping.update(self._inner_map_for_gate_up_proj(
                         f"{src_prefix}linear_fc1.weight{local_expert_id}",
-                        f"{dst_prefix}experts.{global_expert_id}.{dst_name}.weight",
+                        f"{dst_prefix}{global_expert_id}.{dst_name}.weight",
                         proj_type=dst_name,
                     ))
                 mapping.update(self._inner_map_for_tensor_parallel(
                     f"{src_prefix}linear_fc2.weight{local_expert_id}",
-                    f"{dst_prefix}experts.{global_expert_id}.{down_proj}.weight",
+                    f"{dst_prefix}{global_expert_id}.down_proj.weight",
                     mapping_type='row'
                 ))
         return mapping
@@ -429,7 +430,7 @@ class MegatronMapper:
         mapping = {}
         for src_meta, dst_meta in process_normal_tensor(
             src_info,
-            self._dst_model_config.tensor_model_parallel_size,
+            self._dst_tp_size,
             axis=AXES[mapping_type]
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
@@ -460,7 +461,7 @@ class MegatronMapper:
         mapping = {}
         for src_meta, dst_meta in process_gate_up_tensor(
             src_info,
-            self._dst_model_config.tensor_model_parallel_size,
+            self._dst_tp_size,
             proj_type=proj_type
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
@@ -482,7 +483,7 @@ class MegatronMapper:
             src_info,
             self._src_arch.num_attention_heads,
             self._src_arch.num_query_groups,
-            self._dst_model_config.tensor_model_parallel_size,
+            self._dst_tp_size,
             proj_type=proj_type
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
