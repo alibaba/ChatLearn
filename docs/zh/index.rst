@@ -20,31 +20,16 @@ ChatLearn 使用文档
    :maxdepth: 1
    :caption: 使用教程
 
-   tutorial/data
-   tutorial/run
    tutorial/tutorial_grpo_fsdp
    tutorial/tutorial_grpo_mcore
-   tutorial/evaluator
+   tutorial/multinode_train
    tutorial/continue_train
-   tutorial/custom_model_flow
-   tutorial/ems
-   tutorial/profile
-
 
 .. toctree::
    :maxdepth: 1
-   :caption: 编程接口
+   :caption: 自定义任务
 
-   programming
-   config_yaml
-   advanced
-
-.. toctree::
-   :maxdepth: 1
-   :caption: API 文档
-
-   api/index
-
+   customized_task/data
 
 .. toctree::
    :maxdepth: 1
