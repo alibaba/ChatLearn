@@ -74,8 +74,11 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         self._model = None
         self.llm = None
         self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
+
         if self.model_config.architectures[0] == "Qwen3MoeForCausalLM":
             self.param_update_fn = self.update_weights_from_ipc_handles_qwen3_moe
+        elif self.model_config.architectures[0] == "Qwen2_5_VLForConditionalGeneration":
+            self.param_update_fn = self.update_weights_from_ipc_handles_qwenvl
         else:
             self.param_update_fn = self.update_weights_from_ipc_handles_naive
 
@@ -146,9 +149,17 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         used in BaseEngine.setup and BaseModule.model_setup
         """
         super().setup()
+
         tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
+
+        if '<|vision_start|>' in tokenizer.additional_special_tokens:
+            # processor is needed for qwenvl
+            from transformers import AutoProcessor
+            self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=True)
+        else:
+            self.processor = None
 
     @timeit("setup_vllm")
     def setup_vllm(self, workers):
@@ -197,6 +208,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             distributed_executor_backend="ray",
             enable_sleep_mode=True,
             swap_space=self.module_args.get("swap_space", 16))
+        
         self.offload_weights()
 
     def dump_parameters(self, dump_path_root):
@@ -318,10 +330,18 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             else:
                 self.model.load_weights([(name, reconstructed_tensor)])
 
+    def update_weights_from_ipc_handles_qwenvl(self, reduce_data):
+        for name, reduced in reduce_data.items():
+            rebuild_func, rebuild_args = reduced
+            reconstructed_tensor = rebuild_func(*rebuild_args)
+            
+            self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
+
     def update_weights_from_ipc_handles_naive(self, reduce_data):
         for name, reduced in reduce_data.items():
             rebuild_func, rebuild_args = reduced
             reconstructed_tensor = rebuild_func(*rebuild_args)
+            
             self.model.load_weights([(name, reconstructed_tensor)])
 
     def update_weights_from_ipc_handles(self, reduce_data):
@@ -338,24 +358,48 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
 
         # preprocess query
         prompt_key = "prompt"
-        input_ids_key = "input_ids"
-        seq_len = self.module_args.seq_length
+        use_multi_model = len(query)>0 and 'multi_modal_data' in query[0]
+        if use_multi_model:
+            input_ids_key = "raw_input_ids"
+        else:
+            input_ids_key = "input_ids"
+        seq_len = self.module_args.get("seq_length")
 
         prompts = [q[prompt_key] for q in query]
         prompts_token_ids = [q[input_ids_key] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
+        llm_inputs = []
 
-        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
+        for prompt_id, (prompt, prompt_token_ids_item) in enumerate(zip(prompts, prompts_token_ids)):
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item.max_tokens = max_tokens
             sampling_params.append(sampling_param_item)
 
-        outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
+            if use_multi_model:
+                llm_inputs.append(
+                    {
+                        "multi_modal_data": query[prompt_id]['multi_modal_data'],
+                        "mm_processor_kwargs": query[prompt_id]['mm_processor_kwargs'],
+                        "prompt_token_ids": prompt_token_ids_item,
+                    }
+                )
+            else:
+                llm_inputs.append(
+                    {
+                        "prompt_token_ids": prompt_token_ids_item,
+                    }
+                )
+
+        outputs = self.llm.generate(llm_inputs,
                                     sampling_params = sampling_params,
                                     use_tqdm = True)
+        
+        # outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
+        #                             sampling_params = sampling_params,
+        #                             use_tqdm = True)
 
         # save stage outputs for resume.
         self.save_stage_outputs(is_eval, outputs, iteration)

@@ -94,13 +94,19 @@ class PolicyTrainer(FSDPModule):
         data_list = [batching(data_b) for data_b in microbatch_list]
 
         data_after_process = []
+
         for data_b in data_list:
             data_obj = {}
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
+            position_ids = data_b.get("position_ids", None)
+            rope_deltas = data_b.get("rope_deltas", None)
+            pixel_values = data_b.get("pixel_values", None)
+            image_grid_thw = data_b.get("image_grid_thw", None)
+
             ori_batch_size, ori_seq_len = tokens_.size()
-            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, position_ids)
             indices = None
             if self.packing:
                 # Packing data into one batch
@@ -128,6 +134,9 @@ class PolicyTrainer(FSDPModule):
                     "sample_ids": data_b["id_in_list"],
                     "attention_mask": attn_mask,
                     "pad_size": pad_size,
+                    "pixel_values": pixel_values,
+                    "image_grid_thw": image_grid_thw.squeeze(),
+                    "rope_deltas": rope_deltas.squeeze().unsqueeze(1)
                 }
             )
             if training:
@@ -139,7 +148,7 @@ class PolicyTrainer(FSDPModule):
                         "loss_mask": loss_mask,
                         "old_logprobs": data_b["old_logprobs"],
                         "ref_logprobs": data_b["ref_logprobs"],
-                        "advantages": data_b["advantages"],
+                        "advantages": data_b["advantages"]
                     }
                 )
             data_after_process.append(data_obj)
@@ -162,12 +171,24 @@ class PolicyTrainer(FSDPModule):
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
-            output = self.model(
-                input_ids=inputs["all_tokens"],
-                attention_mask=None,
-                position_ids=inputs["position_ids"],
-                use_cache=False,
-            )
+
+            if "pixel_values" in inputs:
+                output = self.model(
+                    input_ids=inputs['all_tokens'],
+                    pixel_values=inputs['pixel_values'],
+                    image_grid_thw=inputs['image_grid_thw'],
+                    attention_mask=None,#inputs['attention_mask'],
+                    position_ids=inputs['position_ids'],
+                    use_cache=False,
+                    rope_deltas=inputs['rope_deltas']
+                )
+            else:
+                output = self.model(
+                    input_ids=inputs['all_tokens'],
+                    attention_mask=None,#inputs['attention_mask'],
+                    position_ids=inputs['position_ids'],
+                    use_cache=False
+                )
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
 
             # save memory while not use entropy in loss
@@ -269,12 +290,24 @@ class PolicyTrainer(FSDPModule):
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
-                output = self.model(
-                    input_ids=inputs['all_tokens'],
-                    attention_mask=None,#inputs['attention_mask'],
-                    position_ids=inputs['position_ids'],
-                    use_cache=False
-                )
+                if "pixel_values" in inputs:
+                    output = self.model(
+                        input_ids=inputs['all_tokens'],
+                        pixel_values=inputs['pixel_values'],
+                        image_grid_thw=inputs['image_grid_thw'],
+                        attention_mask=None,#inputs['attention_mask'],
+                        position_ids=inputs['position_ids'],
+                        use_cache=False,
+                        rope_deltas=inputs['rope_deltas']
+                    )
+                else:
+                    output = self.model(
+                        input_ids=inputs['all_tokens'],
+                        attention_mask=None,#inputs['attention_mask'],
+                        position_ids=inputs['position_ids'],
+                        use_cache=False
+                    )
+                # breakpoint()
                 sp_group = get_sp_parallel_group()
                 logprobs = logprobs_from_logits(output.logits, inputs["labels"])
                 if sp_group is not None:
