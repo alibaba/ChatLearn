@@ -41,7 +41,6 @@ except ImportError:
         sys.modules[key] = mock.MagicMock()
     
     import chatlearn
-    from chatlearn.utils import arguments
 
 from importlib.machinery import SourceFileLoader
 version = SourceFileLoader("chatlearn.version", "../../chatlearn/utils/version.py") \
