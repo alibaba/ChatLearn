@@ -111,7 +111,7 @@ class VLLMPolicyInference(VLLMModule):
                         "all_tokens": all_tokens,
                         "response_token_length": response_token_length,
                         "prompt_token_length": prompt_token_length,
-                        "str_outputs": str_outputs,
+                        "str_outputs": str_outputs
                     }
                 )
                 data_output.append(data_obj)

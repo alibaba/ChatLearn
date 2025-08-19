@@ -154,7 +154,6 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         tokenizer.tokenizer = tokenizer
         self.tokenizer = tokenizer
 
-<<<<<<< HEAD
         if '<|vision_start|>' in tokenizer.additional_special_tokens:
             # processor is needed for qwenvl
             from transformers import AutoProcessor
@@ -162,9 +161,7 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
         else:
             self.processor = None
 
-=======
     @timeit("setup_vllm")
->>>>>>> upstream/main
     def setup_vllm(self, workers):
         """setup vllm engine
         used in Environment.setup()
@@ -360,42 +357,32 @@ class VLLMModule(TorchModule, RayWorkerWrapper):
             self.llm.wake_up()
 
         # preprocess query
-<<<<<<< HEAD
-        prompt_key = self.module_args.get("vllm_prompt_key", "prompt")
-        if 'multi_modal_data' in query:
+        prompt_key = "prompt"
+        use_multi_model = len(query)>0 and 'multi_modal_data' in query[0]
+        if use_multi_model:
             input_ids_key = "raw_input_ids"
         else:
-            input_ids_key = self.module_args.get("vllm_input_ids_key", "input_ids")
+            input_ids_key = "input_ids"
         seq_len = self.module_args.get("seq_length")
-=======
-        prompt_key = "prompt"
-        input_ids_key = "input_ids"
-        seq_len = self.module_args.seq_length
->>>>>>> upstream/main
 
         prompts = [q[prompt_key] for q in query]
         prompts_token_ids = [q[input_ids_key] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
-
-<<<<<<< HEAD
         llm_inputs = []
-       
+
         for prompt_id, (prompt, prompt_token_ids_item) in enumerate(zip(prompts, prompts_token_ids)):
-=======
-        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
->>>>>>> upstream/main
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item.max_tokens = max_tokens
             sampling_params.append(sampling_param_item)
 
-            if 'multi_modal_data' in query:
+            if use_multi_model:
                 llm_inputs.append(
                     {
-                        "multi_modal_data": query['multi_modal_data'][prompt_id],
-                        "mm_processor_kwargs": query['mm_processor_kwargs'][prompt_id],
+                        "multi_modal_data": query[prompt_id]['multi_modal_data'],
+                        "mm_processor_kwargs": query[prompt_id]['mm_processor_kwargs'],
                         "prompt_token_ids": prompt_token_ids_item,
                     }
                 )

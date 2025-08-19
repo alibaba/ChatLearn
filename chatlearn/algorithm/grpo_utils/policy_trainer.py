@@ -100,13 +100,13 @@ class PolicyTrainer(FSDPModule):
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
-            prompt_position_ids = data_b["prompt_position_ids"]
-            prompt_rope_deltas = data_b["prompt_rope_deltas"]
-            pixel_values = data_b["pixel_values"]
-            image_grid_thw = data_b["image_grid_thw"]
-            breakpoint()
+            position_ids = data_b.get("position_ids", None)
+            rope_deltas = data_b.get("rope_deltas", None)
+            pixel_values = data_b.get("pixel_values", None)
+            image_grid_thw = data_b.get("image_grid_thw", None)
+
             ori_batch_size, ori_seq_len = tokens_.size()
-            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, position_ids)
             indices = None
             if self.packing:
                 # Packing data into one batch
@@ -134,6 +134,9 @@ class PolicyTrainer(FSDPModule):
                     "sample_ids": data_b["id_in_list"],
                     "attention_mask": attn_mask,
                     "pad_size": pad_size,
+                    "pixel_values": pixel_values,
+                    "image_grid_thw": image_grid_thw.squeeze(),
+                    "rope_deltas": rope_deltas.squeeze().unsqueeze(1)
                 }
             )
             if training:
@@ -145,7 +148,7 @@ class PolicyTrainer(FSDPModule):
                         "loss_mask": loss_mask,
                         "old_logprobs": data_b["old_logprobs"],
                         "ref_logprobs": data_b["ref_logprobs"],
-                        "advantages": data_b["advantages"],
+                        "advantages": data_b["advantages"]
                     }
                 )
             data_after_process.append(data_obj)
@@ -169,16 +172,15 @@ class PolicyTrainer(FSDPModule):
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
 
-            # data = torch.arange(0, 2048, dtype=torch.int64)
-            # position_ids_fake = data.view(1, 1, 2048).repeat(3, 64, 1)
-            if len(inputs['prompt_rope_deltas'])>0 and len(inputs['prompt_rope_deltas'][0])>0:
+            if "pixel_values" in inputs:
                 output = self.model(
                     input_ids=inputs['all_tokens'],
-
+                    pixel_values=inputs['pixel_values'],
+                    image_grid_thw=inputs['image_grid_thw'],
                     attention_mask=None,#inputs['attention_mask'],
                     position_ids=inputs['position_ids'],
                     use_cache=False,
-                    rope_deltas=torch.tensor(inputs['prompt_rope_deltas']).squeeze(dim=1)
+                    rope_deltas=inputs['rope_deltas']
                 )
             else:
                 output = self.model(
@@ -288,13 +290,15 @@ class PolicyTrainer(FSDPModule):
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
-                if len(inputs['prompt_rope_deltas'])>0 and len(inputs['prompt_rope_deltas'][0])>0:
+                if "pixel_values" in inputs:
                     output = self.model(
                         input_ids=inputs['all_tokens'],
+                        pixel_values=inputs['pixel_values'],
+                        image_grid_thw=inputs['image_grid_thw'],
                         attention_mask=None,#inputs['attention_mask'],
                         position_ids=inputs['position_ids'],
                         use_cache=False,
-                        rope_deltas=torch.tensor(inputs['prompt_rope_deltas']).unsqueeze(dim=1)
+                        rope_deltas=inputs['rope_deltas']
                     )
                 else:
                     output = self.model(
@@ -303,6 +307,7 @@ class PolicyTrainer(FSDPModule):
                         position_ids=inputs['position_ids'],
                         use_cache=False
                     )
+                # breakpoint()
                 sp_group = get_sp_parallel_group()
                 logprobs = logprobs_from_logits(output.logits, inputs["labels"])
                 if sp_group is not None:

@@ -18,13 +18,8 @@ from typing import Dict, List
 import torch
 
 from chatlearn import BaseModule
-from chatlearn.utils.rule_reward_score import math
-<<<<<<< HEAD
-from chatlearn.utils.rule_reward_score import geo3k
-
-=======
+from chatlearn.utils.rule_reward_score import math, geo3k
 from chatlearn.runtime.decorator import timeit, compute_decorator
->>>>>>> upstream/main
 
 class RuleReward(BaseModule):
     """rule reward"""

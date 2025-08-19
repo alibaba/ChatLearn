@@ -129,10 +129,11 @@ def padding_tensor(tensor_list):
 def batching(data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     if len(data_list) == 0:
         return None
-
     batched_data = defaultdict(list)
     for key in data_list[0]:
         batched_data[key] = [data[key] for data in data_list]
+        if key == 'pixel_values':
+            batched_data[key] = torch.cat(batched_data[key], dim=0)
         if isinstance(batched_data[key][0], torch.Tensor):
             batched_data[key] = padding_tensor(batched_data[key])
     return batched_data

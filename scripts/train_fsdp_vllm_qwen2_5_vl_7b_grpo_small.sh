@@ -35,9 +35,10 @@ python chatlearn/entrypoint.py grpo \
         models.policy_trainer.generation_batch_size=64 \
         models.policy_trainer.ulysses_sequence_parallel_size=1 \
         models.policy_trainer.load=${MODEL_PATH} \
-        models.policy_trainer.optimizer.lr=2e-6 \
+        models.policy_trainer.optimizer.lr=1e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \
+        models.policy_trainer.kl_coef=0.01 \
         models.ref_policy.generation_batch_size=64 \
         models.policy.generation_batch_size=64 \
         models.policy.enforce_eager=False \

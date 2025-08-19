@@ -1,6 +1,5 @@
 """prompt dataset"""
 
-from collections import defaultdict
 from typing import List, Dict
 
 from torch.utils.data import Dataset
@@ -8,11 +7,11 @@ from transformers import AutoTokenizer, AutoProcessor
 from chatlearn.data.vision_utils import process_image, process_video, postprocess_data
 import re
 
+
 class PromptPipeline(Dataset):
     """
-    process vl data in this format
+    process this format
     {
-        "images": [PIL.Image]
         "data_source": data_source,
         "prompt": [{
             "role": "user",
@@ -84,24 +83,13 @@ class PromptPipeline(Dataset):
             mm_processor_kwargs = {'fps': []}
 
             model_inputs = self.processor(text=[raw_prompt], images=images, videos=videos, return_tensors="pt")
-        
-            # model_inputs = self.processor(text=[raw_prompt], images=None, videos=None, return_tensors="pt")
             input_ids = model_inputs.pop("input_ids")
             attention_mask = model_inputs.pop("attention_mask")
             image_grid_thw = model_inputs.get("image_grid_thw")
             pixel_values = model_inputs.get("pixel_values")
 
-            # text only for vllm
-            # model_inputs = self.processor(text=[raw_prompt], images=None, videos=None, return_tensors="pt")
+            # text only input_ids for vllm
             raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-
-            # input_ids, attention_mask = postprocess_data(
-            #     input_ids=input_ids,
-            #     attention_mask=attention_mask,
-            #     max_length=seq_length,
-            #     pad_token_id=self.tokenizer.pad_token_id,
-            #     left_pad=True
-            # )
 
             if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
                 from chatlearn.models.patches.transformers.qwen2_vl import get_rope_index
@@ -113,25 +101,14 @@ class PromptPipeline(Dataset):
                         second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
                         attention_mask=attention_mask,
                 )
-                # position_ids = [
-                #     get_rope_index(
-                #         self.processor,
-                #         input_ids=input_ids[0],
-                #         image_grid_thw=model_inputs.get("image_grid_thw"),
-                #         video_grid_thw=model_inputs.get("video_grid_thw"),
-                #         second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                #         attention_mask=attention_mask[0],
-                #     )
-                # ]  # (1, 3, seq_len)
+        
 
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
 
             processed_data = {
-                "input_ids": input_ids[0].tolist(),
                 "raw_input_ids": raw_input_ids,
                 "prompt": raw_prompt,
-                "attention_mask": attention_mask[0].tolist(),
                 "position_ids": position_ids.squeeze().tolist(),
                 "rope_deltas": rope_deltas,
                 "data_source": data_source,
@@ -173,12 +150,4 @@ class PromptPipeline(Dataset):
         return len(self.data)
 
     def collate_fn(self, samples):
-        collate_dict = defaultdict(list)
-
-        # Loop over the samples and append each tensor value to the corresponding list
-        for sample in samples:
-            for key in sample.keys():
-                collate_dict[key].append(sample[key])
-
-        # Return the collate_dict
-        return collate_dict
+        return samples
