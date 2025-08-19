@@ -285,7 +285,7 @@ def regroup_by_concat_along_batch(data: List[Dict[str, Union[torch.Tensor, List[
                 max_dim_1 = max([ele.shape[1] for ele in to_batch]) # pylint: disable=consider-using-generator
                 pad_value = 0.0 if to_batch[0].dtype in [torch.float32, torch.float16, torch.bfloat16] else 0
                 value = [
-                    torch.nn.functional.F.pad(
+                    torch.nn.functional.pad(
                         ele,
                         (0, max_dim_1 - ele.shape[1]),
                         value=pad_value,
@@ -307,9 +307,6 @@ def regroup_by_concat_along_batch(data: List[Dict[str, Union[torch.Tensor, List[
     return batched
 
 def slice_by_index_along_batch(batched_input: Dict[str, Union[torch.Tensor, List[Any]]], index):
-    """
-    get partial data by index
-    """
     start = index[0]
     offset = index[1]
     batched = {}
@@ -319,6 +316,20 @@ def slice_by_index_along_batch(batched_input: Dict[str, Union[torch.Tensor, List
         elif isinstance(batched_input[key], list):
             batched[key] = batched_input[key][start::offset]
     return batched
+
+def slice_data_list_by_index(batched_input: List[Dict[str, Any]], index):
+    """
+    Slice input data_list by slice index
+    """
+    total_length = len(batched_input)
+    slice_id = index[0]
+    total_slice = index[1]
+    slice_size = total_length // total_slice
+    # When total_length % total_slice != 0, Remaining data will be append to last slice to avoid droping data
+    reminder = total_length % total_slice
+    start_index = slice_id * slice_size
+    end_index = start_index + slice_size if slice_id != total_slice - 1 else start_index + slice_size + reminder
+    return batched_input[start_index : end_index]
 
 def listdict_to_dictlist(ld, list_extend=True):
     '''
