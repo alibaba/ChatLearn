@@ -33,6 +33,4 @@
 
 包含当前问题的正确答案，用于在reward函数判断答案的对错
 
-
-
-
+数据集准备完成后，通过修改`runtime_args.data_path`、`runtime_args.eval_data_path`即可将自定义数据传入训练流程。
