@@ -34,6 +34,12 @@ ChatLearn Documentation
 
 .. toctree::
    :maxdepth: 1
+   :caption: Configuration
+
+   config
+
+.. toctree::
+   :maxdepth: 1
    :caption: FAQ
 
    faq
