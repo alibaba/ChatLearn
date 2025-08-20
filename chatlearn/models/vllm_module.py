@@ -484,5 +484,7 @@ if HAVE_VLLM:
 
 else:
     class VLLMModule(TorchModule):
+        """Dummy Module for vLLM. Note that it is not the subclass of ray worker"""
+        # pylint: disable=super-init-not-called, abstract-method
         def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
             raise SystemError("vLLM is not installed")
