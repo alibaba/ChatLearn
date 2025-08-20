@@ -16,8 +16,11 @@
 import warnings
 import os
 import math
-from typing import Optional, List, TYPE_CHECKING
+from typing import Optional, List, TYPE_CHECKING, Tuple, Dict
 import copy
+import asyncio
+import traceback
+import multiprocessing as mp
 
 import ray
 import torch
@@ -30,12 +33,139 @@ from chatlearn.runtime.decorator import timeit
 from .torch_module import TorchModule
 
 try:
-    import sglang as sgl
+    import sglang
+    from sglang.srt.managers.tokenizer_manager import (
+        ReleaseMemoryOccupationReqInput,
+        ResumeMemoryOccupationReqInput,
+        UpdateWeightsFromTensorReqInput,
+    )
+    from sglang.srt.entrypoints.engine import Engine
+    from sglang.srt.utils import MultiprocessingSerializer
+    from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+    from sglang.srt.utils import set_prometheus_multiproc_dir, set_ulimit, assert_pkg_version, get_bool_env_var, is_cuda
+    def _set_envs_and_config(server_args):
+        # Set global environments
+        os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+        os.environ["NCCL_CUMEM_ENABLE"] = str(int(server_args.enable_symm_mem))
+        if not server_args.enable_symm_mem:
+            os.environ["NCCL_NVLS_ENABLE"] = str(int(server_args.enable_nccl_nvls))
+        os.environ["CUDA_DEVICE_MAX_CONNECTIONS"] = "4"
+        os.environ["CUDA_MODULE_LOADING"] = "AUTO"
+
+        # Set prometheus env vars
+        if server_args.enable_metrics:
+            set_prometheus_multiproc_dir()
+
+        # Set ulimit
+        set_ulimit()
+
+        # Check flashinfer version
+        if server_args.attention_backend == "flashinfer":
+            assert_pkg_version(
+                "flashinfer_python",
+                "0.2.11.post3",
+                "Please uninstall the old version and "
+                "reinstall the latest version by following the instructions "
+                "at https://docs.flashinfer.ai/installation.html.",
+            )
+        if is_cuda() and not get_bool_env_var("SGLANG_SKIP_SGL_KERNEL_VERSION_CHECK"):
+            assert_pkg_version(
+                "sgl-kernel",
+                "0.3.5",
+                "Please reinstall the latest version with `pip install sgl-kernel --force-reinstall`",
+            )
+
+        # if True:  # Keep this check for internal code compatibility
+        #     # Register the signal handler.
+        #     # The child processes will send SIGQUIT to this process when any error happens
+        #     # This process then clean up the whole process tree
+        #     # Note: This sigquit handler is used in the launch phase, and may be replaced by
+        #     # the running_phase_sigquit_handler in the tokenizer manager after the grpc server is launched.
+        #     def launch_phase_sigquit_handler(signum, frame):
+        #         logger.error(
+        #             "Received sigquit from a child process. It usually means the child failed."
+        #         )
+        #         kill_process_tree(os.getpid())
+
+        #     signal.signal(signal.SIGQUIT, launch_phase_sigquit_handler)
+
+        # Set mp start method
+        mp.set_start_method("spawn", force=True)
+    sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 except Exception:
+    traceback.print_exc()
     warnings.warn("SGLang is not installed.")
 
 if TYPE_CHECKING:
     from chatlearn.synchronizer.structs import BucketInfo
+
+# because chatCompletion is an async method, it makes the whole ray actor be an async actor
+# which can not call loop.run_until_complete. So we need to make the engine to be an async class
+class AsyncEngine(Engine):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # default to use dummy load format, which need to reload weights in first time
+        # self._need_reload = True
+
+    async def release_memory_occupation(self, tags: Optional[list[str]] = None):
+        """Release GPU occupation temporarily."""
+        if tags is None:
+            obj = ReleaseMemoryOccupationReqInput()
+        else:
+            obj = ReleaseMemoryOccupationReqInput(tags=tags)
+        return await self.tokenizer_manager.release_memory_occupation(obj, None)
+
+    async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
+        """Resume GPU occupation."""
+        # because __init__ is a sync method, it can not call the async release_memory_occupation
+        # have to move release_memory_occupation from __init__ to here
+        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
+        # if self._need_reload:
+        #     print("debughh check offload")
+        #     await self.release_memory_occupation()
+        #     self._need_reload = False
+
+        if tags is None:
+            obj = ResumeMemoryOccupationReqInput()
+        else:
+            obj = ResumeMemoryOccupationReqInput(tags=tags)
+
+        return await self.tokenizer_manager.resume_memory_occupation(obj, None)
+
+    # async def update_weights_from_tensor(self, serialized_named_tensors, flush_cache):
+    #     from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
+    #     update_weights_request = UpdateWeightsFromTensorReqInput(serialized_named_tensors = serialized_named_tensors, flush_cache=flush_cache)
+    #     return await self.tokenizer_manager.update_weights_from_tensor(update_weights_request, None)
+
+    async def update_weights_from_tensor(
+        self,
+        named_tensors: List[Tuple[str, torch.Tensor]],
+        load_format: Optional[str] = None,
+        flush_cache: bool = True,
+    ):
+        """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
+        to avoid duplicated cache cleaning operation."""
+        obj = UpdateWeightsFromTensorReqInput(
+            serialized_named_tensors=[
+                MultiprocessingSerializer.serialize(named_tensors)
+                for _ in range(self.server_args.tp_size)
+            ],
+            load_format=load_format,
+            flush_cache=flush_cache,
+        )
+        return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
+
+    async def flush_cache(self):
+        return await self.tokenizer_manager.flush_cache()
+
+    async def abort_request(self, rid: str = "", abort_all: bool = False):
+        """Abort a specific request or all requests.
+
+        Args:
+            rid: The request ID to abort. If empty and abort_all is False, no action is taken.
+            abort_all: If True, abort all running requests regardless of rid.
+        """
+        return self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
 
 class SGLangModule(TorchModule):
     """SGLangModule"""
@@ -81,13 +211,14 @@ class SGLangModule(TorchModule):
 
     def setup(self):
         super().setup()
-        tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
-        tokenizer.tokenizer = tokenizer
-        self.tokenizer = tokenizer
+        # tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
+        # tokenizer.tokenizer = tokenizer
+        # self.tokenizer = tokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
+        
 
     @timeit("setup_sglang")
     def setup_sglang(self):
-
         if self.llm is not None: # for evaluator not setup twice
             return
         nnodes_per_replica = math.ceil(self.tensor_model_parallel_size / self.gpu_per_node)
@@ -105,7 +236,7 @@ class SGLangModule(TorchModule):
 
         if first_rank_in_node:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self.llm = sgl.Engine(
+            self.llm = AsyncEngine(
                 model_path=self.module_args['load'],
                 dtype=dtype,
                 mem_fraction_static=self.module_args.get("gpu_memory_utilization", 0.85),
@@ -126,10 +257,16 @@ class SGLangModule(TorchModule):
                 disable_cuda_graph=self.module_args.get("enforce_eager", False)
             )
 
-        # this two flag used for avoid onload,offload twice
+        # this two flag used for avoid onload, offload twice
         self.kv_cache_onloaded = True
         self.weight_onloaded =True
-        self.offload_weights()
+
+        # because __init__ is a sync method, it can not call the async release_memory_occupation
+        # have to move release_memory_occupation from __init__ to here
+        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
+        self.need_offload = True
+        # await self.offload_weights()
+
 
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
@@ -171,35 +308,44 @@ class SGLangModule(TorchModule):
     def is_last_rank(self):
         return True
 
-    def generate(self, query, is_eval):
+    def preprocess_data(self, query: List[Dict], is_eval: bool):
+        """
+        generate sampling parameter query-wise
+        """
+        seq_len = self.module_args.seq_length
 
+        prompts = [q["prompt"] for q in query]
+        prompts_token_ids = [q["input_ids"] for q in query]
+        sampling_param = self._get_sampling_params(is_eval)
+        sampling_params = []
+
+        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
+            max_tokens = seq_len - len(prompt_token_ids_item)
+            assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+            sampling_param_item = copy.deepcopy(sampling_param)
+            sampling_param_item['max_new_tokens'] = max_tokens
+            sampling_params.append(sampling_param_item)
+        return prompts_token_ids, sampling_params
+
+    async def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
         outputs = None
-        if self.llm and self.llm.tokenizer_manager is not None:
-            prompt_key = "prompt"
-            input_ids_key = "input_ids"
-            seq_len = self.module_args.seq_length
+        if self.is_engine:
+            prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
+            # outputs = self.llm.generate(input_ids=prompts_token_ids,
+            #                             sampling_params=sampling_params)
 
-            prompts = [q[prompt_key] for q in query]
-            prompts_token_ids = [q[input_ids_key] for q in query]
-            sampling_param = self._get_sampling_params(is_eval)
-            sampling_params = []
-
-            for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
-                max_tokens = seq_len - len(prompt_token_ids_item)
-                assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
-                sampling_param_item = copy.deepcopy(sampling_param)
-                sampling_param_item['max_new_tokens'] = max_tokens
-                sampling_params.append(sampling_param_item)
-
-            outputs = self.llm.generate(input_ids=prompts_token_ids,
-                                        sampling_params=sampling_params)
-        self.flush_cache()
+            outputs = await self.llm.async_generate(
+                    prompt=None,  # because we have already convert it to prompt token id
+                    sampling_params=sampling_params,
+                    return_logprob=True,
+                    input_ids=prompts_token_ids
+                )
+        # self.flush_cache()
         return outputs
 
-    def update_weights_from_ipc_handles(self, reduce_data):
+    async def update_weights_from_ipc_handles(self, reduce_data):
 
         # pylint: disable-next=import-outside-toplevel
-        from sglang.srt.model_executor.model_runner import LocalSerializedTensor
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
             if self.is_engine:
                 gathered_serialized_tensors = [None] * self._tp_size
@@ -213,8 +359,19 @@ class SGLangModule(TorchModule):
                 group=self.cpu_mesh["tp"].get_group(),
             )
 
+            # if self.is_engine:
+            #     await self.llm.update_weights_from_tensor(
+            #         named_tensors=[
+            #             (
+            #                 name,
+            #                 LocalSerializedTensor(values=gathered_serialized_tensors),
+            #             )
+            #         ],
+            #         # load_format=load_format,
+            #         flush_cache=index == len(reduce_data)-1,
+            #     )
             if self.is_engine:
-                self.llm.update_weights_from_tensor(
+                await self.llm.update_weights_from_tensor(
                     named_tensors=[
                         (
                             name,
@@ -226,57 +383,84 @@ class SGLangModule(TorchModule):
                 )
         torch.cuda.synchronize()
 
-    def flush_cache(self):
+    async def flush_cache(self):
         if self.is_engine:
-            self.llm.flush_cache()
+            await self.llm.flush_cache()
         torch.cuda.synchronize()
 
-    def offload_weights(self, tags: Optional[List[str]] = None):
+    async def offload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
 
         if self.is_engine:
             # avoid offload offloaded param
-            if tags is None:
-                tags = ['kv_cache', 'weights']
-            if not self.kv_cache_onloaded and "kv_cache" in tags:
-                tags.pop(tags.index("kv_cache"))
-            if not self.weight_onloaded and "weights" in tags:
-                tags.pop(tags.index("weights"))
+            tags = self.preprocess_tags(tags, stage="offload")
             if not tags:
                 return
             self._logger.info(f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}")
-            self.llm.release_memory_occupation(tags=tags)
+            await self.llm.release_memory_occupation(tags=tags)
             self._logger.info(f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}")
-
-            if "kv_cache" in tags:
-                self.kv_cache_onloaded = False
-
-            if "weights" in tags:
-                self.weight_onloaded = False
+            self.postprocess_tags(tags, stage="offload")
         torch.cuda.synchronize()
 
-    def onload_weights(self, tags: Optional[List[str]] = None):
+    def preprocess_tags(self, tags: Optional[List[str]], stage='onload'):
+        """
+        preprocess onload, offload tags to avoid duplicate calls
+        """
+        if tags is None:
+            tags = ['kv_cache', 'weights']
+        tag_map = {
+            "kv_cache": self.kv_cache_onloaded,
+            "weights": self.weight_onloaded
+        }
+        preprocess_tags = []
+
+        for tag in tags:
+            onloaded_flag = tag_map[tag]
+            if stage == 'onload' and not onloaded_flag:
+                preprocess_tags.append(tag)
+            elif stage == 'offload' and onloaded_flag:
+                preprocess_tags.append(tag)
+        return preprocess_tags
+
+    # def postprocess_tags(self, tags: Optional[List[str]], state="onload"):
+    #     if state == "onload":
+    #         if "kv_cache" in tags:
+    #             self.kv_cache_onloaded = True
+    #         if "weights" in tags:
+    #             self.weight_onloaded = True
+    #     elif state == "offload":
+    #         if "kv_cache" in tags:
+    #             self.kv_cache_onloaded = False
+    #         if "weights" in tags:
+    #             self.weight_onloaded = False
+
+    def postprocess_tags(self, tags: Optional[List[str]], stage: str = "onload") -> None:
+        if tags is None:
+            return
+        mapping = {
+            "kv_cache": "kv_cache_onloaded",
+            "weights": "weight_onloaded",
+        }
+        value = stage == "onload"
+        for tag, attr in mapping.items():
+            if tag in tags:
+                setattr(self, attr, value)
+
+    async def onload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
+        if self.need_offload:
+            await self.offload_weights()
+            self.need_offload = False
         if self.is_engine:
             # avoid onload onloaded param
-            if tags is None:
-                tags = ['kv_cache', 'weights']
-            if self.kv_cache_onloaded and "kv_cache" in tags:
-                tags.pop(tags.index("kv_cache"))
-            if self.weight_onloaded and "weights" in tags:
-                tags.pop(tags.index("weights"))
+            tags = self.preprocess_tags(tags, stage="onload")
             if not tags:
                 return
             self._logger.info(f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
-            self.llm.resume_memory_occupation(tags=tags)
+            await self.llm.resume_memory_occupation(tags=tags)
             self._logger.info(f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}")
-
-            if "kv_cache" in tags:
-                self.kv_cache_onloaded = True
-            if "weights" in tags:
-                self.weight_onloaded = True
+            self.postprocess_tags(tags, stage="onload")
         torch.cuda.synchronize()
-
 
     @property
     def is_engine(self):

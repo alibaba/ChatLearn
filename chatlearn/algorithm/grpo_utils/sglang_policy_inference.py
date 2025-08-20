@@ -33,18 +33,18 @@ class SGLangPolicyInference(SGLangModule):
         prompts_dataset = PromptPipeline(
             prompts,
             seq_length,
-            self.tokenizer.tokenizer,
+            self.tokenizer,
             enable_thinking=self.module_args.get("enable_thinking", False),
         )
 
         return prompts_dataset
 
-    def eval_forward(self, data, iteration=0):
-        return self._forward_step(data, iteration, True)
+    async def eval_forward(self, data, iteration=0):
+        return await self._forward_step(data, iteration, True)
 
-    def _forward_step(
+    async def _forward_step(
         self, data, iteration, is_eval):  # pylint: disable=unused-argument
-        outputs = self.generate(data, is_eval)
+        outputs = await self.generate(data, is_eval)
 
         if outputs is not None:
             rets = self.decode_internal(outputs, data)
@@ -52,9 +52,9 @@ class SGLangPolicyInference(SGLangModule):
 
     @timeit("sglang_forward_step")
     @compute_decorator(trainable=False, rollout=True)
-    def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
+    async def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
 
-        rets = self._forward_step(data, iteration, False)
+        rets = await self._forward_step(data, iteration, False)
         # collect metric
         response_token_length = [ret["response_token_length"] for ret in rets]
         prompt_token_length = [ret["prompt_token_length"] for ret in rets]
@@ -83,7 +83,7 @@ class SGLangPolicyInference(SGLangModule):
             output_tokens = output['output_ids']
             response_token_length = output['meta_info']['completion_tokens']
             prompt_token_length = output['meta_info']['prompt_tokens']
-            str_outputs = self.tokenizer.tokenizer.decode(
+            str_outputs = self.tokenizer.decode(
                     output_tokens, skip_special_tokens=True
                 )
             all_tokens = torch.tensor(prompt_token_ids + output_tokens)

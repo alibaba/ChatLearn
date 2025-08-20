@@ -45,7 +45,6 @@ def monitor_error(func_name):
                         self._logger.exception(line)
                     execute("ray stop")
                     raise
-
         return wrapper
     return decorator
 
@@ -73,7 +72,29 @@ def timeit(func_name):
                 nvtx.range_pop()
             return ret
 
+        @functools.wraps(func)
+        async def wrapper_async(self, *args, **kwargs):
+            if self.runtime_args.nsys:
+                nvtx.range_push(func_name)
+            if self.is_last_rank():
+                # for the class inherited from base, it may call multiple times, so use the first start time
+                if not self.timers(func_name).started_:
+                    self.timers(func_name).start()
+                ret = await func(self, *args, **kwargs)
+                self.timers(func_name).stop()
+            else:
+                ret = await func(self, *args, **kwargs)
+            if self.profiler is not None and self._iteration>0 and self._iteration<=2 and self.replica_id==0 \
+                and func_name in ["forward_step", "train_step"]:
+                self.profiler.step()
+            if self.profiler is not None and self._iteration==3 and self.replica_id==0 and func_name in ["forward_step", "train_step"]:
+                self.profiler.stop()
+            if self.runtime_args.nsys:
+                nvtx.range_pop()
+            return ret
+        wrapper = wrapper_async if inspect.iscoroutinefunction(func) else wrapper
         return wrapper
+    
     return decorator
 
 def compute_decorator(trainable, rollout):
@@ -126,6 +147,35 @@ def compute_decorator(trainable, rollout):
                 self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
             return final_results
 
+        @functools.wraps(func)
+        async def wrapper_async(self, *args, **kwargs):
+            """
+            only for async rollout
+            """
+            data_list = self.data_fetch(args, train_func=trainable)
+
+            is_eval = kwargs.pop('is_eval', False)
+            # Onload model if needed
+            if kwargs.pop('to_onload', False):
+                await self.onload_weights()
+
+            # Run decorated function
+            if 'iteration' in inspect.signature(func).parameters:
+                kwargs["iteration"] = self._iteration
+            args = [data_list]
+            ret = await func(self, *args, **kwargs)
+            ret = utils.to_device('cpu', ret)
+            self._iteration += 1
+
+            # Clean up after function
+            # TODO, remove
+            if kwargs.pop('to_offload', False) and not is_eval:
+                await self.offload_weights()
+            # TODO fix consumed samples
+            if kwargs.pop('is_last_batch', False) and not is_eval:
+                self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
+            return ret
+        wrapper = wrapper_async if inspect.iscoroutinefunction(func) else wrapper
         return wrapper
     return decorator
 
