@@ -30,7 +30,7 @@ except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
 from chatlearn.configs import BaseConfig
-from chatlearn.utils.mappings import build_sharded_info_for_mcore_model
+
 from .torch_module import TorchModule
 
 
@@ -44,6 +44,8 @@ if IS_MEGATRON_SUPPORTED:
         ) from exc
     # pylint: disable-next=ungrouped-imports
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
+    from chatlearn.utils.mappings.megatron_helpers import build_sharded_info_for_mcore_model
+
     # pylint: disable-next=ungrouped-imports
     from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
