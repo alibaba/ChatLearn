@@ -61,7 +61,7 @@ class MegatronMapper:
     ):
         """The Mapper for Megatron sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
-        between src and dst. Currently, the mapper supports mapping 
+        between src and dst. Currently, the mapper supports mapping
         MCore Model to vLLM or HF Model.
 
         WARNING: The mapper assumes that the weights name of same
@@ -96,7 +96,7 @@ class MegatronMapper:
             dict is the plan including all local parameters to be synchronized. The
             mapper will ensure that the key of mapping for each mapping type is
             non-overlapping and can merge into the full state dict of this rank.
-            For most cases, the length of dst shards list is 1, except for GQA with 
+            For most cases, the length of dst shards list is 1, except for GQA with
             large vLLM TP.
         """
         self._dst_name_to_metadata = dst_name_to_metadata

@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """base module"""
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING
 from itertools import cycle
 from pathlib import Path
 import math
@@ -704,15 +704,19 @@ class BaseModule:
         synchronizer_name: str='general',
         **kwargs
     ):
+        """initialize the synchronizer on this rank.
+
+        Args:
+            synchronizer_name (str): type name of the synchronizer
+            kwargs (Dict): kwargs for the synchronizer
+        """
         if synchronizer_name != "general":
             raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")
         self.synchronizer = GeneralCommunicator(model=self, **kwargs)
 
     def call_synchronizer_func(self, func_name, *args, **kwargs):
+        """Call some apis of sychronizers"""
         return getattr(self.synchronizer, func_name)(*args, **kwargs)
 
     def get_mem_info(self):
         return torch.cuda.mem_get_info()
-
-    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
-        raise NotImplementedError("update_weights_from_buckets is not implemented")

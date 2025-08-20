@@ -33,22 +33,28 @@ if TYPE_CHECKING:
 
 class GeneralCommunicator:
     """
-        Execute parameter synchronization based on the given sync plan. For simplicity,
-        the current implementation claims that each actor should either be a parameter 
-        provider P in the global communication group or a rank C (through IPC Handle).
+        Execute parameter synchronization based on the given sync plan. 
+        For simplicity, the communicator claims that each actor 
+        should either be one of sender, forwarder (not implemented yet) or
+        receiver, where forwarder is extra actors created with a global PG
+        for parameter synchronization if sender/receiver does not have one.
 
-        In the synchronization process, (1) all Ps will shard and bucketize their 
-        parameters, and (2) start one all-to-all Op to send-recv buckets from each 
-        other, then (3) all Cs will recv the buckets through IPC Handles from colocated 
-        Ps, and finally (4) the received buckets will be extracted to update 
-        local parameters.
+        Currently, in the synchronization process, given a sync plan generated
+        by the planner:
+        (1) sender will prepare the corresponding weights according to the 
+        send_layout of each bucket.
+        (2) if sender has a global PG, do an all-to-all on all-senders to
+        exchange the buckets by colocated receivers.
+        (3) send buckets to colocated receivers by IPC Handle.
+        (4) if receiver has a global PG, do an all-to-all on all-receivers to
+        collected the required buckets.
+        (5) call module.update_weights_from_buckets() to update the weights.
 
-        In each iteration, this synchronizer applys the following operation
-        for each parameter logically in the bucket:
-        >>>    dst_shard_info.index(dst_tensor).copy_(src_shard_info.index(src_tensor))
-
-        Therefore, the synchronizer does not strictly require the full tensor 
-        to be synchronized in one iteration.
+        In each iteration, the parameter synchronization applys the following
+        operation for each parameter logically in the bucket:
+        >>>    dst_shard_info.index(dst_weight).copy_(
+        >>>         src_shard_info.index(src_weight)
+        >>>    )
     """
     def __init__(
         self,
