@@ -194,7 +194,11 @@ def build_sharded_info_for_mcore_model(
     # TODO: can we parse sharded info from sharded_state_dict?
     infos = {}
     for prefix, submodule in model.named_modules():
-        if model.share_embeddings_and_output_weights and prefix == 'output_layer':
+        if (
+            model.share_embeddings_and_output_weights and 
+            prefix == 'output_layer' and
+            model.pre_process
+        ):
             continue
         for weight_name, sharded_info in _prepare_metadata(prefix, submodule).items():
             infos[f"{prefix}.{weight_name}"] = sharded_info

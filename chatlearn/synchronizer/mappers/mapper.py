@@ -79,6 +79,7 @@ class MegatronMapper:
         self._mapper_config = mapper_config
         self._dst_tp_size = 1 if mapper_config.force_full_model else self._dst_model_config.tensor_model_parallel_size
         self._src_name_to_metadata = model.get_parameter_metadata(key_type='local_name')
+        self._mapping = None
 
     def generate_sync_mapping(
         self,
@@ -115,7 +116,6 @@ class MegatronMapper:
         """Mapping the local name of src model to global name of
         dst model
         """
-        mapping = {}
         for vp_stage, model in enumerate(self.model):
             if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
                 layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
@@ -129,7 +129,7 @@ class MegatronMapper:
             if model.mtp_process:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
             if model.pre_process:
-                mapping.update(self._map_preprocess_layer(
+                self._update_mapping(self._map_preprocess_layer(
                     model.embedding,
                     src_prefix=f"{vp_stage}-embedding.",
                     dst_prefix="model.",
@@ -137,27 +137,33 @@ class MegatronMapper:
 
             for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
                 global_layer_id = layer_offset + layer_idx
-                mapping.update(self._map_decoder_layer(
+                self._update_mapping(self._map_decoder_layer(
                     model.decoder.layers[layer_idx],
                     src_prefix=f"{vp_stage}-decoder.layers.{layer_idx}.",
                     dst_prefix=f"model.layers.{global_layer_id}.",
                 ))
             if model.post_process:
-                mapping.update(self._map_norm_layer(
+                self._update_mapping(self._map_norm_layer(
                     model.decoder.final_layernorm,
                     src_prefix=f"{vp_stage}-decoder.final_layernorm.",
                     dst_prefix="model.norm.",
                 ))
-                if not (
-                    self._mapper_config.skip_tied_output_layer and 
-                    model.share_embeddings_and_output_weights
-                ):
-                    mapping.update(self._map_postprocess_layer(
+
+                if model.share_embeddings_and_output_weights and model.pre_process:
+                    self._update_mapping(self._map_postprocess_layer(
+                        model.embedding,
+                        src_prefix=f"{vp_stage}-embedding.word_embeddings.",
+                        dst_prefix="",
+                    ))
+                else:
+                    self._update_mapping(self._map_postprocess_layer(
                         model.output_layer,
                         src_prefix=f"{vp_stage}-output_layer.",
                         dst_prefix="",
                     ))
 
+        mapping = self._mapping
+        self._mapping = None
         return mapping
 
     def _map_norm_layer(self, module: nn.Module, src_prefix: str='', dst_prefix: str='', *, is_norm_layer: bool=True):
@@ -177,7 +183,7 @@ class MegatronMapper:
         for item in possible_keys:
             if getattr(module, item, None) is None or getattr(module, item).numel() == 0:
                 continue
-            mapping.update(self._inner_map_for_full_shape(
+            self._update_mapping(self._inner_map_for_full_shape(
                 f"{src_prefix}{item}",
                 f"{dst_prefix}{_keynames[item]}"
             ))
@@ -197,8 +203,8 @@ class MegatronMapper:
             norm_src_key = f"{src_prefix}self_attention.linear_qkv."
             norm_dst_key = f"{dst_prefix}input_layernorm."
             is_norm_layer = False
-        mapping.update(map_attn_func(module.self_attention, src_prefix=f"{src_prefix}self_attention.", dst_prefix=f"{dst_prefix}self_attn."))
-        mapping.update(self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer))
+        self._update_mapping(map_attn_func(module.self_attention, src_prefix=f"{src_prefix}self_attention.", dst_prefix=f"{dst_prefix}self_attn."))
+        self._update_mapping(self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer))
 
         if isinstance(module.mlp, MoELayer):
             map_mlp_func = self._map_moe_layer
@@ -212,16 +218,16 @@ class MegatronMapper:
             norm_src_key = f"{src_prefix}mlp.linear_fc1."
             norm_dst_key = f"{dst_prefix}post_attention_layernorm."
             is_norm_layer = False
-        mapping.update(map_mlp_func(module.mlp, src_prefix=f"{src_prefix}mlp.", dst_prefix=f"{dst_prefix}mlp."))
-        mapping.update(self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer))
+        self._update_mapping(map_mlp_func(module.mlp, src_prefix=f"{src_prefix}mlp.", dst_prefix=f"{dst_prefix}mlp."))
+        self._update_mapping(self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer))
         return mapping
 
     def _map_moe_layer(self, module: 'MoELayer', src_prefix='', dst_prefix=''):
         mapping = {}
         # router
-        mapping.update(self._inner_map_for_full_shape(f"{src_prefix}router.weight", f"{dst_prefix}gate.weight"))
+        self._update_mapping(self._inner_map_for_full_shape(f"{src_prefix}router.weight", f"{dst_prefix}gate.weight"))
         if module.router.enable_expert_bias:
-            mapping.update(self._inner_map_for_full_shape(f"{src_prefix}router.expert_bias", f"{dst_prefix}gate.e_score_correction_bias"))
+            self._update_mapping(self._inner_map_for_full_shape(f"{src_prefix}router.expert_bias", f"{dst_prefix}gate.e_score_correction_bias"))
 
         if not module.config.moe_grouped_gemm:
             raise NotImplementedError("Parameter Sync w/ MoE SequentialMLP is not supported")
@@ -229,7 +235,7 @@ class MegatronMapper:
             raise NotImplementedError("Parameter Sync w/ Legacy GroupedMLP is not supported")
 
         # experts
-        mapping.update(self._map_group_mlp(
+        self._update_mapping(self._map_group_mlp(
             module.experts,
             src_prefix=f"{src_prefix}experts.",
             dst_prefix=f"{dst_prefix}experts."
@@ -238,13 +244,13 @@ class MegatronMapper:
         # shared experts
         if module.shared_experts is not None:
             if module.shared_experts.use_shared_expert_gate:
-                mapping.update(self._inner_map_for_full_shape(f"{src_prefix}shared_experts.gate_weight", f"{dst_prefix}shared_expert_gate.weight"))
+                self._update_mapping(self._inner_map_for_full_shape(f"{src_prefix}shared_experts.gate_weight", f"{dst_prefix}shared_expert_gate.weight"))
             # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert` 
             # `shared_experts`: DeepSeek-V2, DeepSeek-V3, etc.
             # `shared_expert`: Qwen2-MoE, LLaMA-4, etc.
             hf_config = AutoConfig.from_pretrained(self._dst_model_config.load, trust_remote_code=True)
             shared_expert_key = 'shared_experts' if hasattr(hf_config, 'n_shared_experts') else 'shared_expert'
-            mapping.update(self._map_mlp(
+            self._update_mapping(self._map_mlp(
                 module.shared_experts,
                 src_prefix=f"{src_prefix}shared_experts.",
                 dst_prefix=f"{dst_prefix}{shared_expert_key}."
@@ -260,13 +266,13 @@ class MegatronMapper:
             dst_names = ['gate_up_proj']
 
         for dst_name in dst_names:
-            mapping.update(self._inner_map_for_gate_up_proj(
+            self._update_mapping(self._inner_map_for_gate_up_proj(
                 f"{src_prefix}linear_fc1.weight",
                 f"{dst_prefix}{dst_name}.weight",
                 proj_type=dst_name
             ))
 
-        mapping.update(self._inner_map_for_tensor_parallel(
+        self._update_mapping(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_fc2.weight",
             f"{dst_prefix}down_proj.weight",
             mapping_type='row'
@@ -285,14 +291,14 @@ class MegatronMapper:
             if self._mapper_config.merge_expert:
                 if not self._mapper_config.merge_gate_up:
                     raise NotImplementedError("merge_expert w/o merge_gate_up is not implemented.")
-                mapping.update(self._inner_map_for_gate_up_proj(
+                self._update_mapping(self._inner_map_for_gate_up_proj(
                     f"{src_prefix}linear_fc1.weight{local_expert_id}",
                     f"{dst_prefix}w13_weight",
                     proj_type='gate_up_proj',
                     global_expert_id=global_expert_id,
                     num_experts=num_experts
                 ))
-                mapping.update(self._inner_map_for_tensor_parallel(
+                self._update_mapping(self._inner_map_for_tensor_parallel(
                     f"{src_prefix}linear_fc2.weight{local_expert_id}",
                     f"{dst_prefix}w2_weight",
                     global_expert_id=global_expert_id,
@@ -303,12 +309,12 @@ class MegatronMapper:
                 if self._mapper_config.merge_gate_up:
                     raise NotImplementedError("no merge_expert w/ merge_gate_up is not implemented.")
                 for dst_name in ['gate_proj', 'up_proj']:
-                    mapping.update(self._inner_map_for_gate_up_proj(
+                    self._update_mapping(self._inner_map_for_gate_up_proj(
                         f"{src_prefix}linear_fc1.weight{local_expert_id}",
                         f"{dst_prefix}{global_expert_id}.{dst_name}.weight",
                         proj_type=dst_name,
                     ))
-                mapping.update(self._inner_map_for_tensor_parallel(
+                self._update_mapping(self._inner_map_for_tensor_parallel(
                     f"{src_prefix}linear_fc2.weight{local_expert_id}",
                     f"{dst_prefix}{global_expert_id}.down_proj.weight",
                     mapping_type='row'
@@ -318,23 +324,23 @@ class MegatronMapper:
     def _map_mla_selfattn(self, module: 'MLASelfAttention', src_prefix: str='', dst_prefix: str=''):
         mapping = {}
         if self._src_arch.q_lora_rank is None:
-            mapping.update(self._inner_map_for_tensor_parallel(
+            self._update_mapping(self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_proj.weight",
                 f"{dst_prefix}q_proj.weight",
                 mapping_type='column'
             ))
         else:
-            mapping.update(self._inner_map_for_mla_down_proj(
+            self._update_mapping(self._inner_map_for_mla_down_proj(
                 f"{src_prefix}linear_q_down_proj.weight",
                 f"{dst_prefix}q_a_proj.weight",
             ))
-            mapping.update(self._inner_map_for_tensor_parallel(
+            self._update_mapping(self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_up_proj.weight",
                 f"{dst_prefix}q_b_proj.weight",
                 mapping_type='column'
             ))
             if self._src_arch.qk_layernorm:
-                mapping.update(
+                self._update_mapping(
                     self._map_norm_layer(
                         module.linear_q_up_proj,
                         f"{src_prefix}linear_q_up_proj.",
@@ -342,17 +348,17 @@ class MegatronMapper:
                         is_norm_layer=False
                     )
                 )
-        mapping.update(self._inner_map_for_mla_down_proj(
+        self._update_mapping(self._inner_map_for_mla_down_proj(
             f"{src_prefix}linear_kv_down_proj.weight",
             f"{dst_prefix}kv_a_proj_with_mqa.weight",
         ))
-        mapping.update(self._inner_map_for_tensor_parallel(
+        self._update_mapping(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_kv_up_proj.weight",
             f"{dst_prefix}kv_b_proj.weight",
             mapping_type='column'
         ))
         if self._src_arch.qk_layernorm:
-            mapping.update(
+            self._update_mapping(
                 self._map_norm_layer(
                     module.linear_kv_up_proj,
                     f"{src_prefix}linear_kv_up_proj.",
@@ -360,7 +366,7 @@ class MegatronMapper:
                     is_norm_layer=False
                 )
             )
-        mapping.update(self._inner_map_for_tensor_parallel(
+        self._update_mapping(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_proj.weight",
             f"{dst_prefix}o_proj.weight",
             mapping_type='row'
@@ -370,27 +376,27 @@ class MegatronMapper:
     def _map_selfattn(self, module: 'SelfAttention', src_prefix: str='', dst_prefix: str=''):
         mapping = {}
         if self._src_arch.qk_layernorm:
-            mapping.update(self._map_norm_layer(module.q_layernorm, f"{src_prefix}q_layernorm.", f"{dst_prefix}q_norm."))
-            mapping.update(self._map_norm_layer(module.k_layernorm, f"{src_prefix}k_layernorm.", f"{dst_prefix}k_norm."))
+            self._update_mapping(self._map_norm_layer(module.q_layernorm, f"{src_prefix}q_layernorm.", f"{dst_prefix}q_norm."))
+            self._update_mapping(self._map_norm_layer(module.k_layernorm, f"{src_prefix}k_layernorm.", f"{dst_prefix}k_norm."))
 
         dst_names = ['q_proj', 'k_proj', 'v_proj']
         if self._mapper_config.merge_qkv:
             dst_names = ['qkv_proj']
 
         for dst_name in dst_names:
-            mapping.update(self._inner_map_for_qkv_proj(
+            self._update_mapping(self._inner_map_for_qkv_proj(
                 f"{src_prefix}linear_qkv.weight",
                 f"{dst_prefix}{dst_name}.weight",
                 proj_type=dst_name
             ))
             if self._src_arch.add_qkv_bias:
-                mapping.update(self._inner_map_for_qkv_proj(
+                self._update_mapping(self._inner_map_for_qkv_proj(
                     f"{src_prefix}linear_qkv.bias",
                     f"{dst_prefix}{dst_name}.bias",
                     proj_type=dst_name
                 ))
 
-        mapping.update(self._inner_map_for_tensor_parallel(
+        self._update_mapping(self._inner_map_for_tensor_parallel(
             f"{src_prefix}linear_proj.weight",
             f"{dst_prefix}o_proj.weight",
             mapping_type='row'
@@ -504,3 +510,10 @@ class MegatronMapper:
     @property
     def _src_arch(self):
         return self._src_model_config.megatron_model_cfg
+
+    def _update_mapping(self, results: Dict[ShardedTensorInfo, List[ShardedTensorInfo]]):
+        if self._mapping is None:
+            self._mapping = defaultdict(list)
+        for src_meta, dst_metas in results.items():
+            self._mapping[src_meta] += dst_metas
+        return self._mapping
