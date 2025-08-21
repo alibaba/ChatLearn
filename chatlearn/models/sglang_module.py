@@ -20,6 +20,7 @@ import multiprocessing as mp
 import os
 import traceback
 import warnings
+from unittest.mock import MagicMock
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import ray
@@ -108,6 +109,8 @@ try:
 except Exception:
     traceback.print_exc()
     warnings.warn("SGLang is not installed.")
+    # Mock Engine
+    Engine = MagicMock()
 
 
 # modified from https://github.com/volcengine/verl/blob/main/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L128
@@ -489,7 +492,7 @@ class AsyncSGLangModule(SGLangModule):
                 return_logprob=True,
                 input_ids=prompts_token_ids,
             )
-        await self.llm.flush_cache()
+        await self.flush_cache()
         return outputs
 
     async def update_weights_from_ipc_handles(self, reduce_data):
