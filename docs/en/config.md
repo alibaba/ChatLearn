@@ -116,7 +116,7 @@ policy_trainer:
 - `models.policy_trainer.gradient_checkpointing`: Enables recomputation of intermediate activations during training to save memory (gradient checkpointing).
 - `models.policy_trainer.save_hf`: If True, saves Hugging Face format checkpoints during training. An [offline merge script](https://github.com/alibaba/ChatLearn/blob/main/chatlearn/offline_ckpt_converter.py) is provided to merge FSDP distributed checkpoints into a Hugging Face checkpoint.
 
-## Megatron policy_trainer config
+#### Megatron policy_trainer config
 The following are specific configuration options for the Megatron-Core training backend:
 ```yaml
 policy_trainer: 
@@ -141,20 +141,20 @@ policy_trainer:
   use_group_sequence_policy: False
 ```
 
-- `models.policy_trainer.bf16`: whether to use bf16. If False, fp32 will be used.
-- `models.policy_trainer.seq_length`: sequence length for Megatron Training. If packing is enabled, the value will be ignored. 
+- `models.policy_trainer.bf16`: Enables bfloat16 precision. If set to False, fp32 will be used.
+- `models.policy_trainer.seq_length`: Sequence length for Megatron Training. If `models.policy_trainer.packing` is enabled, the value will be ignored.
 Otherwise, the value must be equal to the value used for data generation.
-- `models.policy_trainer.tokenizer_type`: tokenizer type for Megatron Training. For most cases, HuggingFaceTokenizer is recommended.
-- `models.policy_trainer.tokenizer_model`: tokenizer model path for Megatron Training.
-- `models.policy_trainer.tensor_model_parallel_size`: The number of tensor model parallel worlse size.
-- `models.policy_trainer.pipeline_model_parallel_size`: The number of pipeline model parallel worlse size.
-- `models.policy_trainer.expert_tensor_parallel_size`: The number of expert tensor model parallel worlse size.
-- `models.policy_trainer.expert_model_parallel_size`: The number of expert model parallel worlse size.
-- `models.policy_trainer.virtual_pipeline_model_parallel_size`: The number of virtual pipeline model parallel worlse size. Used when `pipeline_model_parallel_size` larger than 1.
-- `models.policy_trainer.decoder_first_pipeline_num_layers`: The number of decoder layers of the first pipeline stage. Used when num_layers of the model cannot be divided by `pipeline_model_parallel_size`.
-- `models.policy_trainer.decoder_last_pipeline_num_layers`: The number of decoder layers of the last pipeline stage. Used when num_layers of the model cannot be divided by `pipeline_model_parallel_size`.
-- `models.policy_trainer.moe_router_force_load_balancing`: (For benchmarking) Whether to force load balancing for MoE routers.
-- `models.policy_trainer.load`: The path to the model checkpoint.
+- `models.policy_trainer.tokenizer_type`: Tokenizer type for Megatron Training. For most cases, HuggingFaceTokenizer is recommended.
+- `models.policy_trainer.tokenizer_model`: Path to the tokenizer model for Megatron training.
+- `models.policy_trainer.tensor_model_parallel_size`: Tensor model parallel world size.
+- `models.policy_trainer.pipeline_model_parallel_size`: Pipeline model parallel world size.
+- `models.policy_trainer.expert_tensor_parallel_size`: Expert tensor model parallel world size.
+- `models.policy_trainer.expert_model_parallel_size`:Expert model parallel world size.
+- `models.policy_trainer.virtual_pipeline_model_parallel_size`: Virtual pipeline model parallel world size. Used when `pipeline_model_parallel_size` larger than 1.
+- `models.policy_trainer.decoder_first_pipeline_num_layers`: Number of decoder layers of the first pipeline stage. Used when num_layers of the model cannot be divided by `pipeline_model_parallel_size`.
+- `models.policy_trainer.decoder_last_pipeline_num_layers`: Number of decoder layers of the last pipeline stage. Used when num_layers of the model cannot be divided by `pipeline_model_parallel_size`.
+- `models.policy_trainer.moe_router_force_load_balancing`: (Benchmarking) Forces load balancing for MoE routers if enabled.
+- `models.policy_trainer.load`: Path to the model checkpoint.
 - `models.policy_trainer.sequence_parallel`: Whether to use sequence parallelism. Valid when `tensor_model_parallel_size` larger than 1.
 - `models.policy_trainer.use_distributed_optimizer`: Whether to use distributed optimizer to reduce memory consumption. Recommended to set True.
 - `models.policy_trainer.recompute_granularity`: Select recompute granularity to save memory usage. Should be null, `sel` or `full`. 
