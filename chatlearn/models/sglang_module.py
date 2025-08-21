@@ -303,7 +303,13 @@ class SGLangModule(TorchModule):
     def is_engine(self):
         return self.llm and self.llm.tokenizer_manager is not None
 
-    def map_local_param_name_to_global(self):
+    def map_local_param_name_to_global(self) -> List[str]:
+        """Map names of weights on each rank to a unique name.
+        
+        Returns:
+            List[str]: A list of unique global names for each weight 
+        on this rank.
+        """
         model_config = AutoConfig.from_pretrained(self.module_args['load'])
         with torch.device('meta'):
             meta_model = AutoModelForCausalLM.from_config(

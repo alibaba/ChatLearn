@@ -43,11 +43,11 @@ class GeneralCommunicator:
         by the planner:
         (1) sender will prepare the corresponding weights according to the 
         send_layout of each bucket.
-        (2) if sender has a global PG, do an all-to-all on all-senders to
+        (2) if senders have a global PG, do an all-to-all on all-senders to
         exchange the buckets by colocated receivers.
         (3) send buckets to colocated receivers by IPC Handle.
-        (4) if receiver has a global PG, do an all-to-all on all-receivers to
-        collected the required buckets.
+        (4) if senders do not have PG and receivers have a global PG, do an 
+        all-to-all on all-receivers to collect the required buckets.
         (5) call module.update_weights_from_buckets() to update the weights.
 
         In each iteration, the parameter synchronization applys the following
