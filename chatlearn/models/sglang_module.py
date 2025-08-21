@@ -13,14 +13,14 @@
 # limitations under the License.
 # ==============================================================================
 """SGLang Moudle"""
-import warnings
-import os
-import math
-from typing import Optional, List, TYPE_CHECKING, Tuple, Dict
-import copy
 import asyncio
-import traceback
+import copy
+import math
 import multiprocessing as mp
+import os
+import traceback
+import warnings
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 import ray
 import torch
@@ -28,21 +28,32 @@ import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer
 
-from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.runtime.decorator import timeit
+from chatlearn.utils.utils import get_full_proc_memory_info
+
 from .torch_module import TorchModule
+
+if TYPE_CHECKING:
+    from chatlearn.synchronizer.structs import BucketInfo
 
 try:
     import sglang
+    from sglang.srt.entrypoints.engine import Engine
     from sglang.srt.managers.tokenizer_manager import (
         ReleaseMemoryOccupationReqInput,
         ResumeMemoryOccupationReqInput,
         UpdateWeightsFromTensorReqInput,
     )
-    from sglang.srt.entrypoints.engine import Engine
-    from sglang.srt.utils import MultiprocessingSerializer
     from sglang.srt.model_executor.model_runner import LocalSerializedTensor
-    from sglang.srt.utils import set_prometheus_multiproc_dir, set_ulimit, assert_pkg_version, get_bool_env_var, is_cuda
+    from sglang.srt.utils import (
+        MultiprocessingSerializer,
+        assert_pkg_version,
+        get_bool_env_var,
+        is_cuda,
+        set_prometheus_multiproc_dir,
+        set_ulimit,
+    )
+
     def _set_envs_and_config(server_args):
         # Set global environments
         os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
@@ -74,6 +85,7 @@ try:
                 "0.3.5",
                 "Please reinstall the latest version with `pip install sgl-kernel --force-reinstall`",
             )
+        # ChatLearn modify part
 
         # if True:  # Keep this check for internal code compatibility
         #     # Register the signal handler.
@@ -91,21 +103,19 @@ try:
 
         # Set mp start method
         mp.set_start_method("spawn", force=True)
+
     sglang.srt.entrypoints.engine._set_envs_and_config = _set_envs_and_config
 except Exception:
     traceback.print_exc()
     warnings.warn("SGLang is not installed.")
 
-if TYPE_CHECKING:
-    from chatlearn.synchronizer.structs import BucketInfo
 
+# modified from https://github.com/volcengine/verl/blob/main/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L128
 # because chatCompletion is an async method, it makes the whole ray actor be an async actor
 # which can not call loop.run_until_complete. So we need to make the engine to be an async class
 class AsyncEngine(Engine):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # default to use dummy load format, which need to reload weights in first time
-        # self._need_reload = True
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
@@ -117,25 +127,12 @@ class AsyncEngine(Engine):
 
     async def resume_memory_occupation(self, tags: Optional[list[str]] = None):
         """Resume GPU occupation."""
-        # because __init__ is a sync method, it can not call the async release_memory_occupation
-        # have to move release_memory_occupation from __init__ to here
-        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
-        # if self._need_reload:
-        #     print("debughh check offload")
-        #     await self.release_memory_occupation()
-        #     self._need_reload = False
-
         if tags is None:
             obj = ResumeMemoryOccupationReqInput()
         else:
             obj = ResumeMemoryOccupationReqInput(tags=tags)
 
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
-
-    # async def update_weights_from_tensor(self, serialized_named_tensors, flush_cache):
-    #     from sglang.srt.managers.tokenizer_manager import UpdateWeightsFromTensorReqInput
-    #     update_weights_request = UpdateWeightsFromTensorReqInput(serialized_named_tensors = serialized_named_tensors, flush_cache=flush_cache)
-    #     return await self.tokenizer_manager.update_weights_from_tensor(update_weights_request, None)
 
     async def update_weights_from_tensor(
         self,
@@ -167,21 +164,21 @@ class AsyncEngine(Engine):
         """
         return self.tokenizer_manager.abort_request(rid=rid, abort_all=abort_all)
 
+
 class SGLangModule(TorchModule):
     """SGLangModule"""
+
     # pylint: disable=abstract-method
 
-    def __init__(self, name: str, args=None, replica_id: int=0):
-        """The chatlearn wrapper for a sglang model.
-        """
+    def __init__(self, name: str, args=None, replica_id: int = 0):
+        """The chatlearn wrapper for a sglang model."""
         super().__init__(name, args=args, replica_id=replica_id)
         self.tensor_model_parallel_size = self.module_args.tensor_model_parallel_size
         # get gpu_per_node used for setup sglang
-        resource = ray.nodes()[0]['Resources']
-        self.gpu_per_node = int(resource['GPU'])
+        resource = ray.nodes()[0]["Resources"]
+        self.gpu_per_node = int(resource["GPU"])
         self.llm = None
-        self._metric_prefix = 'sglang_inference'
-
+        self._metric_prefix = "sglang_inference"
 
     def init(self):
         """
@@ -191,39 +188,48 @@ class SGLangModule(TorchModule):
         dist.init_process_group(backend="cpu:gloo,cuda:nccl")
 
         # init cpu_mesh
-        self.cpu_mesh = init_device_mesh(device_type="cpu",
-                                        mesh_shape=(self.tensor_model_parallel_size,),
-                                        mesh_dim_names=["tp"])
-        self._tp_rank = self.cpu_mesh['tp'].get_local_rank()
+        self.cpu_mesh = init_device_mesh(
+            device_type="cpu",
+            mesh_shape=(self.tensor_model_parallel_size,),
+            mesh_dim_names=["tp"],
+        )
+        self._tp_rank = self.cpu_mesh["tp"].get_local_rank()
         self._tp_size = self.cpu_mesh["tp"].size()
         torch.cuda.get_device_capability()
 
         visible_devices = [None] * self.cpu_mesh.size()
 
         torch.distributed.all_gather_object(
-            visible_devices, os.environ["CUDA_VISIBLE_DEVICES"], self.cpu_mesh.get_group("tp")
+            visible_devices,
+            os.environ["CUDA_VISIBLE_DEVICES"],
+            self.cpu_mesh.get_group("tp"),
         )
         self.visible_devices_set = set(",".join(visible_devices).split(","))
 
         # used for init sglang engine in ray actor
-        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(sorted(list(self.visible_devices_set)))
+        os.environ["CUDA_VISIBLE_DEVICES"] = ",".join(
+            sorted(list(self.visible_devices_set))
+        )
         dist.barrier(group=self.cpu_mesh.get_group())
 
     def setup(self):
         super().setup()
-        # tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
-        # tokenizer.tokenizer = tokenizer
-        # self.tokenizer = tokenizer
-        self.tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
-        
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.module_args["load"], trust_remote_code=True
+        )
 
     @timeit("setup_sglang")
     def setup_sglang(self):
-        if self.llm is not None: # for evaluator not setup twice
+
+        if self.llm is not None:  # for evaluator not setup twice
             return
-        nnodes_per_replica = math.ceil(self.tensor_model_parallel_size / self.gpu_per_node)
+        nnodes_per_replica = math.ceil(
+            self.tensor_model_parallel_size / self.gpu_per_node
+        )
         if nnodes_per_replica > 1:
-            dist_init_addr = f"{os.environ['MASTER_ADDR']}:{os.environ['SGLANG_NCCL_PORT']}"
+            dist_init_addr = (
+                f"{os.environ['MASTER_ADDR']}:{os.environ['SGLANG_NCCL_PORT']}"
+            )
         else:
             dist_init_addr = None
 
@@ -236,10 +242,14 @@ class SGLangModule(TorchModule):
 
         if first_rank_in_node:
             os.environ["SGLANG_BLOCK_NONZERO_RANK_CHILDREN"] = "0"
-            self.llm = AsyncEngine(
-                model_path=self.module_args['load'],
+            # avoid ray actor become an async actor in sync mode
+            llm_cls = sglang.Engine if self.module_args.is_sync_mode else AsyncEngine
+            self.llm = llm_cls(
+                model_path=self.module_args["load"],
                 dtype=dtype,
-                mem_fraction_static=self.module_args.get("gpu_memory_utilization", 0.85),
+                mem_fraction_static=self.module_args.get(
+                    "gpu_memory_utilization", 0.85
+                ),
                 enable_memory_saver=True,
                 base_gpu_id=0,
                 gpu_id_step=1,
@@ -254,34 +264,53 @@ class SGLangModule(TorchModule):
                 mm_attention_backend="fa3",
                 attention_backend="fa3",
                 skip_tokenizer_init=True,
-                disable_cuda_graph=self.module_args.get("enforce_eager", False)
+                disable_cuda_graph=self.module_args.get("enforce_eager", False),
             )
 
-        # this two flag used for avoid onload, offload twice
+        # this two flag used for avoid onload,offload twice
         self.kv_cache_onloaded = True
-        self.weight_onloaded =True
+        self.weight_onloaded = True
 
-        # because __init__ is a sync method, it can not call the async release_memory_occupation
-        # have to move release_memory_occupation from __init__ to here
-        # For multi-stage awake, we run release weight and kv_cache when we resume weights for the first time.
         self.need_offload = True
-        # await self.offload_weights()
-
 
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
         if not self.module_args.get("use_beam_search", False):
-            temperature = self.module_args.get("eval_temperature", 1.0) if is_eval else self.module_args.get(
-                "temperature", 1.0)
-        top_p = self.module_args.get("eval_top_p", 1.0) if is_eval else self.module_args.get("top_p", 1.0)
-        top_k = self.module_args.get("eval_top_k", -1) if is_eval else self.module_args.get("top_k", -1)
-        min_p = self.module_args.get("eval_min_p", 0.0) if is_eval else self.module_args.get("min_p", 0.0)
-        presence_penalty = self.module_args.get("eval_presence_penalty", 0.0) if is_eval else self.module_args.get(
-            "presence_penalty", 0.0)
-        frequency_penalty = self.module_args.get("eval_frequency_penalty", 0.0) if is_eval else self.module_args.get(
-            "frequency_penalty", 0.0)
-        repetition_penalty = self.module_args.get("eval_repetition_penalty", 1.0) if is_eval else self.module_args.get(
-            "repetition_penalty", 1.0)
+            temperature = (
+                self.module_args.get("eval_temperature", 1.0)
+                if is_eval
+                else self.module_args.get("temperature", 1.0)
+            )
+        top_p = (
+            self.module_args.get("eval_top_p", 1.0)
+            if is_eval
+            else self.module_args.get("top_p", 1.0)
+        )
+        top_k = (
+            self.module_args.get("eval_top_k", -1)
+            if is_eval
+            else self.module_args.get("top_k", -1)
+        )
+        min_p = (
+            self.module_args.get("eval_min_p", 0.0)
+            if is_eval
+            else self.module_args.get("min_p", 0.0)
+        )
+        presence_penalty = (
+            self.module_args.get("eval_presence_penalty", 0.0)
+            if is_eval
+            else self.module_args.get("presence_penalty", 0.0)
+        )
+        frequency_penalty = (
+            self.module_args.get("eval_frequency_penalty", 0.0)
+            if is_eval
+            else self.module_args.get("frequency_penalty", 0.0)
+        )
+        repetition_penalty = (
+            self.module_args.get("eval_repetition_penalty", 1.0)
+            if is_eval
+            else self.module_args.get("repetition_penalty", 1.0)
+        )
         stop = self.module_args.get("stop_token_list", None)
         if stop is not None and isinstance(stop, str):
             stop = stop.split(";")
@@ -300,7 +329,7 @@ class SGLangModule(TorchModule):
             # "logprobs": self.module_args.get("logprobs", 1), # not found
             # "detokenize": self.module_args.get("detokenize", False),
             # "prompt_logprobs": self.module_args.get("prompt_logprobs", None),
-            "skip_special_tokens": self.module_args.get('skip_special_tokens', True)
+            "skip_special_tokens": self.module_args.get("skip_special_tokens", True),
         }
 
         return sampling_params
@@ -323,24 +352,147 @@ class SGLangModule(TorchModule):
             max_tokens = seq_len - len(prompt_token_ids_item)
             assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
             sampling_param_item = copy.deepcopy(sampling_param)
-            sampling_param_item['max_new_tokens'] = max_tokens
+            sampling_param_item["max_new_tokens"] = max_tokens
             sampling_params.append(sampling_param_item)
         return prompts_token_ids, sampling_params
+
+    def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
+        outputs = None
+        if self.is_engine:
+            prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
+            outputs = self.llm.generate(
+                input_ids=prompts_token_ids, sampling_params=sampling_params
+            )
+        self.flush_cache()
+        return outputs
+
+    def update_weights_from_ipc_handles(self, reduce_data):
+
+        # pylint: disable-next=import-outside-toplevel
+        from sglang.srt.model_executor.model_runner import LocalSerializedTensor
+
+        for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
+            if self.is_engine:
+                gathered_serialized_tensors = [None] * self._tp_size
+            else:
+                gathered_serialized_tensors = None
+
+            dist.gather_object(
+                obj=serialized_tensor,
+                object_gather_list=gathered_serialized_tensors,
+                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+                group=self.cpu_mesh["tp"].get_group(),
+            )
+
+            if self.is_engine:
+                self.llm.update_weights_from_tensor(
+                    named_tensors=[
+                        (
+                            name,
+                            LocalSerializedTensor(values=gathered_serialized_tensors),
+                        )
+                    ],
+                    # load_format=load_format,
+                    flush_cache=index == len(reduce_data) - 1,
+                )
+        torch.cuda.synchronize()
+
+    def flush_cache(self):
+        if self.is_engine:
+            self.llm.flush_cache()
+        torch.cuda.synchronize()
+
+    def preprocess_tags(self, tags: Optional[List[str]], stage="onload"):
+        """
+        preprocess onload, offload tags to avoid duplicate calls
+        """
+        if tags is None:
+            tags = ["kv_cache", "weights"]
+        tag_map = {"kv_cache": self.kv_cache_onloaded, "weights": self.weight_onloaded}
+        preprocess_tags = []
+
+        for tag in tags:
+            onloaded_flag = tag_map[tag]
+            if stage == "onload" and not onloaded_flag:
+                preprocess_tags.append(tag)
+            elif stage == "offload" and onloaded_flag:
+                preprocess_tags.append(tag)
+        return preprocess_tags
+
+    def postprocess_tags(
+        self, tags: Optional[List[str]], stage: str = "onload"
+    ) -> None:
+        if tags is None:
+            return
+        mapping = {
+            "kv_cache": "kv_cache_onloaded",
+            "weights": "weight_onloaded",
+        }
+        value = stage == "onload"
+        for tag, attr in mapping.items():
+            if tag in tags:
+                setattr(self, attr, value)
+
+    def offload_weights(self, tags: Optional[List[str]] = None):
+        # Currently we only support `weights` and `kv_cache`
+        if self.is_engine:
+            # avoid offload offloaded param
+            tags = self.preprocess_tags(tags, stage="offload")
+            if not tags:
+                return
+            self._logger.info(
+                f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}"
+            )
+            self.llm.release_memory_occupation(tags=tags)
+            self._logger.info(
+                f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}"
+            )
+            self.postprocess_tags(tags, stage="offload")
+        torch.cuda.synchronize()
+
+    def onload_weights(self, tags: Optional[List[str]] = None):
+        # Currently we only support `weights` and `kv_cache`
+        if self.need_offload:
+            self.offload_weights()
+            self.need_offload = False
+        if self.is_engine:
+            # avoid onload onloaded param
+            tags = self.preprocess_tags(tags, stage="onload")
+            if not tags:
+                return
+            self._logger.info(
+                f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}"
+            )
+            self.llm.resume_memory_occupation(tags=tags)
+            self._logger.info(
+                f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}"
+            )
+            self.postprocess_tags(tags, stage="onload")
+        torch.cuda.synchronize()
+
+    @property
+    def is_engine(self):
+        return self.llm and self.llm.tokenizer_manager is not None
+
+
+class AsyncSGLangModule(SGLangModule):
+    """AsyncSGLangModule"""
+
+    def __init__(self, name: str, args=None, replica_id: int = 0):
+        """The chatlearn wrapper for a async sglang model."""
+        super().__init__(name, args=args, replica_id=replica_id)
 
     async def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
         outputs = None
         if self.is_engine:
             prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
-            # outputs = self.llm.generate(input_ids=prompts_token_ids,
-            #                             sampling_params=sampling_params)
-
             outputs = await self.llm.async_generate(
-                    prompt=None,  # because we have already convert it to prompt token id
-                    sampling_params=sampling_params,
-                    return_logprob=True,
-                    input_ids=prompts_token_ids
-                )
-        # self.flush_cache()
+                prompt=None,  # because we have already convert it to prompt token id
+                sampling_params=sampling_params,
+                return_logprob=True,
+                input_ids=prompts_token_ids,
+            )
+        await self.llm.flush_cache()
         return outputs
 
     async def update_weights_from_ipc_handles(self, reduce_data):
@@ -359,17 +511,6 @@ class SGLangModule(TorchModule):
                 group=self.cpu_mesh["tp"].get_group(),
             )
 
-            # if self.is_engine:
-            #     await self.llm.update_weights_from_tensor(
-            #         named_tensors=[
-            #             (
-            #                 name,
-            #                 LocalSerializedTensor(values=gathered_serialized_tensors),
-            #             )
-            #         ],
-            #         # load_format=load_format,
-            #         flush_cache=index == len(reduce_data)-1,
-            #     )
             if self.is_engine:
                 await self.llm.update_weights_from_tensor(
                     named_tensors=[
@@ -379,7 +520,7 @@ class SGLangModule(TorchModule):
                         )
                     ],
                     # load_format=load_format,
-                    flush_cache=index == len(reduce_data)-1,
+                    flush_cache=index == len(reduce_data) - 1,
                 )
         torch.cuda.synchronize()
 
@@ -396,55 +537,15 @@ class SGLangModule(TorchModule):
             tags = self.preprocess_tags(tags, stage="offload")
             if not tags:
                 return
-            self._logger.info(f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}")
+            self._logger.info(
+                f"llm_engine.sleep {tags} before: {get_full_proc_memory_info('before llm_engine.sleep')}"
+            )
             await self.llm.release_memory_occupation(tags=tags)
-            self._logger.info(f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}")
+            self._logger.info(
+                f"llm_engine.sleep {tags} after: {get_full_proc_memory_info('after llm_engine.sleep')}"
+            )
             self.postprocess_tags(tags, stage="offload")
         torch.cuda.synchronize()
-
-    def preprocess_tags(self, tags: Optional[List[str]], stage='onload'):
-        """
-        preprocess onload, offload tags to avoid duplicate calls
-        """
-        if tags is None:
-            tags = ['kv_cache', 'weights']
-        tag_map = {
-            "kv_cache": self.kv_cache_onloaded,
-            "weights": self.weight_onloaded
-        }
-        preprocess_tags = []
-
-        for tag in tags:
-            onloaded_flag = tag_map[tag]
-            if stage == 'onload' and not onloaded_flag:
-                preprocess_tags.append(tag)
-            elif stage == 'offload' and onloaded_flag:
-                preprocess_tags.append(tag)
-        return preprocess_tags
-
-    # def postprocess_tags(self, tags: Optional[List[str]], state="onload"):
-    #     if state == "onload":
-    #         if "kv_cache" in tags:
-    #             self.kv_cache_onloaded = True
-    #         if "weights" in tags:
-    #             self.weight_onloaded = True
-    #     elif state == "offload":
-    #         if "kv_cache" in tags:
-    #             self.kv_cache_onloaded = False
-    #         if "weights" in tags:
-    #             self.weight_onloaded = False
-
-    def postprocess_tags(self, tags: Optional[List[str]], stage: str = "onload") -> None:
-        if tags is None:
-            return
-        mapping = {
-            "kv_cache": "kv_cache_onloaded",
-            "weights": "weight_onloaded",
-        }
-        value = stage == "onload"
-        for tag, attr in mapping.items():
-            if tag in tags:
-                setattr(self, attr, value)
 
     async def onload_weights(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
@@ -456,12 +557,12 @@ class SGLangModule(TorchModule):
             tags = self.preprocess_tags(tags, stage="onload")
             if not tags:
                 return
-            self._logger.info(f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+            self._logger.info(
+                f"llm_engine.wake_up {tags} before: {get_full_proc_memory_info('before llm_engine.wake_up')}"
+            )
             await self.llm.resume_memory_occupation(tags=tags)
-            self._logger.info(f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}")
+            self._logger.info(
+                f"llm_engine.wake_up {tags} after: {get_full_proc_memory_info('before llm_engine.wake_up')}"
+            )
             self.postprocess_tags(tags, stage="onload")
         torch.cuda.synchronize()
-
-    @property
-    def is_engine(self):
-        return self.llm and self.llm.tokenizer_manager is not None
