@@ -8,6 +8,9 @@ class RolloutConfig(BaseConfig):
     """The config for rollout models. Currently this config is
     shared between vLLM and SGLang.
     """
+    is_sync_mode: bool = field(
+        default=True, metadata={"help": "whether use sync rollout or async rollout. warning: vLLM only support sync mode"}
+    )
     tensor_model_parallel_size: int = field(
         default=1, metadata={"help": "tensor model parallel size"}
     )
