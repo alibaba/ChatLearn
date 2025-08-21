@@ -1,3 +1,4 @@
+# pylint: disable=unused-argument,missing-class-docstring
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -89,7 +90,6 @@ def metric_collect(rets, seq_length):
 class SGLangPolicyInference(SGLangModule):
     """sglang rollout"""
 
-    # pylint: disable=abstract-method
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
@@ -98,7 +98,7 @@ class SGLangPolicyInference(SGLangModule):
 
     def _forward_step(
         self, data, iteration, is_eval
-    ):  # pylint: disable=unused-argument
+    ):
         outputs = self.generate(data, is_eval)
 
         if outputs is not None:
@@ -109,7 +109,7 @@ class SGLangPolicyInference(SGLangModule):
     @compute_decorator(trainable=False, rollout=True)
     def forward_step(
         self, data: List[Dict[str, Any]], iteration=0, **kwargs
-    ) -> List[Dict[str, Any]]:  # pylint: disable=unused-argument
+    ) -> List[Dict[str, Any]]:
 
         rets = self._forward_step(data, iteration, False)
         # collect metric
