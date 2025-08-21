@@ -1,3 +1,4 @@
+# pylint: disable=invalid-overridden-method,abstract-method
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,7 +14,6 @@
 # limitations under the License.
 # ==============================================================================
 """SGLang Moudle"""
-import asyncio
 import copy
 import math
 import multiprocessing as mp
@@ -111,11 +111,11 @@ except Exception:
 
 
 # modified from https://github.com/volcengine/verl/blob/main/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L128
-# because chatCompletion is an async method, it makes the whole ray actor be an async actor
-# which can not call loop.run_until_complete. So we need to make the engine to be an async class
 class AsyncEngine(Engine):
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    """
+    patch for sglang engine, because chatCompletion is an async method, it makes the whole ray actor be an async actor
+    which can not call loop.run_until_complete. So we need to make the engine to be an async class
+    """
 
     async def release_memory_occupation(self, tags: Optional[list[str]] = None):
         """Release GPU occupation temporarily."""
@@ -367,9 +367,6 @@ class SGLangModule(TorchModule):
         return outputs
 
     def update_weights_from_ipc_handles(self, reduce_data):
-
-        # pylint: disable-next=import-outside-toplevel
-        from sglang.srt.model_executor.model_runner import LocalSerializedTensor
 
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
             if self.is_engine:

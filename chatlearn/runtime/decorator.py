@@ -94,7 +94,7 @@ def timeit(func_name):
             return ret
         wrapper = wrapper_async if inspect.iscoroutinefunction(func) else wrapper
         return wrapper
-    
+
     return decorator
 
 def compute_decorator(trainable, rollout):
