@@ -32,7 +32,6 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
 from chatlearn.runtime.decorator import timeit
 from chatlearn.utils.utils import get_full_proc_memory_info
-from chatlearn.runtime.decorator import timeit
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.mappings.huggingface_helpers import build_sharded_info_for_huggingface_model
 
@@ -58,6 +57,7 @@ try:
         set_prometheus_multiproc_dir,
         set_ulimit,
     )
+    from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
 
     def _set_envs_and_config(server_args):
         # Set global environments
@@ -542,9 +542,6 @@ class SGLangModule(TorchModule):
 
     @torch.no_grad()
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
-        # pylint: disable=import-outside-toplevel
-        from sglang.srt.utils import MultiprocessingSerializer
-        from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
         param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:
@@ -634,7 +631,7 @@ class AsyncSGLangModule(SGLangModule):
         await self.flush_cache()
         return outputs
 
-    async def update_weights_from_ipc_handles(self, reduce_data):
+    async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
 
         # pylint: disable-next=import-outside-toplevel
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
