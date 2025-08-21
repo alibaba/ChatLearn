@@ -198,6 +198,9 @@ class ShardedTensorInfo:
         assert self.dtype is not None, "Only support shard_info with dtype"
         return np.prod(self.local_shape) * self.dtype.itemsize
 
+    def numel(self):
+        return np.prod(self.local_shape)
+
     def __hash__(self):
         return hash((
             self.param_id,
