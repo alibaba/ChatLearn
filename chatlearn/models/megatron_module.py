@@ -244,8 +244,11 @@ if IS_MEGATRON_SUPPORTED:
 
         @torch.no_grad()
         def map_local_param_name_to_global(self):
-            """generate a global name for each parameter in the model
-            (just name of PP1EP1)
+            """Map names of weights on each rank to a unique name.
+            
+            Returns:
+                List[str]: A list of unique global names for each weight 
+            on this rank.
             """
             self.global_name_to_local_name = {}
             # NOTE: this regex is for model with TEGroupedGEMM

@@ -22,15 +22,18 @@ import traceback
 import warnings
 from unittest.mock import MagicMock
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from collections import defaultdict
 
 import ray
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
 from chatlearn.runtime.decorator import timeit
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.utils.mappings import ShardedTensorInfo
+from chatlearn.utils.mappings.huggingface_helpers import build_sharded_info_for_huggingface_model
 
 from .torch_module import TorchModule
 
@@ -54,6 +57,7 @@ try:
         set_prometheus_multiproc_dir,
         set_ulimit,
     )
+    from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
 
     def _set_envs_and_config(server_args):
         # Set global environments
@@ -369,7 +373,24 @@ class SGLangModule(TorchModule):
         self.flush_cache()
         return outputs
 
-    def update_weights_from_ipc_handles(self, reduce_data):
+    def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
+        if load_format == "flattened_bucket":
+            gathered_data = None
+            if self.is_engine:
+                gathered_data = [None] * self._tp_size
+            dist.gather_object(
+                obj=reduce_data,
+                object_gather_list=gathered_data,
+                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+                group=self.cpu_mesh["tp"].get_group(),
+            )
+            if self.is_engine:
+                self.llm.update_weights_from_tensor(
+                    named_tensors=gathered_data,
+                    load_format=load_format,
+                )
+            torch.cuda.synchronize()
+            return
 
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
             if self.is_engine:
@@ -474,6 +495,121 @@ class SGLangModule(TorchModule):
     def is_engine(self):
         return self.llm and self.llm.tokenizer_manager is not None
 
+    def map_local_param_name_to_global(self) -> List[str]:
+        """Map names of weights on each rank to a unique name.
+        
+        Returns:
+            List[str]: A list of unique global names for each weight 
+        on this rank.
+        """
+        model_config = AutoConfig.from_pretrained(self.module_args['load'])
+        with torch.device('meta'):
+            meta_model = AutoModelForCausalLM.from_config(
+                model_config,
+                trust_remote_code=True
+            )
+        names = list(meta_model.state_dict().keys())
+        self.global_name_to_local_name = {n: n for n in names}
+        return names
+
+    @torch.no_grad()
+    def get_parameter_metadata(self) -> Dict[str, ShardedTensorInfo]:
+        """Collect parameter shape info of this rank
+        """
+        if self.local_name_to_param_id is None:
+            raise ValueError("Call set_param_id before call this function")
+
+        model_config = AutoConfig.from_pretrained(self.module_args['load'])
+        with torch.device('meta'):
+            meta_model = AutoModelForCausalLM.from_config(
+                model_config,
+                trust_remote_code=True
+            )
+        infos = {}
+        for name, sharded_info in build_sharded_info_for_huggingface_model(meta_model).items():
+            param_id = self.local_name_to_param_id[name]
+            sharded_info.param_id = param_id
+            infos[param_id] = sharded_info
+        return infos
+
+    def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
+        self.param_id_to_metadata = self.get_parameter_metadata()
+        self.synchronizer.parameter_sync()
+        self.param_id_to_metadata = None
+
+    @torch.no_grad()
+    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        param_id_to_update = set()
+        for bucket in buckets:
+            if bucket is None:
+                continue
+            if bucket.buffer is None:
+                raise ValueError("Attempt to read from a bucket without buffer")
+            param_id_to_update.update({sharded_tensor_info.param_id for _, sharded_tensor_info in bucket.recv_layout})
+
+        param_id_to_bucket = defaultdict(list)
+        for bucket_idx, bucket in enumerate(buckets):
+            if bucket is None:
+                continue
+            for shard_idx, (offset, sharded_tensor_info) in enumerate(bucket.recv_layout):
+                param_id_to_bucket[sharded_tensor_info.param_id].append((bucket_idx, shard_idx))
+
+        buffer = None
+        buffer_offset = 0
+        buffer_size = 4 * 1024 ** 3
+        metadatas = []
+        for param_id in param_id_to_update:
+            param_name = self.param_id_to_local_name[param_id]
+            shard_info = self.param_id_to_metadata[param_id]
+            if buffer is None:
+                buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
+                buffer_offset = 0
+                metadatas = []
+            elif buffer.dtype != shard_info.dtype or buffer_offset + shard_info.numel() > buffer_size:
+                bucket_dict = {"flattened_tensor": buffer[:buffer_offset], "metadata": metadatas}
+                serialized_bucket = MultiprocessingSerializer.serialize(
+                    bucket_dict, output_str=True
+                )
+                self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+                buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
+                buffer_offset = 0
+                metadatas = []
+
+            weight = buffer[buffer_offset: buffer_offset + shard_info.numel()].view(shard_info.global_shape)
+            metadatas.append(FlattenedTensorMetadata(
+                name=param_name,
+                shape=weight.shape,
+                dtype=weight.dtype,
+                start_idx=buffer_offset,
+                end_idx=buffer_offset + shard_info.numel(),
+                numel=shard_info.numel(),
+            ))
+            for bucket_idx, shard_idx in param_id_to_bucket[param_id]:
+                bucket = buckets[bucket_idx]
+                offset, sharded_tensor_info = bucket.recv_layout[shard_idx]
+                byte_data = bucket.buffer[offset: offset + sharded_tensor_info.size]
+                shard = sharded_tensor_info.index(weight)
+                comm_dtype = sharded_tensor_info.dtype
+                # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
+                shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+
+            buffer_offset += shard_info.numel()
+
+        if buffer_offset > 0:
+            bucket_dict = {"flattened_tensor": buffer[:buffer_offset], "metadata": metadatas}
+            serialized_bucket = MultiprocessingSerializer.serialize(
+                bucket_dict, output_str=True
+            )
+            self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+
+        del buffer, weight, shard, bucket_dict
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()
+
 
 class AsyncSGLangModule(SGLangModule):
     """AsyncSGLangModule"""
@@ -495,7 +631,7 @@ class AsyncSGLangModule(SGLangModule):
         await self.flush_cache()
         return outputs
 
-    async def update_weights_from_ipc_handles(self, reduce_data):
+    async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
 
         # pylint: disable-next=import-outside-toplevel
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
