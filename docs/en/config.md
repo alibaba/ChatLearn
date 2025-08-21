@@ -116,6 +116,51 @@ policy_trainer:
 - `models.policy_trainer.gradient_checkpointing`: Enables recomputation of intermediate activations during training to save memory (gradient checkpointing).
 - `models.policy_trainer.save_hf`: If True, saves Hugging Face format checkpoints during training. An [offline merge script](https://github.com/alibaba/ChatLearn/blob/main/chatlearn/offline_ckpt_converter.py) is provided to merge FSDP distributed checkpoints into a Hugging Face checkpoint.
 
+## Megatron policy_trainer config
+The following are specific configuration options for the Megatron-Core training backend:
+```yaml
+policy_trainer: 
+  bf16: True
+  seq_length: 2048
+  tokenizer_type: 'HuggingFaceTokenizer'
+  tokenizer_model: ${models.policy.load}
+  tensor_model_parallel_size: 1
+  pipeline_model_parallel_size: 1
+  expert_tensor_parallel_size: null
+  expert_model_parallel_size: 1
+  virtual_pipeline_model_parallel_size: null
+  decoder_first_pipeline_num_layers: null
+  decoder_last_pipeline_num_layers: null
+  moe_router_force_load_balancing: False
+  # train config
+  load: your_megatron_model_path
+  sequence_parallel: True
+  use_distributed_optimizer: True
+  recompute_granularity: null
+  # other 
+  use_group_sequence_policy: False
+```
+
+- `models.policy_trainer.bf16`: whether to use bf16. If False, fp32 will be used.
+- `models.policy_trainer.seq_length`: sequence length for Megatron Training. If packing is enabled, the value will be ignored. 
+Otherwise, the value must be equal to the value used for data generation.
+- `models.policy_trainer.tokenizer_type`: tokenizer type for Megatron Training. For most cases, HuggingFaceTokenizer is recommended.
+- `models.policy_trainer.tokenizer_model`: tokenizer model path for Megatron Training.
+- `models.policy_trainer.tensor_model_parallel_size`: The number of tensor model parallel worlse size.
+- `models.policy_trainer.pipeline_model_parallel_size`: The number of pipeline model parallel worlse size.
+- `models.policy_trainer.expert_tensor_parallel_size`: The number of expert tensor model parallel worlse size.
+- `models.policy_trainer.expert_model_parallel_size`: The number of expert model parallel worlse size.
+- `models.policy_trainer.virtual_pipeline_model_parallel_size`: The number of virtual pipeline model parallel worlse size. Used when `pipeline_model_parallel_size` larger than 1.
+- `models.policy_trainer.decoder_first_pipeline_num_layers`: The number of decoder layers of the first pipeline stage. Used when num_layers of the model cannot be divided by `pipeline_model_parallel_size`.
+- `models.policy_trainer.decoder_last_pipeline_num_layers`: The number of decoder layers of the last pipeline stage. Used when num_layers of the model cannot be divided by `pipeline_model_parallel_size`.
+- `models.policy_trainer.moe_router_force_load_balancing`: (For benchmarking) Whether to force load balancing for MoE routers.
+- `models.policy_trainer.load`: The path to the model checkpoint.
+- `models.policy_trainer.sequence_parallel`: Whether to use sequence parallelism. Valid when `tensor_model_parallel_size` larger than 1.
+- `models.policy_trainer.use_distributed_optimizer`: Whether to use distributed optimizer to reduce memory consumption. Recommended to set True.
+- `models.policy_trainer.recompute_granularity`: Select recompute granularity to save memory usage. Should be null, `sel` or `full`. 
+- `models.policy_trainer.use_group_sequence_policy`: Whether to use [GSPO](https://qwenlm.github.io/blog/gspo/).
+
+
 ### ref_policy
 ref_policy uses the same backend as policy_trainer, but can be customized separately.
 ### common ref_policy config
@@ -149,6 +194,29 @@ ref_policy:
   groupgemm: False
 ```
 - `models.ref_policy.fsdp_size`, `models.ref_policy.meta_init`, and `models.ref_policy.groupgemm`: These mirror the options in `models.policy_trainer`, but can be set independently to override the defaults.
+
+#### Megatron ref_policy config
+Custom settings for the Megatron training backend.
+
+```yaml
+ref_policy:
+  seq_length: ${models.policy_trainer.seq_length}
+  tokenizer_type: 'HuggingFaceTokenizer'
+  tokenizer_model: ${models.policy.load}
+  bf16: True
+  sequence_parallel: True
+  tensor_model_parallel_size: ${models.policy_trainer.tensor_model_parallel_size}
+  pipeline_model_parallel_size: ${models.policy_trainer.pipeline_model_parallel_size}
+  expert_tensor_parallel_size: ${models.policy_trainer.expert_tensor_parallel_size}
+  expert_model_parallel_size: ${models.policy_trainer.expert_model_parallel_size}
+  decoder_first_pipeline_num_layers: ${models.policy_trainer.decoder_first_pipeline_num_layers}
+  decoder_last_pipeline_num_layers: ${models.policy_trainer.decoder_last_pipeline_num_layers}
+  moe_router_force_load_balancing: ${models.policy_trainer.moe_router_force_load_balancing}
+  load: ${models.policy_trainer.load}
+```
+
+All the above configurations are the same as policy trainer, but can be overridden for reference policy model. However, to improve the numerical stability, we recommend to keep two models consistent, especially in MoE training.
+
 
 ### policy
 SgLang and Vllm share same configuration
