@@ -195,7 +195,7 @@ def build_sharded_info_for_mcore_model(
     infos = {}
     for prefix, submodule in model.named_modules():
         if (
-            model.share_embeddings_and_output_weights and 
+            model.share_embeddings_and_output_weights and
             prefix == 'output_layer' and
             model.pre_process
         ):

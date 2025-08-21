@@ -62,7 +62,7 @@ class TensorwisePlanner(BasePlanner):
             # NOTE: 2. The bucket for the receiver group cannot exceed bucket size limit
             if allocated_bucket_size[sender][receivers] + shard.size > self.bucket_size:
                 return False, None
-            
+
             allocated_bucket_size[sender][receivers] += shard.size
             if sender not in receivers.values:
                 required_mem[self.src_rank_to_gpu_id[sender]] += shard.size

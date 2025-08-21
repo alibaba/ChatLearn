@@ -244,8 +244,13 @@ class MegatronMapper:
         # shared experts
         if module.shared_experts is not None:
             if module.shared_experts.use_shared_expert_gate:
-                self._update_mapping(self._inner_map_for_full_shape(f"{src_prefix}shared_experts.gate_weight", f"{dst_prefix}shared_expert_gate.weight"))
-            # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert` 
+                self._update_mapping(
+                    self._inner_map_for_full_shape(
+                        f"{src_prefix}shared_experts.gate_weight",
+                        f"{dst_prefix}shared_expert_gate.weight"
+                    )
+                )
+            # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert`
             # `shared_experts`: DeepSeek-V2, DeepSeek-V3, etc.
             # `shared_expert`: Qwen2-MoE, LLaMA-4, etc.
             hf_config = AutoConfig.from_pretrained(self._dst_model_config.load, trust_remote_code=True)

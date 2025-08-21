@@ -247,7 +247,6 @@ class VLLM_HELPERS:
     merge_gate_up = True
     merge_qkv = True
     merge_expert = True
-    skip_tied_output_layer = True
     force_full_model = False
 
 
@@ -257,5 +256,4 @@ class HF_HELPERS:
     merge_gate_up = False
     merge_qkv = False
     merge_expert = False
-    skip_tied_output_layer = False
     force_full_model = True

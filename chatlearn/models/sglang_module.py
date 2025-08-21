@@ -18,7 +18,6 @@ import os
 import math
 from typing import Optional, List, TYPE_CHECKING, Dict
 from collections import defaultdict
-from itertools import batched
 import copy
 
 import ray
@@ -345,9 +344,9 @@ class SGLangModule(TorchModule):
 
     @torch.no_grad()
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
-        # pylint: disable-next=import-outside-toplevel
+        # pylint: disable=import-outside-toplevel
         from sglang.srt.utils import MultiprocessingSerializer
-        from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorBucket, FlattenedTensorMetadata
+        from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
         param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:
