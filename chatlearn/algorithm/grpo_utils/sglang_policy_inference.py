@@ -1,4 +1,4 @@
-# pylint: disable=unused-argument,missing-class-docstring
+# pylint: disable=unused-argument,missing-class-docstring,abstract-method,invalid-overridden-method
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
