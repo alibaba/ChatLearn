@@ -1,8 +1,8 @@
-# 数据集准备
+# Dataset Preparation
 
-本文以GRPO算法为示例，介绍如何准备ChatLearn所需的训练数据集。
+This document uses the GRPO algorithm as an example to illustrate how to prepare a training dataset for ChatLearn.
 
-可以参考[math_lighteval](https://github.com/alibaba/ChatLearn/blob/main/chatlearn/data/data_preprocess/math_lighteval.py)示例，按jsonl格式准备自定义数据集，每一行的json中需要包含如下必要元素：
+You can refer to the [math_lighteval](https://github.com/alibaba/ChatLearn/blob/main/chatlearn/data/data_preprocess/math_lighteval.py) example to prepare a custom dataset in JSONL format. Each line of the JSON file must contain the following required fields:
 
 ```json
 {
@@ -20,17 +20,17 @@
 }
 ```
 
-- data_source
+- **data_source**
 
-数据源信息，用于将数据路由到不同的reward函数。[link](https://github.com/alibaba/ChatLearn/blob/main/chatlearn/models/reward/rule_reward.py#L80)
-> 自定义数据集需要实现相应的reward函数
+  Information about the data source, used to route data to different reward functions. [link](https://github.com/alibaba/ChatLearn/blob/main/chatlearn/models/reward/rule_reward.py#L80)  
+  > For custom datasets, you need to implement the corresponding reward function.
 
-- prompt
+- **prompt**
 
-输入数据问题，按OpenAI范式的多轮对话格式组织。在数据处理过程中，会调用[transformers](https://github.com/huggingface/transformers)库的apply_chat_template接口将多轮对话拼接成LLM需要的prompt。
+  The input question, formatted as a multi-turn conversation following the OpenAI paradigm. During data processing, the `apply_chat_template` interface from the [transformers](https://github.com/huggingface/transformers) library will be called to concatenate the conversation turns into a prompt suitable for the LLM.
 
-- reward_model
+- **reward_model**
 
-包含当前问题的正确答案，用于在reward函数判断答案的对错
+  Contains the correct answer for the current question, which is used by the reward function to evaluate whether the model's response is correct.
 
-数据集准备完成后，通过修改`runtime_args.data_path`、`runtime_args.eval_data_path`即可将自定义数据传入训练流程。
+After preparing the dataset, you can pass your custom data into the training pipeline by modifying `runtime_args.data_path` and `runtime_args.eval_data_path`.
