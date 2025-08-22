@@ -88,7 +88,7 @@ policy_trainer:
 - `models.policy_trainer.optimizer.clip_grad`: Gradient clipping rate.
 - `models.policy_trainer.trainable`: Enable training, this should always be True for trainer
 - `models.policy_trainer.generation_batch_size`: Batch size for a single model forward pass (used to compute **old_logprobs**).
-- `models.policy_trainer.train_micro_batch_size`: Local batch size per actor for forward/backward pass; used for gradient accumulation.
+- `models.policy_trainer.train_micro_batch_size`: Local batch size per model for forward/backward pass; used for gradient accumulation.
 - `models.policy_trainer.packing`: If enabled, samples are regrouped into batches with fewer total tokens then `models.policy_trainer.max_token_in_packing` in each batch. After regrouping, each batch will be packed into single sequence. If enabled, `models.policy_trainer.generation_batch_size` and `models.policy_trainer.train_micro_batch_size` will be ignored.
 - `models.policy_trainer.max_token_in_packing`: Used for regroup when `models.policy_trainer.packing` is enabled
 - `models.policy_trainer.load`: Path to load base checkpoint model.
@@ -248,8 +248,8 @@ policy:
 - `models.policy.tensor_model_parallel_size`: Specifies tensor parallel size for model parallelism.
 - `models.policy.trainable`: Policy model is non-trainable.
 - `models.policy.load`: Path to model checkpoint; should match `models.policy_trainer.load` for GRPO.
-- `models.policy.num_inference_per_prompt`: Number of responses generated per prompt, used for advantage calculation in GRPO.
-- `models.policy.seq_length`: Maximum response sequence length.
+- `models.policy.num_inference_per_prompt`: Number of responses generated per prompt.
+- `models.policy.seq_length`: Maximum response sequence length(prompt length + response length).
 - `models.policy.max_seq_len_to_capture`: Max sequence length captured during inference. Must be ≥ `models.policy.seq_length`.
 - `models.policy.temperature`, `models.policy.top_p`: Sampling hyperparameters for training rollouts.
 - `models.policy.eval_temperature`, `models.policy.eval_top_p`, `models.policy.eval_top_k`: Sampling hyperparameters for evaluation rollouts.
@@ -266,4 +266,4 @@ models:
 ```
 - `models.reward.num_cpu`: Total CPUs to allocate for the rule-based (CPU-based) reward actors.
 - `models.reward.cpu_per_process`: Number of CPUs used by each individual reward actor.
-- `models.reward.generation_batch_size`: Batch size for a single reward forward computation in rule-based reward evaluation.
+- `models.reward.generation_batch_size`: Batch size for a single reward forward computation.

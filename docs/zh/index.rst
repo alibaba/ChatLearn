@@ -29,7 +29,13 @@ ChatLearn 使用文档
    :maxdepth: 1
    :caption: 自定义任务
 
-   customized_task/data
+   customized_task
+
+.. toctree::
+   :maxdepth: 1
+   :caption: 配置说明
+
+   config
 
 .. toctree::
    :maxdepth: 1
