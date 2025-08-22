@@ -47,8 +47,8 @@ runtime_args:
 - `runtime_args.eval_data_path`: Evaluation data path. Ensure data files in this directory are compatible with the data reading code.
 - `runtime_args.data_checkpoint_path`: Path for saving data checkpoints. The default is **data_checkpoint_path/** under your `runtime_args.output_dir`
 - `runtime_args.num_episode`: Total number of training episodes. Each episode involves several weight updates.
-- `runtime_args.sample_per_episode`: Number of training samples per episode (global across all actors).
-- `runtime_args.train_global_batch_size`: `runtime_args.sample_per_episode` swill be divided into multiple global batches of this size. Each batch is used in one training round (global across actors).
+- `runtime_args.sample_per_episode`: Number of training samples per episode(sample_per_episode=prompt_per_episode*num_inference_per_prompt).
+- `runtime_args.train_global_batch_size`: `runtime_args.sample_per_episode` will be divided into multiple global batches of this size. Each batch is used in one training round (global across actors).
 - `runtime_args.save_episode_interval`: Interval for saving intermediate checkpoints.
 - `runtime_args.eval_episode_interval`: Interval between evaluation rounds.
 - `runtime_args.data_shuffle`: If enabled, dataset samples will be shuffled, ignoring the original order.
