@@ -30,7 +30,7 @@ ChatLearn Documentation
    :maxdepth: 1
    :caption: Customized Task
 
-   customized_task/data
+   customized_task
 
 .. toctree::
    :maxdepth: 1
