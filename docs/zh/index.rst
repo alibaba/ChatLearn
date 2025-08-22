@@ -24,6 +24,8 @@ ChatLearn 使用文档
    tutorial/tutorial_grpo_mcore
    tutorial/multinode_train
    tutorial/continue_train
+   tutorial/tuning_guide
+   tutorial/profile
 
 .. toctree::
    :maxdepth: 1
