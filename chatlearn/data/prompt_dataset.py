@@ -60,7 +60,10 @@ class PromptPipeline(Dataset):
                 "prompt": prompt,
                 "data_source": data_source,
                 "ground_truth": ground_truth,
+                "prompt_token_length": len(input_ids),
+                "prompt_token_ids": input_ids
             }
+            # Filter out data with long input_ids
             if seq_length > len(input_ids):
                 self.data.append(processed_data)
 

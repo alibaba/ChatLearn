@@ -15,6 +15,10 @@
 # ==============================================================================
 """vllm policy inference"""
 from typing import Dict, List, Any
+from collections import deque, defaultdict
+from collections import Counter
+import time
+
 import copy
 
 import torch
@@ -57,23 +61,26 @@ class VLLMPolicyInference(VLLMModule):
     @timeit("vllm_forward_step")
     @compute_decorator(trainable=False, rollout=True)
     def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
+        round_track = {}
+        if "rollout_round" in data[0]:
+            round_track = dict(Counter(d["rollout_round"] for d in data))
+        start_time = time.time()
         rets = self._forward_step(data, iteration, False)
         # collect metric
+        seq_len = self.module_args.get("seq_length")
         response_token_length = [ret["response_token_length"] for ret in rets]
         prompt_token_length = [ret["prompt_token_length"] for ret in rets]
-        seq_len = [
-            ret["response_token_length"] + ret["prompt_token_length"] 
-            for ret in rets
-        ]
         clip_ratio = sum(
-            1 for l in seq_len if l >= self.module_args.get("seq_length")
-        ) / len(seq_len)
+            ret["response_token_length"] >= ret.get("max_generate_token_length", seq_len) for ret in rets
+        ) / len(rets)
         inference_stats = {
             "response_token_length": sum(response_token_length)
             / len(response_token_length),
             "prompt_token_length": sum(prompt_token_length) / len(prompt_token_length),
             "response_clip_ratio": clip_ratio,
         }
+        round_track.update({'time': time.time() - start_time})
+        print(f"debugyy round_track for each rollout actor {round_track}")
         self._metric_list.append(inference_stats)
         return rets
 
@@ -95,13 +102,13 @@ class VLLMPolicyInference(VLLMModule):
                 all_tokens = torch.tensor(output.prompt_token_ids + output_tokens)
                 data_obj.update(
                     {
-                        "prompt_token_ids": prompt_token_ids,
                         "all_tokens": all_tokens,
                         "response_token_length": response_token_length,
-                        "prompt_token_length": prompt_token_length,
                         "str_outputs": str_outputs,
                     }
                 )
+                if "rollout_round" in data_obj:
+                    data_obj["rollout_round"] += 1
                 data_output.append(data_obj)
         print("str_outputs", data_output[0]["str_outputs"])
         print("data_sources", data_output[0]["data_source"])

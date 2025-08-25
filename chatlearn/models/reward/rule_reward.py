@@ -14,6 +14,7 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 """rule reward"""
 from typing import Dict, List
+from collections import defaultdict
 
 import torch
 
@@ -37,6 +38,7 @@ class RuleReward(BaseModule):
         assert self.total_gpu == 0, "RuleReward does not require GPU"
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
+        self.rule_reward_buffer = defaultdict(set)
 
     @timeit("rule_reward_setup")
     def setup(self):
@@ -48,7 +50,6 @@ class RuleReward(BaseModule):
         self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")
 
         reward = []
-
         for data_b in data:
             str_output = data_b["str_outputs"]
             data_source = data_b["data_source"]
