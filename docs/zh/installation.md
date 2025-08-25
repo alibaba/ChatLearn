@@ -1,28 +1,39 @@
 # 环境和代码准备
 
-1. 镜像准备
+## 1.镜像准备
 
-可以参考 `https://github.com/alibaba/ChatLearn/tree/master/docker/torch/Dockerfile.torch2.3.0` 准备镜像。
-如果在 PAI DLC/DSW 环境上训练，推荐使用我们准备好的镜像：
+ChatLearn支持vLLM和SGLang作为Rollout生成的后端框架，可以根据不同的Rollout后端框架，选择不同镜像进行实验。
+
+### vLLM
+可以参考 [Dockerfile.torch2.6.0.vllm085](https://github.com/alibaba/ChatLearn/blob/main/docker/torch/Dockerfile.torch2.6.0.vllm085) 准备镜像。也可以直接拉取如下镜像地址直接进行使用。
 
 ```bash
-registry.cn-wulanchabu.aliyuncs.com/pai-dlc/pytorch-training:2.4.0-gpu-py3.10-cu12.5-ngc24.06-ubuntu22.04
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.6.0-vllm0.8.5-ubuntu24.04-cuda12.6-py312
 ```
 
-2. 代码准备: 用户需要下载 `ChatLearn` 框架代码。
+### SGLang
+
+我们会在未来提供SGLang相关镜像。
+
+## 2. 代码准备
 
 ```
 # 下载 ChatLearn 代码
-git clone https://github.com/alibaba/ChatLearn.git
+git clone https://github.com/alibaba/ChatLearn.git 
 ```
 
-3. 如果您需要运行基于 Megatron-LM 框架的 alignment 训练程序，您也需要下载 `Megatron-LM` 代码。
+如果您选择Megatron作为训练框架，您需要下载[Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch)。
 
 ```
 # 下载 Megatron-LM
-git clone https://github.com/NVIDIA/Megatron-LM.git
-git checkout core_r0.8.0
+git clone --recurse-submodules https://github.com/alibaba/Pai-Megatron-Patch.git
 ```
 
-> [!NOTE]
-> 若使用 Megatron-LM core_r0.8.0，您可能在转换 checkpoint 时遇到错误：`ValueError: Default process group has not been initialized, please make sure to call init_process_group.`，您可以参考 [FAQ：转换 Checkpoint 失败](faq.md#转换-checkpoint-失败) 中的解决方案。
+> 如果github存在网络阻塞问题，您可以选择通过如下命令直接下载我们预先准备好的`Pai-Megatron-Patch`压缩包进行使用。`wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar && tar -xvf Pai-Megatron-Patch.tar`
+
+## 3. 进行强化学习实验
+
+ChatLearn支持FSDP和Megatron作为训练后端，可以分别参考如下教程进行实验：
+
+- [基于 FSDP 的端到端GRPO训练流程](https://github.com/alibaba/ChatLearn/blob/main/docs/zh/tutorial/tutorial_grpo_fsdp.md)
+- [基于 Mcore 的端到端GRPO训练流程](https://github.com/alibaba/ChatLearn/blob/main/docs/zh/tutorial/tutorial_grpo_mcore.md)
