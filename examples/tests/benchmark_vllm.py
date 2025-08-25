@@ -70,7 +70,7 @@ def example_to_requests(args, tokenizer, examples):
         if args.max_tokens is not None:
             max_tokens = args.max_tokens
         else:
-            max_tokens = 2048 - len(tokenizer(prompt).input_ids)
+            max_tokens = 2048 - min(len(tokenizer(prompt).input_ids), 1024)
         requests.append(SampleRequest(prompt, prompt_len, max_tokens))
         
         sampling_params.append(
