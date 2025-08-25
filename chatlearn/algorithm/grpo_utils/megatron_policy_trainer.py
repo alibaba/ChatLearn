@@ -78,6 +78,14 @@ class MegatronPolicyTrainer(MegatronModule):
             get_args().padded_vocab_size = self.args.vocab_size
 
         if self.trainable:
+            # TODO: move this hardcoded resumedir elsewhere
+            resume_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}"
+            if self.resume_training and os.path.exists(resume_dir):
+                get_args().load = resume_dir
+                get_args().no_load_optim = False
+                get_args().no_load_rng = False
+                get_args().no_load_scheduler = False
+                self._logger.info(f"Overwrite load path for resuming training.")
             self.model, self.optimizer, self.opt_param_scheduler = (
                 setup_model_and_optimizer(
                     self.model_provider, ModelType.encoder_or_decoder
@@ -97,8 +105,6 @@ class MegatronPolicyTrainer(MegatronModule):
                     None,
                     checkpointing_context={},
                     skip_load_to_model_and_opt=False
-                    and getattr(self.args, "use_torch_fsdp2", False)
-                    and self.args.ckpt_format == "torch_dist",
                 )
             if int(os.environ.get("WORLD_SIZE", 1)) > 1:
                 torch.distributed.barrier(
