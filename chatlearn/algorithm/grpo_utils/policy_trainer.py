@@ -94,7 +94,6 @@ class PolicyTrainer(FSDPModule):
         data_list = [batching(data_b) for data_b in microbatch_list]
 
         data_after_process = []
-
         for data_b in data_list:
             data_obj = {}
             tokens_ = data_b["all_tokens"].long()
@@ -112,9 +111,12 @@ class PolicyTrainer(FSDPModule):
                 # Packing data into one batch
                 tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
-
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
-                position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
+                if len(position_ids.shape)==3:
+                    # vl
+                    position_ids = position_ids.permute(0, 2, 1).cpu()
+                else:
+                    position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
 
             if self.sp_size > 1:
                 # Pad inputs to ensure seq_len is divisible by sp_size
@@ -171,7 +173,6 @@ class PolicyTrainer(FSDPModule):
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
-
             if "pixel_values" in inputs:
                 output = self.model(
                     input_ids=inputs['all_tokens'],
@@ -189,6 +190,7 @@ class PolicyTrainer(FSDPModule):
                     position_ids=inputs['position_ids'],
                     use_cache=False
                 )
+            breakpoint()
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
 
             # save memory while not use entropy in loss
@@ -307,7 +309,6 @@ class PolicyTrainer(FSDPModule):
                         position_ids=inputs['position_ids'],
                         use_cache=False
                     )
-                # breakpoint()
                 sp_group = get_sp_parallel_group()
                 logprobs = logprobs_from_logits(output.logits, inputs["labels"])
                 if sp_group is not None:

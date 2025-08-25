@@ -12,7 +12,7 @@ export RAY_DEDUP_LOGS=1
 RANDOM_STRING=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
 
 export exp_name=qwen2-5-vl-grpo-7b-${RANDOM_STRING}
-export MODEL_PATH=/mnt/data/xinyi.zxy/retrieval/models/qwen/Qwen2.5-VL-7B-Instruct
+export MODEL_PATH=/mnt/data/xinyi.zxy/models/Qwen2.5-VL-7B-Instruct
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
         runtime_args.exp_name=${exp_name} \
