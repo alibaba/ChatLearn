@@ -1,7 +1,3 @@
-
-[![docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://chatlearn.readthedocs.io/en/latest/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/alibaba/ChatLearn/blob/main/LICENSE)
-
 <p align="center">
   <picture>
     <img alt="ChatLearn" src="docs/images/logo.jpg" width=30%>
@@ -11,6 +7,15 @@
 <h3 align="center">
 A flexible and efficient reinforcement learning framework for large language models(LLMs).  
 </h3>
+
+<p align="center">
+  <a href="https://chatlearn.readthedocs.io/en/latest/">
+    <img src="https://img.shields.io/badge/docs-latest-brightgreen.svg" alt="docs">
+  </a>
+  <a href="https://github.com/alibaba/ChatLearn/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
+  </a>
+</p>
 
 <p align="center">
         &nbspEnglish&nbsp |  <a href="README_CN.md"> 中文 </a>&nbsp
