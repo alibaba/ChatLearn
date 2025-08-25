@@ -1,7 +1,3 @@
-
-[![docs](https://img.shields.io/badge/docs-latest-brightgreen.svg)](https://chatlearn.readthedocs.io/zh-cn/latest/)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://github.com/alibaba/ChatLearn/blob/main/LICENSE)
-
 <p align="center">
   <picture>
     <img alt="ChatLearn" src="docs/images/logo.jpg" width=30%>
@@ -11,6 +7,16 @@
 <h3 align="center">
 灵活、易用、高效的大语言模型（LLMs）强化学习训练框架
 </h3>
+
+<p align="center">
+  <a href="https://chatlearn.readthedocs.io/zh-cn/latest/">
+    <img src="https://img.shields.io/badge/docs-latest-brightgreen.svg" alt="docs">
+  </a>
+  <a href="https://github.com/alibaba/ChatLearn/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-Apache%202.0-blue.svg" alt="License">
+  </a>
+</p>
+
 <p align="center">
         <a href="README.md">English</a>&nbsp |  &nbsp中文&nbsp
 </p>
