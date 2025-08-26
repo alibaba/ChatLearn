@@ -17,6 +17,7 @@
 from typing import Literal, Optional, Dict, Any, Union
 
 import torch
+from torch import distributed as dist
 
 from flash_attn.bert_padding import pad_input
 
@@ -130,9 +131,15 @@ class PolicyModel(GPTModel):
                     training_inputs['ori_seq_len']
                 ).squeeze(-1)
             elif mpu.get_context_parallel_world_size() > 1:
-                attention_mask = training_inputs["all_token_attention_mask"]> 0.5
+                cp_size = mpu.get_context_parallel_world_size()
+                cp_group = mpu.get_context_parallel_group()
+                seq_indices = training_inputs['seq_indices']
+                forward_logprob_this_cp_rank = forward_logprob[0]
+                forward_logprob = torch.zeros(forward_logprob_this_cp_rank.shape[0] * cp_size).cuda()
+                forward_logprob.scatter_(0, seq_indices.to(torch.int64), forward_logprob_this_cp_rank)
+                dist.all_reduce(forward_logprob, group=cp_group)
                 forward_logprob = pad_input(
-                    forward_logprob[0][attention_mask].unsqueeze(-1), 
+                    forward_logprob.unsqueeze(-1), 
                     training_inputs['indices'], 
                     training_inputs['ori_batch_size'], 
                     training_inputs['ori_seq_len']
@@ -180,9 +187,15 @@ class PolicyModel(GPTModel):
                     training_inputs['ori_seq_len']
                 ).squeeze(-1)
             elif mpu.get_context_parallel_world_size() > 1:
-                attention_mask = training_inputs["all_token_attention_mask"]> 0.5
+                cp_size = mpu.get_context_parallel_world_size()
+                cp_group = mpu.get_context_parallel_group()
+                seq_indices = training_inputs['seq_indices']
+                entropy_loss_this_cp_rank = entropy_loss[:, 0]
+                entropy_loss = torch.zeros(entropy_loss_this_cp_rank.shape[0] * cp_size).cuda()
+                entropy_loss.scatter_(0, seq_indices.to(torch.int64), entropy_loss_this_cp_rank)
+                dist.all_reduce(forward_logprob, group=cp_group)
                 entropy_loss = pad_input(
-                    entropy_loss[:entropy_loss.shape[0]][attention_mask], 
+                    entropy_loss.unsqueeze(-1), 
                     training_inputs['indices'], 
                     training_inputs['ori_batch_size'], 
                     training_inputs['ori_seq_len']
