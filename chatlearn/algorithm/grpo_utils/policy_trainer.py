@@ -190,7 +190,7 @@ class PolicyTrainer(FSDPModule):
                     position_ids=inputs['position_ids'],
                     use_cache=False
                 )
-            breakpoint()
+            # breakpoint()
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
 
             # save memory while not use entropy in loss
