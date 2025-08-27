@@ -193,7 +193,7 @@ class PolicyModel(GPTModel):
                 entropy_loss_this_cp_rank = entropy_loss[:, 0]
                 entropy_loss = torch.zeros(entropy_loss_this_cp_rank.shape[0] * cp_size).cuda()
                 entropy_loss.scatter_(0, seq_indices.to(torch.int64), entropy_loss_this_cp_rank)
-                dist.all_reduce(forward_logprob, group=cp_group)
+                dist.all_reduce(entropy_loss, group=cp_group)
                 entropy_loss = pad_input(
                     entropy_loss.unsqueeze(-1), 
                     training_inputs['indices'], 

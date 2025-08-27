@@ -529,26 +529,6 @@ def get_batch(
             labels = torch.roll(tokens, shifts=-1, dims=0)
             labels_on_this_cp_rank = labels.index_select(0, seq_indices)
 
-            """
-            attn_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32, device=all_tokens.device)
-            for i, (prompt_length, response_length) in enumerate(
-                zip(prompt_token_length, response_token_length)
-            ):
-                start_idx = cu_seqlens_padded[i]
-                attn_mask_for_unpadding[start_idx: start_idx + prompt_length + response_length, 0] = 1
-
-            attn_mask_on_this_cp_rank = attn_mask_for_unpadding.index_select(0, seq_indices)
-
-            loss_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32, device=all_tokens.device)
-            for i, (prompt_length, response_length) in enumerate(
-                zip(prompt_token_length, response_token_length)
-            ):
-                start_idx = cu_seqlens_padded[i]
-                loss_mask_for_unpadding[start_idx + prompt_length: start_idx + prompt_length + response_length, 0] = 1
-
-            loss_mask_for_unpadding = torch.roll(loss_mask_for_unpadding, shifts=-1, dims=0)
-            loss_mask_on_this_cp_rank = loss_mask_for_unpadding.index_select(0, seq_indices)
-            """
             packed_seq_params = PackedSeqParams(
                 qkv_format='thd',
                 cu_seqlens_q=cu_seqlens,
@@ -556,7 +536,7 @@ def get_batch(
                 max_seqlen_q=max_seqlen_in_batch,
                 max_seqlen_kv=max_seqlen_in_batch
             )
-            #indices = torch.nonzero(attn_mask_on_this_cp_rank.flatten(), as_tuple=False).flatten()
+
             input_data = {
                 "all_tokens": tokens_on_this_cp_rank.transpose(0, 1),
                 "all_token_attention_mask": None,
