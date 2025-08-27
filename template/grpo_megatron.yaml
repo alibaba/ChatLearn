@@ -50,9 +50,10 @@ models:
     generation_batch_size: 8
     gpu_per_process: 1
     num_gpu: 1
+    train_micro_batch_size: ${runtime_args.train_micro_batch_size}
     tensor_model_parallel_size: 1
     pipeline_model_parallel_size: 1
-    expert_tensor_parallel_size: 1
+    expert_tensor_parallel_size: null
     expert_model_parallel_size: 1
     context_parallel_size: 1
     virtual_pipeline_model_parallel_size: null

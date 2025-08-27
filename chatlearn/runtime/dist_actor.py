@@ -338,6 +338,10 @@ class DistModel:
         return self.replicas[0].module_args
 
     @property
+    def runtime_args(self):
+        return self.replicas[0].runtime_args
+
+    @property
     def actor_num(self):
         return sum(len(dist_actor.all_actors) for dist_actor in self.replicas)
 

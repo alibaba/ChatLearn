@@ -17,7 +17,6 @@ import itertools
 from collections import Counter, defaultdict
 from typing import List, Dict, TYPE_CHECKING
 
-from chatlearn.launcher.initialize import patch_ray
 from chatlearn.utils import future
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.timer import Timers
@@ -29,8 +28,6 @@ from .planners import get_planner_cls
 
 if TYPE_CHECKING:
     from chatlearn.runtime.dist_actor import DistModel
-
-patch_ray()
 
 
 class MCoreParameterSyncGroup(BaseParameterSyncGroup):

@@ -17,8 +17,9 @@ import inspect
 import os
 from contextlib import nullcontext
 from functools import partial
-from typing import Union, Dict, Any, Sequence
+from typing import List, Union, Dict, Any, Sequence
 from collections import defaultdict
+import numpy as np
 
 import torch
 from megatron.core import mpu
@@ -46,21 +47,27 @@ from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
 import chatlearn
 from chatlearn import MegatronModule
+from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
     PolicyModel, 
     forward_step, 
     training_log
 )
 
-from .packing_utils import regroup_data_packing
-
-REF_TAG = "ref_logprobs"
-OLD_TAG = "old_logprobs"
-
+from chatlearn.algorithm.grpo_utils.trainer_utils import (
+    logprobs_from_logits,
+    entropy_from_logits_with_chunking,
+    sp_split,
+    generate_loss_mask_position_ids,
+    split_microbatch,
+    batching,
+    split_and_unpadding
+)
 
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
 
+    @monitor_error("megatron_setup")
     def setup(self):
         self.stats = {}
         self.buffer = {}
@@ -71,6 +78,14 @@ class MegatronPolicyTrainer(MegatronModule):
             get_args().padded_vocab_size = self.args.vocab_size
 
         if self.trainable:
+            # TODO: move this hardcoded resumedir elsewhere
+            resume_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}"
+            if self.resume_training and os.path.exists(resume_dir):
+                get_args().load = resume_dir
+                get_args().no_load_optim = False
+                get_args().no_load_rng = False
+                get_args().no_load_scheduler = False
+                self._logger.info(f"Overwrite load path for resuming training.")
             self.model, self.optimizer, self.opt_param_scheduler = (
                 setup_model_and_optimizer(
                     self.model_provider, ModelType.encoder_or_decoder
@@ -90,8 +105,6 @@ class MegatronPolicyTrainer(MegatronModule):
                     None,
                     checkpointing_context={},
                     skip_load_to_model_and_opt=False
-                    and getattr(self.args, "use_torch_fsdp2", False)
-                    and self.args.ckpt_format == "torch_dist",
                 )
             if int(os.environ.get("WORLD_SIZE", 1)) > 1:
                 torch.distributed.barrier(
@@ -210,26 +223,34 @@ class MegatronPolicyTrainer(MegatronModule):
 
         return model
 
-    def train_step(self, data_list):
+    @timeit("megatron_train_step")
+    @monitor_error("megatron_train_step")
+    @compute_decorator(trainable=True, rollout=False)
+    def train_step(self, data_list: List[Dict[str, Any]], **kwargs):
+        """Do an train step.
+
+        Args:
+            data_list List[Dict[str, Sequence[Any]]: List of data with size of train_global_batch_size // data_parallel_size.
+
+        """
         args = get_args()
         timers = get_timers()
         for model_chunk in self.model:
             model_chunk.module.train()
 
-        num_microbatches = get_num_microbatches()
+        # Split minibatch to microbatches and batching
         if self.module_args.packing:
-            # NOTE: When packing is enabled, data_list will only contain one microbatch
-            # Microbatch will be regrouped
-            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length", "advantages", REF_TAG, OLD_TAG]
-            # NOTE: only key in regroup_keywords will be returned
-            data_list = regroup_data_packing(data_list, regroup_keywords, self.module_args.max_token_in_packing)
-            num_microbatches = len(data_list)
-            if args.micro_batch_size != 1:
-                raise ValueError("micro_batch_size is not 1 when sequence packing is enabled!")
-        elif num_microbatches != len(data_list):
-            raise ValueError(f"The number of microbatches should be equal to the number of data. "
-                             f"But got {get_num_microbatches()} and {len(data_list)}")
-            
+            process_group_list = [
+                mpu.get_model_parallel_group(check_initialized=False),
+                mpu.get_expert_model_parallel_group(check_initialized=False),
+            ]
+            microbatch_list = split_microbatch(data_list=data_list, max_train_token=self.module_args.max_token_in_packing, process_group_list=process_group_list, packing=self.module_args.packing)
+        else:
+            microbatch_list = split_microbatch(data_list=data_list, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)
+
+        data_list = [batching(data_b) for data_b in microbatch_list]
+
+        num_microbatches = len(data_list)
         data_iterator = iter(data_list)
 
         self.optimizer.zero_grad()
@@ -339,30 +360,45 @@ class MegatronPolicyTrainer(MegatronModule):
 
         self.report_memory_flag = report_memory_flag
 
+    @timeit("megatron_forward_step")
+    @monitor_error("megatron_forward_step")
+    @compute_decorator(trainable=False, rollout=False)
     @torch.no_grad()
-    def forward_step(self, data: Dict[str, Sequence[Any]]):
+    def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]:
         """Do an inference forward step. Only for computation of old_logprobs and ref_logprobs.
 
         Args:
-            data (Dict[str, Sequence[Any]]): The batched data with shape of [generation_batch_size, *].
+            data List[Dict[str, Sequence[Any]]: List of data with size of sample_per_episode // data_parallel_size.
 
         Returns:
-            data (Dict[str, Any]): If this is the last rank of the replica, the output logprobs will be
-             updated into the dict, otherwise do NOTHING.
+            data List[Dict[str, Sequence[Any]]: If this is the last rank of the replica, the output logprobs will be
+             updated into the each dict in list, otherwise do NOTHING.
         """
+        args = get_args()
         for model_chunk in self.model:
             model_chunk.eval()
-
+        tag = "old_logprobs" if self.trainable else "ref_logprobs"
+        # Split minibatch to microbatches and batching
         if self.module_args.packing:
-            # NOTE: When packing is enabled, data_list will only contain one microbatch
-            # Microbatch will be regrouped
-            regroup_keywords = ["all_tokens", "prompt_token_length", "response_token_length"]
-            # NOTE: only key in regroup_keywords will be returned
-            data_list = regroup_data_packing([data], regroup_keywords, self.module_args.max_token_in_packing)
-            num_microbatches = len(data_list)
-            data_iter = iter(data_list)
+            # Get process group for bin_size communication
+            process_group_list = [
+                mpu.get_model_parallel_group(check_initialized=False),
+                mpu.get_expert_model_parallel_group(check_initialized=False),
+            ]
+            # Split by num_train_global_batch first
+            microbatch_list = []
+            train_global_batch_size = len(data) // self.num_train_global_batch
+            for train_batch_id in range(self.num_train_global_batch):
+                start_idx = train_batch_id * train_global_batch_size
+                end_idx = (train_batch_id + 1) * train_global_batch_size
+                microbatch_list.extend(split_microbatch(data_list=data[start_idx: end_idx], max_train_token=self.module_args.max_token_in_packing, process_group_list=process_group_list, offset=start_idx, packing=self.module_args.packing))
         else:
-            num_microbatches, data_iter = self._chunk_global_batch_into_micro_batch(data)
+            microbatch_list = split_microbatch(data_list=data, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)
+
+        data_list = [batching(data_b) for data_b in microbatch_list]
+
+        num_microbatches = len(data_list)
+        data_iter = iter(data_list)
         # NOTE: internal computation
         args = get_args()
         forward_backward_func = get_forward_backward_func()
@@ -386,40 +422,14 @@ class MegatronPolicyTrainer(MegatronModule):
             model_chunk.train()
         if not mpu.is_pipeline_last_stage():
             return
+
         # trainable is True --> policy trainer; False --> PolicyReference
-        tag = OLD_TAG if self.trainable else REF_TAG
-        logprobs = -torch.cat(forward_data_store, dim=0)
-        if self.module_args.packing:
-            # NOTE: if packing is enabled, logprobs is re-ordered by bin_ids, we should mapping back
-            # NOTE: full_bin_ids[k] indicates k-th logprob is the logprobs of full_bin_ids[k]-th sample
-            full_bin_ids = [idx for inputs in data_list for idx in inputs['bin_ids']]
-            # NOTE: inversed_mapping[k] indicates k-th sample has inversed_mapping[k]-th logprob
-            inversed_mapping = [item[1] for item in sorted([(v, k) for k, v in enumerate(full_bin_ids)])]
-            logprobs = logprobs[inversed_mapping]
 
-        assert (
-            tag not in data
-        ), f"The {tag} is already computed in this batch, old_value: {data[tag]}, new_value: {logprobs}"
-        data.update({tag: logprobs})
+        # update data for each sample in list
+        for logprobs, data_b in zip(forward_data_store, data_list):
+            attn_mask, *_ = generate_loss_mask_position_ids(data_b["all_tokens"].long(), data_b["prompt_token_length"], data_b["response_token_length"])
+            logprobs_tensor_list = split_and_unpadding(-logprobs, attn_mask)
+            for sample_id, logprob in zip(data_b['id_in_list'], logprobs_tensor_list):
+                data[sample_id].update({tag: logprob})
+
         return data
-
-    def _chunk_global_batch_into_micro_batch(self, data_dict):
-        # NOTE: assume that generation_batch_size is multiple of micro_batch_size in MCore
-        assert len(data_dict) > 0, "Expect non-empty data_dict"
-        args = get_args()
-        generation_batch_size = self.module_args.generation_batch_size
-        micro_batch_size = args.micro_batch_size
-        num_microbatches = generation_batch_size // micro_batch_size
-
-        assert len(list(data_dict.values())[0]) == generation_batch_size, \
-            f"Expect data dict has `{generation_batch_size}` samples, " \
-            f"but got {len(list(data_dict.values())[0])} samples"
-
-        def _data_iter(data_dict):
-            for i in range(num_microbatches):
-                yield {
-                    k: v[i * micro_batch_size : (i + 1) * micro_batch_size]
-                    for k, v in data_dict.items()
-                }
-
-        return num_microbatches, _data_iter(data_dict)

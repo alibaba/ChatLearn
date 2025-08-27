@@ -16,7 +16,6 @@
 import os
 import random
 import gc
-import copy
 from typing import List
 
 import numpy as np
@@ -35,7 +34,9 @@ from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
+from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
+
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -45,7 +46,6 @@ class FSDPModule(TorchModule):
     name : str
         model name
     """
-    # pylint: disable=abstract-method
 
     def __init__(self, name: str, args=None, replica_id: int=0):
         """The chatlearn wrapper for a FSDP model.
@@ -63,6 +63,9 @@ class FSDPModule(TorchModule):
         self.sp_device_mesh = None
         self.packing = self.module_args.packing
         self.max_token_in_seq = self.module_args.max_token_in_packing
+        self.generate_micro_batch_size = self.module_args.generation_batch_size
+        if self.module_args.trainable:
+            self.train_micro_batch_size = self.module_args.train_micro_batch_size
 
     @staticmethod
     def init_fn(x: torch.nn.Module):
@@ -172,7 +175,6 @@ class FSDPModule(TorchModule):
                 )
         dist.barrier()
         return model
-
     @property
     def data_parallel_size(self):
         """
@@ -202,6 +204,8 @@ class FSDPModule(TorchModule):
             assert self.sp_size % config.num_key_value_heads == 0, \
                 "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
 
+    @monitor_error("model_setup")
+    @timeit("model_setup")
     def model_setup(self):
         """
         :meta private:
@@ -313,11 +317,11 @@ class FSDPModule(TorchModule):
             param_cnt += param.numel()
             current_group.append(name)
             if param_cnt >= block_size:
-                name_list.append(copy.deepcopy(current_group))
+                name_list.append(current_group)
                 current_group = []
                 param_cnt = 0
         if len(current_group) > 0:
-            name_list.append(copy.deepcopy(current_group))
+            name_list.append(current_group)
         return name_list
 
     def get_weight_ipc_handles_by_name(self, block_name: List[str]):
@@ -341,6 +345,9 @@ class FSDPModule(TorchModule):
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
+
+    def update_weights_from_buckets(self, buckets):
+        pass
 
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
@@ -387,6 +394,7 @@ class FSDPModule(TorchModule):
         if empty_cache:
             torch.cuda.empty_cache()
 
+    @timeit("save_checkpoint")
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
         if dist.get_rank() == 0 and not os.path.exists(save_dir):

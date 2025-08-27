@@ -30,7 +30,7 @@ except ImportError:
     IS_MEGATRON_SUPPORTED = False
 
 from chatlearn.configs import BaseConfig
-from chatlearn.utils.mappings import build_sharded_info_for_mcore_model
+
 from .torch_module import TorchModule
 
 
@@ -44,6 +44,8 @@ if IS_MEGATRON_SUPPORTED:
         ) from exc
     # pylint: disable-next=ungrouped-imports
     from chatlearn.models.megatron.memory_manager import InferenceMemoryManager, TrainerMemoryManager
+    from chatlearn.utils.mappings.megatron_helpers import build_sharded_info_for_mcore_model
+
     # pylint: disable-next=ungrouped-imports
     from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
@@ -108,6 +110,8 @@ if IS_MEGATRON_SUPPORTED:
 
             # NOTE: Megatron-Core will override variable_seq_lengths to be False, override it back
             get_args().variable_seq_lengths = self.module_args.variable_seq_lengths
+
+            self.num_train_global_batch = self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size
 
             if self.trainable:
                 # slow down if set jit fusion for inference model
@@ -240,8 +244,11 @@ if IS_MEGATRON_SUPPORTED:
 
         @torch.no_grad()
         def map_local_param_name_to_global(self):
-            """generate a global name for each parameter in the model
-            (just name of PP1EP1)
+            """Map names of weights on each rank to a unique name.
+            
+            Returns:
+                List[str]: A list of unique global names for each weight 
+            on this rank.
             """
             self.global_name_to_local_name = {}
             # NOTE: this regex is for model with TEGroupedGEMM

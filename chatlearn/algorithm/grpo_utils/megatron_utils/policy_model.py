@@ -122,6 +122,7 @@ class PolicyModel(GPTModel):
         )
 
         # NOTE: before loss computation, we need to unpack the packed inputs
+        forward_logprob = forward_logprob[:, :forward_logprob.shape[1] - training_inputs['pad_size']]
         if self.module_args.packing:
             if mpu.get_context_parallel_world_size() == 1:
                 forward_logprob = pad_input(
@@ -145,6 +146,7 @@ class PolicyModel(GPTModel):
                     training_inputs['ori_seq_len']
                 ).squeeze(-1)
                 
+
 
         old_logprobs = training_inputs["old_logprobs"]
         ref_logprobs = training_inputs["ref_logprobs"]
@@ -177,7 +179,9 @@ class PolicyModel(GPTModel):
                 neg_clip_ratio=self.module_args.neg_clip_ratio,
                 final_clip_ratio=self.module_args.final_clip_ratio
             )
+
         entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
+        entropy_loss = entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']]
         if self.module_args.packing:
             if mpu.get_context_parallel_world_size() == 1:
                 entropy_loss = pad_input(
