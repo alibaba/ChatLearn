@@ -529,6 +529,17 @@ def get_batch(
             labels = torch.roll(tokens, shifts=-1, dims=0)
             labels_on_this_cp_rank = labels.index_select(0, seq_indices)
 
+            loss_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32, device=all_tokens.device)
+            for i, (prompt_length, response_length) in enumerate(
+                zip(prompt_token_length, response_token_length)
+            ):
+                start_idx = cu_seqlens_padded[i]
+                loss_mask_for_unpadding[start_idx + prompt_length: start_idx + prompt_length + response_length, 0] = 1
+
+            loss_mask_for_unpadding = torch.roll(loss_mask_for_unpadding, shifts=-1, dims=0)
+            loss_mask_on_this_cp_rank = loss_mask_for_unpadding.index_select(0, seq_indices)
+            num_tokens_on_this_cp_rank = loss_mask_on_this_cp_rank.sum()
+
             packed_seq_params = PackedSeqParams(
                 qkv_format='thd',
                 cu_seqlens_q=cu_seqlens,
@@ -547,7 +558,8 @@ def get_batch(
                 "ori_seq_len": ori_seqlen,
                 "ori_batch_size": mbs,
                 "seq_indices": seq_indices,
-                "indices": indices
+                "indices": indices,
+                "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
             }
 
     else:
@@ -657,7 +669,8 @@ def loss_func(
 
         reporting_losses[key] = final_loss.detach().clone().to(torch.float)
 
-    num_tokens = loss_mask.sum().clone().detach().to(torch.int)
+    #num_tokens = loss_mask.sum().clone().detach().to(torch.int)
+    num_tokens = inputs.get('num_tokens_on_this_cp_rank', loss_mask.sum().clone().detach()).to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
     reporting_losses["num_samples"] = torch.ones_like(num_tokens)
     return total_loss_for_bp, num_tokens, reporting_losses
