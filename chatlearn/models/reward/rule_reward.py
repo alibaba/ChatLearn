@@ -40,7 +40,7 @@ class RuleReward(BaseModule):
 
     def setup(self):
         self.stats = {}
-        self._metric_prefix = "rulereward"
+        self._metric_prefix = "rule_reward"
 
     def _forward_step(self, data: List) -> torch.Tensor:
         # str_prompts_list = data["str_prompts"]

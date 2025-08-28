@@ -185,7 +185,7 @@ class SGLangModule(TorchModule):
         resource = ray.nodes()[0]["Resources"]
         self.gpu_per_node = int(resource["GPU"])
         self.llm = None
-        self._metric_prefix = "sglang_inference"
+        self._metric_prefix = "rollout"
 
     def init(self):
         """

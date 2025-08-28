@@ -88,7 +88,7 @@ if HAVE_VLLM:
                 self.param_update_fn = self.update_weights_from_ipc_handles_naive
 
             self.set_vllm_pp_layer_partition()
-            self._metric_prefix = 'vllm_inference'
+            self._metric_prefix = 'rollout'
 
         def init_engine_args(self):
             dtype = self.module_args.get("dtype", "bfloat16")
