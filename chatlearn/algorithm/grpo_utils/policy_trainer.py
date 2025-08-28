@@ -145,9 +145,9 @@ class PolicyTrainer(FSDPModule):
             data_after_process.append(data_obj)
         return response_token_length_total, data_after_process
 
-    @timeit("fsdp_train_step")
-    @monitor_error("fsdp_train_step")
+    @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
+    @timeit()
     def train_step(self, data_list: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument
         """
         data_list: list of micro batchs [micro_bs0, micro_bs1]
@@ -258,9 +258,9 @@ class PolicyTrainer(FSDPModule):
         }
         self._metric_list.append(train_stats)
 
-    @timeit("fsdp_forward_step")
-    @monitor_error("fsdp_forward_step")
+    @monitor_error()
     @compute_decorator(trainable=False, rollout=False)
+    @timeit()
     def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument,arguments-differ
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = "old_logprobs" if self.trainable else "ref_logprobs"

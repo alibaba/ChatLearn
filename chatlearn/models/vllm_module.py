@@ -157,8 +157,8 @@ if HAVE_VLLM:
             tokenizer.tokenizer = tokenizer
             self.tokenizer = tokenizer
 
-        @timeit("setup_vllm")
-        def setup_vllm(self, workers):
+        @timeit()
+        def setup_engine(self, workers):
             """setup vllm engine
             used in Environment.setup()
             """
@@ -204,12 +204,12 @@ if HAVE_VLLM:
                 distributed_executor_backend="ray",
                 enable_sleep_mode=True,
                 swap_space=self.module_args.get("swap_space", 16))
-            self.offload_weights()
+            self.offload()
 
         def dump_parameters(self, dump_path_root):
-            self.onload_weights()
+            self.onload()
             self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
-            self.offload_weights()
+            self.offload()
 
         def worker_dump_parameters(self, dump_path_root):
             tp_rank = parallel_state.get_tensor_model_parallel_rank()
@@ -368,9 +368,6 @@ if HAVE_VLLM:
             self.save_stage_outputs(is_eval, outputs, iteration)
             return outputs
 
-        def is_last_rank(self):
-            return True
-
         def peak_memory(self):
             """
             :meta private:
@@ -400,7 +397,8 @@ if HAVE_VLLM:
         def is_engine(self):
             return self.llm
 
-        def offload_weights(self): # is_param_sync=True
+        @timeit()
+        def offload(self): # is_param_sync=True
             """
             offload weights
             """
@@ -409,7 +407,8 @@ if HAVE_VLLM:
                 self.llm.sleep()
                 self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
 
-        def onload_weights(self, tags: Optional[list[str]] = None):
+        @timeit()
+        def onload(self, tags: Optional[list[str]] = None):
             """
             onload weights
             Wake up the engine from sleep mode. See the :meth:`sleep` method

@@ -42,7 +42,8 @@ class VLLMPolicyInference(VLLMModule):
 
         return prompts_dataset
 
-    def eval_forward(self, data, iteration=0):
+    @timeit()
+    def eval_forward(self, data, iteration=0, **kwargs):
         return self._forward_step(data, iteration, True)
 
     def _forward_step(
@@ -54,8 +55,8 @@ class VLLMPolicyInference(VLLMModule):
             rets = self.decode_internal(outputs, data)
             return rets
     
-    @timeit("vllm_forward_step")
     @compute_decorator(trainable=False, rollout=True)
+    @timeit()
     def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
         rets = self._forward_step(data, iteration, False)
         # collect metric

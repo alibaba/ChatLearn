@@ -18,7 +18,9 @@ import inspect
 import traceback
 import functools
 
+import torch
 from torch.cuda import nvtx
+import torch.distributed as dist
 import ray
 
 from chatlearn.utils import future
@@ -26,10 +28,11 @@ from chatlearn.utils import utils
 from chatlearn.utils.global_vars import _EXIT_ACTOR_NAME, set_wrap_func
 from chatlearn.utils.utils import execute
 
-def monitor_error(func_name):
+def monitor_error():
     def decorator(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
+            func_name = func.__name__
             try:
                 return func(self, *args, **kwargs)
             except Exception as e:
@@ -49,20 +52,19 @@ def monitor_error(func_name):
     return decorator
 
 
-def timeit(func_name):
+def timeit():
     def decorator(func):
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
+            func_name = func.__name__
             if self.runtime_args.nsys:
                 nvtx.range_push(func_name)
-            if self.is_last_rank():
-                # for the class inherited from base, it may call multiple times, so use the first start time
-                if not self.timers(func_name).started_:
-                    self.timers(func_name).start()
-                ret = func(self, *args, **kwargs)
-                self.timers(func_name).stop()
-            else:
-                ret = func(self, *args, **kwargs)
+
+            if not self.timers(func_name).started_:
+                self.timers(func_name).start()
+            ret = func(self, *args, **kwargs)
+            self.timers(func_name).stop()
+
             if self.profiler is not None and self._iteration > 0 and self._iteration <=2 and self.replica_id == 0 \
                 and func_name in ["forward_step", "train_step"]:
                 self.profiler.step()
@@ -74,16 +76,15 @@ def timeit(func_name):
 
         @functools.wraps(func)
         async def wrapper_async(self, *args, **kwargs):
+            func_name = func.__name__
             if self.runtime_args.nsys:
                 nvtx.range_push(func_name)
-            if self.is_last_rank():
-                # for the class inherited from base, it may call multiple times, so use the first start time
+
                 if not self.timers(func_name).started_:
                     self.timers(func_name).start()
                 ret = await func(self, *args, **kwargs)
                 self.timers(func_name).stop()
-            else:
-                ret = await func(self, *args, **kwargs)
+
             if self.profiler is not None and self._iteration>0 and self._iteration<=2 and self.replica_id==0 \
                 and func_name in ["forward_step", "train_step"]:
                 self.profiler.step()
@@ -116,10 +117,7 @@ def compute_decorator(trainable, rollout):
 
             # Onload model if needed
             if to_onload:
-                if rollout:
-                    self.onload_weights()
-                else:
-                    self.onload()
+                self.onload()
 
             # Run decorated function
             if 'iteration' in inspect.signature(func).parameters:
@@ -133,15 +131,12 @@ def compute_decorator(trainable, rollout):
 
             # Clean up after function
             # TODO, remove
-            if to_empty_cache:
-                if not rollout:
-                    self.empty_cache()
-            if to_offload:
-                if rollout:
-                    if not is_eval:
-                        self.offload_weights()
-                else:
-                    self.offload()
+            if to_empty_cache and not rollout:
+                self.empty_cache()
+            
+            if to_offload and not (rollout and is_eval):
+                self.offload()
+
             # TODO fix consumed samples
             if is_last_batch and not is_eval:
                 self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode
@@ -157,7 +152,7 @@ def compute_decorator(trainable, rollout):
             is_eval = kwargs.pop('is_eval', False)
             # Onload model if needed
             if kwargs.pop('to_onload', False):
-                await self.onload_weights()
+                await self.onload()
 
             # Run decorated function
             if 'iteration' in inspect.signature(func).parameters:
@@ -170,7 +165,7 @@ def compute_decorator(trainable, rollout):
             # Clean up after function
             # TODO, remove
             if kwargs.pop('to_offload', False) and not is_eval:
-                await self.offload_weights()
+                await self.offload()
             # TODO fix consumed samples
             if kwargs.pop('is_last_batch', False) and not is_eval:
                 self.runtime_args.consumed_samples += self.runtime_args.sample_per_episode

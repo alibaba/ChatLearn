@@ -225,10 +225,11 @@ class SGLangModule(TorchModule):
             self.module_args["load"], trust_remote_code=True
         )
 
-    @timeit("setup_sglang")
-    def setup_sglang(self):
+    @timeit()
+    def setup_engine(self):
 
         if self.llm is not None:  # for evaluator not setup twice
+            dist.barrier()
             return
         nnodes_per_replica = math.ceil(
             self.tensor_model_parallel_size / self.gpu_per_node
@@ -279,6 +280,7 @@ class SGLangModule(TorchModule):
         self.weight_onloaded = True
 
         self.need_offload = True
+        dist.barrier()
 
     def _get_sampling_params(self, is_eval):
         temperature = 0.0
@@ -340,9 +342,6 @@ class SGLangModule(TorchModule):
         }
 
         return sampling_params
-
-    def is_last_rank(self):
-        return True
 
     def preprocess_data(self, query: List[Dict], is_eval: bool):
         """
@@ -454,7 +453,8 @@ class SGLangModule(TorchModule):
             if tag in tags:
                 setattr(self, attr, value)
 
-    def offload_weights(self, tags: Optional[List[str]] = None):
+    @timeit()
+    def offload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
         if self.is_engine:
             # avoid offload offloaded param
@@ -471,10 +471,11 @@ class SGLangModule(TorchModule):
             self.postprocess_tags(tags, stage="offload")
         torch.cuda.synchronize()
 
-    def onload_weights(self, tags: Optional[List[str]] = None):
+    @timeit()
+    def onload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
         if self.need_offload:
-            self.offload_weights()
+            self.offload()
             self.need_offload = False
         if self.is_engine:
             # avoid onload onloaded param
@@ -665,7 +666,8 @@ class AsyncSGLangModule(SGLangModule):
             await self.llm.flush_cache()
         torch.cuda.synchronize()
 
-    async def offload_weights(self, tags: Optional[List[str]] = None):
+    @timeit()
+    async def offload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
 
         if self.is_engine:
@@ -683,10 +685,11 @@ class AsyncSGLangModule(SGLangModule):
             self.postprocess_tags(tags, stage="offload")
         torch.cuda.synchronize()
 
-    async def onload_weights(self, tags: Optional[List[str]] = None):
+    @timeit()
+    async def onload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
         if self.need_offload:
-            await self.offload_weights()
+            await self.offload()
             self.need_offload = False
         if self.is_engine:
             # avoid onload onloaded param

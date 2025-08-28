@@ -36,6 +36,7 @@ from chatlearn.utils.utils import get_host_addr, map_reduce_metrics, slice_data_
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.base import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
+from chatlearn.runtime.decorator import timeit
 
 if TYPE_CHECKING:
     from chatlearn.synchronizer.structs import BucketInfo
@@ -83,7 +84,7 @@ class BaseModule:
 
         self._dataloader = None
         self._eval_dataloader = None
-        self._timers = None
+        self._timers = Timers()
         self._data_iter = None
         self._eval_data_iter = None
         self.call_funcs = []
@@ -474,27 +475,11 @@ class BaseModule:
         """
         return self._num_gpu_per_replica
 
-
-    def is_last_rank(self):
-        """
-        Is last rank.
-        """
-        return True
-
     def timers(self, name):
-        """
-        :meta private:
-        """
-        if self._timers is None:
-            self._timers = Timers()
         return self._timers(name)
 
     def timer_summary(self, e2e_cost=None):
-        """
-        :meta private:
-        """
-        if self._timers:
-            return self._timers.log(return_dict=True, e2e_cost=e2e_cost)
+        return self._timers.log(return_dict=True, e2e_cost=e2e_cost)
 
     def get_and_clear_metrics(self):
         """

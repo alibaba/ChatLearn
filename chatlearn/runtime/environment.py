@@ -101,26 +101,15 @@ class Environment(Executor):
 
         for model_node in self.model_flow.model_nodes:
             model = model_node.model.replicas[0]
-            if isinstance(model.model, VLLMModule):
-                logger.info(
-                    f"setup vllm engine for model {model.model}")
+            if model.model.name == "policy":
+                logger.info(f"setup engine for rollout {model.model}")
                 refs = []
                 for replica in model_node.model.replicas:
-                    refs.append(replica.engine.setup_vllm.remote(
-                        replica.all_actors))
+                    if isinstance(model.model, VLLMModule):
+                        refs.append(replica.setup_engine(replica.all_actors))
+                    else:
+                        refs.append(replica.setup_engine())
                 future.wait(refs, return_output=True)
-
-            if isinstance(model.model, SGLangModule):
-                logger.info(
-                    f"setup sglang engine for model {model.model}")
-                refs = []
-                for replica in model_node.model.replicas:
-                    for actor in replica.all_actors:
-
-                        refs.append(actor.setup_sglang.remote())
-                future.wait(refs, return_output=True)
-
-
 
     @property
     def sample_per_episode(self):

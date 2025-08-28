@@ -38,7 +38,6 @@ class RuleReward(BaseModule):
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
 
-    @timeit("rule_reward_setup")
     def setup(self):
         self.stats = {}
         self._metric_prefix = "rulereward"
@@ -58,8 +57,8 @@ class RuleReward(BaseModule):
             data_b.update({"rule_reward": reward[-1], "eval_source": data_source})
         return data, reward
 
-    @timeit("rule_reward_forward_step")
     @compute_decorator(trainable=False, rollout=False)
+    @timeit()
     def forward_step(self, data: Dict, iteration=0, **kwargs) -> Dict: # pylint: disable=unused-argument
         data, reward = self._forward_step(data)
 
@@ -71,8 +70,8 @@ class RuleReward(BaseModule):
         self._metric_list.append(train_reward_stats)
         return data
 
-    @timeit("rule_reward_eval_forward_step")
     @compute_decorator(trainable=False, rollout=False)
+    @timeit()
     def eval_forward(self, data: Dict, **kwargs) -> Dict: # pylint: disable=unused-argument
 
         return self._forward_step(data)[0]
