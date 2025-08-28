@@ -67,7 +67,7 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
 
-    @monitor_error("megatron_setup")
+    @monitor_error()
     def setup(self):
         self.stats = {}
         self.buffer = {}
@@ -223,9 +223,9 @@ class MegatronPolicyTrainer(MegatronModule):
 
         return model
 
-    @timeit("megatron_train_step")
-    @monitor_error("megatron_train_step")
+    @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
+    @timeit()
     def train_step(self, data_list: List[Dict[str, Any]], **kwargs):
         """Do an train step.
 
@@ -360,9 +360,9 @@ class MegatronPolicyTrainer(MegatronModule):
 
         self.report_memory_flag = report_memory_flag
 
-    @timeit("megatron_forward_step")
-    @monitor_error("megatron_forward_step")
+    @monitor_error()
     @compute_decorator(trainable=False, rollout=False)
+    @timeit()
     @torch.no_grad()
     def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]:
         """Do an inference forward step. Only for computation of old_logprobs and ref_logprobs.

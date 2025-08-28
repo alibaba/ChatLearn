@@ -191,23 +191,15 @@ class ModelManager:
                     to_onload_optimizer_states=False
                 ))
 
-                # TODO: refactor to an general API
                 # onload policy weights
-                refs = []
-                for replica in dst_model.replicas:
-                    refs.append(replica.engine.onload_weights.remote(tags=['weights']))
-                future.wait(refs, return_output=True)
+                future.wait(dst_model.onload(tags=['weights']), return_output=True)
 
                 # sync param
                 sync_group.sync(dryrun=dryrun)
                 future.wait(src_model.offload())
 
-                # TODO: refactor to an general API
                 # onload policy kv cache
-                refs = []
-                for replica in dst_model.replicas:
-                    refs.append(replica.engine.onload_weights.remote(tags=['kv_cache']))
-                future.wait(refs, return_output=True)
+                future.wait(dst_model.onload(tags=['kv_cache']), return_output=True)
 
     def _to_dist_model(self, model):
         """

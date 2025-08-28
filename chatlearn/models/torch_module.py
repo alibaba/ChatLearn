@@ -21,9 +21,10 @@ from typing import Optional
 import ray
 import torch
 import torch.distributed as dist
-from chatlearn.utils.logger import log_rank_0, debug_rank_0
 
+from chatlearn.utils.logger import log_rank_0, debug_rank_0
 from chatlearn.utils.utils import get_full_proc_memory_info
+from chatlearn.runtime.decorator import timeit
 from .base_module import BaseModule
 
 class TorchModule(BaseModule):
@@ -105,14 +106,6 @@ class TorchModule(BaseModule):
                    self._logger)
         self.timers("empty_cache").stop()
 
-    def is_last_rank(self):
-        """
-        Is last rank.
-        """
-        if dist.is_initialized():
-            return dist.get_rank() == (dist.get_world_size() - 1)
-        return True
-
     @property
     def world_size(self):
         return dist.get_world_size()
@@ -127,6 +120,7 @@ class TorchModule(BaseModule):
             return to_set
         return default
 
+    @timeit()
     def onload(self,
                to_onload_weights: Optional[bool] = None,
                to_build_grad_buffers: Optional[bool] = None,
@@ -162,6 +156,7 @@ class TorchModule(BaseModule):
             timer.stop()
             log_rank_0(get_full_proc_memory_info('After onload'), self._logger)
 
+    @timeit()
     def offload(self,
                to_offload_weights: Optional[bool] = None,
                to_free_grad_buffers: Optional[bool] = None,

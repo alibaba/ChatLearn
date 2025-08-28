@@ -91,10 +91,10 @@ class PolicyConfig(BaseModelConfig, RolloutConfig):
     def _validate_impl(self):
         assert self.num_gpu % self.tensor_model_parallel_size == 0, \
             "models.policy.num_gpu must be divisible by tensor_model_parallel_size"
-        assert self.total_gpu > 0, "Policy model requires at least one GPU"
+        assert self.num_gpu > 0, "Policy model requires at least one GPU"
         assert not self.trainable, "Policy model does not support training"
-        assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of Policy model is not supported"
-        assert self.module_args.pipeline_model_parallel_size == 1, "Pipeline Parallel of Policy model is not supported"
+        assert self.expert_model_parallel_size == 1, "Expert Parallel of Policy model is not supported"
+        assert self.pipeline_model_parallel_size == 1, "Pipeline Parallel of Policy model is not supported"
         assert self.num_gpu % self.num_replica == 0, \
             "The GPUs assigned to megatron model must be divisible by num_replica"   
 

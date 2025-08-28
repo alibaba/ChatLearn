@@ -378,7 +378,7 @@ class Executor:
         func_name = model_node.func_name
         if model_node.remote_objects_to_wait:
             logger.info(f"{LOG_START} start to wait colocate models to finish for {model_node}")
-            model_node.wait_colocate_models_to_finish(self.timers, func_name)
+            model_node.wait_colocate_models_to_finish(func_name)
             logger.info(f"{LOG_START} complete to wait colocate models to finish for {model_node}")
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
@@ -392,7 +392,6 @@ class Executor:
             in_queue = in_queue[0]
         results = []
         logger.info(f"{LOG_START} start to generate_step_one_model for {model_node}")
-        self.timers(f"{model.name}").start()
         for step in range(num_batch):
             to_empty_cache = step >= last_step_start and model.is_colocate
             to_onload = step < replica_num and (model.is_colocate and model.enable_offload)
@@ -401,7 +400,6 @@ class Executor:
             _, data = self.generate_step_one_model(model_node, replica, in_queue, model_node.out_queues, step, func_name, to_empty_cache,
                                                    is_eval=is_eval, to_onload=to_onload, to_offload=to_offload)
             results.append(data)
-        self.timers(f"{model.name}").stop()
         if model_node.next_colocate_node:
             # before the execution of next colocate model, perform the wait, since we want to empty the cache.
             logger.info(
@@ -428,23 +426,17 @@ class Executor:
 
         data = [None] * len(self.model_flow.return_model_nodes)
         for model_node in self.model_flow.model_nodes:
-            self.timers(f"{model_node.model.name}").start()
             if model_node in self.model_flow.return_model_nodes:
                 # let the results order follow model_node order
                 data[self.model_flow.return_model_nodes.index(model_node)] = model_node.out_queues[-1]
-            self.timers(f"{model_node.model.name}").stop()
         model_names = []
         results = []
         for model, result in self._models_and_results_to_wait:
             model_names.append(model.name)
             results.extend(result)
         if results:
-            for model_name in model_names:
-                self.timers(f"{model_name}").start()
             func_name = self.model_flow.model_nodes[0].func_name
             future.wait(results, f"{model_names} {func_name}", True)
-            for model_name in model_names:
-                self.timers(f"{model_name}").stop()
             self._models_and_results_to_wait = []
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)
