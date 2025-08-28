@@ -323,7 +323,7 @@ class MegatronPolicyTrainer(MegatronModule):
                 key: (
                     (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item() * cp_size
                     if key.endswith('_sample_average') 
-                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item() / cp_size
+                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
                 )
                 for i, key in enumerate(keys)
             }
