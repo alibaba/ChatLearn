@@ -1,5 +1,5 @@
 """Base config class"""
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, fields
 from typing import Iterator,Tuple, Any
 
 @dataclass
@@ -43,7 +43,15 @@ class BaseConfig:
         """
         for config_cls in self.__class__.__mro__:
             if issubclass(config_cls, BaseConfig):
-                config_cls._validate_impl(self)
+                # NOTE: if config_cls does not implement '_validate_impl' but inherits
+                # from parent class, it will not show in config_cls.__dict__
+                if '_validate_impl' in config_cls.__dict__:
+                    config_cls._validate_impl(self)
+
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if isinstance(value, BaseConfig):
+                value.validate()
 
     def _validate_impl(self):
         """valid this config, recursively called in `validate`.
