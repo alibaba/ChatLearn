@@ -20,6 +20,9 @@ import math
 import torch
 import torch.nn.functional as F
 from chatlearn.algorithm.grpo_utils.packing_utils import regroup_data_packing
+from flash_attn.bert_padding import index_first_axis
+from einops import rearrange
+import torch.nn.functional as F
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
@@ -144,3 +147,44 @@ def split_and_unpadding(input_tensor: torch.Tensor, attention_mask: torch.Tensor
         input_tensor[i, :valid_seq[i]] for i in range(input_tensor.shape[0])
     ]
     return tensor_list
+
+
+
+def unpad_input(hidden_states, attention_mask):
+    """
+    Arguments:
+        hidden_states: (batch, seqlen, ...)
+        attention_mask: (batch, seqlen), bool / int, 1 means valid and 0 means not valid.
+    Return:
+        hidden_states: (total_nnz, ...), where total_nnz = number of tokens in selected in attention_mask.
+        cu_seqlens: (batch + 1), the cumulative sequence lengths, used to index into hidden_states.
+        max_seqlen_in_batch: int
+    """
+    seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
+    indices = torch.nonzero(attention_mask.flatten(), as_tuple=False).flatten()
+    max_seqlen_in_batch = seqlens_in_batch.max().item()
+    cu_seqlens = F.pad(torch.cumsum(seqlens_in_batch, dim=0, dtype=torch.torch.int32), (1, 0))
+    # TD [2022-03-04] We don't want to index with a bool mask, because Pytorch will expand the
+    # bool mask, then call nonzero to get the indices, then index with those. The indices is @dim
+    # times larger than it needs to be, wasting memory. It's faster and more memory-efficient to
+    # index with integer indices. Moreover, torch's index is a bit slower than it needs to be,
+    # so we write custom forward and backward to make it a bit faster.
+    if len(hidden_states.shape)>3:
+        channel_results = []
+        for channel in range(hidden_states.shape[0]):
+            indexed = index_first_axis(rearrange(hidden_states[channel], "b s ... -> (b s) ..."), indices)
+            channel_results.append(indexed)
+        return (
+            torch.stack(channel_results),
+            indices,
+            cu_seqlens,
+            max_seqlen_in_batch,
+        )
+    else:
+        return (
+            index_first_axis(rearrange(hidden_states, "b s ... -> (b s) ..."), indices),
+            indices,
+            cu_seqlens,
+            max_seqlen_in_batch,
+        )
+

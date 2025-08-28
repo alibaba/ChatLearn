@@ -22,7 +22,9 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 
-from flash_attn.bert_padding import pad_input, unpad_input
+from flash_attn.bert_padding import pad_input
+import flash_attn.bert_padding as bert_padding
+
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
@@ -35,7 +37,9 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             generate_loss_mask_position_ids,
                             split_microbatch,
                             batching,
-                            split_and_unpadding)
+                            split_and_unpadding,
+                            unpad_input)
+bert_padding.unpad_input = unpad_input
 
 class PolicyTrainer(FSDPModule):
     """policy trainer"""
