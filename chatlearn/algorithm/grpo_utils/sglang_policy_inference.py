@@ -93,6 +93,7 @@ class SGLangPolicyInference(SGLangModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
+    @compute_decorator(trainable=False, rollout=True)
     @timeit()
     def eval_forward(self, data, iteration=0, **kwargs):
         return self._forward_step(data, iteration, True)
@@ -123,6 +124,7 @@ class AsyncSGLangPolicyInference(AsyncSGLangModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
+    @compute_decorator(trainable=False, rollout=True)
     @timeit()
     async def eval_forward(self, data, iteration=0, **kwargs):
         return await self._forward_step(data, iteration, True)

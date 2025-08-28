@@ -42,6 +42,7 @@ class VLLMPolicyInference(VLLMModule):
 
         return prompts_dataset
 
+    @compute_decorator(trainable=False, rollout=True)
     @timeit()
     def eval_forward(self, data, iteration=0, **kwargs):
         return self._forward_step(data, iteration, True)
