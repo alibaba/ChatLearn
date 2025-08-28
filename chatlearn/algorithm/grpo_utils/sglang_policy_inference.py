@@ -93,7 +93,9 @@ class SGLangPolicyInference(SGLangModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
-    def eval_forward(self, data, iteration=0):
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    def eval_forward(self, data, iteration=0, **kwargs):
         return self._forward_step(data, iteration, True)
 
     def _forward_step(
@@ -105,8 +107,8 @@ class SGLangPolicyInference(SGLangModule):
             rets = sglang_postprocess_func(self.tokenizer, outputs, data)
             return rets
 
-    @timeit("sglang_forward_step")
     @compute_decorator(trainable=False, rollout=True)
+    @timeit()
     def forward_step(
         self, data: List[Dict[str, Any]], iteration=0, **kwargs
     ) -> List[Dict[str, Any]]:
@@ -122,7 +124,9 @@ class AsyncSGLangPolicyInference(AsyncSGLangModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
-    async def eval_forward(self, data, iteration=0):
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    async def eval_forward(self, data, iteration=0, **kwargs):
         return await self._forward_step(data, iteration, True)
 
     async def _forward_step(
@@ -134,8 +138,8 @@ class AsyncSGLangPolicyInference(AsyncSGLangModule):
             rets = sglang_postprocess_func(self.tokenizer, outputs, data)
             return rets
 
-    @timeit("sglang_forward_step")
     @compute_decorator(trainable=False, rollout=True)
+    @timeit()
     async def forward_step(
         self, data: List[Dict[str, Any]], iteration=0, **kwargs
     ) -> List[Dict[str, Any]]:  # pylint: disable=unused-argument

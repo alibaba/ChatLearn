@@ -1,3 +1,4 @@
+# pylint: disable=arguments-differ
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -87,7 +88,7 @@ if HAVE_VLLM:
                 self.param_update_fn = self.update_weights_from_ipc_handles_naive
 
             self.set_vllm_pp_layer_partition()
-            self._metric_prefix = 'vllm_inference'
+            self._metric_prefix = 'rollout'
 
         def init_engine_args(self):
             dtype = self.module_args.get("dtype", "bfloat16")
@@ -157,8 +158,8 @@ if HAVE_VLLM:
             tokenizer.tokenizer = tokenizer
             self.tokenizer = tokenizer
 
-        @timeit("setup_vllm")
-        def setup_vllm(self, workers):
+        @timeit()
+        def setup_engine(self, workers):
             """setup vllm engine
             used in Environment.setup()
             """
@@ -204,12 +205,12 @@ if HAVE_VLLM:
                 distributed_executor_backend="ray",
                 enable_sleep_mode=True,
                 swap_space=self.module_args.get("swap_space", 16))
-            self.offload_weights()
+            self.offload()
 
         def dump_parameters(self, dump_path_root):
-            self.onload_weights()
+            self.onload()
             self.llm.llm_engine.model_executor._run_workers("worker_dump_parameters", dump_path_root=dump_path_root)
-            self.offload_weights()
+            self.offload()
 
         def worker_dump_parameters(self, dump_path_root):
             tp_rank = parallel_state.get_tensor_model_parallel_rank()
@@ -302,7 +303,7 @@ if HAVE_VLLM:
                 min_p=min_p,
                 ignore_eos=self.module_args.get("ignore_eos", False),
                 stop=stop,
-                logprobs=self.module_args.get("logprobs", 1),
+                logprobs=self.module_args.get("logprobs", None),
                 detokenize=self.module_args.get("detokenize", False),
                 prompt_logprobs=self.module_args.get("prompt_logprobs", None),
                 skip_special_tokens=self.module_args.get('skip_special_tokens', True)
@@ -368,9 +369,6 @@ if HAVE_VLLM:
             self.save_stage_outputs(is_eval, outputs, iteration)
             return outputs
 
-        def is_last_rank(self):
-            return True
-
         def peak_memory(self):
             """
             :meta private:
@@ -400,7 +398,8 @@ if HAVE_VLLM:
         def is_engine(self):
             return self.llm
 
-        def offload_weights(self): # is_param_sync=True
+        @timeit()
+        def offload(self): # is_param_sync=True
             """
             offload weights
             """
@@ -409,7 +408,8 @@ if HAVE_VLLM:
                 self.llm.sleep()
                 self._logger.info(f"llm_engine.sleep after: {get_full_proc_memory_info('after llm_engine.sleep')}")
 
-        def onload_weights(self, tags: Optional[list[str]] = None):
+        @timeit()
+        def onload(self, tags: Optional[list[str]] = None):
             """
             onload weights
             Wake up the engine from sleep mode. See the :meth:`sleep` method
