@@ -303,7 +303,7 @@ if HAVE_VLLM:
                 min_p=min_p,
                 ignore_eos=self.module_args.get("ignore_eos", False),
                 stop=stop,
-                logprobs=self.module_args.get("logprobs", 1),
+                logprobs=self.module_args.get("logprobs", None),
                 detokenize=self.module_args.get("detokenize", False),
                 prompt_logprobs=self.module_args.get("prompt_logprobs", None),
                 skip_special_tokens=self.module_args.get('skip_special_tokens', True)
