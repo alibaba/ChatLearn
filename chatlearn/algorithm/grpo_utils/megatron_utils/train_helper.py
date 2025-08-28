@@ -277,7 +277,6 @@ def get_batch(
             cp_size = mpu.get_context_parallel_world_size()
             cp_rank = mpu.get_context_parallel_group().rank()
             align_size = tp_size * cp_size * 2
-  
             attn_mask = torch.zeros_like(tokens, dtype=torch.int32)
             for i, (prompt_length, response_length) in enumerate(
                 zip(prompt_token_length, response_token_length)
@@ -315,7 +314,6 @@ def get_batch(
             seq_indices = tex.thd_get_partitioned_indices(
                 cu_seqlens_padded, tokens.shape[0], cp_size, cp_rank
             )
-        
             tokens_on_this_cp_rank = tokens.index_select(0, seq_indices)
             labels = torch.roll(tokens, shifts=-1, dims=0)
             labels_on_this_cp_rank = labels.index_select(0, seq_indices)
@@ -604,3 +602,4 @@ def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
         logits: (*, vocab_size // tp_size)
     """
     return _VocabParallelEntropy.apply(logits)
+    
