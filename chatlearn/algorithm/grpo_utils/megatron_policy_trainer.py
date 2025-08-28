@@ -67,7 +67,7 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
 
-    @monitor_error("setup")
+    @monitor_error()
     def setup(self):
         self.stats = {}
         self.buffer = {}
