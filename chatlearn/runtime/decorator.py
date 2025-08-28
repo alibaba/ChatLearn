@@ -18,9 +18,7 @@ import inspect
 import traceback
 import functools
 
-import torch
 from torch.cuda import nvtx
-import torch.distributed as dist
 import ray
 
 from chatlearn.utils import future
@@ -133,7 +131,7 @@ def compute_decorator(trainable, rollout):
             # TODO, remove
             if to_empty_cache and not rollout:
                 self.empty_cache()
-            
+
             if to_offload and not (rollout and is_eval):
                 self.offload()
 

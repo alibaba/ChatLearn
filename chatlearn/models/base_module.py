@@ -36,7 +36,6 @@ from chatlearn.utils.utils import get_host_addr, map_reduce_metrics, slice_data_
 from chatlearn.launcher import dlc_utils
 from chatlearn.configs.base import BaseModelConfig
 from chatlearn.synchronizer import name_to_mapper_cls, GeneralCommunicator
-from chatlearn.runtime.decorator import timeit
 
 if TYPE_CHECKING:
     from chatlearn.synchronizer.structs import BucketInfo

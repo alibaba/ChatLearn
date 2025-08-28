@@ -18,7 +18,6 @@ from itertools import cycle
 from typing import Optional
 
 from chatlearn.models.vllm_module import VLLMModule
-from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.utils import future
 from chatlearn.utils.logger import logger

@@ -160,23 +160,23 @@ class BaseEngine:
         flattened_timer_data = [item[1] for sublist in timer_data for item in sublist]
         merged_timer = defaultdict(list)
         reduce_timer = {}
-        for timer_data in flattened_timer_data:
-            for k, v in timer_data.items():
+        for timer_data_item in flattened_timer_data:
+            for k, v in timer_data_item.items():
                 merged_timer[k].append(v)
 
         for k, v in merged_timer.items():
             if k in ['forward_step', 'train_step', 'eval_forward']:
                 reduce_timer.update(
                     {
-                        f"{k}/avg": sum(v) / len(v),
-                        f"{k}/max": max(v),
-                        f"{k}/min": min(v)
+                        f"{k}/avg(s)": sum(v) / len(v),
+                        f"{k}/max(s)": max(v),
+                        f"{k}/min(s)": min(v)
                     }
                 )
             else:
                 reduce_timer.update(
                     {
-                        k: sum(v) / len(v),
+                        f"{k}(s)": sum(v) / len(v),
                     }
                 )
 
@@ -186,6 +186,7 @@ class BaseEngine:
         _, e2e_time_dict = self.timer_summary()
 
         summaries = []
+        logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary.")
         for model in self.remote_models:
             timer_data = future.get(model.timer_summary(e2e_cost=e2e_time_dict.get(model.name, None)))
             reduce_timer_data = self.reduce_timer(timer_data)
