@@ -124,8 +124,9 @@ class PolicyModel(GPTModel):
         # NOTE: before loss computation, we need to unpack the packed inputs
         if self.module_args.packing:
             if mpu.get_context_parallel_world_size() == 1:
+                forward_logprob = forward_logprob[:, :forward_logprob.shape[1] - training_inputs['pad_size']]
                 forward_logprob = pad_input(
-                    forward_logprob[0, :forward_logprob.shape[1] - training_inputs['pad_size']].unsqueeze(-1), 
+                    forward_logprob.permute(1, 0),
                     training_inputs['indices'], 
                     training_inputs['ori_batch_size'], 
                     training_inputs['ori_seq_len']
@@ -144,8 +145,19 @@ class PolicyModel(GPTModel):
                     training_inputs['ori_batch_size'], 
                     training_inputs['ori_seq_len']
                 ).squeeze(-1)
-                
-
+        else:
+            if mpu.get_context_parallel_world_size() == 1:
+                forward_logprob = forward_logprob[:, :forward_logprob.shape[1] - training_inputs['pad_size']]
+            elif mpu.get_context_parallel_world_size() > 1:
+                cp_size = mpu.get_context_parallel_world_size()
+                cp_group = mpu.get_context_parallel_group()
+                seq_indices = training_inputs['seq_indices']
+                forward_logprob_this_cp_rank = forward_logprob[0]
+                forward_logprob = torch.zeros(forward_logprob_this_cp_rank.shape[0] * cp_size).cuda()
+                forward_logprob.scatter_(0, seq_indices.to(torch.int64), forward_logprob_this_cp_rank)
+                forward_logprob = forward_logprob.unsqueeze(0)
+                dist.all_reduce(forward_logprob, group=cp_group)
+                forward_logprob = forward_logprob[:, :forward_logprob.shape[1] - training_inputs['pad_size']]
 
         old_logprobs = training_inputs["old_logprobs"]
         ref_logprobs = training_inputs["ref_logprobs"]
@@ -204,6 +216,18 @@ class PolicyModel(GPTModel):
                 ).squeeze(-1)
 
         else:
+            if mpu.get_context_parallel_world_size() == 1:
+                entropy_loss = entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']]
+            elif mpu.get_context_parallel_world_size() > 1:
+                cp_size = mpu.get_context_parallel_world_size()
+                cp_group = mpu.get_context_parallel_group()
+                seq_indices = training_inputs['seq_indices']
+                entropy_loss_this_cp_rank = entropy_loss[:, 0]
+                entropy_loss = torch.zeros(entropy_loss_this_cp_rank.shape[0] * cp_size).cuda()
+                entropy_loss.scatter_(0, seq_indices.to(torch.int64), entropy_loss_this_cp_rank)
+                entropy_loss = entropy_loss.unsqueeze(0)
+                dist.all_reduce(entropy_loss, group=cp_group)
+
             entropy_loss = entropy_loss.transpose(0, 1)
 
         kl = ref_logprobs - forward_logprob

@@ -21,8 +21,9 @@ import torch
 from torch import distributed as dist
 import torch.nn.functional as F
 
-from flash_attn.bert_padding import pad_input, unpad_input
 import transformer_engine_torch as tex
+from flash_attn.bert_padding import pad_input, unpad_input
+
 from megatron.core import mpu
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.num_microbatches_calculator import get_num_microbatches
@@ -34,7 +35,6 @@ from megatron.training import (
 )
 from megatron.training.training import print_datetime
 from megatron.training.utils import (
-    get_batch_on_this_cp_rank,
     get_ltor_masks_and_position_ids,
     report_memory,
     unwrap_model
@@ -87,7 +87,7 @@ def training_log(
     for key in loss_dict:
         if not skipped_iter:
             total_loss_dict[key] = (
-                total_loss_dict.get(key, torch.cuda.FloatTensor([0.0])) + loss_dict[key]
+                total_loss_dict.get(key, torch.tensor([0.0], dtype=torch.float32, device='cuda')) + loss_dict[key]
             )
         else:
             value = loss_dict[key].float().sum().item()
@@ -152,8 +152,7 @@ def training_log(
             avg = total_loss_dict[key].item() / float(
                 max(1, total_loss_dict[advanced_iters_key])
             )
-            if avg > 0.0:
-                log_string += " {}: {:.6E} |".format(key, avg)
+            log_string += " {}: {:.6E} |".format(key, avg)
 
             total_loss_dict[key] = torch.cuda.FloatTensor([0.0])
     log_string += " loss scale: {:.1f} |".format(loss_scale)
@@ -192,213 +191,6 @@ def training_log(
     return report_memory_flag
 
 
-def pack_and_slice_batch_on_this_cp_rank(all_tokens, prompt_token_length, response_token_length):
-    mbs, ori_seqlen = all_tokens.shape
-
-    attention_mask = torch.zeros_like(all_tokens, dtype=torch.int32)
-    for i, (prompt_length, response_length) in enumerate(
-        zip(prompt_token_length, response_token_length)
-    ):
-        attention_mask[i, : prompt_length + response_length] = 1
-
-    loss_mask = torch.zeros_like(all_tokens, dtype=torch.int32)
-    for i, (prompt_length, response_length) in enumerate(
-        zip(prompt_token_length, response_token_length)
-    ):
-        loss_mask[i, prompt_length : prompt_length + response_length] = 1
-
-    prompt_mask = torch.zeros_like(all_tokens, dtype=torch.int32)
-    for i, (prompt_length, response_length) in enumerate(
-        zip(prompt_token_length, response_token_length)
-    ):
-        prompt_mask[i, 0: prompt_length] = 1
-
-    response_mask = torch.zeros_like(all_tokens, dtype=torch.int32)
-    for i, (prompt_length, response_length) in enumerate(
-        zip(prompt_token_length, response_token_length)
-    ):
-        response_mask[i, 0: response_length] = 1
-
-    tp_size = mpu.get_tensor_model_parallel_world_size()
-    cp_size = mpu.get_context_parallel_world_size()
-    cp_rank = mpu.get_context_parallel_group().rank()
-    align_size = tp_size * cp_size* 2
-
-    seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
-    pad_size = (align_size - seqlens_in_batch % align_size) % align_size
-    seqlens_in_batch_padded = seqlens_in_batch + pad_size
-    cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
-    cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
-
-    prompts_in_batch = prompt_mask.sum(dim=-1, dtype=torch.int32)
-    pad_size = (align_size - prompts_in_batch % align_size) % align_size
-    prompts_in_batch_padded = prompts_in_batch + pad_size
-    cu_prompts = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_prompts[1:] = torch.cumsum(prompts_in_batch, dim=0)
-    cu_prompts_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_prompts_padded[1:] = torch.cumsum(prompts_in_batch_padded, dim=0)
-
-    responses_in_batch = prompt_mask.sum(dim=-1, dtype=torch.int32)
-    pad_size = (align_size - responses_in_batch % align_size) % align_size
-    responses_in_batch_padded = responses_in_batch + pad_size
-    cu_responses = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_responses[1:] = torch.cumsum(responses_in_batch, dim=0)
-    cu_responses_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_responses_padded[1:] = torch.cumsum(responses_in_batch_padded, dim=0)
-
-
-    max_seqlen_in_batch = seqlens_in_batch_padded.max().item()
-    shape = list(all_tokens.shape[1:])
-    shape[0] = seqlens_in_batch_padded.sum().item() // cp_size
-
-    input_ids_chunked = torch.zeros(shape, dtype=all_tokens.dtype, device=all_tokens.device)
-    labels_chunked = torch.zeros(shape, dtype=all_tokens.dtype, device=all_tokens.device)
-    attn_mask_chunked= torch.zeros(shape, dtype=all_tokens.dtype, device=all_tokens.device)
-    loss_mask_chunked = torch.ones(shape, dtype=all_tokens.dtype, device=all_tokens.device)
-    
-
-    for i in range(mbs):
-        # 1024
-        seqlen = seqlens_in_batch_padded[i] // cp_size
-        promptlen = prompts_in_batch_padded[i] // cp_size
-        responselen = responses_in_batch_padded[i] // cp_size
-        
-        # 512
-        half_seqlen = seqlen // 2
-        half_promptlen = promptlen // 2
-        half_responselen = responselen // 2
-
-        start_idx = cu_seqlens_padded[i] // cp_size
-
-        d = all_tokens[i, attention_mask[i]]
-        # we split sequence into 2*CP ranks. Assuming CP=2, we then get 4 chunks, chunk_0
-        # and chunk_3 are assigned to GPU0, chunk_1 and chunk_2 are assigned to GPU1
-        # cp_rank_0: 0~512 <- 0~512
-        # cp_rank_1: 0~512 <- 512~1024
-        input_ids_chunked[start_idx:start_idx + half_seqlen] = d[half_seqlen * cp_rank:half_seqlen * (cp_rank + 1)]
-        labels_chunked[start_idx:start_idx + half_seqlen]  = torch.roll(input_ids_chunked[start_idx:start_idx + half_seqlen], shifts=-1, dims=0)
-        labels_chunked[start_idx + half_seqlen - 1] = d[half_seqlen * (cp_rank + 1)]
-        attn_mask_chunked[start_idx:start_idx + half_seqlen] = 1
-
-        loss_mask_chunked[start_idx:start_idx+promptlen] = 0
-
-        # [0 1 2 / 3 4 5/ 6 7 8 / 9 10 11]
-
-        # cp_rank_0: 1536
-        # cp_rank_1: 1024
-        remain_start = seqlens_in_batch_padded[i] - half_seqlen * (cp_rank + 1)
-        prompt_remain_start = prompts_in_batch_padded[i] - half_promptlen * (cp_rank + 1)
-
-        # cp_rank_0: 2048
-        # cp_rank_1: 1536
-        remain_end = seqlens_in_batch_padded[i] - half_seqlen * cp_rank
-        prompt_remain_end = prompts_in_batch_padded[i] - half_promptlen * cp_rank
-        remain_end = min(remain_end, d.shape[0])
-        prompt_remain_end = min(remain_end, d.shape[0])
-
-        # 512
-        remain_len = remain_end - remain_start
-        prompt_remain_len = prompt_remain_end - prompt_remain_start
-
-        if remain_len > 0:
-
-            # [1 2 3 / 4 5 6 / 7 8 9/ 10 11 12]
-
-            # cp_rank_0: 512~1024 <- 1536~2048
-            # cp_rank_1: 512~1024 <- 1024~1536
-            input_ids_chunked[start_idx + half_seqlen:start_idx + half_seqlen +
-                            remain_len] = d[remain_start:remain_end]
-
-            labels_chunked[start_idx + half_seqlen:start_idx + half_seqlen +
-                            remain_len] = torch.roll(input_ids_chunked[start_idx + half_seqlen:start_idx + half_seqlen +
-                            remain_len], shifts=-1, dims=0)
-
-            if cp_rank == 0:
-                labels_chunked[start_idx + half_seqlen + remain_len - 1] = 0
-                attn_mask_chunked[start_idx + half_seqlen:start_idx + half_seqlen + remain_len ] = 1
-                #loss_mask_chunked[start_idx + half_promptlen:start_idx+half_promptlen + prompt_remain_len - 1] = 0
-
-            elif cp_rank == 1:
-                labels_chunked[start_idx + half_seqlen + remain_len - 1] = d[seqlens_in_batch_padded[i] - half_seqlen * cp_rank]
-                attn_mask_chunked[start_idx + half_seqlen:start_idx + half_seqlen + remain_len ] = 1
-                #loss_mask_chunked[start_idx + half_promptlen:start_idx+half_promptlen + prompt_remain_len ] = 0
-
-
-    attn_mask_chunked = (attn_mask_chunked > 0.5)
-
-    return input_ids_chunked, labels_chunked, loss_mask_chunked, attn_mask_chunked, cu_seqlens_padded, max_seqlen_in_batch
-
-def pack_and_slice_batch_on_this_cp_rank2(all_tokens, prompt_token_length, response_token_length):
-    mbs, ori_seqlen = all_tokens.shape
-
-    attention_mask = torch.zeros_like(all_tokens, dtype=torch.int32)
-    for i, (prompt_length, response_length) in enumerate(
-        zip(prompt_token_length, response_token_length)
-    ):
-        attention_mask[i, : prompt_length + response_length] = 1
-
-
-    tp_size = mpu.get_tensor_model_parallel_world_size()
-    cp_size = mpu.get_context_parallel_world_size()
-    cp_rank = mpu.get_context_parallel_group().rank()
-    align_size = tp_size * cp_size* 2
-
-    seqlens_in_batch = attention_mask.sum(dim=-1, dtype=torch.int32)
-    pad_size = (align_size - seqlens_in_batch % align_size) % align_size
-    seqlens_in_batch_padded = seqlens_in_batch + pad_size
-    cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
-    cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
-    cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
-
-    max_seqlen_in_batch = seqlens_in_batch_padded.max().item()
-    shape = list(all_tokens.shape[1:])
-    shape[0] = seqlens_in_batch_padded.sum().item() // cp_size
-
-    input_ids_chunked = torch.zeros(shape, dtype=all_tokens.dtype, device=all_tokens.device)
-
-    for i in range(mbs):
-        # 1024
-        seqlen = seqlens_in_batch_padded[i] // cp_size
-        # 512
-        half_seqlen = seqlen // 2
-
-        start_idx = cu_seqlens_padded[i] // cp_size
-
-        d = all_tokens[i, attention_mask[i]]
-        # we split sequence into 2*CP ranks. Assuming CP=2, we then get 4 chunks, chunk_0
-        # and chunk_3 are assigned to GPU0, chunk_1 and chunk_2 are assigned to GPU1
-        # cp_rank_0: 0~512 <- 0~512
-        # cp_rank_1: 0~512 <- 512~1024
-        input_ids_chunked[start_idx:start_idx + half_seqlen] = d[half_seqlen * cp_rank:half_seqlen * (cp_rank + 1)]
-
-        # [0 1 2 / 3 4 5/ 6 7 8 / 9 10 11]
-        # cp_rank_0: 1536
-        # cp_rank_1: 1024
-        remain_start = seqlens_in_batch_padded[i] - half_seqlen * (cp_rank + 1)
-
-        # cp_rank_0: 2048
-        # cp_rank_1: 1536
-        remain_end = seqlens_in_batch_padded[i] - half_seqlen * cp_rank
-        remain_end = min(remain_end, d.shape[0])
-
-        # 512
-        remain_len = remain_end - remain_start
-
-        if remain_len > 0:
-
-            # [1 2 3 / 4 5 6 / 7 8 9/ 10 11 12]
-
-            # cp_rank_0: 512~1024 <- 1536~2048
-            # cp_rank_1: 512~1024 <- 1024~1536
-            input_ids_chunked[start_idx + half_seqlen:start_idx + half_seqlen +
-                            remain_len] = d[remain_start:remain_end]
-
-    return input_ids_chunked, cu_seqlens_padded, max_seqlen_in_batch
-
-
 def get_batch(
     data_iter: Iterator[Dict[str, Union[torch.Tensor, List[Any]]]],
     is_training: bool,
@@ -418,48 +210,48 @@ def get_batch(
     args = get_args()
     data_b = next(data_iter)
 
-    all_tokens = data_b["all_tokens"].long().cuda() # shape: [mbs, seq_length]
-    mbs, ori_seqlen = all_tokens.shape
+    tokens = data_b["all_tokens"].long().cuda() # shape: [mbs, seq_length]
+    mbs, seqlen = tokens.shape
     prompt_token_length = to_device("cuda", data_b["prompt_token_length"])
     response_token_length = to_device("cuda", data_b["response_token_length"])
 
     if is_packing:
         if mpu.get_context_parallel_world_size() == 1:
-            # all_tokens: [9, 2048], attn_mask_for_unpadding: [9, 2048], unpad_tokens: [7851, 1], indices: [7851]
-            # cu_seqlens: [10]->tensor([   0, 2048, 3761, 4801, 5610, 6230, 6773, 7233, 7591, 7851]
-            # max_seqlen_in_batch: 2048
-            attn_mask_for_unpadding = torch.zeros_like(all_tokens, dtype=torch.int32)
+            attn_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32)
             for i, (prompt_length, response_length) in enumerate(
                 zip(prompt_token_length, response_token_length)
             ):
                 attn_mask_for_unpadding[i, : prompt_length + response_length] = 1
             (
-                unpad_tokens,
+                tokens,
                 indices,
                 cu_seqlens,
                 max_seqlen_in_batch,
                 *_
-            ) = unpad_input(all_tokens.unsqueeze(-1), attn_mask_for_unpadding)
-
-            unpad_tokens = unpad_tokens.transpose(0, 1) # [s, b] -> [b, s]
+            ) = unpad_input(tokens.unsqueeze(-1), attn_mask_for_unpadding)
+            tokens = tokens.transpose(0, 1) # [s, b] -> [b, s]
             # NOTE: sequence-parallel padding, the len of right-padded seq should be divisible by TP & Expert TP
             pad_size = 0
-            divisor = mpu.get_tensor_model_parallel_world_size()
-            total_nnz = unpad_tokens.shape[1]
-            pad_size = (divisor - total_nnz % divisor) % divisor
-            unpad_tokens = F.pad(unpad_tokens, (0, pad_size), value=get_tokenizer().eod)
-            max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)
-            cu_seqlens = torch.cat([
-                cu_seqlens,
-                torch.tensor(unpad_tokens.shape[1], dtype=cu_seqlens.dtype, device=cu_seqlens.device).unsqueeze(-1)
-            ])
+            if args.sequence_parallel:
+                divisor = mpu.get_tensor_model_parallel_world_size()
+                total_nnz = tokens.shape[1]
+                pad_size = (divisor - total_nnz % divisor) % divisor
+                tokens = F.pad(tokens, (0, pad_size), value=get_tokenizer().eod)
+                max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)
+                cu_seqlens = torch.cat([
+                    cu_seqlens,
+                    torch.ones(1, dtype=cu_seqlens.dtype, device=cu_seqlens.device) * tokens.shape[1]
+                ])
 
-            labels = torch.roll(unpad_tokens, shifts=-1, dims=1)
-            position_ids = torch.arange(unpad_tokens.shape[1], device=unpad_tokens.device).view(1, -1)
+            labels = torch.roll(tokens, shifts=-1, dims=1)
+
+            position_ids = torch.arange(tokens.shape[1], device=tokens.device).view(1, -1)
+
             prev_cu_seqlen = 0
             for cu_seqlen in cu_seqlens[1:]:
                 position_ids[:, cu_seqlen:] -= cu_seqlen - prev_cu_seqlen
                 prev_cu_seqlen = cu_seqlen
+
 
             packed_seq_params = PackedSeqParams(
                 qkv_format='thd',
@@ -470,24 +262,23 @@ def get_batch(
             )
 
             input_data = {
-                "all_tokens": unpad_tokens,
+                "all_tokens": tokens,
                 "all_token_attention_mask": None,
                 "all_token_position_ids": position_ids,
                 "labels": labels,
                 'packed_seq_params': packed_seq_params,
-                "ori_seq_len": ori_seqlen,
+                "ori_seq_len": seqlen,
                 "ori_batch_size": mbs,
                 "indices": indices,
                 "pad_size": pad_size,
             }
         elif mpu.get_context_parallel_world_size() >1:
-
             tp_size = mpu.get_tensor_model_parallel_world_size()
             cp_size = mpu.get_context_parallel_world_size()
             cp_rank = mpu.get_context_parallel_group().rank()
             align_size = tp_size * cp_size * 2
   
-            attn_mask = torch.zeros_like(all_tokens, dtype=torch.int32)
+            attn_mask = torch.zeros_like(tokens, dtype=torch.int32)
             for i, (prompt_length, response_length) in enumerate(
                 zip(prompt_token_length, response_token_length)
             ):
@@ -497,21 +288,21 @@ def get_batch(
             pad_size = (align_size - seqlens_in_batch % align_size) % align_size
             seqlens_in_batch_padded = seqlens_in_batch + pad_size
 
-            cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
+            cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
             cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
-            cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=all_tokens.device)
+            cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
             cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
 
-            all_tokens_padded = torch.full((mbs, seqlens_in_batch_padded.max()), get_tokenizer().eod, dtype=all_tokens.dtype, device=all_tokens.device)
-            attn_mask_for_padding = torch.zeros((mbs, seqlens_in_batch_padded.max()), dtype=all_tokens.dtype, device=all_tokens.device)
+            tokens_padded = torch.full((mbs, seqlens_in_batch_padded.max()), get_tokenizer().eod, dtype=tokens.dtype, device=tokens.device)
+            attn_mask_for_padding = torch.zeros((mbs, seqlens_in_batch_padded.max()), dtype=tokens.dtype, device=tokens.device)
             for i in range(mbs):
-                seqlen = seqlens_in_batch[i]
-                seqlen_padded = seqlens_in_batch_padded[i]
-                attn_mask_for_padding[i, :seqlen] = 1
-                all_tokens_padded[i, :seqlen] = all_tokens[i, :seqlen]
-                if seqlen_padded > seqlen:
-                    all_tokens_padded[i, seqlen:seqlen_padded] = get_tokenizer().eod
-                    attn_mask_for_padding[i, seqlen:seqlen_padded] = 1
+                seqlen_in_batch = seqlens_in_batch[i]
+                seqlen_in_batch_padded = seqlens_in_batch_padded[i]
+                attn_mask_for_padding[i, :seqlen_in_batch] = 1
+                tokens_padded[i, :seqlen_in_batch] = tokens[i, :seqlen_in_batch]
+                if seqlen_in_batch_padded > seqlen_in_batch:
+                    tokens_padded[i, seqlen_in_batch:seqlen_in_batch_padded] = get_tokenizer().eod
+                    attn_mask_for_padding[i, seqlen_in_batch:seqlen_in_batch_padded] = 1
 
             (
                 tokens,
@@ -519,7 +310,7 @@ def get_batch(
                 cu_seqlens,
                 max_seqlen_in_batch,
                 *_
-            ) = unpad_input(all_tokens_padded.unsqueeze(-1), attn_mask_for_padding)
+            ) = unpad_input(tokens_padded.unsqueeze(-1), attn_mask_for_padding)
 
             seq_indices = tex.thd_get_partitioned_indices(
                 cu_seqlens_padded, tokens.shape[0], cp_size, cp_rank
@@ -529,7 +320,7 @@ def get_batch(
             labels = torch.roll(tokens, shifts=-1, dims=0)
             labels_on_this_cp_rank = labels.index_select(0, seq_indices)
 
-            loss_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32, device=all_tokens.device)
+            loss_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
             for i, (prompt_length, response_length) in enumerate(
                 zip(prompt_token_length, response_token_length)
             ):
@@ -555,7 +346,7 @@ def get_batch(
                 "all_token_position_ids": None,
                 "labels": labels_on_this_cp_rank.transpose(0, 1),
                 'packed_seq_params': packed_seq_params,
-                "ori_seq_len": ori_seqlen,
+                "ori_seq_len": seqlen,
                 "ori_batch_size": mbs,
                 "seq_indices": seq_indices,
                 "indices": indices,
@@ -564,10 +355,20 @@ def get_batch(
 
     else:
         if mpu.get_context_parallel_world_size() == 1:
-            labels = torch.roll(all_tokens, shifts=-1, dims=1)
+            pad_size = 0
+            pad_token = get_tokenizer().eod
+            if not args.variable_seq_lengths:
+                pad_size = args.seq_length - tokens.shape[1]
+            else:
+                divisor = mpu.get_tensor_model_parallel_world_size()
+                total_nnz = tokens.shape[1]
+                pad_size = (divisor - total_nnz % divisor) % divisor
+
+            tokens = F.pad(tokens, (0, pad_size), value=pad_token)
+            labels = torch.roll(tokens, shifts=-1, dims=1)
             # Get the masks and position ids.
             attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
-                all_tokens,
+                tokens,
                 get_tokenizer().eod,
                 args.reset_position_ids,
                 args.reset_attention_mask,
@@ -575,41 +376,79 @@ def get_batch(
             )
 
             input_data = {
-                "all_tokens": all_tokens,
+                "all_tokens": tokens,
                 "all_token_attention_mask": attention_mask,
                 "all_token_position_ids": position_ids,
                 "labels": labels,
-                'packed_seq_params': None
+                'packed_seq_params': None,
+                "pad_size": pad_size,
             }
         elif mpu.get_context_parallel_world_size() >1:
-            all_tokens = data_b["all_tokens"].long().cuda()
-            loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32, device=all_tokens.device)
+            tp_size = mpu.get_tensor_model_parallel_world_size()
+            cp_size = mpu.get_context_parallel_world_size()
+            cp_rank = mpu.get_context_parallel_group().rank()
+            align_size = tp_size * cp_size * 2
+
+            tokens = data_b["all_tokens"].long().cuda()
+            attn_mask = torch.zeros_like(tokens, dtype=torch.int32)
             for i, (prompt_length, response_length) in enumerate(
                 zip(prompt_token_length, response_token_length)
             ):
-                loss_mask[i, prompt_length: prompt_length + response_length] = 1
-            input_data = {
-                "all_tokens": all_tokens,
-                "loss_mask": loss_mask
-            }
-            input_data_split = get_batch_on_this_cp_rank(input_data)
-            # Get the masks and position ids.
-            attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
-                input_data_split["all_tokens"],
-                get_tokenizer().eod,
-                args.reset_position_ids,
-                args.reset_attention_mask,
-                args.eod_mask_loss,
+                attn_mask[i, : prompt_length + response_length] = 1
+
+            seqlens_in_batch = attn_mask.sum(dim=-1, dtype=torch.int32)
+            pad_size = (align_size - seqlens_in_batch % align_size) % align_size
+            seqlens_in_batch_padded = seqlens_in_batch + pad_size
+
+            cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
+            cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
+            cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
+            cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
+
+            tokens_padded = torch.full((mbs, seqlens_in_batch_padded.max()), get_tokenizer().eod, dtype=tokens.dtype, device=tokens.device)
+            attn_mask_for_padding = torch.zeros((mbs, seqlens_in_batch_padded.max()), dtype=tokens.dtype, device=tokens.device)
+            for i in range(mbs):
+                seqlen = seqlens_in_batch[i]
+                seqlen_padded = seqlens_in_batch_padded[i]
+                attn_mask_for_padding[i, :seqlen] = 1
+                tokens_padded[i, :seqlen] = tokens[i, :seqlen]
+                if seqlen_padded > seqlen:
+                    tokens_padded[i, seqlen:seqlen_padded] = get_tokenizer().eod
+                    attn_mask_for_padding[i, seqlen:seqlen_padded] = 1
+
+            seq_indices = tex.thd_get_partitioned_indices(
+                cu_seqlens_padded, tokens_padded.shape[1], cp_size, cp_rank
             )
-            labels = torch.roll(input_data_split["all_tokens"], shifts=-1, dims=1)
+
+            tokens_on_this_cp_rank = tokens_padded.index_select(1, seq_indices)
+            labels = torch.roll(tokens_padded, shifts=-1, dims=1)
+            labels_on_this_cp_rank = labels.index_select(1, seq_indices)
+            attn_mask_on_this_cp_rank = attn_mask_for_padding.index_select(1, seq_indices)
+
+            loss_mask_for_unpadding = torch.zeros_like(tokens_padded, dtype=torch.int32, device=tokens.device)
+            for i, (prompt_length, response_length) in enumerate(
+                zip(prompt_token_length, response_token_length)
+            ):
+                start_idx = cu_seqlens_padded[i]
+                loss_mask_for_unpadding[start_idx + prompt_length: start_idx + prompt_length + response_length, 0] = 1
+
+            loss_mask_for_unpadding = torch.roll(loss_mask_for_unpadding, shifts=-1, dims=1)
+            loss_mask_on_this_cp_rank = loss_mask_for_unpadding.index_select(1, seq_indices)
+            num_tokens_on_this_cp_rank = loss_mask_on_this_cp_rank.sum()
 
             input_data = {
-                "all_tokens": input_data_split['all_tokens'],
-                "all_token_attention_mask": attention_mask,
-                "all_token_loss_mask": input_data_split['loss_mask'],
-                "all_token_position_ids": position_ids,
-                "labels": labels,
-                'packed_seq_params': None
+                "all_tokens": tokens_on_this_cp_rank,
+                "all_token_attention_mask": attn_mask_on_this_cp_rank,
+                "all_token_loss_mask": None,
+                "all_token_position_ids": None,
+                "labels": labels_on_this_cp_rank,
+                'packed_seq_params': None,
+                "ori_seq_len": None,
+                "ori_batch_size": None,
+                "seq_indices": seq_indices,
+                "indices": None,
+                "pad_size": pad_size,
+                "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
             }
 
     if is_training:
@@ -622,7 +461,6 @@ def get_batch(
             zip(prompt_token_length, response_token_length)
         ):
             loss_mask[i, prompt_length: prompt_length + response_length] = 1
-        
         loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
 
         input_data.update({
@@ -669,7 +507,6 @@ def loss_func(
 
         reporting_losses[key] = final_loss.detach().clone().to(torch.float)
 
-    #num_tokens = loss_mask.sum().clone().detach().to(torch.int)
     num_tokens = inputs.get('num_tokens_on_this_cp_rank', loss_mask.sum().clone().detach()).to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
     reporting_losses["num_samples"] = torch.ones_like(num_tokens)
@@ -721,7 +558,16 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
                     inputs['ori_batch_size'],
                     inputs['ori_seq_len']
                 ).squeeze(-1)
-
+        elif unwrap_model(model).post_process and not is_packing:
+            if mpu.get_context_parallel_world_size() > 1:
+                cp_size = mpu.get_context_parallel_world_size()
+                cp_group = mpu.get_context_parallel_group()
+                seq_indices = inputs['seq_indices']
+                output_tensor_this_cp_rank = output_tensor[0]
+                output_tensor = torch.zeros(output_tensor_this_cp_rank.shape[0] * cp_size).cuda()
+                output_tensor.scatter_(0, seq_indices.to(torch.int64), output_tensor_this_cp_rank)
+                output_tensor = output_tensor.unsqueeze(0)
+                dist.all_reduce(output_tensor, group=cp_group)
         # NOTE: just returns the output tensor (the first argument).
         wrapped_loss_func = lambda x, **_: x # pylint: disable=unnecessary-lambda-assignment
 
