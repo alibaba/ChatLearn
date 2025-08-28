@@ -321,9 +321,9 @@ class MegatronPolicyTrainer(MegatronModule):
             cp_size = mpu.get_context_parallel_world_size()
             loss_reduced_for_metric = {
                 key: (
-                    (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item() * cp_size
+                    (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
                     if key.endswith('_sample_average') 
-                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
+                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item() / cp_size
                 )
                 for i, key in enumerate(keys)
             }
