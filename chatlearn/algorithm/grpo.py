@@ -26,6 +26,7 @@ from chatlearn import Engine
 from chatlearn.configs import (
     BaseConfig,
     RewardConfig,
+    AgentConfig,
     PolicyConfig,
     RuntimeConfig,
     RuntimeEnvConfig
@@ -39,6 +40,7 @@ from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
 from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference, AsyncSGLangPolicyInference
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
+from chatlearn.models.agent_module import AgentModule
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
@@ -64,6 +66,9 @@ class GrpoModelConfig(BaseConfig):
     )
     reward: RewardConfig = field(
         default_factory=RewardConfig, metadata={"help": "Reward config."}
+    )
+    agent: AgentConfig = field(
+        default_factory=AgentConfig, metadata={"help": "Agent config."}
     )
     ref_policy: Any = field(
         default=None,
@@ -210,6 +215,53 @@ class GRPOEngine(Engine):
         )
         self.set_parameter_sync(policy_trainer, policy)
 
+class GRPOAgentEngine(Engine):
+    """GRPO Agent Engine."""
+
+    def __init__(
+        self,
+        agent: AgentModule,
+        policy: VLLMPolicyInference,
+        reward: RuleReward,
+        ref_policy: PolicyTrainer,
+        policy_trainer: PolicyTrainer,
+    ):
+        # def env_compute_flow(batch):
+        #     policy_out = policy.forward_step(batch)
+        #     old_logprobs_out = policy_trainer.forward_step(policy_out)
+        #     ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
+        #     reward_out = reward.forward_step(ref_logprobs_out)
+        #     return reward_out
+
+        def env_compute_flow(batch):
+            agent_out = agent.forward_step(batch)
+            old_logprobs_out = policy_trainer.forward_step(agent_out)
+            ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
+            reward_out = reward.forward_step(ref_logprobs_out)
+            return reward_out
+
+        def trainer_compute_flow(batch):
+            policy_trainer.train_step(batch)
+
+        # def evaluator_flow(batch):
+        #     policy_out = policy.eval_forward(batch)
+        #     reward_out = reward.eval_forward(policy_out)
+        #     return reward_out
+
+        def evaluator_flow(batch):
+            agent_out = agent.eval_forward(batch)
+            reward_out = reward.eval_forward(agent_out)
+            return reward_out
+
+        env = Environment(env_compute_flow)
+        trainer = Trainer(trainer_compute_flow)
+        evaluator = GRPOEvaluator(evaluator_flow)
+        models = [agent, policy, reward, ref_policy, policy_trainer]
+        super().__init__(
+            environment=env, trainer=trainer, evaluator=evaluator, name="grpo", models=models
+        )
+        self.set_parameter_sync(policy_trainer, policy)
+
 
 class GrpoAlgorithm(BaseAlgorithm):
     """GrpoAlgorithm"""
@@ -235,7 +287,9 @@ class GrpoAlgorithm(BaseAlgorithm):
             RolloutModule_cls = SGLangPolicyInference if self.cfg.models.policy.is_sync_mode else AsyncSGLangPolicyInference
             policy = RolloutModule_cls("policy")
         reward = RuleReward("reward")
-        engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
+        agent = AgentModule("agent")
+        # engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
+        engine = GRPOAgentEngine(agent, policy, reward, ref_policy, policy_trainer)
 
         # get train and evaluation data
         train_data_path_list = [

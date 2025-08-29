@@ -40,6 +40,10 @@ class RewardConfig(BaseModelConfig):
     """Common configs for reward model"""
 
 @dataclass
+class AgentConfig(BaseModelConfig):
+    """Common configs for Agent model"""
+
+@dataclass
 class PolicyTrainerConfig(BaseModelConfig):
     """PolicyTrainerConfig"""
     optimizer: OptimizerConfig = field(

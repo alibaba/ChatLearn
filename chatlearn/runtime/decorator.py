@@ -78,10 +78,10 @@ def timeit():
             if self.runtime_args.nsys:
                 nvtx.range_push(func_name)
 
-                if not self.timers(func_name).started_:
-                    self.timers(func_name).start()
-                ret = await func(self, *args, **kwargs)
-                self.timers(func_name).stop()
+            if not self.timers(func_name).started_:
+                self.timers(func_name).start()
+            ret = await func(self, *args, **kwargs)
+            self.timers(func_name).stop()
 
             if self.profiler is not None and self._iteration>0 and self._iteration<=2 and self.replica_id==0 \
                 and func_name in ["forward_step", "train_step"]:

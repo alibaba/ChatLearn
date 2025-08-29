@@ -18,6 +18,7 @@ from collections import defaultdict
 import importlib
 import inspect
 from functools import partial
+import uuid
 
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
@@ -116,8 +117,9 @@ class DistActor:
             placement_group_bundle_index=group_index,
         )
         # use max_concurrency=1 to make sure only one task execute at one time
+        # .options(scheduling_strategy=scheduling_strategy) \
         actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(cls) \
-            .options(scheduling_strategy=scheduling_strategy) \
+            .options(scheduling_strategy=scheduling_strategy, namespace=self.name, name=f"{self.name}_replica{self.replica_id}_{uuid.uuid4().hex}") \
             .remote(self.model.name, self.model.global_args, self.replica_id, **kwargs)
         actor.set_error_signal.remote(self.error_signal)
         self.all_actors.append(actor)

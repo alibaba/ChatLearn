@@ -13,9 +13,45 @@
 # limitations under the License.
 # ==============================================================================
 """agent module"""
-from typing import Dict, List
+import ray
+from typing import Dict, List, Any
+
+import torch
+from transformers import AutoTokenizer
 
 from chatlearn import BaseModule
+from chatlearn.data.prompt_dataset import PromptPipeline
+from chatlearn.runtime.decorator import monitor_error, compute_decorator, timeit
+
+
+def sglang_postprocess_func(
+    tokenizer: AutoTokenizer,
+    batched_outputs: List[Dict[str, Any]],
+    input_data_list: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    data_output = []
+    for output, input_data in zip(batched_outputs, input_data_list):
+        prompt_token_ids = input_data["input_ids"]
+        output_tokens = output["output_ids"]
+        response_token_length = output["meta_info"]["completion_tokens"]
+        prompt_token_length = output["meta_info"]["prompt_tokens"]
+        str_outputs = tokenizer.decode(output_tokens, skip_special_tokens=True)
+        all_tokens = torch.tensor(prompt_token_ids + output_tokens)
+        input_data.update(
+            {
+                "prompt_token_ids": prompt_token_ids,
+                "all_tokens": all_tokens,
+                "response_token_length": response_token_length,
+                "prompt_token_length": prompt_token_length,
+                "str_outputs": str_outputs,
+            }
+        )
+        data_output.append(input_data)
+
+    print("str_outputs", data_output[0]["str_outputs"])
+    print("data_sources", data_output[0]["data_source"])
+    print("ground_truth", data_output[0]["ground_truth"])
+    return data_output
 
 class AgentModule(BaseModule):
     """Agent Module"""
@@ -28,16 +64,60 @@ class AgentModule(BaseModule):
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
 
+    def build_dataset(self, prompts: List[Dict], is_eval=False):
+
+        seq_length = self.global_args.models.policy.get("seq_length")
+        prompts_dataset = PromptPipeline(
+            prompts,
+            seq_length,
+            self.tokenizer,
+            enable_thinking=self.global_args.models.policy.get("enable_thinking", False),
+        )
+
+        return prompts_dataset
+
+    @monitor_error()
     def setup(self):
         self.stats = {}
         self._metric_prefix = "agent"
+        self.get_rollout()
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.global_args.models.policy.get("load"), trust_remote_code=True
+        )
 
-    def _forward_step(self, data: List[Dict]):
+    def get_rollout(self, namespace="policy"):
+        all_actors = ray.util.list_named_actors(all_namespaces=True)
+        rollout_actors = [actor for actor in all_actors if actor['namespace'] == namespace]
+        self.rollout_workers = [ray.get_actor(**item) for item in rollout_actors]
+        # rollout engine is not setup need to load later
+        self.rollout_engines = [worker for worker in self.rollout_workers if ray.get(worker.is_engine.remote())]
+        print("debughh", self.rollout_workers, self.rollout_engines)
+
+    def _forward_step(self, data: List[Dict], iteration, is_eval):
+        outputs = ray.get(self.rollout_engines[0].generate.remote(data, is_eval))
+
+        if outputs is not None:
+            rets = sglang_postprocess_func(self.tokenizer, outputs, data)
+            return rets
+        
         return data
 
+    @compute_decorator(trainable=False, rollout=False)
     def forward_step(self, data: List[Dict], iteration=0, **kwargs):
-        return data
+        rets = self._forward_step(data, iteration, False)
+        return rets
 
-    def eval_forward(self, data: List[Dict], **kwargs):
-        return data
-    
+    @compute_decorator(trainable=False, rollout=False)
+    def eval_forward(self, data: List[Dict], iteration=0, **kwargs):
+        rets = self._forward_step(data, iteration, False)
+        return rets
+
+    def onload(self):
+        if self.replica_id == 0:
+            for engine in self.rollout_engines:
+                ray.get(engine.onload.remote())
+        
+    def offload(self):
+        if self.replica_id == 0:
+            for engine in self.rollout_engines:
+                ray.get(engine.offload.remote())
