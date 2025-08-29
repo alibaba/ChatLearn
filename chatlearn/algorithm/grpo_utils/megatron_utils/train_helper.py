@@ -26,6 +26,7 @@ from flash_attn.bert_padding import pad_input, unpad_input
 
 from megatron.core import mpu
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.tensor_parallel.mappings import reduce_from_tensor_model_parallel_region
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import (
     get_args, get_timers,
@@ -190,6 +191,46 @@ def training_log(
 
     return report_memory_flag
 
+def _reduce_from_tensor_model_parallel_region(
+    output_on_this_cp_rank: torch.Tensor,
+    seq_indices: torch.Tensor
+):
+    cp_size = mpu.get_context_parallel_world_size()
+    cp_group = mpu.get_context_parallel_group()
+    assert output_on_this_cp_rank.shape[0] == 1, "output_on_this_cp_rank should be a tensor of shape (1,)"
+    output_on_this_cp_rank = output_on_this_cp_rank.squeeze(0)
+    output = torch.zeros(output_on_this_cp_rank.shape[0] * cp_size, device=output_on_this_cp_rank.device)
+    output.scatter_(0, seq_indices.to(torch.int64), output_on_this_cp_rank)
+    reduce_from_tensor_model_parallel_region(output, group=cp_group)
+    return output.unsqueeze(0)
+
+def reduce_from_context_parallel_region(
+    logprobs: torch.Tensor,
+    is_packing: bool = False,
+    inputs: Dict[str, Any] = None
+):
+
+    if is_packing:
+        if mpu.get_context_parallel_world_size() == 1:
+            logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
+        elif mpu.get_context_parallel_world_size() > 1:
+            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['seq_indices'])
+
+        logprobs = pad_input(
+            logprobs.permute(1, 0), 
+            inputs['indices'], 
+            inputs['ori_batch_size'], 
+            inputs['ori_seq_len']
+        ).squeeze(-1)
+
+    else:
+        if mpu.get_context_parallel_world_size() > 1:
+            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['seq_indices'])
+
+        logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
+
+    return logprobs
+
 
 def get_batch(
     data_iter: Iterator[Dict[str, Union[torch.Tensor, List[Any]]]],
@@ -287,11 +328,6 @@ def get_batch(
             pad_size = (align_size - seqlens_in_batch % align_size) % align_size
             seqlens_in_batch_padded = seqlens_in_batch + pad_size
 
-            cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
-            cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
-            cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
-            cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
-
             tokens_padded = torch.full((mbs, seqlens_in_batch_padded.max()), get_tokenizer().eod, dtype=tokens.dtype, device=tokens.device)
             attn_mask_for_padding = torch.zeros((mbs, seqlens_in_batch_padded.max()), dtype=tokens.dtype, device=tokens.device)
             for i in range(mbs):
@@ -299,14 +335,12 @@ def get_batch(
                 seqlen_in_batch_padded = seqlens_in_batch_padded[i]
                 attn_mask_for_padding[i, :seqlen_in_batch] = 1
                 tokens_padded[i, :seqlen_in_batch] = tokens[i, :seqlen_in_batch]
-                if seqlen_in_batch_padded > seqlen_in_batch:
-                    tokens_padded[i, seqlen_in_batch:seqlen_in_batch_padded] = get_tokenizer().eod
-                    attn_mask_for_padding[i, seqlen_in_batch:seqlen_in_batch_padded] = 1
+                attn_mask_for_padding[i, seqlen_in_batch:seqlen_in_batch_padded] = 1
 
             (
                 tokens,
                 indices,
-                cu_seqlens,
+                cu_seqlens_padded,
                 max_seqlen_in_batch,
                 *_
             ) = unpad_input(tokens_padded.unsqueeze(-1), attn_mask_for_padding)
@@ -331,8 +365,8 @@ def get_batch(
 
             packed_seq_params = PackedSeqParams(
                 qkv_format='thd',
-                cu_seqlens_q=cu_seqlens,
-                cu_seqlens_kv=cu_seqlens,
+                cu_seqlens_q=cu_seqlens_padded,
+                cu_seqlens_kv=cu_seqlens_padded,
                 max_seqlen_q=max_seqlen_in_batch,
                 max_seqlen_kv=max_seqlen_in_batch
             )
@@ -519,8 +553,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         is_training=is_training,
         is_packing=is_packing
     )
-    # TODO: refactor model.forward to return logits or logprobs, and make
-    # loss computation in loss_func
+
     output_tensor = model(
         input_ids=inputs["all_tokens"],
         position_ids=inputs["all_token_position_ids"],
@@ -533,39 +566,9 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
     if is_training:
         wrapped_loss_func = partial(loss_func, inputs)
     else:
-        if unwrap_model(model).post_process and is_packing:
-            if mpu.get_context_parallel_world_size() == 1:
-                output_tensor = pad_input(
-                    output_tensor[0, :output_tensor.shape[1] - inputs['pad_size']].unsqueeze(-1),
-                    inputs['indices'],
-                    inputs['ori_batch_size'],
-                    inputs['ori_seq_len']
-                ).squeeze(-1)
+        if unwrap_model(model).post_process:
+            output_tensor = reduce_from_context_parallel_region(output_tensor, is_packing, inputs)
 
-            elif mpu.get_context_parallel_world_size() > 1:
-                cp_size = mpu.get_context_parallel_world_size()
-                cp_group = mpu.get_context_parallel_group()
-                seq_indices = inputs['seq_indices']
-                output_tensor_this_cp_rank = output_tensor[0]
-                output_tensor = torch.zeros(output_tensor_this_cp_rank.shape[0] * cp_size).cuda()
-                output_tensor.scatter_(0, seq_indices.to(torch.int64), output_tensor_this_cp_rank)
-                dist.all_reduce(output_tensor, group=cp_group)
-                output_tensor = pad_input(
-                    output_tensor.unsqueeze(-1),
-                    inputs['indices'],
-                    inputs['ori_batch_size'],
-                    inputs['ori_seq_len']
-                ).squeeze(-1)
-        elif unwrap_model(model).post_process and not is_packing:
-            if mpu.get_context_parallel_world_size() > 1:
-                cp_size = mpu.get_context_parallel_world_size()
-                cp_group = mpu.get_context_parallel_group()
-                seq_indices = inputs['seq_indices']
-                output_tensor_this_cp_rank = output_tensor[0]
-                output_tensor = torch.zeros(output_tensor_this_cp_rank.shape[0] * cp_size).cuda()
-                output_tensor.scatter_(0, seq_indices.to(torch.int64), output_tensor_this_cp_rank)
-                output_tensor = output_tensor.unsqueeze(0)
-                dist.all_reduce(output_tensor, group=cp_group)
         # NOTE: just returns the output tensor (the first argument).
         wrapped_loss_func = lambda x, **_: x # pylint: disable=unnecessary-lambda-assignment
 
@@ -602,4 +605,3 @@ def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
         logits: (*, vocab_size // tp_size)
     """
     return _VocabParallelEntropy.apply(logits)
-    
