@@ -215,7 +215,6 @@ def reduce_from_context_parallel_region(
             logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
         elif mpu.get_context_parallel_world_size() > 1:
             logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['seq_indices'])
-
         logprobs = pad_input(
             logprobs.permute(1, 0), 
             inputs['indices'], 
