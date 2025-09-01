@@ -67,6 +67,7 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
 
+    @monitor_error()
     def setup(self):
         self.stats = {}
         self.buffer = {}
@@ -77,6 +78,14 @@ class MegatronPolicyTrainer(MegatronModule):
             get_args().padded_vocab_size = self.args.vocab_size
 
         if self.trainable:
+            # TODO: move this hardcoded resumedir elsewhere
+            resume_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}"
+            if self.resume_training and os.path.exists(resume_dir):
+                get_args().load = resume_dir
+                get_args().no_load_optim = False
+                get_args().no_load_rng = False
+                get_args().no_load_scheduler = False
+                self._logger.info(f"Overwrite load path for resuming training.")
             self.model, self.optimizer, self.opt_param_scheduler = (
                 setup_model_and_optimizer(
                     self.model_provider, ModelType.encoder_or_decoder
@@ -96,8 +105,6 @@ class MegatronPolicyTrainer(MegatronModule):
                     None,
                     checkpointing_context={},
                     skip_load_to_model_and_opt=False
-                    and getattr(self.args, "use_torch_fsdp2", False)
-                    and self.args.ckpt_format == "torch_dist",
                 )
             if int(os.environ.get("WORLD_SIZE", 1)) > 1:
                 torch.distributed.barrier(
@@ -216,9 +223,9 @@ class MegatronPolicyTrainer(MegatronModule):
 
         return model
 
-    @timeit("megatron_train_step")
-    @monitor_error("megatron_train_step")
+    @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
+    @timeit()
     def train_step(self, data_list: List[Dict[str, Any]], **kwargs):
         """Do an train step.
 
@@ -352,9 +359,9 @@ class MegatronPolicyTrainer(MegatronModule):
 
         self.report_memory_flag = report_memory_flag
 
-    @timeit("megatron_forward_step")
-    @monitor_error("megatron_forward_step")
+    @monitor_error()
     @compute_decorator(trainable=False, rollout=False)
+    @timeit()
     @torch.no_grad()
     def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]:
         """Do an inference forward step. Only for computation of old_logprobs and ref_logprobs.

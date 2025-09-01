@@ -37,7 +37,7 @@ from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
-from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference
+from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference, AsyncSGLangPolicyInference
 from chatlearn.algorithm.grpo_utils.rollout_manager import RolloutManager
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
@@ -160,8 +160,8 @@ class GrpoConfig(BaseConfig):
 
             train_global_batch_size_per_dp_rank = self.runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
             assert train_global_batch_size_per_dp_rank % self.runtime_args.train_micro_batch_size == 0, (
-                f"sample_per_dp_rank must be divisible by models.{name}.generation_batch_size, "
-                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; generation_batch_size: {conf.generation_batch_size}"
+                f"sample_per_dp_rank must be divisible by runtime_args.train_micro_batch_size, "
+                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; train_micro_batch_size: {self.runtime_args.train_micro_batch_size}"
             )
 
 
@@ -203,7 +203,7 @@ class GRPOEngine(Engine):
             policy_trainer.train_step(batch)
 
         def evaluator_flow(batch):
-            policy_out = policy.forward_step(batch)
+            policy_out = policy.eval_forward(batch)
             reward_out = reward.eval_forward(policy_out)
             return reward_out
 
@@ -273,8 +273,8 @@ class GrpoAlgorithm(BaseAlgorithm):
         if self.cfg.runtime_args.rollout_backend == "vllm":
             policy = VLLMPolicyInference("policy")
         elif self.cfg.runtime_args.rollout_backend == "sglang":
-            policy = SGLangPolicyInference("policy")
-
+            RolloutModule_cls = SGLangPolicyInference if self.cfg.models.policy.is_sync_mode else AsyncSGLangPolicyInference
+            policy = RolloutModule_cls("policy")
         reward = RuleReward("reward")
 
         if self.cfg.runtime_args.partial_rollout:

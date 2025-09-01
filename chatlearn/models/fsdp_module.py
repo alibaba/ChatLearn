@@ -16,7 +16,6 @@
 import os
 import random
 import gc
-import copy
 from typing import List
 
 import numpy as np
@@ -47,7 +46,6 @@ class FSDPModule(TorchModule):
     name : str
         model name
     """
-    # pylint: disable=abstract-method
 
     def __init__(self, name: str, args=None, replica_id: int=0):
         """The chatlearn wrapper for a FSDP model.
@@ -206,8 +204,8 @@ class FSDPModule(TorchModule):
             assert self.sp_size % config.num_key_value_heads == 0, \
                 "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
 
-    @monitor_error("model_setup")
-    @timeit("model_setup")
+    @monitor_error()
+    @timeit()
     def model_setup(self):
         """
         :meta private:
@@ -319,11 +317,11 @@ class FSDPModule(TorchModule):
             param_cnt += param.numel()
             current_group.append(name)
             if param_cnt >= block_size:
-                name_list.append(copy.deepcopy(current_group))
+                name_list.append(current_group)
                 current_group = []
                 param_cnt = 0
         if len(current_group) > 0:
-            name_list.append(copy.deepcopy(current_group))
+            name_list.append(current_group)
         return name_list
 
     def get_weight_ipc_handles_by_name(self, block_name: List[str]):
@@ -396,7 +394,7 @@ class FSDPModule(TorchModule):
         if empty_cache:
             torch.cuda.empty_cache()
 
-    @timeit("save_checkpoint")
+    @timeit()
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
         if dist.get_rank() == 0 and not os.path.exists(save_dir):

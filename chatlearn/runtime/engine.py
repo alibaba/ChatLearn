@@ -17,10 +17,13 @@
 import os
 import shutil
 import time
+from typing import Dict, List, Tuple
+from collections import defaultdict
 
 import torch
 from ray.actor import ActorHandle
 import ray
+
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
@@ -61,8 +64,7 @@ class BaseEngine:
         """
         :meta private:
         """
-        if self._timers:
-            return self._timers.log(reset=False, return_dict=True)
+        return self._timers.log(reset=False, return_dict=True)
 
     def _create_remote_models(self):
         resource_manager = ResourceManager(self._models)
@@ -152,23 +154,52 @@ class BaseEngine:
             mem_log = f"peak_mem(GiB): {mem_str}"
             logger.debug(f"{LOG_START} {model.name} {mem_log}")
 
+    def reduce_timer(self, timer_data: List[List[Tuple[str, dict]]]) -> Dict:
+        """timer_data: (replica_num, actor_num)
+        """
+        # flatten
+        flattened_timer_data = [item[1] for sublist in timer_data for item in sublist]
+        merged_timer = defaultdict(list)
+        reduce_timer = {}
+        for timer_data_item in flattened_timer_data:
+            for k, v in timer_data_item.items():
+                merged_timer[k].append(v)
+
+        for k, v in merged_timer.items():
+            if k in ['forward_step', 'train_step', 'eval_forward']:
+                reduce_timer.update(
+                    {
+                        f"{k}/avg(s)": sum(v) / len(v),
+                        f"{k}/max(s)": max(v),
+                        f"{k}/min(s)": min(v)
+                    }
+                )
+            else:
+                reduce_timer.update(
+                    {
+                        f"{k}(s)": sum(v) / len(v),
+                    }
+                )
+
+        return reduce_timer
+
     def logging_summary(self, iteration=-1):
         _, e2e_time_dict = self.timer_summary()
-        refs = []
+
+        summaries = []
+        logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary.")
         for model in self.remote_models:
-            time_ref = model.replicas[0].timer_summary(e2e_cost=e2e_time_dict.get(model.name, None))
-            refs.append(time_ref)
-        summaries = future.get(refs)
+            timer_data = future.get(model.timer_summary(e2e_cost=e2e_time_dict.get(model.name, None)))
+            reduce_timer_data = self.reduce_timer(timer_data)
+            summaries.append(reduce_timer_data)
+
         for key, value in e2e_time_dict.items():
             e2e_time_dict[key] = {'e2e': value}
 
-        logger.info(f"{LOG_START} episode iteration {iteration + 1} time summary for each model as follows:")
         for model, summary in zip(self.remote_models, summaries):
-            summary_str, summary_dict = summary[-1] if isinstance(summary, list) else summary
-            logger.info(f"{LOG_START} [{model.name}] {summary_str}")
             if model.name not in e2e_time_dict:
                 e2e_time_dict[model.name] = {}
-            e2e_time_dict[model.name].update(summary_dict)
+            e2e_time_dict[model.name].update(summary)
 
         self.logging_memory()
         return e2e_time_dict
@@ -339,13 +370,13 @@ class Engine(BaseEngine):
                 model_time_dict[f"{model.name}/{key}"] = value
 
         ## 2. episode time
-        timer_names = ['sync_parameters',]
+        timer_names = ['sync_parameters']
         # timer_names before episode looping
         if iteration == -1 and self.evaluator and self.runtime_args.enable_eval_before_training:
             timer_names.append('evaluate')
         # timer_names in episode looping
         elif iteration >= 0:
-            timer_names.extend(['episode','train',])
+            timer_names.extend(['episode', 'train', 'environment'])
             if self.runtime_args.save_episode_interval and \
                     (iteration + 1) % self.runtime_args.save_episode_interval == 0:
                 timer_names.append('save_checkpoint')
@@ -372,13 +403,6 @@ class Engine(BaseEngine):
         ## 5. log in episode looping
         # Train metrics
         for model in self.remote_models:
-            # all_metric_tuples is like
-            # [rank n-1, rank 2n-1, ...]
-            # each rank refers to a tuple like (prefix, metric)
-            # example1 [[('vllm_inference', {'prompt_token_length': 108.5})], [('vllm_inference', {'prompt_token_length': 121.75})]]
-            # example2 [('', {})]
-            # example3  [('', {'train_reward_score': 0.78125}), ('', {'train_reward_score': 0.625})]
-
             all_metric_tuples = future.get(model.get_and_clear_metrics())
             if isinstance(all_metric_tuples[0], list):
                 all_metric_tuples_flaten = []
@@ -397,8 +421,10 @@ class Engine(BaseEngine):
         if self.evaluator:
             prefix, evaluate_metrics = self.evaluator.get_and_clear_metrics()
             self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
+        
+        # Get total train token (prompt token included), divided by total episode e2e 
         total_tokens = ray.get(self._data_loader.get_total_train_tokens.remote())
-        tps_throughput = total_tokens / (episode_metrics['episode'] * 60)
+        tps_throughput = total_tokens / (episode_metrics['episode'])
         episode_metrics.update({'tps_throughput': tps_throughput})
         self.metric_manager.log("engine/timer_summary", iteration + 1, episode_metrics)
 
@@ -472,7 +498,9 @@ class Engine(BaseEngine):
             queue = []
             if os.getenv("SKIP_GENERATION", None) is None:
                 logger.info(f"{LOG_START} start to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
+                self.timers("environment").start()
                 queue = self.env.make_experiences()
+                self.timers("environment").stop()
                 logger.info(f"{LOG_START} complete to make experience: {episode_id + 1}/{self.runtime_args.num_episode}")
                 self.timers("set_train_dataset").start()
             else:
@@ -487,11 +515,15 @@ class Engine(BaseEngine):
                 logger.info(get_full_proc_memory_info(f"{LOG_START} Before train {episode_id}"))
                 if self.trainer.timers is None:
                     self.trainer.set_timers(self.timers)
+
+                self.timers("train").start()
                 self.trainer.train(episode_id)
+                self.timers("train").stop()
+
                 logger.info(get_full_proc_memory_info(f"{LOG_START} After train {episode_id}"))
-                self.timers("save ckpts").start()
+
                 self.save_checkpoint(episode_id)
-                self.timers("save ckpts").stop()
+
                 logger.info(f"{LOG_START} save episode_id: {episode_id + 1}/{self.runtime_args.num_episode} done")
                 self.timers("sync_parameters").start()
                 self.model_manager.sync_parameters(episode_id + 1)

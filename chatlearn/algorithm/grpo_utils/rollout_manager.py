@@ -30,7 +30,6 @@ from chatlearn import BaseModule
 
 class RolloutManager(BaseModule):
     """Rollout Manager"""
-    @timeit("setup")
     def setup(self):
         self._metric_prefix = "rollout_manager"
         self.rollout_finished_no_train = defaultdict(list)
@@ -64,7 +63,7 @@ class RolloutManager(BaseModule):
         return data
 
     @compute_decorator(trainable=False, rollout=False)
-    @timeit("get_sample_for_rollout")
+    @timeit()
     def get_sample_for_rollout(self, data: List[Dict[str, Any]], **kwargs):
         # Get sample_per_episode samples from prompts_dataset
         # Add these samples into self.rollout_not_finished for future rollout
@@ -119,7 +118,7 @@ class RolloutManager(BaseModule):
         self.metric_dict.update(update_dict)
 
     @compute_decorator(trainable=False, rollout=False)
-    @timeit("post_process_rollout_results")
+    @timeit()
     def post_process_rollout_results(self, rollout_result_list, **kwargs):
         self.logging_generate_by_round(rollout_result_list)
         start = time.time()

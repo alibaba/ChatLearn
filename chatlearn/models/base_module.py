@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """base module"""
-from typing import Dict, List, Optional, TYPE_CHECKING
+from typing import Dict, TYPE_CHECKING
 from itertools import cycle
 from pathlib import Path
 import math
@@ -83,7 +83,7 @@ class BaseModule:
 
         self._dataloader = None
         self._eval_dataloader = None
-        self._timers = None
+        self._timers = Timers()
         self._data_iter = None
         self._eval_data_iter = None
         self.call_funcs = []
@@ -474,27 +474,11 @@ class BaseModule:
         """
         return self._num_gpu_per_replica
 
-
-    def is_last_rank(self):
-        """
-        Is last rank.
-        """
-        return True
-
     def timers(self, name):
-        """
-        :meta private:
-        """
-        if self._timers is None:
-            self._timers = Timers()
         return self._timers(name)
 
     def timer_summary(self, e2e_cost=None):
-        """
-        :meta private:
-        """
-        if self._timers:
-            return self._timers.log(return_dict=True, e2e_cost=e2e_cost)
+        return self._timers.log(return_dict=True, e2e_cost=e2e_cost)
 
     def get_and_clear_metrics(self):
         """
@@ -666,8 +650,8 @@ class BaseModule:
     # NOTE: the following APIs are for updated parameter synchronization.
     def set_mapper(self, mapper_name: str, dst_model_config: BaseModelConfig):
         self.mapper = name_to_mapper_cls(mapper_name)(
-            dst_model_config,
-            self
+            dst_model_config=dst_model_config,
+            model=self
         )
 
     def generate_sync_mapping(self, dst_name_to_metadata):
@@ -704,15 +688,19 @@ class BaseModule:
         synchronizer_name: str='general',
         **kwargs
     ):
+        """initialize the synchronizer on this rank.
+
+        Args:
+            synchronizer_name (str): type name of the synchronizer
+            kwargs (Dict): kwargs for the synchronizer
+        """
         if synchronizer_name != "general":
             raise ValueError(f"Unrecognized Synchronizer {synchronizer_name}")
         self.synchronizer = GeneralCommunicator(model=self, **kwargs)
 
     def call_synchronizer_func(self, func_name, *args, **kwargs):
+        """Call some apis of sychronizers"""
         return getattr(self.synchronizer, func_name)(*args, **kwargs)
 
     def get_mem_info(self):
         return torch.cuda.mem_get_info()
-
-    def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
-        raise NotImplementedError("update_weights_from_buckets is not implemented")

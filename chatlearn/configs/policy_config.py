@@ -8,6 +8,9 @@ class RolloutConfig(BaseConfig):
     """The config for rollout models. Currently this config is
     shared between vLLM and SGLang.
     """
+    is_sync_mode: bool = field(
+        default=True, metadata={"help": "whether use sync rollout or async rollout. warning: vLLM only support sync mode"}
+    )
     tensor_model_parallel_size: int = field(
         default=1, metadata={"help": "tensor model parallel size"}
     )
@@ -88,10 +91,10 @@ class PolicyConfig(BaseModelConfig, RolloutConfig):
     def _validate_impl(self):
         assert self.num_gpu % self.tensor_model_parallel_size == 0, \
             "models.policy.num_gpu must be divisible by tensor_model_parallel_size"
-        assert self.total_gpu > 0, "Policy model requires at least one GPU"
+        assert self.num_gpu > 0, "Policy model requires at least one GPU"
         assert not self.trainable, "Policy model does not support training"
-        assert self.module_args.expert_model_parallel_size == 1, "Expert Parallel of Policy model is not supported"
-        assert self.module_args.pipeline_model_parallel_size == 1, "Pipeline Parallel of Policy model is not supported"
+        assert self.expert_model_parallel_size == 1, "Expert Parallel of Policy model is not supported"
+        assert self.pipeline_model_parallel_size == 1, "Pipeline Parallel of Policy model is not supported"
         assert self.num_gpu % self.num_replica == 0, \
             "The GPUs assigned to megatron model must be divisible by num_replica"   
 

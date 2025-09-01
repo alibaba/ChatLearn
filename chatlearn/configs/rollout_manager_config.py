@@ -31,9 +31,9 @@ class RolloutManagerConfig(BaseModelConfig):
     )
 
     def _validate_impl(self):
-        assert len(self.rollout_ratio) != self.max_rollout_round, \
+        assert len(self.rollout_ratio) == self.max_rollout_round, \
             "Rollout_ratio for each round must be set"
-        assert sum(self.rollout_ratio) != 1.0, \
+        assert sum(self.rollout_ratio) == 1.0, \
             "Sum of rollout ratio for each round must equal to 1.0"
         assert self.mini_response_per_prompt < self.num_inference_per_prompt, \
             "mini_response_per_prompt must be less than num_inference_per_prompt"
