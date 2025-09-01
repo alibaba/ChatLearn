@@ -111,6 +111,9 @@ class RuntimeConfig(BaseConfig):
     train_global_batch_size: int = field(
         default=MISSING, metadata={"help": "[required] training global batch size."}
     )
+    num_inference_per_prompt: int = field(
+        default=32, metadata={"help": "number of response for per prompt"}
+    )
     save_episode_interval: int = field(
         default=MISSING,
         metadata={"help": "save checkpoint per `save_episode_interval` episodes."},

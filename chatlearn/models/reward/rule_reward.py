@@ -17,6 +17,7 @@ from typing import Dict, List
 from collections import defaultdict
 
 import torch
+import numpy as np
 
 from chatlearn import BaseModule
 from chatlearn.utils.rule_reward_score import math
@@ -38,7 +39,8 @@ class RuleReward(BaseModule):
         assert self.total_gpu == 0, "RuleReward does not require GPU"
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
-        self.rule_reward_buffer = defaultdict(set)
+        self.rule_reward_buffer = defaultdict(list)
+        self.num_inference_per_prompt = self.module_args.num_inference_per_prompt
 
     def setup(self):
         self.stats = {}
@@ -54,9 +56,20 @@ class RuleReward(BaseModule):
             data_source = data_b["data_source"]
             ground_truth = data_b["ground_truth"]
             compute_score_fn = self.select_rule_reward_score_fn(data_source)
-            reward.append(compute_score_fn(str_output, ground_truth))
+            single_score = compute_score_fn(str_output, ground_truth)
+            reward.append(single_score)
+            self.rule_reward_buffer[hash(data_b['prompt'])].append(single_score)
             data_b.update({"rule_reward": reward[-1], "eval_source": data_source})
+        # Update mean/std for single prompt
+        for data_b in data:
+            reward_list = self.rule_reward_buffer[hash(data_b['prompt'])]
+            data_b.update({"rule_reward_mean": np.mean(reward_list), "rule_reward_std": np.std(reward_list)})
+        self.clean_dict()
         return data, reward
+
+    def clean_dict(self):
+        # when all response for prompt is finished, pop those key out
+        self.rule_reward_buffer = {k:v for k, v in self.rule_reward_buffer.items() if len(v) == self.num_inference_per_prompt}
 
     @compute_decorator(trainable=False, rollout=False)
     @timeit()
