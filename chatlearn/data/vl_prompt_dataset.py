@@ -1,11 +1,11 @@
 """prompt dataset"""
 
 from typing import List, Dict
-
+import re
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoProcessor
-from chatlearn.data.vision_utils import process_image, process_video, postprocess_data
-import re
+from chatlearn.data.vision_utils import process_image, process_video
+from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_index
 
 
 class PromptPipeline(Dataset):
@@ -56,10 +56,10 @@ class PromptPipeline(Dataset):
             messages = self._build_messages(data_item)
 
             model_inputs = {}
-            
+  
             assert self.processor is not None
 
-            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False)
+            raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False, enable_thinking=enable_thinking)
             # multi_modal_data = {}
 
             images = None
@@ -91,17 +91,15 @@ class PromptPipeline(Dataset):
             # text only input_ids for vllm
             raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
-            if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-                from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_index
-                position_ids, rope_deltas = get_rope_index(
-                        self.processor,
-                        input_ids=input_ids,
-                        image_grid_thw=model_inputs.get("image_grid_thw"),
-                        video_grid_thw=model_inputs.get("video_grid_thw"),
-                        second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                        attention_mask=attention_mask,
-                )
-        
+            position_ids, rope_deltas = get_rope_index(
+                    self.processor,
+                    input_ids=input_ids,
+                    image_grid_thw=model_inputs.get("image_grid_thw"),
+                    video_grid_thw=model_inputs.get("video_grid_thw"),
+                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                    attention_mask=attention_mask,
+            )
+    
 
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
@@ -121,7 +119,6 @@ class PromptPipeline(Dataset):
 
             if seq_length > len(input_ids[0]):
                 self.data.append(processed_data)
-    
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
 
