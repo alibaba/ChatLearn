@@ -56,6 +56,9 @@ class RuntimeConfig(BaseConfig):
     rollout_backend: str = field(
         default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
     )
+    partial_rollout: bool = field(
+        default=False, metadata={"help": "whether to use partial rollout"}
+    )
     exp_name: str = field(
         default="CHATLEARN", metadata={"help": "exp name for each run"}
     )

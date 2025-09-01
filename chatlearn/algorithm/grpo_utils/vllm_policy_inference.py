@@ -18,7 +18,7 @@ from typing import Dict, List, Any
 from collections import deque, defaultdict
 from collections import Counter
 import time
-
+import numpy as np
 import copy
 
 import torch
@@ -62,8 +62,9 @@ class VLLMPolicyInference(VLLMModule):
     @compute_decorator(trainable=False, rollout=True)
     def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
         round_track = {}
+        # sort data by rollout round in decreasing order
         if "rollout_round" in data[0]:
-            round_track = dict(Counter(d["rollout_round"] for d in data))
+            data.sort(key=lambda x: x['rollout_round'], reverse=True)
         start_time = time.time()
         rets = self._forward_step(data, iteration, False)
         # collect metric
@@ -73,14 +74,18 @@ class VLLMPolicyInference(VLLMModule):
         clip_ratio = sum(
             ret["response_token_length"] >= ret.get("max_generate_token_length", seq_len) for ret in rets
         ) / len(rets)
+        response_token_length.sort()
         inference_stats = {
             "response_token_length": sum(response_token_length)
             / len(response_token_length),
             "prompt_token_length": sum(prompt_token_length) / len(prompt_token_length),
             "response_clip_ratio": clip_ratio,
+            "response_max": max(response_token_length),
+            "response_25_percentile": np.percentile(response_token_length, 25),
+            "response_50_percentile": np.percentile(response_token_length, 50),
+            "response_75_percentile": np.percentile(response_token_length, 75),
         }
         round_track.update({'time': time.time() - start_time})
-        print(f"debugyy round_track for each rollout actor {round_track}")
         self._metric_list.append(inference_stats)
         return rets
 
@@ -110,6 +115,7 @@ class VLLMPolicyInference(VLLMModule):
                 if "rollout_round" in data_obj:
                     data_obj["rollout_round"] += 1
                 data_output.append(data_obj)
+
         print("str_outputs", data_output[0]["str_outputs"])
         print("data_sources", data_output[0]["data_source"])
         print("ground_truth", data_output[0]["ground_truth"])

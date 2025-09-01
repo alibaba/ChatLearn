@@ -19,6 +19,7 @@ import uuid
 import random
 import time
 import numpy as np
+import os
 
 import torch
 from transformers import AutoTokenizer
@@ -27,24 +28,9 @@ from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn import BaseModule
 
-def max_gen_length_each_round(seq_len:int, num_round: int) -> List[int]:
-    total_length = sum(x**2 for x in range(seq_len))
-    target = total_length // num_round
-    current_sum = 0
-    slice_idx = [0]
-    for i in range(seq_len):
-        current_sum += i ** 2
-        if current_sum > target:
-            slice_idx.append(i)
-            current_sum = 0
-    slice_idx.append(seq_len)
-    return [a - b for a, b in zip(slice_idx[1:], slice_idx[:-1])]
-
 class RolloutManager(BaseModule):
-    """rule reward"""
-
-    @timeit("rollout_manager_setup")
-    @monitor_error("rollout_manager_setup")
+    """Rollout Manager"""
+    @timeit("setup")
     def setup(self):
         self._metric_prefix = "rollout_manager"
         self.rollout_finished_no_train = defaultdict(list)
@@ -52,11 +38,11 @@ class RolloutManager(BaseModule):
         self.rollout_not_finished = []
         self.max_rollout_round = self.module_args.get("max_rollout_round")
         self.max_gen_len = self.module_args.get("max_gen_len")
-        self.max_token_per_round = max_gen_length_each_round(self.max_gen_len, self.max_rollout_round)
-        print(f"debugyy token_per_round: {self.max_token_per_round}")
+        self.ratio = self.module_args.get("rollout_ratio")
+        self.max_token_per_round = [int(self.max_gen_len * ratio) for ratio in self.ratio]
         self.num_inference_per_prompt = self.module_args.get("num_inference_per_prompt")
         self.mini_response_per_prompt = self.module_args.get("mini_response_per_prompt")
-        self.mertic_dict = {}
+        self.metric_dict = {}
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
@@ -70,13 +56,6 @@ class RolloutManager(BaseModule):
         return prompts_dataset
 
     def initialze_data(self, data: List[Dict[str, Any]], first_stage: bool = True):
-        # Add extra key for partial rollout
-        # prompt_uid: prompt_uid for tracking completion for prompts
-        # rollout_round: tracking rollout round for partial rollout
-        # str_outputs: buffer for all str outputs
-        # prompt_token_length: prompt token length before rollout
-        # prompt_token_ids: prompt id before rollout
-        # max_generate_token_length: max token can be generated with single round
         for sample in data:
             sample["uuid"] = uuid.uuid4()
             sample["prompt_uid"] = hash(sample["prompt"])
@@ -84,8 +63,8 @@ class RolloutManager(BaseModule):
             sample["max_generate_token_length"] = self.max_token_per_round[sample["rollout_round"]]
         return data
 
-    @timeit("get_sample_for_rollout")
     @compute_decorator(trainable=False, rollout=False)
+    @timeit("get_sample_for_rollout")
     def get_sample_for_rollout(self, data: List[Dict[str, Any]], **kwargs):
         # Get sample_per_episode samples from prompts_dataset
         # Add these samples into self.rollout_not_finished for future rollout
@@ -93,14 +72,14 @@ class RolloutManager(BaseModule):
         sample_per_episode = len(data)
         data = self.initialze_data(data)
         self.rollout_not_finished.extend(data)
-        train_batch = self.rollout_not_finished[:sample_per_episode]
+        train_batch = self.rollout_not_finished
         # Record start episode id
         for single_data in train_batch:
             if "start_episode" not in single_data:
                 single_data["start_episode"] = self._episode_id
         random.shuffle(train_batch)
         round_track = {f"round_{i}_samples": sum(d.get("rollout_round") == i for d in train_batch) for i in range(self.max_rollout_round)}
-        self.mertic_dict.update(round_track)
+        self.metric_dict.update(round_track)
         return train_batch
 
     def is_finished(self, data_b):
@@ -110,17 +89,11 @@ class RolloutManager(BaseModule):
             (data_b["rollout_round"] == self.max_rollout_round)
 
     def find_index_by_uuid(self, sample_per_episode, uuid):
-        idx = next(i for i,d in enumerate(self.rollout_not_finished[:sample_per_episode]) if d['uuid'] == uuid)
+        idx = next(i for i,d in enumerate(self.rollout_not_finished) if d['uuid'] == uuid)
         return idx
 
     def update_data(self, data, rollout_result, is_finished):
         # Update data in self.rollout_not_finished buffer for single rollout round
-        # - Append str_outputs
-        # - Update rollout_round
-        # - Add response_token_length
-        # - Update input_ids for next rollout round
-        # - Update all_tokens
-
         assert data["uuid"] == rollout_result["uuid"]
         data.update({
             "uuid": rollout_result["uuid"],
@@ -129,7 +102,8 @@ class RolloutManager(BaseModule):
             "response_token_length": data.get("response_token_length", 0) + rollout_result["response_token_length"],
             "input_ids": rollout_result["all_tokens"].tolist(),
             "all_tokens": rollout_result["all_tokens"],
-            "max_generate_token_length": self.max_token_per_round[min(rollout_result["rollout_round"], len(self.max_token_per_round) - 1)]
+            "max_generate_token_length": self.max_token_per_round[rollout_result["rollout_round"]] \
+                if rollout_result["rollout_round"] < self.max_rollout_round else 0
         })
         return data
     
@@ -140,12 +114,12 @@ class RolloutManager(BaseModule):
         update_dict = {}
         for key in logging_generate:
             update_dict[f"{key}_mean"] = 0 if len(logging_generate[key]) == 0 else np.mean(np.array(logging_generate[key]))
-            update_dict[f"{key}_std"] = 0 if len(logging_generate[key]) == 0 else np.std(np.array(logging_generate[key]))
-        self.mertic_dict.update(update_dict)
-        self._metric_list.append(self.mertic_dict)
+            update_dict[f"{key}_max"] = 0 if len(logging_generate[key]) == 0 else np.max(np.array(logging_generate[key]))
+            update_dict[f"{key}_min"] = 0 if len(logging_generate[key]) == 0 else np.min(np.array(logging_generate[key]))
+        self.metric_dict.update(update_dict)
 
-    @timeit("post_process_rollout_results")
     @compute_decorator(trainable=False, rollout=False)
+    @timeit("post_process_rollout_results")
     def post_process_rollout_results(self, rollout_result_list, **kwargs):
         self.logging_generate_by_round(rollout_result_list)
         start = time.time()
@@ -180,6 +154,7 @@ class RolloutManager(BaseModule):
             if self.num_response_track[key] == self.num_inference_per_prompt:
                 self.num_response_track.pop(key)
         random.shuffle(train_data)
-        print(f"debugyy final sum train: {len(train_data)}")
-        print("data preprocess time: %.3f" % (time.time() - start), flush=True)
+        total_train_token = sum(d['response_token_length'] + d['prompt_token_length'] for d in train_data)
+        self.metric_dict.update({'total_valid_tokens': total_train_token, 'num_train_samples': len(train_data)})
+        self._metric_list.append(self.metric_dict)
         return train_data

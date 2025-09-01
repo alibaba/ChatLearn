@@ -20,6 +20,7 @@ import time
 
 import torch
 from ray.actor import ActorHandle
+import ray
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
@@ -360,7 +361,6 @@ class Engine(BaseEngine):
 
         ## 3. log model e2e time and episode time
         episode_metrics.update(model_time_dict)
-        self.metric_manager.log("engine/timer_summary", iteration + 1, episode_metrics)
 
         ## 4. log before episode looping
         if iteration == -1:
@@ -397,7 +397,10 @@ class Engine(BaseEngine):
         if self.evaluator:
             prefix, evaluate_metrics = self.evaluator.get_and_clear_metrics()
             self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
-
+        total_tokens = ray.get(self._data_loader.get_total_train_tokens.remote())
+        tps_throughput = total_tokens / (episode_metrics['episode'] * 60)
+        episode_metrics.update({'tps_throughput': tps_throughput})
+        self.metric_manager.log("engine/timer_summary", iteration + 1, episode_metrics)
 
     def set_replay_sample_manager(self, replay_sample_manager):
         """

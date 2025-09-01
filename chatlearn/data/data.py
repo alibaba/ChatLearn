@@ -240,6 +240,9 @@ class StreamDataset:
     def set_dp_size(self, dp_size:int):
         self.dp_size = dp_size
 
+    def get_total_train_tokens(self):
+        return self.replay_buffer.total_train_tokens()
+
     def episode_replay_buffers(self):
         return self._episode_replay_buffers
 
@@ -297,6 +300,9 @@ class EpisodeReplayBuffer:
 
     def shuffle(self):
         random.shuffle(self._buffer)
+
+    def total_train_tokens(self):
+        return sum(d['response_token_length'] + d['prompt_token_length'] for d in self._buffer)
 
     def get_samples(self, start_index, end_index):
         return self._buffer[start_index: end_index]
