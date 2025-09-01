@@ -198,7 +198,7 @@ class GRPOEngine(Engine):
             policy_trainer.train_step(batch)
 
         def evaluator_flow(batch):
-            policy_out = policy.forward_step(batch)
+            policy_out = policy.eval_forward(batch)
             reward_out = reward.eval_forward(policy_out)
             return reward_out
 

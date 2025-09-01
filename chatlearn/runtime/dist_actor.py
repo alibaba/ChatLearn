@@ -246,27 +246,29 @@ class DistVLLMActor(DistTorchActor):
 
     def add_remote_func(self):
         for func_name, _ in inspect.getmembers(self.master):
-            # ray.actor.ActorMethod
-            if func_name.startswith('_') or func_name in ["peak_memory"]:
+            if func_name.startswith("_"):
                 continue
-            if func_name in ["timer_summary"]:
+            if func_name in [
+                "eval_forward",
+                "forward_step",
+                "setup_engine",
+                "generate_vllm",
+                "offload",
+                "onload",
+                "get_and_clear_metrics",
+                "timer_summary",
+            ]:
                 dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
-            elif func_name in ["onload", "offload"]:
-                if func_name == "onload":
-                    new_func_name = "onload_weights"
-                else:
-                    new_func_name = "offload_weights"
-                dist_call = partial(self.call_vllm_engine_remote_funcs, new_func_name)
             elif func_name in ["model_setup"]:
-                dist_call = partial(self.call_vllm_engine_and_workers_remote_funcs, func_name)
-            elif func_name in ["get_and_clear_metrics"]:
-                dist_call = partial(self.call_vllm_engine_remote_funcs, func_name)
-            else: # needed to check for other call_funs.
+                dist_call = partial(
+                    self.call_vllm_engine_and_workers_remote_funcs, func_name
+                )
+            else:
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
 
     def setup_vllm_engine(self):
-        return self.engine.setup_vllm.remote(self.all_actors)
+        return self.engine.setup_engine.remote(self.all_actors)
 
     @property
     def master(self):
@@ -288,21 +290,34 @@ class DistSGLangActor(DistTorchActor):
 
         self.engine = self.all_actors[0]
 
+    def call_engine_remote_funcs(self, func_name, *args, **kwargs):
+        """
+        Call remote functions for engine.
+        """
+        results = []
+        res = self.call_actor_remote_func(self.engine, func_name, *args, **kwargs)
+        results.append(res)
+        return results
+
     @property
     def master(self):
         return self.engine
 
     def add_remote_func(self):
         for func_name, _ in inspect.getmembers(self.all_actors[0]):
-            # ray.actor.ActorMethod
-            if func_name.startswith('_'):
+            if func_name.startswith("_"):
                 continue
-            if func_name in ["onload", "offload"]:
-                if func_name == "onload":
-                    new_func_name = "onload_weights"
-                else:
-                    new_func_name = "offload_weights"
-                dist_call = partial(self.call_remote_funcs, new_func_name)
+            if func_name in [
+                "eval_forward",
+                "forward_step",
+                "generate",
+                "flush_cache",
+                "offload",
+                "onload",
+                "get_and_clear_metrics",
+                "timer_summary",
+            ]:
+                dist_call = partial(self.call_engine_remote_funcs, func_name)
             else:
                 dist_call = partial(self.call_remote_funcs, func_name)
             setattr(self, func_name, dist_call)
@@ -412,7 +427,9 @@ class DistModel:
                           "onload",
                           "eval",
                           "train",
-                          "set_colocate"]:
+                          "set_colocate",
+                          "setup_engine",
+                          "timer_summary"]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 

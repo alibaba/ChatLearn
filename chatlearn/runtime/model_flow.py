@@ -128,12 +128,9 @@ class ModelNode:
         self.remote_objects_to_wait.extend(remote_objects)
         return models_and_results_to_wait2
 
-    def wait_colocate_models_to_finish(self, timers, func_name):
-        for model in self.models_to_wait:
-            timers(f"{model.name}").start()
+    def wait_colocate_models_to_finish(self, func_name):
+
         future.wait(self.remote_objects_to_wait, f"{[model.name for model in self.models_to_wait]} {func_name}")
-        for model in self.models_to_wait:
-            timers(f"{model.name}").stop()
         self.remote_objects_to_wait = []
         self.models_to_wait = []
 

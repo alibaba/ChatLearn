@@ -1,3 +1,4 @@
+# pylint: disable=import-outside-toplevel
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -216,8 +217,8 @@ class FSDPModule(TorchModule):
             assert self.sp_size % config.num_key_value_heads == 0, \
                 "When sp_size > num_key_value_heads, sp_size must be divisible by num_key_value_heads"
 
-    @monitor_error("model_setup")
-    @timeit("model_setup")
+    @monitor_error()
+    @timeit()
     def model_setup(self):
         """
         :meta private:
@@ -344,8 +345,9 @@ class FSDPModule(TorchModule):
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
-            # pylint: disable-next=import-outside-toplevel
             from sglang.srt.utils import MultiprocessingSerializer
+            from sglang.srt.patch_torch import monkey_patch_torch_reductions
+            monkey_patch_torch_reductions()
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
@@ -406,7 +408,7 @@ class FSDPModule(TorchModule):
         if empty_cache:
             torch.cuda.empty_cache()
 
-    @timeit("save_checkpoint")
+    @timeit()
     def save_checkpoint(self, iteration):
         save_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}/{iteration}"
         if dist.get_rank() == 0 and not os.path.exists(save_dir):
