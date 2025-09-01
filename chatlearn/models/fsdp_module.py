@@ -166,6 +166,9 @@ class FSDPModule(TorchModule):
                     attn_implementation="flash_attention_2",
                     trust_remote_code=True
                 )
+
+                from chatlearn.models.patches.monkey_patch import apply_qwenvl
+                apply_qwenvl(model)
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     pretrained_model_name_or_path=model_path,

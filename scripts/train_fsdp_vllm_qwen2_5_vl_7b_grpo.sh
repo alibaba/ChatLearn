@@ -8,11 +8,7 @@ export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
 export RAY_DEDUP_LOGS=1
 
-# Generate a random string
-RANDOM_STRING=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
-
-export exp_name=qwen2-5-vl-grpo-7b-${RANDOM_STRING}
-export MODEL_PATH=/mnt/data/xinyi.zxy/retrieval/models/qwen/Qwen2.5-VL-7B-Instruct
+export exp_name=qwen25vl-grpo-7b
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
         runtime_args.exp_name=${exp_name} \
@@ -25,16 +21,16 @@ python chatlearn/entrypoint.py grpo \
         runtime_args.train_micro_batch_size=4 \
         runtime_args.save_episode_interval=5 \
         runtime_args.eval_episode_interval=5 \
-        runtime_args.enable_eval_before_training=False \
+        runtime_args.enable_eval_before_training=True \
         runtime_args.log_args_dict.enable_wandb=False \
         runtime_args.log_args_dict.wandb_project=your_wandb_project \
         models.policy_trainer.num_gpu=${num_device} \
-        models.policy_trainer.packing=False \
+        models.policy_trainer.packing=True \
         models.policy_trainer.meta_init=False \
         models.policy_trainer.groupgemm=False \
         models.policy_trainer.generation_batch_size=64 \
         models.policy_trainer.ulysses_sequence_parallel_size=1 \
-        models.policy_trainer.load=${MODEL_PATH} \
+        models.policy_trainer.load=${CHATLEARN}/pretrained_models/Qwen3-8B/ \
         models.policy_trainer.optimizer.lr=1e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \

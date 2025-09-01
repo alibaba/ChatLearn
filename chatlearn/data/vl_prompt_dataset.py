@@ -92,7 +92,7 @@ class PromptPipeline(Dataset):
             raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
             if self.processor is not None and "Qwen2VLImageProcessor" in self.processor.image_processor.__class__.__name__:
-                from chatlearn.models.patches.transformers.qwen2_vl import get_rope_index
+                from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_index
                 position_ids, rope_deltas = get_rope_index(
                         self.processor,
                         input_ids=input_ids,
