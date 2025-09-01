@@ -1,4 +1,4 @@
-# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ
+# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -543,6 +543,8 @@ class SGLangModule(TorchModule):
 
     @torch.no_grad()
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        from sglang.srt.patch_torch import monkey_patch_torch_reductions
+        monkey_patch_torch_reductions()
         param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:

@@ -1,3 +1,4 @@
+# pylint: disable=import-outside-toplevel
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -332,8 +333,9 @@ class FSDPModule(TorchModule):
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
-            # pylint: disable-next=import-outside-toplevel
             from sglang.srt.utils import MultiprocessingSerializer
+            from sglang.srt.patch_torch import monkey_patch_torch_reductions
+            monkey_patch_torch_reductions()
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:False")
         reduce_tensor_dict = {}
