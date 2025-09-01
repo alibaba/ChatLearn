@@ -1,4 +1,4 @@
-# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ
+# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
