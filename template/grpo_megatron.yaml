@@ -2,6 +2,7 @@ runtime_args:
   # setup config
   train_backend: megatron
   rollout_backend: vllm
+  partial_rollout: False
   exp_name: grpo_megatron
   colocation: [policy,policy_trainer,ref_policy]
   # path config
@@ -102,7 +103,7 @@ models:
     trainable: False
     # args_dict:
     load: your_hf_model_path
-    num_inference_per_prompt: 32
+    num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
     seq_length: 2048
     max_seq_len_to_capture: 2348
     temperature: 1.0
@@ -119,4 +120,15 @@ models:
   reward:
     num_cpu: 2
     cpu_per_process: 1
+    num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
     generation_batch_size: 256
+  rollout_manager:
+    num_cpu: 64
+    cpu_per_process: 64
+    num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
+    mini_response_per_prompt: 16
+    enable_thinking: ${models.policy.enable_thinking}
+    max_rollout_round: 2
+    max_gen_len: ${models.policy.seq_length}
+    rollout_ratio: [0.5, 0.5]
+    load: ${models.policy_trainer.load}

@@ -47,6 +47,7 @@ from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
 import chatlearn
 from chatlearn import MegatronModule
+from chatlearn.utils.utils import even_slice
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
     PolicyModel, 
@@ -386,10 +387,10 @@ class MegatronPolicyTrainer(MegatronModule):
             ]
             # Split by num_train_global_batch first
             microbatch_list = []
-            train_global_batch_size = len(data) // self.num_train_global_batch
+            slice_index = even_slice(len(data), self.num_train_global_batch)
             for train_batch_id in range(self.num_train_global_batch):
-                start_idx = train_batch_id * train_global_batch_size
-                end_idx = (train_batch_id + 1) * train_global_batch_size
+                start_idx = slice_index[train_batch_id]
+                end_idx = slice_index[train_batch_id + 1]
                 microbatch_list.extend(split_microbatch(data_list=data[start_idx: end_idx], max_train_token=self.module_args.max_token_in_packing, process_group_list=process_group_list, offset=start_idx, packing=self.module_args.packing))
         else:
             microbatch_list = split_microbatch(data_list=data, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)

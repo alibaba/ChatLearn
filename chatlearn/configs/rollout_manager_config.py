@@ -22,7 +22,7 @@ class RolloutManagerConfig(BaseModelConfig):
         default=16, metadata={"help": "when number of finished rollout for prompt is larger then this threshold. \
             move these responses for training"}
     )
-    rollout_ratio: list[float] = field(
+    rollout_ratio: List[float] = field(
         default_factory=lambda: [0.5,0.5], metadata={"help":"rollout ratio for each round, \
             max rollout token for each round_i is max_gen_len * rollout_ratio[i]"}
     )

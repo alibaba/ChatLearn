@@ -345,8 +345,6 @@ if HAVE_VLLM:
                 self.llm.wake_up()
 
             # preprocess query
-            prompt_key = "prompt"
-            input_ids_key = "input_ids"
             seq_len = self.module_args.seq_length
 
             prompts = [q["prompt"] for q in query]

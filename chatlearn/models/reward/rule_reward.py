@@ -69,7 +69,9 @@ class RuleReward(BaseModule):
 
     def clean_dict(self):
         # when all response for prompt is finished, pop those key out
-        self.rule_reward_buffer = {k:v for k, v in self.rule_reward_buffer.items() if len(v) == self.num_inference_per_prompt}
+        pop_keys = [k for k,v in self.rule_reward_buffer.items() if len(v) == self.num_inference_per_prompt]
+        for key in pop_keys:
+            self.rule_reward_buffer.pop(key)
 
     @compute_decorator(trainable=False, rollout=False)
     @timeit()

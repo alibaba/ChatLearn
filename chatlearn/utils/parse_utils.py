@@ -30,6 +30,14 @@ def parse_boolean(data: Union[str, bool]):
         return data
     return data.lower() == "true"
 
+def parse_list(dtype, data: str):
+    # parse str to list
+    s = data.strip()
+    if not (s.startswith("[") and s.endswith("]")):
+        raise ValueError("String must be in format: [ele1,ele2,...]")
+    parts = s[1:-1].split(',')
+    return [dtype(part) for part in parts]
+
 def _resolve_type_from_dataclass(dt) -> Dict:
     """resolve parser from a dataclass object (not dataclass type!!!)"""
     if not is_dataclass(dt):
@@ -49,6 +57,8 @@ def _resolve_type_from_dataclass(dt) -> Dict:
             if len(args) == 2 and args[1] is type(None):
                 parser = default_parser[args[0]] if args[0] in default_parser else args[0]
                 dtypes[f.name] = partial(parse_optional, parser)
+        elif get_origin(dtype) is list:
+            dtypes[f.name] = partial(parse_list, get_args(dtype)[0])
         elif dtype in default_parser:
             dtypes[f.name] = default_parser[dtype]
         elif callable(dtype):

@@ -354,11 +354,10 @@ class SGLangModule(TorchModule):
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
 
-        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
-            max_tokens = seq_len - len(prompt_token_ids_item)
-            assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+        for q in query:
+            max_tokens = q.get("max_generate_token_length", seq_len)
             sampling_param_item = copy.deepcopy(sampling_param)
-            sampling_param_item["max_new_tokens"] = max_tokens
+            sampling_param_item.max_tokens = max_tokens
             sampling_params.append(sampling_param_item)
         return prompts_token_ids, sampling_params
 

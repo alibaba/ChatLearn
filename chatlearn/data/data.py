@@ -28,7 +28,7 @@ from torch.utils.data import default_collate
 
 from chatlearn.utils import future
 from chatlearn.utils.constant import REF_LIST
-from chatlearn.utils.utils import map_reduce_metrics
+from chatlearn.utils.utils import map_reduce_metrics, even_slice
 
 def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
     data = []
@@ -143,11 +143,8 @@ class StreamDataset:
             return self.iter_dynamic()
         return self.iter_fixed()
 
-    def _get_batch(self, start_index: int):
-        end_index = min(start_index + self.batch_size, len(self.replay_buffer))
+    def _get_batch(self, start_index: int, end_index: int):
         data_to_batch = self.replay_buffer.get_samples(start_index, end_index)
-        if len(data_to_batch) < self.batch_size:
-            data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
         return data_to_batch
 
     def iter_fixed(self):
@@ -158,15 +155,18 @@ class StreamDataset:
         produce_index = 0
         batch_count = 0
         assert self.dp_size is not None, "dp_size must be set before data fetching"
-        self.batch_size = self._total_samples // self.num_minibsz // self.dp_size
+        # For dynamic trian batchsize, slice on dp_size first and slice on num_minibsz second
+        slice_index_dp = even_slice(self._total_samples, self.dp_size)
+        slice_index_minibsz = [
+            start_index + start_minibsz
+            for start_index, end_index in zip(slice_index_dp[:-1], slice_index_dp[1:])
+            for start_minibsz in even_slice(end_index - start_index, self.num_minibsz)[:-1]
+        ]
+        slice_index_minibsz.append(self._total_samples)
 
-        while produce_index < self._total_samples:
+        for start_index, end_index in zip(slice_index_minibsz[:-1], slice_index_minibsz[1:]):
             # read from cache
-            if len(self.replay_buffer) < self._total_samples:
-                while len(self.replay_buffer) < self._total_samples and \
-                    (len(self.replay_buffer) - produce_index) < self.batch_size:
-                    self.replay_buffer.add_raw_batch()
-            batched_data = self._get_batch(produce_index)
+            batched_data = self._get_batch(start_index, end_index)
             yield batched_data
             batch_count += 1
             produce_index += self.batch_size
