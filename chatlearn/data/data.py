@@ -189,7 +189,7 @@ class StreamDataset:
                 (len(self.replay_buffer) - produce_index) < self.batch_size:
                 # get from queue
                 self.replay_buffer.add_raw_batch()
-            batched_data = self._get_batch(produce_index, produce_index += self.batch_size)
+            batched_data = self._get_batch(produce_index, produce_index + self.batch_size)
             yield batched_data
             batch_count += 1
             produce_index += self.batch_size
