@@ -356,7 +356,7 @@ class SGLangModule(TorchModule):
         for q in query:
             max_tokens = q.get("max_generate_token_length", seq_len)
             sampling_param_item = copy.deepcopy(sampling_param)
-            sampling_param_item.max_tokens = max_tokens
+            sampling_param_item["max_new_tokens"] = max_tokens
             sampling_params.append(sampling_param_item)
         return prompts_token_ids, sampling_params
 

@@ -13,14 +13,12 @@
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 """Rollout Manager"""
-import os
 import uuid
 import random
 from typing import Dict, List, Any
-from collections import deque, defaultdict
+from collections import defaultdict
 
 import numpy as np
-import torch
 from transformers import AutoTokenizer
 
 from chatlearn.data.prompt_dataset import PromptPipeline
@@ -53,7 +51,7 @@ class RolloutManager(BaseModule):
         )
         return prompts_dataset
 
-    def initialze_data(self, data: List[Dict[str, Any]], first_stage: bool = True):
+    def initialze_data(self, data: List[Dict[str, Any]]):
         for sample in data:
             sample["uuid"] = uuid.uuid4()
             sample["prompt_uid"] = hash(sample["prompt"])
@@ -61,13 +59,13 @@ class RolloutManager(BaseModule):
             sample["max_generate_token_length"] = self.max_token_per_round[sample["rollout_round"]]
         return data
 
+    @monitor_error()
     @compute_decorator(trainable=False, rollout=False)
     @timeit()
-    def get_sample_for_rollout(self, data: List[Dict[str, Any]], **kwargs):
+    def get_sample_for_rollout(self, data: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument
         # Get sample_per_episode samples from prompts_dataset
         # Add these samples into self.rollout_not_finished for future rollout
         # Send all samples to rollout engine
-        sample_per_episode = len(data)
         data = self.initialze_data(data)
         self.rollout_not_finished.extend(data)
         train_batch = self.rollout_not_finished
@@ -80,21 +78,21 @@ class RolloutManager(BaseModule):
         self.metric_dict.update(round_track)
         return train_batch
 
-    def is_finished(self, data_b):
+    def is_finished(self, data_b: Dict[str, Any]):
         # determine whether the rollout is finished
-        # rollout finished if 
+        # rollout finished if
         # 1. response_token_lenght is less than this round's max_generate_token_length
         # 2. reach max rollout round
 
         return (data_b["response_token_length"] < data_b["max_generate_token_length"]) or \
             (data_b["rollout_round"] == self.max_rollout_round)
 
-    def find_index_by_uuid(self, sample_per_episode, uuid):
-        idx = next(i for i,d in enumerate(self.rollout_not_finished) if d['uuid'] == uuid)
+    def find_index_by_uuid(self, _uuid):
+        idx = next(i for i,d in enumerate(self.rollout_not_finished) if d['uuid'] == _uuid)
         return idx
 
-    def update_data(self, data, rollout_result, is_finished):
-        # Update data in self.rollout_not_finished buffer for single rollout round
+    def update_data(self, data: Dict[str, Any], rollout_result: Dict[str, Any]):
+        # Merge data in self.rollout_not_finished buffer and rollout_result with same uuid
         assert data["uuid"] == rollout_result["uuid"]
         data.update({
             "uuid": rollout_result["uuid"],
@@ -107,8 +105,9 @@ class RolloutManager(BaseModule):
                 if rollout_result["rollout_round"] < self.max_rollout_round else 0
         })
         return data
-    
-    def logging_generate_by_round(self, rollout_result_list):
+
+    def logging_generate_by_round(self, rollout_result_list: List[Dict[str, Any]]):
+        # Logging generate metrics
         logging_generate = {f"round_{i}_response": [] for i in range(self.max_rollout_round)}
         for data in rollout_result_list:
             logging_generate[f"round_{data['rollout_round'] - 1}_response"].append(data["response_token_length"])
@@ -119,29 +118,30 @@ class RolloutManager(BaseModule):
             update_dict[f"{key}_min"] = 0 if len(logging_generate[key]) == 0 else np.min(np.array(logging_generate[key]))
         self.metric_dict.update(update_dict)
 
+    @monitor_error()
     @compute_decorator(trainable=False, rollout=False)
     @timeit()
-    def post_process_rollout_results(self, rollout_result_list, **kwargs):
+    def post_process_rollout_results(self, rollout_result_list: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument
         self.logging_generate_by_round(rollout_result_list)
         sample_per_episode = len(rollout_result_list)
         finished_uuid = []
         unfinished_data = []
         for sample in rollout_result_list:
-            uuid = sample["uuid"]
+            _uuid = sample["uuid"]
             prompt_uid = sample["prompt_uid"]
             finished = self.is_finished(sample)
-            data_idx = self.find_index_by_uuid(sample_per_episode, uuid)
-            data_b = self.update_data(self.rollout_not_finished[data_idx], sample, finished)
+            data_idx = self.find_index_by_uuid(_uuid)
+            # Merge data from buffer and data from rollout
+            data_b = self.update_data(self.rollout_not_finished[data_idx], sample)
             if finished:
                 # Finished, add data to self.rollout_finished_no_train[prompt_uid]
                 self.rollout_finished_no_train[prompt_uid].append(data_b)
                 self.num_response_track[prompt_uid] += 1
-                finished_uuid.append(uuid)
+                finished_uuid.append(_uuid)
             else:
                 # If not finished, update data in rollout_not_finished
                 unfinished_data.append(data_b)
         # update remaining data
-        unfinished_data.extend(self.rollout_not_finished[sample_per_episode:])
         self.rollout_not_finished = unfinished_data
         train_data = []
         pop_keys = []

@@ -17,6 +17,7 @@
 from typing import Any, Dict, List
 
 import torch
+import numpy as np
 from transformers import AutoTokenizer
 
 from chatlearn.configs import BaseConfig
@@ -59,7 +60,7 @@ def sglang_postprocess_func(
                 "str_outputs": str_outputs,
             }
         )
-        if "rollout_round" in data_obj:
+        if "rollout_round" in input_data:
             input_data["rollout_round"] += 1
         data_output.append(input_data)
 
@@ -73,7 +74,7 @@ def metric_collect(rets, seq_length):
     # collect metric
     response_token_length = [ret["response_token_length"] for ret in rets]
     prompt_token_length = [ret["prompt_token_length"] for ret in rets]
-    seq_len = self.module_args.get("seq_length")
+    seq_len = seq_length
     clip_ratio = sum(
         ret["response_token_length"] >= ret.get("max_generate_token_length", seq_len) for ret in rets
     ) / len(rets)

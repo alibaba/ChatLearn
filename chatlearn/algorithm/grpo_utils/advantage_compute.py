@@ -1,5 +1,4 @@
 """compute advantage for grpo"""
-from collections import defaultdict
 from typing import List, Dict, Any
 
 def compute_grpo_adv(episode_replay_buffers: List[Dict[str, Any]]):
