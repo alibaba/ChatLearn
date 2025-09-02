@@ -21,10 +21,12 @@ import torch
 from torch import distributed as dist
 import torch.nn.functional as F
 
+import transformer_engine_torch as tex
 from flash_attn.bert_padding import pad_input, unpad_input
 
 from megatron.core import mpu
 from megatron.core.packed_seq_params import PackedSeqParams
+from megatron.core.tensor_parallel.mappings import reduce_from_tensor_model_parallel_region
 from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.training import (
     get_args, get_timers,
@@ -34,13 +36,13 @@ from megatron.training import (
 )
 from megatron.training.training import print_datetime
 from megatron.training.utils import (
+    get_batch_on_this_cp_rank,
     get_ltor_masks_and_position_ids,
     report_memory,
     unwrap_model
 )
 
 from chatlearn.utils import to_device
-
 
 
 # TODO: simplify this function
@@ -189,6 +191,43 @@ def training_log(
 
     return report_memory_flag
 
+def _reduce_from_tensor_model_parallel_region(
+    output_on_this_cp_rank: torch.Tensor,
+    seq_indices: torch.Tensor
+):
+    cp_size = mpu.get_context_parallel_world_size()
+    cp_group = mpu.get_context_parallel_group()
+    mbs, length = output_on_this_cp_rank.shape[:2]
+    output = torch.zeros(mbs, length * cp_size, *output_on_this_cp_rank.shape[2:], device=output_on_this_cp_rank.device)
+    for shard_output, indices, full_output in zip(output_on_this_cp_rank, seq_indices, output):
+        full_output.scatter_(0, indices.to(torch.int64), shard_output)
+    reduce_from_tensor_model_parallel_region(output, group=cp_group)
+    return output
+
+def reduce_from_context_parallel_region(
+    logprobs: torch.Tensor,
+    is_packing: bool = False,
+    inputs: Dict[str, Any] = None
+):
+
+    if is_packing:
+        if mpu.get_context_parallel_world_size() > 1:
+            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['seq_indices'])
+        logprobs = pad_input(
+            logprobs.permute(1, 0),
+            inputs['indices'],
+            inputs['ori_batch_size'],
+            inputs['ori_seq_len'],
+        ).squeeze(-1)
+
+    else:
+        if mpu.get_context_parallel_world_size() > 1:
+            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['all_token_position_ids'].squeeze(0))
+
+        logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
+
+    return logprobs
+
 
 def get_batch(
     data_iter: Iterator[Dict[str, Union[torch.Tensor, List[Any]]]],
@@ -214,63 +253,77 @@ def get_batch(
     prompt_token_length = to_device("cuda", data_b["prompt_token_length"])
     response_token_length = to_device("cuda", data_b["response_token_length"])
 
-    # TODO: support Context-Parallel later
     if is_packing:
-        attn_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32)
+        tp_size = mpu.get_tensor_model_parallel_world_size()
+        cp_size = mpu.get_context_parallel_world_size()
+        cp_rank = mpu.get_context_parallel_group().rank()
+        align_size = tp_size * cp_size * 2
+        attn_mask = torch.zeros_like(tokens, dtype=torch.int32)
         for i, (prompt_length, response_length) in enumerate(
             zip(prompt_token_length, response_token_length)
         ):
-            attn_mask_for_unpadding[i, : prompt_length + response_length] = 1
+            attn_mask[i, : prompt_length + response_length] = 1
+
+        seqlens_in_batch = attn_mask.sum(dim=-1, dtype=torch.int32)
+        pad_size = (align_size - seqlens_in_batch % align_size) % align_size
+        seqlens_in_batch_padded = seqlens_in_batch + pad_size
+
+        tokens_padded = torch.full((mbs, seqlens_in_batch_padded.max()), get_tokenizer().eod, dtype=tokens.dtype, device=tokens.device)
+        attn_mask_for_padding = torch.zeros((mbs, seqlens_in_batch_padded.max()), dtype=tokens.dtype, device=tokens.device)
+        for i in range(mbs):
+            seqlen_in_batch = seqlens_in_batch[i]
+            seqlen_in_batch_padded = seqlens_in_batch_padded[i]
+            tokens_padded[i, :seqlen_in_batch] = tokens[i, :seqlen_in_batch]
+            attn_mask_for_padding[i, :seqlen_in_batch_padded] = 1
+
         (
             tokens,
             indices,
-            cu_seqlens,
+            cu_seqlens_padded,
             max_seqlen_in_batch,
             *_
-        ) = unpad_input(tokens.unsqueeze(-1), attn_mask_for_unpadding)
-        tokens = tokens.transpose(0, 1) # [s, b] -> [b, s]
-        # NOTE: sequence-parallel padding, the len of right-padded seq should be divisible by TP & Expert TP
-        pad_size = 0
-        if args.sequence_parallel:
-            divisor = mpu.get_tensor_model_parallel_world_size()
-            total_nnz = tokens.shape[1]
-            pad_size = (divisor - total_nnz % divisor) % divisor
-            tokens = F.pad(tokens, (0, pad_size), value=get_tokenizer().eod)
-            max_seqlen_in_batch = max(max_seqlen_in_batch, pad_size)
-            cu_seqlens = torch.cat([
-                cu_seqlens,
-                torch.ones(1, dtype=cu_seqlens.dtype, device=cu_seqlens.device) * tokens.shape[1]
-            ])
+        ) = unpad_input(tokens_padded.unsqueeze(-1), attn_mask_for_padding)
 
-        labels = torch.roll(tokens, shifts=-1, dims=1)
+        seq_indices = tex.thd_get_partitioned_indices(
+            cu_seqlens_padded, tokens.shape[0], cp_size, cp_rank
+        )
+        tokens_on_this_cp_rank = tokens.index_select(0, seq_indices)
+        labels = torch.roll(tokens, shifts=-1, dims=0)
+        labels_on_this_cp_rank = labels.index_select(0, seq_indices)
 
-        position_ids = torch.arange(tokens.shape[1], device=tokens.device).view(1, -1)
+        loss_mask_for_unpadding = torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
+        for i, (prompt_length, response_length) in enumerate(
+            zip(prompt_token_length, response_token_length)
+        ):
+            start_idx = cu_seqlens_padded[i]
+            loss_mask_for_unpadding[start_idx + prompt_length: start_idx + prompt_length + response_length, 0] = 1
 
-        prev_cu_seqlen = 0
-        for cu_seqlen in cu_seqlens[1:]:
-            position_ids[:, cu_seqlen:] -= cu_seqlen - prev_cu_seqlen
-            prev_cu_seqlen = cu_seqlen
-
+        loss_mask_for_unpadding = torch.roll(loss_mask_for_unpadding, shifts=-1, dims=0)
+        loss_mask_on_this_cp_rank = loss_mask_for_unpadding.index_select(0, seq_indices)
+        num_tokens_on_this_cp_rank = loss_mask_on_this_cp_rank.sum()
 
         packed_seq_params = PackedSeqParams(
             qkv_format='thd',
-            cu_seqlens_q=cu_seqlens,
-            cu_seqlens_kv=cu_seqlens,
+            cu_seqlens_q=cu_seqlens_padded,
+            cu_seqlens_kv=cu_seqlens_padded,
             max_seqlen_q=max_seqlen_in_batch,
             max_seqlen_kv=max_seqlen_in_batch
         )
 
         input_data = {
-            "all_tokens": tokens,
+            "all_tokens": tokens_on_this_cp_rank.transpose(0, 1),
             "all_token_attention_mask": None,
-            "all_token_position_ids": position_ids,
-            "labels": labels,
+            "all_token_loss_mask": None,
+            "all_token_position_ids": None,
+            "labels": labels_on_this_cp_rank.transpose(0, 1),
             'packed_seq_params': packed_seq_params,
             "ori_seq_len": seqlen,
             "ori_batch_size": mbs,
+            "seq_indices": seq_indices,
             "indices": indices,
-            "pad_size": pad_size,
+            "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
         }
+
     else:
         pad_size = 0
         pad_token = get_tokenizer().eod
@@ -283,7 +336,6 @@ def get_batch(
 
         tokens = F.pad(tokens, (0, pad_size), value=pad_token)
         labels = torch.roll(tokens, shifts=-1, dims=1)
-        # Get the masks and position ids.
         attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
             tokens,
             get_tokenizer().eod,
@@ -291,15 +343,46 @@ def get_batch(
             args.reset_attention_mask,
             args.eod_mask_loss,
         )
+        if mpu.get_context_parallel_world_size() == 1:
+            input_data = {
+                "all_tokens": tokens,
+                "all_token_attention_mask": attention_mask,
+                "all_token_position_ids": position_ids,
+                "labels": labels,
+                'packed_seq_params': None,
+                "pad_size": pad_size,
+            }
+        elif mpu.get_context_parallel_world_size() >1:
 
-        input_data = {
-            "all_tokens": tokens,
-            "all_token_attention_mask": attention_mask,
-            "all_token_position_ids": position_ids,
-            "labels": labels,
-            'packed_seq_params': None,
-            "pad_size": pad_size,
-        }
+            loss_mask= torch.zeros_like(tokens, dtype=torch.int32, device=tokens.device)
+            for i, (prompt_length, response_length) in enumerate(
+                zip(prompt_token_length, response_token_length)
+            ):
+                loss_mask[i, prompt_length: prompt_length + response_length] = 1
+
+            loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
+
+            input_batch = {
+                "all_tokens": tokens,
+                "labels": labels,
+                "loss_mask": loss_mask,
+                "attention_mask": attention_mask,
+                "position_ids": position_ids,
+            }
+            chunked_dataset = get_batch_on_this_cp_rank(input_batch)
+            input_data = {
+                "all_tokens": chunked_dataset['all_tokens'],
+                "all_token_attention_mask": chunked_dataset['attention_mask'],
+                "all_token_position_ids": chunked_dataset['position_ids'],
+                "labels": chunked_dataset['labels'],
+                'packed_seq_params': None,
+                "ori_seq_len": None,
+                "ori_batch_size": None,
+                "seq_indices": None,
+                "indices": None,
+                "pad_size": pad_size,
+                "num_tokens_on_this_cp_rank": chunked_dataset['loss_mask'].sum(),
+            }
 
     if is_training:
         ref_logprobs = data_b["ref_logprobs"].float()
@@ -357,7 +440,7 @@ def loss_func(
 
         reporting_losses[key] = final_loss.detach().clone().to(torch.float)
 
-    num_tokens = loss_mask.sum().clone().detach().to(torch.int)
+    num_tokens = inputs.get('num_tokens_on_this_cp_rank', loss_mask.sum().clone().detach()).to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
     reporting_losses["num_samples"] = torch.ones_like(num_tokens)
     return total_loss_for_bp, num_tokens, reporting_losses
@@ -371,8 +454,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         is_training=is_training,
         is_packing=is_packing
     )
-    # TODO: refactor model.forward to return logits or logprobs, and make
-    # loss computation in loss_func
+
     output_tensor = model(
         input_ids=inputs["all_tokens"],
         position_ids=inputs["all_token_position_ids"],
@@ -385,13 +467,9 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
     if is_training:
         wrapped_loss_func = partial(loss_func, inputs)
     else:
-        if unwrap_model(model).post_process and is_packing:
-            output_tensor = pad_input(
-                output_tensor[0, :output_tensor.shape[1] - inputs['pad_size']].unsqueeze(-1),
-                inputs['indices'],
-                inputs['ori_batch_size'],
-                inputs['ori_seq_len']
-            ).squeeze(-1)
+        if unwrap_model(model).post_process:
+            output_tensor = reduce_from_context_parallel_region(output_tensor, is_packing, inputs)
+
         # NOTE: just returns the output tensor (the first argument).
         wrapped_loss_func = lambda x, **_: x # pylint: disable=unnecessary-lambda-assignment
 

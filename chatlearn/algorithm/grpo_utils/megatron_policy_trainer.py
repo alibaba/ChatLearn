@@ -317,12 +317,19 @@ class MegatronPolicyTrainer(MegatronModule):
                 [sum(total_losses.pop('num_tokens')).float()] +
                 [sum(total_losses.pop('num_samples')).float()]
             )
-            torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group())
+            torch.distributed.all_reduce(loss_for_dp_reduce, group=mpu.get_data_parallel_group(with_context_parallel=True))
+            cp_size = mpu.get_context_parallel_world_size()
+            # NOTE: The loss is computed from the padded loss tensor (shape [bsz, seq_len]), 
+            # but `num_tokens` only accounts for tokens on the current CP rank. 
+            # After performing an all_reduce operation over the DP-CP group, 
+            # the accumulated loss becomes `cp` times the true value, while 
+            # `num_tokens` remains the total number of tokens in the global batch.
+            # To correct this discrepancy, we need to divide the final loss by `cp`.
             loss_reduced_for_metric = {
                 key: (
                     (loss_for_dp_reduce[i] / loss_for_dp_reduce[-1]).cpu().item()
                     if key.endswith('_sample_average') 
-                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item()
+                    else (loss_for_dp_reduce[i] / loss_for_dp_reduce[-2]).cpu().item() / cp_size
                 )
                 for i, key in enumerate(keys)
             }

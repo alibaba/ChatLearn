@@ -55,6 +55,7 @@ models:
     pipeline_model_parallel_size: 1
     expert_tensor_parallel_size: null
     expert_model_parallel_size: 1
+    context_parallel_size: 1
     virtual_pipeline_model_parallel_size: null
     decoder_first_pipeline_num_layers: null
     decoder_last_pipeline_num_layers: null
@@ -83,6 +84,7 @@ models:
     pipeline_model_parallel_size: ${models.policy_trainer.pipeline_model_parallel_size}
     expert_tensor_parallel_size: ${models.policy_trainer.expert_tensor_parallel_size}
     expert_model_parallel_size: ${models.policy_trainer.expert_model_parallel_size}
+    context_parallel_size: ${models.policy_trainer.context_parallel_size}
     decoder_first_pipeline_num_layers: ${models.policy_trainer.decoder_first_pipeline_num_layers}
     decoder_last_pipeline_num_layers: ${models.policy_trainer.decoder_last_pipeline_num_layers}
     moe_router_force_load_balancing: ${models.policy_trainer.moe_router_force_load_balancing}
