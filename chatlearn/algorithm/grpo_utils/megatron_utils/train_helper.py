@@ -197,12 +197,12 @@ def _reduce_from_tensor_model_parallel_region(
 ):
     cp_size = mpu.get_context_parallel_world_size()
     cp_group = mpu.get_context_parallel_group()
-    assert output_on_this_cp_rank.shape[0] == 1, "output_on_this_cp_rank should be a tensor of shape (1,*)"
-    output_on_this_cp_rank = output_on_this_cp_rank.squeeze(0)
-    output = torch.zeros(output_on_this_cp_rank.shape[0] * cp_size, device=output_on_this_cp_rank.device)
-    output.scatter_(0, seq_indices.to(torch.int64), output_on_this_cp_rank)
+    mbs, length = output_on_this_cp_rank.shape[:2]
+    output = torch.zeros(mbs, length * cp_size, *output_on_this_cp_rank.shape[2:], device=output_on_this_cp_rank.device)
+    for shard_output, indices, full_output in zip(output_on_this_cp_rank, seq_indices, output):
+        full_output.scatter_(0, indices.to(torch.int64), shard_output)
     reduce_from_tensor_model_parallel_region(output, group=cp_group)
-    return output.unsqueeze(0)
+    return output
 
 def reduce_from_context_parallel_region(
     logprobs: torch.Tensor,
