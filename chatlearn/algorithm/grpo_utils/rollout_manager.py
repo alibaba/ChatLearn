@@ -123,7 +123,6 @@ class RolloutManager(BaseModule):
     @timeit()
     def post_process_rollout_results(self, rollout_result_list: List[Dict[str, Any]], **kwargs): # pylint: disable=unused-argument
         self.logging_generate_by_round(rollout_result_list)
-        sample_per_episode = len(rollout_result_list)
         finished_uuid = []
         unfinished_data = []
         for sample in rollout_result_list:
