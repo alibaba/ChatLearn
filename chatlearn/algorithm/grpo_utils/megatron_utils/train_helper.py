@@ -273,9 +273,8 @@ def get_batch(
         for i in range(mbs):
             seqlen_in_batch = seqlens_in_batch[i]
             seqlen_in_batch_padded = seqlens_in_batch_padded[i]
-            attn_mask_for_padding[i, :seqlen_in_batch] = 1
             tokens_padded[i, :seqlen_in_batch] = tokens[i, :seqlen_in_batch]
-            attn_mask_for_padding[i, seqlen_in_batch:seqlen_in_batch_padded] = 1
+            attn_mask_for_padding[i, :seqlen_in_batch_padded] = 1
 
         (
             tokens,
