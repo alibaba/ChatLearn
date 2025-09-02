@@ -1,12 +1,13 @@
-# borrowed from verl
+"""borrowed from verl"""
 
 from io import BytesIO
 from typing import Optional
 
 import torch
+import torch.nn.functional as F
 from PIL import Image
 from qwen_vl_utils import fetch_image, fetch_video
-import torch.nn.functional as F
+
 
 def process_image(image: dict | Image.Image) -> Image.Image:
     if isinstance(image, Image.Image):

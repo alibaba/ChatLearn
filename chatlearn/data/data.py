@@ -19,8 +19,8 @@ import random
 import copy
 import os
 import json
-import datasets
 from typing import List, Dict, Union, Tuple
+import datasets
 
 import ray
 import torch
@@ -42,8 +42,7 @@ def read_data_path_list(data_path_list: List[str]):
             dataframe = datasets.load_dataset("parquet", data_files=data_path)['train']
             for example in dataframe:
                 # Convert the example (which is a dict-like object) to a regular Python dictionary
-                data.append(dict(example))
-        
+                data.append(dict(example))        
     return data
 
 

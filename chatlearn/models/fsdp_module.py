@@ -445,7 +445,6 @@ class FSDPModule(TorchModule):
                 self.tokenizer.save_pretrained(hf_path)
 
                 with torch.device("meta"):
-                    
                     if "Qwen2_5_VLForConditionalGeneration" in model_config.architectures:
                         save_model = AutoModelForImageTextToText.from_config(model_config, torch_dtype=torch.bfloat16)
                     else:

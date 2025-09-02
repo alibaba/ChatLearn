@@ -56,7 +56,7 @@ class PromptPipeline(Dataset):
             messages = self._build_messages(data_item)
 
             model_inputs = {}
-  
+
             assert self.processor is not None
 
             raw_prompt = self.processor.apply_chat_template(messages, add_generation_prompt=True, tokenize=False, enable_thinking=enable_thinking)
@@ -99,7 +99,6 @@ class PromptPipeline(Dataset):
                     second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
                     attention_mask=attention_mask,
             )
-    
 
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]

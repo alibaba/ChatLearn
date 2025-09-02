@@ -1,4 +1,4 @@
-# borrowed from https://github.com/volcengine/verl/blob/main/verl/utils/reward_score/geo3k.py
+"""borrowed from https://github.com/volcengine/verl/blob/main/verl/utils/reward_score/geo3k.py"""
 
 import re
 

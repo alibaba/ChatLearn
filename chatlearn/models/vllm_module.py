@@ -21,7 +21,7 @@ from typing import Optional, Dict, List, TYPE_CHECKING
 import copy
 
 import torch
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, AutoProcessor
 
 try:
     from vllm import SamplingParams
@@ -163,7 +163,6 @@ if HAVE_VLLM:
 
             if '<|vision_start|>' in tokenizer.additional_special_tokens:
                 # processor is needed for qwenvl
-                from transformers import AutoProcessor
                 self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=True)
             else:
                 self.processor = None
@@ -340,14 +339,12 @@ if HAVE_VLLM:
             for name, reduced in reduce_data.items():
                 rebuild_func, rebuild_args = reduced
                 reconstructed_tensor = rebuild_func(*rebuild_args)
-                
                 self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
 
         def update_weights_from_ipc_handles_naive(self, reduce_data):
             for name, reduced in reduce_data.items():
                 rebuild_func, rebuild_args = reduced
                 reconstructed_tensor = rebuild_func(*rebuild_args)
-                
                 self.model.load_weights([(name, reconstructed_tensor)])
 
         def update_weights_from_ipc_handles(self, reduce_data):
@@ -402,10 +399,6 @@ if HAVE_VLLM:
             outputs = self.llm.generate(llm_inputs,
                                         sampling_params = sampling_params,
                                         use_tqdm = True)
-            
-            # outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
-            #                             sampling_params = sampling_params,
-            #                             use_tqdm = True)
 
             # save stage outputs for resume.
             self.save_stage_outputs(is_eval, outputs, iteration)
