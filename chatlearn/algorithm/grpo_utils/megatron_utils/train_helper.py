@@ -410,7 +410,7 @@ def get_batch(
                 "attention_mask": attention_mask,
                 "position_ids": position_ids,
             }
-            chunked_dataset = get_batch_on_this_cp_rank(input_batch) 
+            chunked_dataset = get_batch_on_this_cp_rank(input_batch)
             tokens_on_this_cp_rank = chunked_dataset['all_tokens']
             attn_mask_on_this_cp_rank = chunked_dataset['attention_mask']
             labels_on_this_cp_rank = chunked_dataset['labels']
