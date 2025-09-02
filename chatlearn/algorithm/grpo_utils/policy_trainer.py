@@ -23,7 +23,7 @@ import torch.distributed as dist
 import torch.nn.functional as F
 
 from flash_attn.bert_padding import pad_input
-import flash_attn.bert_padding as bert_padding
+from flash_attn import bert_padding
 
 
 from chatlearn import FSDPModule
@@ -40,12 +40,6 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             split_and_unpadding,
                             unpad_input)
 bert_padding.unpad_input = unpad_input
-
-import json
-import base64
-from io import BytesIO
-from PIL import Image
-from typing import List, Dict, Any
 
 
 class PolicyTrainer(FSDPModule):
@@ -136,6 +130,7 @@ class PolicyTrainer(FSDPModule):
                 pad_size = 0
                 tokens = tokens_
                 labels = torch.roll(tokens, shifts=-1, dims=1)
+
             data_obj.update(
                 {
                     "all_tokens": tokens,
@@ -147,11 +142,18 @@ class PolicyTrainer(FSDPModule):
                     "sample_ids": data_b["id_in_list"],
                     "attention_mask": attn_mask,
                     "pad_size": pad_size,
-                    "pixel_values": pixel_values,
-                    "image_grid_thw": image_grid_thw.squeeze(),
-                    "rope_deltas": rope_deltas.squeeze().unsqueeze(1)
                 }
             )
+
+            if 'pixel_values' in data_b:
+                data_obj.update(
+                    {
+                        "pixel_values": pixel_values,
+                        "image_grid_thw": image_grid_thw.squeeze(),
+                        "rope_deltas": rope_deltas.squeeze().unsqueeze(1)
+                    }
+                )
+
             if training:
                 loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
                 # The last token should always be masket out
@@ -180,9 +182,9 @@ class PolicyTrainer(FSDPModule):
         entropy_loss_list = []
         kl_loss_list = []
         sp_group = get_sp_parallel_group()
-        
+
         response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
-        
+
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
@@ -203,7 +205,7 @@ class PolicyTrainer(FSDPModule):
                     position_ids=inputs['position_ids'],
                     use_cache=False
                 )
-            
+
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
 
             # save memory while not use entropy in loss

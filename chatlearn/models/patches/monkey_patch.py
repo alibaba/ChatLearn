@@ -43,4 +43,3 @@ def apply_qwenvl(model):
         apply_qwenvl_patch()
     else:
         raise ValueError(f"Unsupported model architecture: {model.config.architectures} for groupgemm patch")
-

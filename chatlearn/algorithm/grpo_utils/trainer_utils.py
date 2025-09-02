@@ -19,10 +19,10 @@ import math
 
 import torch
 import torch.nn.functional as F
-from chatlearn.algorithm.grpo_utils.packing_utils import regroup_data_packing
 from flash_attn.bert_padding import index_first_axis
 from einops import rearrange
-import torch.nn.functional as F
+from chatlearn.algorithm.grpo_utils.packing_utils import regroup_data_packing
+
 
 def entropy_from_logits(logits: torch.Tensor):
     """Calculate entropy from logits."""
@@ -57,7 +57,12 @@ def sp_split(input_tensor:torch.Tensor, split_dim:int, sp_size:int, sp_local_ran
     """
     return torch.chunk(input_tensor, sp_size, split_dim)[sp_local_rank]
 
-def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: List[int], response_token_length: List[int], prompt_position_ids: List[List[int]]):
+def generate_loss_mask_position_ids(
+    tokens: torch.Tensor,
+    prompt_token_length: List[int],
+    response_token_length: List[int],
+    prompt_position_ids: List[List[int]]
+):
     """
     Setup loss_mask and position_ids by prompt token length and response token length
     """
@@ -74,13 +79,10 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: L
         for batch_idx, batch in enumerate(prompt_position_ids):
             for list_idx in range(3):
                 sublist = batch[list_idx]
-                
                 # Fill the beginning of the result tensor with the existing sublist
                 position_ids[list_idx, batch_idx, :len(sublist)] = torch.tensor(sublist)
-                
                 # Determine the starting value for padding
                 start_value = max(sublist) + 1
-                
                 # Fill the rest with increasing values starting from max(sublist) + 1
                 position_ids[list_idx, batch_idx, len(sublist):] = torch.arange(
                     start_value, start_value + (seq_len - len(sublist))
@@ -188,4 +190,3 @@ def unpad_input(hidden_states, attention_mask):
             cu_seqlens,
             max_seqlen_in_batch,
         )
-
