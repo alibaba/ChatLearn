@@ -93,6 +93,7 @@ def _prepare_metadata(module: nn.Module):
         else:
             ep_rank, ep_size = module.ep_rank, module.ep_size
             tp_rank, tp_size = module.tp_rank, module.tp_size
+            dp_size = module.dp_size
             use_ep = (
                 get_current_vllm_config().parallel_config.enable_expert_parallel and
                 tp_size * dp_size > 1

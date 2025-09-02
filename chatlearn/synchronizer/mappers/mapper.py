@@ -14,11 +14,12 @@
 # ==============================================================================
 """Mapper for Megatron to vLLM"""
 from collections import defaultdict
-from typing import List, Dict, Tuple, TYPE_CHECKING, Literal
+from typing import List, Dict, Tuple, TYPE_CHECKING, Union
 
 import inspect
 import torch
 from torch import nn
+from transformers import AutoConfig
 
 from megatron.core import mpu
 from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
@@ -57,7 +58,7 @@ class MegatronMapper:
         dst_model_config: PolicyConfig,
         model: 'MegatronModule',
         *,
-        mapper_config: Literal[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
+        mapper_config: Union[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
     ):
         """The Mapper for Megatron sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
@@ -71,7 +72,7 @@ class MegatronMapper:
             dst_model_config (PolicyConfig): The config of target model to
                 be sychronized
             model (MegatronModule): The source Megatron Module
-            mapper_config (Literal[VLLM_HELPERS, HF_HELPERS]): The mapping mode.
+            mapper_config (Union[VLLM_HELPERS, HF_HELPERS]): The mapping mode.
         """
         self.model: List['GPTModel'] = unwrap_model(model.model)
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args
@@ -419,6 +420,8 @@ class MegatronMapper:
 
     def _map_postprocess_layer(self, module: 'ColumnParallelLinear', src_prefix='', dst_prefix=''):
         # pylint: disable=unused-argument
+        if 'lm_head.weight' not in self._dst_name_to_metadata:
+            return {}
         return self._inner_map_for_tensor_parallel(
             f"{src_prefix}weight",
             f"{dst_prefix}lm_head.weight",
