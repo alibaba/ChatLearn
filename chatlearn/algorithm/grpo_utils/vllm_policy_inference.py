@@ -63,11 +63,9 @@ class VLLMPolicyInference(VLLMModule):
     @compute_decorator(trainable=False, rollout=True)
     @timeit()
     def forward_step(self, data: List[Dict[str, Any]], iteration=0, **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument
-        round_track = {}
         # sort data by rollout round in decreasing order
         if "rollout_round" in data[0]:
             data.sort(key=lambda x: x['rollout_round'], reverse=True)
-        start_time = time.time()
         rets = self._forward_step(data, iteration, False)
         # collect metric
         seq_len = self.module_args.get("seq_length")
@@ -87,7 +85,6 @@ class VLLMPolicyInference(VLLMModule):
             "response_50_percentile": np.percentile(response_token_length, 50),
             "response_75_percentile": np.percentile(response_token_length, 75),
         }
-        round_track.update({'time': time.time() - start_time})
         self._metric_list.append(inference_stats)
         return rets
 

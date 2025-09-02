@@ -33,7 +33,6 @@ from chatlearn.utils.parse_utils import find_parser_from_keyname
 #  "engine_name": ("module_path", "algo_class_name", "config_class")
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
     "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
-    "grpo_partial_rollout": ("algorithm.grpo_partial_rollout", "GrpoAlgorithm", "GrpoConfig"),
 }
 
 class ChatlearnLauncher:

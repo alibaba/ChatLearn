@@ -42,7 +42,6 @@ class PolicyTrainer(FSDPModule):
     def setup(self):
         super().setup()
         self._metric_prefix = "policy_trainer"
-        self.mini_bsz = 0
 
     def split_and_padding(self, tokens: torch.Tensor, position_ids: torch.Tensor):
         """
@@ -79,8 +78,6 @@ class PolicyTrainer(FSDPModule):
     def preprocess_data_list(self, data_list: List[Dict[str, Any]], training: bool):
         # compute response length sum in train global batch size for token-wise pg loss
         response_token_length_total = torch.tensor(sum(data["response_token_length"] for data in data_list)).cuda() / self.sp_size
-        print(f"debugyy {self.data_parallel_rank}, minibsz: {self.mini_bsz}, total_token: {response_token_length_total}")
-        self.mini_bsz += 1
         dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
 
         # Split minibathc into microbatchs

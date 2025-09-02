@@ -12,15 +12,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
-"""rule reward"""
-from typing import Dict, List, Any
-from collections import deque, defaultdict
+"""Rollout Manager"""
+import os
 import uuid
 import random
-import time
-import numpy as np
-import os
+from typing import Dict, List, Any
+from collections import deque, defaultdict
 
+import numpy as np
 import torch
 from transformers import AutoTokenizer
 
@@ -67,7 +66,7 @@ class RolloutManager(BaseModule):
     def get_sample_for_rollout(self, data: List[Dict[str, Any]], **kwargs):
         # Get sample_per_episode samples from prompts_dataset
         # Add these samples into self.rollout_not_finished for future rollout
-        # Get first sample_per_episode samples from self.rollout_not_finished for this round rollout
+        # Send all samples to rollout engine
         sample_per_episode = len(data)
         data = self.initialze_data(data)
         self.rollout_not_finished.extend(data)
@@ -83,7 +82,10 @@ class RolloutManager(BaseModule):
 
     def is_finished(self, data_b):
         # determine whether the rollout is finished
-        #print(f"response len: {data_b["response_token_length"]}, rollout round: {data_b["rollout_round"]}")
+        # rollout finished if 
+        # 1. response_token_lenght is less than this round's max_generate_token_length
+        # 2. reach max rollout round
+
         return (data_b["response_token_length"] < data_b["max_generate_token_length"]) or \
             (data_b["rollout_round"] == self.max_rollout_round)
 
@@ -121,7 +123,6 @@ class RolloutManager(BaseModule):
     @timeit()
     def post_process_rollout_results(self, rollout_result_list, **kwargs):
         self.logging_generate_by_round(rollout_result_list)
-        start = time.time()
         sample_per_episode = len(rollout_result_list)
         finished_uuid = []
         unfinished_data = []
