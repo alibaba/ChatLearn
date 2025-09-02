@@ -421,7 +421,7 @@ class MegatronMapper:
     def _map_postprocess_layer(self, module: 'ColumnParallelLinear', src_prefix='', dst_prefix=''):
         # pylint: disable=unused-argument
         if (
-            not self._src_arch.untie_embeddings_and_output_weights and 
+            not self._src_arch.untie_embeddings_and_output_weights and
             f"{dst_prefix}lm_head.weight" not in self._dst_name_to_metadata
         ):
             return {}
