@@ -237,7 +237,7 @@ class GrpoAlgorithm(BaseAlgorithm):
         reward = RuleReward("reward")
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
 
-        # get train and evaluation data 
+        # get train and evaluation data
         train_data_path_list = [
             item.strip() for item in self.cfg.runtime_args.data_path.split(",")
         ]

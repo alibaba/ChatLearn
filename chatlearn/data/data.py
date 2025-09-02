@@ -20,8 +20,7 @@ import copy
 import os
 import json
 from typing import List, Dict, Union, Tuple
-import datasets
-
+from datasets import load_dataset
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -35,14 +34,15 @@ def read_data_path_list(data_path_list: List[str]):
     data = []
     for data_path in data_path_list:
         mode = os.path.splitext(data_path)[-1][1:]
-        if mode == "jsonl" or mode == "json": # .json file is the same use as jsonl
+        if mode in ('jsonl', 'json'):
+            # .json file is the same use as jsonl
             with open(data_path, 'r', encoding='utf-8') as f:
                 data.extend([json.loads(line) for line in f])
         elif mode == "parquet":
-            dataframe = datasets.load_dataset("parquet", data_files=data_path)['train']
+            dataframe = load_dataset("parquet", data_files=data_path)['train']
             for example in dataframe:
                 # Convert the example (which is a dict-like object) to a regular Python dictionary
-                data.append(dict(example))        
+                data.append(dict(example))
     return data
 
 
