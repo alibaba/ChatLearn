@@ -338,7 +338,6 @@ def get_batch(
 
             tokens = F.pad(tokens, (0, pad_size), value=pad_token)
             labels = torch.roll(tokens, shifts=-1, dims=1)
-            # Get the masks and position ids.
             attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
                 tokens,
                 get_tokenizer().eod,
@@ -371,11 +370,6 @@ def get_batch(
             seqlens_in_batch = attn_mask.sum(dim=-1, dtype=torch.int32)
             pad_size = (align_size - seqlens_in_batch % align_size) % align_size
             seqlens_in_batch_padded = seqlens_in_batch + pad_size
-
-            cu_seqlens = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
-            cu_seqlens[1:] = torch.cumsum(seqlens_in_batch, dim=0)
-            cu_seqlens_padded = torch.zeros(mbs + 1, dtype=torch.int32, device=tokens.device)
-            cu_seqlens_padded[1:] = torch.cumsum(seqlens_in_batch_padded, dim=0)
 
             tokens_padded = torch.full((mbs, seqlens_in_batch_padded.max()), get_tokenizer().eod, dtype=tokens.dtype, device=tokens.device)
             attn_mask_for_padding = torch.zeros((mbs, seqlens_in_batch_padded.max()), dtype=tokens.dtype, device=tokens.device)
@@ -411,25 +405,20 @@ def get_batch(
                 "position_ids": position_ids,
             }
             chunked_dataset = get_batch_on_this_cp_rank(input_batch)
-            tokens_on_this_cp_rank = chunked_dataset['all_tokens']
-            attn_mask_on_this_cp_rank = chunked_dataset['attention_mask']
-            labels_on_this_cp_rank = chunked_dataset['labels']
             loss_mask_on_this_cp_rank = chunked_dataset['loss_mask']
-            position_ids_on_this_cp_rank = chunked_dataset['position_ids']
-            num_tokens_on_this_cp_rank = loss_mask_on_this_cp_rank.sum()
             input_data = {
-                "all_tokens": tokens_on_this_cp_rank,
-                "all_token_attention_mask": attn_mask_on_this_cp_rank,
+                "all_tokens": chunked_dataset['all_tokens'],
+                "all_token_attention_mask": chunked_dataset['attention_mask'],
                 "all_token_loss_mask": loss_mask_on_this_cp_rank,
-                "all_token_position_ids": position_ids_on_this_cp_rank,
-                "labels": labels_on_this_cp_rank,
+                "all_token_position_ids": chunked_dataset['position_ids'],
+                "labels": chunked_dataset['labels'],
                 'packed_seq_params': None,
                 "ori_seq_len": None,
                 "ori_batch_size": None,
                 "seq_indices": None,
                 "indices": None,
                 "pad_size": pad_size,
-                "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
+                "num_tokens_on_this_cp_rank": loss_mask_on_this_cp_rank.sum(),
             }
 
     if is_training:
