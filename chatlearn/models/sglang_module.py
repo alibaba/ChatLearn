@@ -349,7 +349,6 @@ class SGLangModule(TorchModule):
         """
         seq_len = self.module_args.seq_length
 
-        prompts = [q["prompt"] for q in query]
         prompts_token_ids = [q["input_ids"] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []

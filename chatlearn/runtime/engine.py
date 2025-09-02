@@ -421,8 +421,8 @@ class Engine(BaseEngine):
         if self.evaluator:
             prefix, evaluate_metrics = self.evaluator.get_and_clear_metrics()
             self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
-        
-        # Get total train token (prompt token included), divided by total episode e2e 
+
+        # Get total train token (prompt token included), divided by total episode e2e
         total_tokens = ray.get(self._data_loader.get_total_train_tokens.remote())
         tps_throughput = total_tokens / (episode_metrics['episode'])
         episode_metrics.update({'tps_throughput': tps_throughput})

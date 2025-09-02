@@ -111,7 +111,7 @@ class RolloutManager(BaseModule):
     def logging_generate_by_round(self, rollout_result_list):
         logging_generate = {f"round_{i}_response": [] for i in range(self.max_rollout_round)}
         for data in rollout_result_list:
-            logging_generate[f"round_{data["rollout_round"] - 1}_response"].append(data["response_token_length"])
+            logging_generate[f"round_{data['rollout_round'] - 1}_response"].append(data["response_token_length"])
         update_dict = {}
         for key in logging_generate:
             update_dict[f"{key}_mean"] = 0 if len(logging_generate[key]) == 0 else np.mean(np.array(logging_generate[key]))

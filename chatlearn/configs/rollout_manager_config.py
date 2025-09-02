@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from typing import List
 
-from .base import BaseConfig, BaseModelConfig
+from .base import BaseModelConfig
 
 @dataclass
 class RolloutManagerConfig(BaseModelConfig):

@@ -50,7 +50,6 @@ def sglang_postprocess_func(
         prompt_token_ids = input_data["input_ids"]
         output_tokens = output["output_ids"]
         response_token_length = output["meta_info"]["completion_tokens"]
-        prompt_token_length = output["meta_info"]["prompt_tokens"]
         str_outputs = tokenizer.decode(output_tokens, skip_special_tokens=True)
         all_tokens = torch.tensor(prompt_token_ids + output_tokens)
         input_data.update(
