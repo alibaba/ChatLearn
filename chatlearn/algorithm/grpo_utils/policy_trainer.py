@@ -182,47 +182,6 @@ class PolicyTrainer(FSDPModule):
         sp_group = get_sp_parallel_group()
         
         response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
-        # import copy
-        # data_list_clone = copy.deepcopy(data_list)
-
-        # # Process the original data_list with packing
-        # self.packing = True
-        # response_token_length_total, processed_data_list = self.preprocess_data_list(data_list=data_list, training=True)
-
-        # # Process the cloned data_list without packing
-        # self.packing = False
-        # response_token_length_total_no_packing, processed_data_list_no_packing = self.preprocess_data_list(data_list=data_list_clone, training=True)
-
-        # import os
-        # output_dir = '/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/debug_chatlearn/real_input'
-        # os.makedirs(output_dir, exist_ok=True)
-
-        # def save_data(processed_data_list, prefix=''):
-        #     for i, data in enumerate(processed_data_list):
-        #         # 准备用于保存张量的字典和其他数据的字典
-        #         tensor_data = {}
-        #         json_data = {}
-
-        #         for key, value in data.items():
-        #             if isinstance(value, torch.Tensor):
-        #                 # 将张量保存到一个特定的文件
-        #                 tensor_filename = f"{output_dir}/{prefix}{key}_{i}.pt"
-        #                 torch.save(value, tensor_filename)
-        #                 tensor_data[key] = tensor_filename
-        #             else:
-        #                 # 其他数据直接保存到json数据
-        #                 json_data[key] = value
-
-        #         # 将非张量数据保存到 JSON 文件中
-        #         json_filename = f"{output_dir}/{prefix}data_{i}.json"
-        #         with open(json_filename, 'w', encoding='utf-8') as f:
-        #             json.dump(json_data, f, ensure_ascii=False, indent=4)
-
-        #         print(f"数据已保存到文件: {json_filename}")
-        #         print(f"张量已保存到文件: {list(tensor_data.values())}")
-        # breakpoint()
-        # save_data(processed_data_list_no_packing)
-        # save_data(processed_data_list, prefix='packing_')
         
         for inputs in data_list:
             for k, v in inputs.items():

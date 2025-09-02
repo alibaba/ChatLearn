@@ -69,11 +69,7 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: L
         attn_mask[i, : prompt_token_length[i] + response_token_length[i]] = 1.0
     batch_size, seq_len = tokens.size()
 
-    if len(prompt_position_ids)>0 and len(prompt_position_ids[0])==0:
-        # text only
-        position_ids = torch.arange(seq_len, dtype=torch.long, device=tokens.device)
-        position_ids = position_ids.unsqueeze(0).expand_as(tokens)
-    else:
+    if prompt_position_ids:
         position_ids = torch.zeros((3, batch_size, seq_len), dtype=torch.long, device=tokens.device)
         for batch_idx, batch in enumerate(prompt_position_ids):
             for list_idx in range(3):
@@ -89,6 +85,11 @@ def generate_loss_mask_position_ids(tokens: torch.Tensor, prompt_token_length: L
                 position_ids[list_idx, batch_idx, len(sublist):] = torch.arange(
                     start_value, start_value + (seq_len - len(sublist))
                 )
+    else:
+        # text only
+        position_ids = torch.arange(seq_len, dtype=torch.long, device=tokens.device)
+        position_ids = position_ids.unsqueeze(0).expand_as(tokens)
+
     return attn_mask, loss_mask, position_ids
 
 def split_microbatch(

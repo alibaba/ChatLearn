@@ -265,7 +265,6 @@ def _flash_attention_forward(
 
     # Contains at least one padding token in the sequence
     if attention_mask is not None:
-        print("Run attention mask branch")
         batch_size = query_states.shape[0]
         query_states, key_states, value_states, indices_q, cu_seq_lens, max_seq_lens = _upad_input(
             query_states, key_states, value_states, attention_mask, query_length
@@ -294,7 +293,6 @@ def _flash_attention_forward(
     elif position_ids is not None and (
         max_length_q is not None or (query_length != 1 and not (torch.diff(position_ids, dim=-1) >= 0).all())
     ):
-        print("Run position_ids branch")
         batch_size = query_states.size(0)
 
         if cu_seq_lens_q is None or cu_seq_lens_k is None:
@@ -327,7 +325,6 @@ def _flash_attention_forward(
         attn_output = attn_output.view(batch_size, -1, attn_output.size(-2), attn_output.size(-1))
 
     else:
-        print("Run final branch")
         attn_output = flash_attn_func(
             query_states, key_states, value_states, dropout, softmax_scale=softmax_scale, causal=causal, **flash_kwargs
         )
@@ -367,7 +364,6 @@ def prepare_fa2_from_position_ids(query, key, value, position_ids):
         (max_seqlen_in_batch_q, max_seqlen_in_batch_k) (`Tuple[int]`):
             Maximum sequence length in batch (`max_seqlen_in_batch_q` for the target sequence i.e. query, `max_seqlen_in_batch_k` for the source sequence i.e. key/value).
     """
-    print('Use prepare_fa2_from_position_ids patched')
     query = query.view(-1, query.size(-2), query.size(-1))
     key = key.contiguous().view(-1, key.size(-2), key.size(-1))
     value = value.contiguous().view(-1, value.size(-2), value.size(-1))
@@ -381,6 +377,8 @@ def prepare_fa2_from_position_ids(query, key, value, position_ids):
         )
     )
 
+    # =========================================================================
+    # we change here for vl packing
     max_length = torch.max(torch.diff(cu_seq_lens))
 
     return (query, key, value, indices_q, (cu_seq_lens, cu_seq_lens), (max_length, max_length))
@@ -397,7 +395,6 @@ def Qwen2_5_VLFlashAttention2_patched_forward(
     cache_position: Optional[torch.LongTensor] = None,
     position_embeddings: Optional[Tuple[torch.Tensor, torch.Tensor]] = None,  # necessary, but kept here for BC
 ):
-    print('Use Qwen2_5_VLFlashAttention2_patched_forward')
     bsz, q_len, _ = hidden_states.size()
 
     query_states = self.q_proj(hidden_states)
@@ -460,6 +457,8 @@ def Qwen2_5_VLFlashAttention2_patched_forward(
     else:
         sliding_window = None
 
+    # =========================================================================
+    # we add position_ids here to support vl packing
     attn_output = _flash_attention_forward(
         query_states,
         key_states,

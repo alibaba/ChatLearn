@@ -21,6 +21,7 @@ ChatLearn Documentation
 
    tutorial/tutorial_grpo_fsdp
    tutorial/tutorial_grpo_mcore
+   tutorial/tutorial_grpo_fsdp_qwenvl
    tutorial/multinode_train
    tutorial/continue_train
    tutorial/tuning_guide
