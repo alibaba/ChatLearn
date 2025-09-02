@@ -111,6 +111,8 @@ class BaseEngine:
                     else:
                         refs.append(replica.setup_engine())
                 future.wait(refs, return_output=True)
+                # offload rollout here, because async rollout can't offload in setup_engine function
+                remote_model.offload()
 
         if self.runtime_args.concurrent_setup:
             refs = []

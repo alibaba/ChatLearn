@@ -101,6 +101,7 @@ models:
     cpu_per_process: 1
     generation_batch_size: 256
   agent:
-    num_cpu: 1
+    num_cpu: 2
     cpu_per_process: 1
     generation_batch_size: 256
+    num_inference_per_prompt: ${models.policy.num_inference_per_prompt}

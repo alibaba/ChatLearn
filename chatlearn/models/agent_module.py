@@ -14,7 +14,10 @@
 # ==============================================================================
 """agent module"""
 import ray
+import uuid
 from typing import Dict, List, Any
+from collections import defaultdict
+import itertools
 
 import torch
 from transformers import AutoTokenizer
@@ -84,6 +87,11 @@ class AgentModule(BaseModule):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.global_args.models.policy.get("load"), trust_remote_code=True
         )
+        # set shard variable
+        ray.get(self.shared_var.set.remote('finish_cnt', 0))
+        # self.engine2request_map = defaultdict(list)
+        # for engine in self.rollout_engine:
+        #     self.engine2request_map[engine] = []
 
     def get_rollout(self, namespace="policy"):
         all_actors = ray.util.list_named_actors(all_namespaces=True)
@@ -91,33 +99,72 @@ class AgentModule(BaseModule):
         self.rollout_workers = [ray.get_actor(**item) for item in rollout_actors]
         # rollout engine is not setup need to load later
         self.rollout_engines = [worker for worker in self.rollout_workers if ray.get(worker.is_engine.remote())]
-        print("debughh", self.rollout_workers, self.rollout_engines)
+        self.engine_iter = itertools.cycle(iter(self.rollout_engines))
 
+    # def select_engine(self, request_id):
+        # RoundRobin
+
+        # # find request id whether in engine
+        # least_request_engine = None
+        # least_request_cnt = None
+        # for engine, request_list in self.engine2request_map:
+        #     if request_id in request_list:
+        #         return engine
+        #     if not least_request_engine or (len(request_list) < least_request_cnt):
+        #         least_request_engine = engine
+        #         least_request_cnt = len(request_list)
+        
+        # self.engine2request_map[least_request_engine].append(request_id)
+        # return least_request_engine
+        
+
+    # def _forward_step(self, data: List[Dict], iteration, is_eval):
+    #     outputs = ray.get(self.rollout_engines[0].generate.remote(data, is_eval))
+
+    #     if outputs is not None:
+    #         rets = sglang_postprocess_func(self.tokenizer, outputs, data)
+    #         return rets
+        
     def _forward_step(self, data: List[Dict], iteration, is_eval):
-        outputs = ray.get(self.rollout_engines[0].generate.remote(data, is_eval))
+        ref_list = []
+        for data_item in data:
+            selected_engine = next(self.engine_iter)
+            ref = selected_engine.generate.remote([data_item], is_eval)
+            ref_list.append(ref)
+        
+        outputs = ray.get(ref_list)
+        outputs = [item for sublist in outputs for item in sublist]
 
         if outputs is not None:
             rets = sglang_postprocess_func(self.tokenizer, outputs, data)
             return rets
-        
-        return data
 
-    @compute_decorator(trainable=False, rollout=False)
+    @compute_decorator(trainable=False, rollout=True)
     def forward_step(self, data: List[Dict], iteration=0, **kwargs):
         rets = self._forward_step(data, iteration, False)
         return rets
 
-    @compute_decorator(trainable=False, rollout=False)
+    @compute_decorator(trainable=False, rollout=True)
     def eval_forward(self, data: List[Dict], iteration=0, **kwargs):
         rets = self._forward_step(data, iteration, False)
         return rets
 
     def onload(self):
-        if self.replica_id == 0:
+        finish_cnt = ray.get(self.shared_var.get.remote('finish_cnt'))
+        finish_cnt += 1
+        if finish_cnt == self._num_replica:
             for engine in self.rollout_engines:
                 ray.get(engine.onload.remote())
-        
+            ray.get(self.shared_var.set.remote('finish_cnt', 0))
+        else:
+            ray.get(self.shared_var.set.remote('finish_cnt', finish_cnt))
+
     def offload(self):
-        if self.replica_id == 0:
+        finish_cnt = ray.get(self.shared_var.get.remote('finish_cnt'))
+        finish_cnt += 1
+        if finish_cnt == self._num_replica:
             for engine in self.rollout_engines:
                 ray.get(engine.offload.remote())
+            ray.get(self.shared_var.set.remote('finish_cnt', 0))
+        else:
+            ray.get(self.shared_var.set.remote('finish_cnt', finish_cnt))

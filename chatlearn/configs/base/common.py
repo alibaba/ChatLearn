@@ -42,6 +42,7 @@ class RewardConfig(BaseModelConfig):
 @dataclass
 class AgentConfig(BaseModelConfig):
     """Common configs for Agent model"""
+    num_inference_per_prompt: int = field(default=1)
 
 @dataclass
 class PolicyTrainerConfig(BaseModelConfig):

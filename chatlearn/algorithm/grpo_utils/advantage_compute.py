@@ -23,7 +23,6 @@ def compute_grpo_adv(episode_replay_buffers: List[Dict[str, Any]]):
         for li in l:
             li["advantages"] = (li["rule_reward"] - mean) / (std + 1e-5)
         res_buffers.extend(l)
-
     # Sort samples by original order in buffer
     res_buffers.sort(key=lambda x: x["sample_id"])
     for data in res_buffers:

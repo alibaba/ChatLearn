@@ -131,7 +131,7 @@ def compute_decorator(trainable, rollout):
             # TODO, remove
             if to_empty_cache and not rollout:
                 self.empty_cache()
-
+            # rollout true is_eval true -> not offload
             if to_offload and not (rollout and is_eval):
                 self.offload()
 
