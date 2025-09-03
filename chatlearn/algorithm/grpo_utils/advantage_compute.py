@@ -1,10 +1,12 @@
+"""compute advantage for grpo"""
 from typing import List, Dict, Any
 from collections import defaultdict
 
 import numpy as np
 
-"""compute advantage for grpo"""
+
 class AdvantageComputer:
+    """advantage computer"""
     def __init__(self, num_inference_per_prompt):
         self.rule_reward_buffer = defaultdict(list)
         self.num_inference_per_prompt = num_inference_per_prompt
