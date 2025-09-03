@@ -361,8 +361,8 @@ if HAVE_VLLM:
 
             # preprocess query
             prompt_key = "prompt"
-            use_multi_model = len(query)>0 and 'multi_modal_data' in query[0]
-            if use_multi_model:
+            use_multi_modal = len(query)>0 and 'multi_modal_data' in query[0]
+            if use_multi_modal:
                 input_ids_key = "raw_input_ids"
             else:
                 input_ids_key = "input_ids"
@@ -381,7 +381,7 @@ if HAVE_VLLM:
                 sampling_param_item.max_tokens = max_tokens
                 sampling_params.append(sampling_param_item)
 
-                if use_multi_model:
+                if use_multi_modal:
                     llm_inputs.append(
                         {
                             "multi_modal_data": query[prompt_id]['multi_modal_data'],
