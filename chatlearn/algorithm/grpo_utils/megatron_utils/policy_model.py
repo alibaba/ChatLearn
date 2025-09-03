@@ -20,18 +20,20 @@ import torch
 
 from flash_attn.bert_padding import pad_input
 
+from megatron.core import mpu
 from megatron.core.inference.contexts import BaseInferenceContext
 from megatron.core.models.gpt import GPTModel
 from megatron.core.packed_seq_params import PackedSeqParams
 from megatron.core.transformer.spec_utils import ModuleSpec
 from megatron.core.transformer.transformer_config import TransformerConfig
+
 from megatron.training import get_args
 from torch import Tensor
 
 from chatlearn.configs.base import BaseModelConfig
 
 from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
-from .train_helper import entropy_from_tensor_parallel_logits
+from .train_helper import entropy_from_tensor_parallel_logits, reduce_from_context_parallel_region
 
 
 # TODO: replace this class with GPTModel
@@ -119,15 +121,7 @@ class PolicyModel(GPTModel):
             self.compute_language_model_loss(labels, all_token_logits) * -1
         )
 
-        # NOTE: before loss computation, we need to unpack the packed inputs
-        forward_logprob = forward_logprob[:, :forward_logprob.shape[1] - training_inputs['pad_size']]
-        if self.module_args.packing:
-            forward_logprob = pad_input(
-                forward_logprob.permute(1, 0), 
-                training_inputs['indices'], 
-                training_inputs['ori_batch_size'], 
-                training_inputs['ori_seq_len']
-            ).squeeze(-1)
+        forward_logprob = reduce_from_context_parallel_region(forward_logprob, self.module_args.packing, training_inputs)
 
         old_logprobs = training_inputs["old_logprobs"]
         ref_logprobs = training_inputs["ref_logprobs"]
@@ -161,17 +155,9 @@ class PolicyModel(GPTModel):
                 final_clip_ratio=self.module_args.final_clip_ratio
             )
 
-        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits)
-        entropy_loss = entropy_loss[:entropy_loss.shape[0] - training_inputs['pad_size']]
-        if self.module_args.packing:
-            entropy_loss = pad_input(
-                entropy_loss, 
-                training_inputs['indices'], 
-                training_inputs['ori_batch_size'], 
-                training_inputs['ori_seq_len']
-            ).squeeze(-1)
-        else:
-            entropy_loss = entropy_loss.transpose(0, 1)
+        entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).permute(1, 0)
+
+        entropy_loss = reduce_from_context_parallel_region(entropy_loss, self.module_args.packing, training_inputs)
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
