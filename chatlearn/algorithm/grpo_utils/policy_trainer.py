@@ -146,9 +146,9 @@ class PolicyTrainer(FSDPModule):
             if 'pixel_values' in data_b:
                 data_obj.update(
                     {
-                        "pixel_values": pixel_values,
-                        "image_grid_thw": image_grid_thw.squeeze(),
-                        "rope_deltas": rope_deltas.squeeze().unsqueeze(1)
+                        "pixel_values": pixel_values, # [token_length, token_num]
+                        "image_grid_thw": image_grid_thw, # [batch_size, 3]
+                        "rope_deltas": rope_deltas # [batch_size, 1]
                     }
                 )
 

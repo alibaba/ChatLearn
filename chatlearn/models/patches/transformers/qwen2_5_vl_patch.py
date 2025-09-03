@@ -22,7 +22,9 @@ def get_rope_index(
         attention_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    Use processor to compute the position ids for RoPE
+    Compute position IDs for RoPE using the processor in the to precomute in vl_prompt_dataset.
+    This function is similar to the original implementation but uses external processor initialization 
+    and substitutes certain parameters with constants for simplified processing.
     """
     spatial_merge_size = processor.image_processor.merge_size
     tokens_per_second = 2
@@ -165,6 +167,8 @@ def _flash_attention_forward(
     **kwargs, # pylint: disable=unused-argument
 ):
     """
+    copy from transformers/modeling_flash_attention_utils.py to use self-defined prepare_fa2_from_position_ids
+
     Calls the forward method of Flash Attention - if the input hidden states contain at least one padding token
     first unpad the input, then computes the attention scores and pad the final attention scores.
     """

@@ -42,7 +42,7 @@ class PromptPipeline(Dataset):
         "multi_modal_data": {'image':[PIL.Image]}, # for vllm inference
         "mm_processor_kwargs": {'fps':[]}, # used for video useless now
         "pixel_values": Tensor, # [token_num, token_length]
-        "image_grid_thw": Tensor, # [1,3] 3 means thw
+        "image_grid_thw": Tensor, # [1,3] 3 means t,h,w
     }
     """
     def __init__(
@@ -118,7 +118,7 @@ class PromptPipeline(Dataset):
             processed_data = {
                 "raw_input_ids": raw_input_ids,
                 "prompt": raw_prompt,
-                "position_ids": position_ids,
+                "position_ids": position_ids.squeeze().tolist(),
                 "rope_deltas": rope_deltas,
                 "data_source": data_source,
                 "ground_truth": ground_truth,
