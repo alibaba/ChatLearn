@@ -15,8 +15,7 @@
 # ==============================================================================
 """vllm policy inference"""
 from typing import Dict, List, Any
-from collections import deque, defaultdict
-from collections import Counter
+from collections import deque, defaultdict, Counter
 import time
 import numpy as np
 import copy
