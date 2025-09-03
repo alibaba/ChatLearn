@@ -170,6 +170,7 @@ class FSDPModule(TorchModule):
 
                 from chatlearn.models.patches.monkey_patch import apply_qwenvl
                 apply_qwenvl(model)
+                assert self.sp_size == 1, "VL model only support sp_size=1"
             else:
                 model = AutoModelForCausalLM.from_pretrained(
                     pretrained_model_name_or_path=model_path,
@@ -179,6 +180,7 @@ class FSDPModule(TorchModule):
                 )
         else:
             model_config = AutoConfig.from_pretrained(model_path)
+            assert "Qwen2_5_VLForConditionalGeneration" not in model_config.architectures, "VL model not support meta init"
             with torch.device('meta'):
                 model = AutoModelForCausalLM.from_config(
                     model_config,
