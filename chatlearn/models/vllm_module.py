@@ -464,9 +464,11 @@ if HAVE_VLLM:
 
         @torch.no_grad()
         def map_local_param_name_to_global(self):
-            """generate a global name for each parameter in the model
-            (just name of PP1EP1). For vLLM module (currently w/o EP),
-            simply return all keys
+            """Map names of weights on each rank to a unique name.
+            
+            Returns:
+                List[str]: A list of unique global names for each weight 
+            on this rank.
             """
             names = list(self.model.state_dict().keys())
             self.global_name_to_local_name = {n: n for n in names}
