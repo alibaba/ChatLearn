@@ -80,6 +80,7 @@ class RuleReward(BaseModule):
         if data_source in ['openai/gsm8k', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25']:
             return math.compute_score
         elif data_source in ['hiyouga/geometry3k']:
+            # format reward is used in geo3k
             return geo3k.compute_score
         else:
             raise NotImplementedError

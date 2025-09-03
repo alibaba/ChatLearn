@@ -194,7 +194,7 @@ class PolicyTrainer(FSDPModule):
                     attention_mask=None,
                     position_ids=inputs['position_ids'],
                     use_cache=False,
-                    rope_deltas=None
+                    rope_deltas=inputs['rope_deltas']
                 )
             else:
                 output = self.model(
