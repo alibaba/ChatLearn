@@ -33,7 +33,7 @@ from chatlearn.configs import (
 )
 from chatlearn.configs.fsdp_config import FSDPPolicyTrainerConfig, FSDPRefPolicyConfig
 
-from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
+from chatlearn.algorithm.grpo_utils.advantage_compute import AdvantageComputer
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
@@ -191,6 +191,7 @@ class GRPOEngine(Engine):
         reward: RuleReward,
         ref_policy: PolicyTrainer,
         policy_trainer: PolicyTrainer,
+        rollout_manager: RolloutManager = None
     ):
         def env_compute_flow(batch):
             policy_out = policy.forward_step(batch)
@@ -199,34 +200,7 @@ class GRPOEngine(Engine):
             reward_out = reward.forward_step(ref_logprobs_out)
             return reward_out
 
-        def trainer_compute_flow(batch):
-            policy_trainer.train_step(batch)
-
-        def evaluator_flow(batch):
-            policy_out = policy.eval_forward(batch)
-            reward_out = reward.eval_forward(policy_out)
-            return reward_out
-
-        env = Environment(env_compute_flow)
-        trainer = Trainer(trainer_compute_flow)
-        evaluator = GRPOEvaluator(evaluator_flow)
-        super().__init__(
-            environment=env, trainer=trainer, evaluator=evaluator, name="grpo"
-        )
-        self.set_parameter_sync(policy_trainer, policy)
-
-class GRPOEngine_Partial(Engine):
-    """GRPO Engine."""
-
-    def __init__(
-        self,
-        policy: VLLMPolicyInference,
-        reward: RuleReward,
-        ref_policy: PolicyTrainer,
-        policy_trainer: PolicyTrainer,
-        rollout_manager: RolloutManager
-    ):
-        def env_compute_flow(batch):
+        def env_compute_flow_with_partial(batch):
             batch = rollout_manager.get_sample_for_rollout(batch)
             batch = policy.forward_step(batch)
             batch = rollout_manager.post_process_rollout_results(batch)
@@ -239,18 +213,20 @@ class GRPOEngine_Partial(Engine):
             policy_trainer.train_step(batch)
 
         def evaluator_flow(batch):
-            policy_out = policy.forward_step(batch)
+            policy_out = policy.eval_forward(batch)
             reward_out = reward.eval_forward(policy_out)
             return reward_out
-
-        env = Environment(env_compute_flow)
+        
+        if rollout_manager is None:
+            env = Environment(env_compute_flow)
+        else:
+            env = Environment(env_compute_flow_with_partial)
         trainer = Trainer(trainer_compute_flow)
         evaluator = GRPOEvaluator(evaluator_flow)
         super().__init__(
             environment=env, trainer=trainer, evaluator=evaluator, name="grpo"
         )
         self.set_parameter_sync(policy_trainer, policy)
-
 
 class GrpoAlgorithm(BaseAlgorithm):
     """GrpoAlgorithm"""
@@ -279,9 +255,10 @@ class GrpoAlgorithm(BaseAlgorithm):
 
         if self.cfg.runtime_args.partial_rollout:
             rollout_manager = RolloutManager("rollout_manager")
-            engine = GRPOEngine_Partial(policy, reward, ref_policy, policy_trainer, rollout_manager)
         else:
-            engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
+            rollout_manager = None
+            
+        engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, rollout_manager)
 
         # get train and evaluation data
         train_data_path_list = [
@@ -297,7 +274,7 @@ class GrpoAlgorithm(BaseAlgorithm):
         # put data in engine._all_datasets
         engine.set_dataset(train_data)
         engine.evaluator.set_dataset(eval_data)
-        engine.set_replay_sample_manager(compute_grpo_adv)
+        engine.set_replay_sample_manager(AdvantageComputer(self.cfg.runtime_args.num_inference_per_prompt))
         engine.learn()
 
     def validate(self):

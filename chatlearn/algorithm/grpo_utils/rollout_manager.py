@@ -54,7 +54,6 @@ class RolloutManager(BaseModule):
     def initialze_data(self, data: List[Dict[str, Any]]):
         for sample in data:
             sample["uuid"] = uuid.uuid4()
-            sample["prompt_uid"] = hash(sample["prompt"])
             sample["rollout_round"] = 0
             sample["max_generate_token_length"] = self.max_token_per_round[sample["rollout_round"]]
         return data

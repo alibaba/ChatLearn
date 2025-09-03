@@ -107,7 +107,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, num_minibsz, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, num_minibsz, relay_sample_manager, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -125,7 +125,7 @@ class StreamDataset:
         self._max_replay_episode = max_replay_episode
         self._replay_episode_offset = replay_episode_offset
         self._episode_replay_buffers = []
-        self.replay_sample_manager = None
+        self.replay_sample_manager = relay_sample_manager
 
     def shuffle(self):
         """
@@ -207,7 +207,7 @@ class StreamDataset:
         """
         return self._has_next
 
-    def set_dataset(self, queue, episode_id, replay_sample_manager=None, sample_per_episode=-1):
+    def set_dataset(self, queue, episode_id, sample_per_episode=-1):
         replay_buffer = EpisodeReplayBuffer(episode_id, queue=queue)
         if self._max_replay_episode > 0 and episode_id >= self._replay_episode_offset:
             self._episode_replay_buffers.append(replay_buffer)
@@ -219,10 +219,7 @@ class StreamDataset:
             # which will block training until environment rollout finished.
             if os.getenv("SKIP_GENERATION", None) is None:
                 replay_buffer.sync()
-            if replay_sample_manager is None:
-                raise Exception("default replay sample function is not currently supported")
 
-            self.replay_sample_manager = replay_sample_manager
             buffer = self.replay_sample_manager(self._episode_replay_buffers)
             self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
             self._total_samples = len(self.replay_buffer)
@@ -376,6 +373,7 @@ class RLHFDataLoader:
                 batch = []
                 for dataset_idx, data_idx, _ in batch_idxes:
                     data = copy.deepcopy(self.datasets[dataset_idx][data_idx])
+                    data['prompt_uid'] = f"{dataset_idx}_{data_idx}"
                     data['uid'] = self.uid * self.data_parallel_size + self.data_parallel_rank
                     self.uid += 1
                     batch.append(data)
