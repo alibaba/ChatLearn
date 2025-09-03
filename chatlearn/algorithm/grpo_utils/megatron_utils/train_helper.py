@@ -228,7 +228,7 @@ def reduce_from_context_parallel_region(
 
     else:
         if mpu.get_context_parallel_world_size() > 1:
-            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['all_token_position_ids'].squeeze(0))
+            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['all_token_position_ids'])
 
         logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
 
@@ -325,7 +325,7 @@ def get_batch(
             'packed_seq_params': packed_seq_params,
             "ori_seq_len": seqlen,
             "ori_batch_size": mbs,
-            "seq_indices": seq_indices,
+            "seq_indices": seq_indices.unsqueeze(0), # [1, total_nnz_per_cp_rank]
             "indices": indices,
             "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
         }
