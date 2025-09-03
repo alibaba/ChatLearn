@@ -1,8 +1,9 @@
-"""compute advantage for grpo"""
 from typing import List, Dict, Any
 from collections import defaultdict
+
 import numpy as np
 
+"""compute advantage for grpo"""
 class AdvantageComputer:
     def __init__(self, num_inference_per_prompt):
         self.rule_reward_buffer = defaultdict(list)
@@ -21,7 +22,7 @@ class AdvantageComputer:
             avg = np.mean(self.rule_reward_buffer[sample_id])
             std = np.std(self.rule_reward_buffer[sample_id])
             s['advantages'] = (s["rule_reward"] - avg) / (std + 1e-5)
-        
+
         # clean buffer
         pop_keys = [k for k,v in self.rule_reward_buffer.items() if len(v) == self.num_inference_per_prompt]
         for key in pop_keys:

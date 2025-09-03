@@ -216,7 +216,7 @@ class GRPOEngine(Engine):
             policy_out = policy.eval_forward(batch)
             reward_out = reward.eval_forward(policy_out)
             return reward_out
-        
+
         if rollout_manager is None:
             env = Environment(env_compute_flow)
         else:
@@ -257,7 +257,7 @@ class GrpoAlgorithm(BaseAlgorithm):
             rollout_manager = RolloutManager("rollout_manager")
         else:
             rollout_manager = None
-            
+
         engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, rollout_manager)
 
         # get train and evaluation data

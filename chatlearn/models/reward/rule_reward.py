@@ -14,10 +14,8 @@
 # Adapted from https://github.com/EleutherAI/lm-evaluation-harness/blob/main/lm_eval/tasks/hendrycks_math/utils.py
 """rule reward"""
 from typing import Dict, List
-from collections import defaultdict
 
 import torch
-import numpy as np
 
 from chatlearn import BaseModule
 from chatlearn.utils.rule_reward_score import math
