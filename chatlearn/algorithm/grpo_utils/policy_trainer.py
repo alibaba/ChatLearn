@@ -21,10 +21,7 @@ from typing import List, Dict, Any
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-
 from flash_attn.bert_padding import pad_input
-from flash_attn import bert_padding
-
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
@@ -39,7 +36,6 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             batching,
                             split_and_unpadding,
                             unpad_input)
-bert_padding.unpad_input = unpad_input
 
 
 class PolicyTrainer(FSDPModule):
@@ -104,6 +100,8 @@ class PolicyTrainer(FSDPModule):
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
+
+            # for vl
             position_ids = data_b.get("position_ids", None)
             rope_deltas = data_b.get("rope_deltas", None)
             pixel_values = data_b.get("pixel_values", None)
@@ -193,7 +191,7 @@ class PolicyTrainer(FSDPModule):
                     input_ids=inputs['all_tokens'],
                     pixel_values=inputs['pixel_values'],
                     image_grid_thw=inputs['image_grid_thw'],
-                    attention_mask=None,#inputs['attention_mask'],
+                    attention_mask=None,
                     position_ids=inputs['position_ids'],
                     use_cache=False,
                     rope_deltas=None
@@ -201,7 +199,7 @@ class PolicyTrainer(FSDPModule):
             else:
                 output = self.model(
                     input_ids=inputs['all_tokens'],
-                    attention_mask=None,#inputs['attention_mask'],
+                    attention_mask=None,
                     position_ids=inputs['position_ids'],
                     use_cache=False
                 )
@@ -312,7 +310,7 @@ class PolicyTrainer(FSDPModule):
                         input_ids=inputs['all_tokens'],
                         pixel_values=inputs['pixel_values'],
                         image_grid_thw=inputs['image_grid_thw'],
-                        attention_mask=None,#inputs['attention_mask'],
+                        attention_mask=None,
                         position_ids=inputs['position_ids'],
                         use_cache=False,
                         rope_deltas=inputs['rope_deltas']
@@ -320,7 +318,7 @@ class PolicyTrainer(FSDPModule):
                 else:
                     output = self.model(
                         input_ids=inputs['all_tokens'],
-                        attention_mask=None,#inputs['attention_mask'],
+                        attention_mask=None,
                         position_ids=inputs['position_ids'],
                         use_cache=False
                     )

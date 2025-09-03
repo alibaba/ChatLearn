@@ -277,6 +277,7 @@ def prepare_fa2_from_position_ids(query, key, value, position_ids):
     # =========================================================================
     # we change here for vl packing
     max_length = torch.max(torch.diff(cu_seq_lens))
+    # =========================================================================
 
     return (query, key, value, indices_q, (cu_seq_lens, cu_seq_lens), (max_length, max_length))
 
@@ -368,6 +369,7 @@ def Qwen2_5_VLFlashAttention2_patched_forward(
         use_top_left_mask=self._flash_attn_uses_top_left_mask,
         position_ids=position_ids[0,:,:]
     )
+    # =========================================================================
 
     attn_output = attn_output.reshape(bsz, q_len, self.hidden_size).contiguous()
     attn_output = self.o_proj(attn_output)

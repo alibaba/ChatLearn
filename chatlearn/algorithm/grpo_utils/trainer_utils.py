@@ -14,7 +14,7 @@
 # ==============================================================================
 """Trainer Utilities"""
 from collections import defaultdict
-from typing import List, Any, Dict
+from typing import List, Any, Dict, Optional
 import math
 
 import torch
@@ -61,7 +61,7 @@ def generate_loss_mask_position_ids(
     tokens: torch.Tensor,
     prompt_token_length: List[int],
     response_token_length: List[int],
-    prompt_position_ids: List[List[int]]
+    prompt_position_ids: Optional[List[List[int]]] = None
 ):
     """
     Setup loss_mask and position_ids by prompt token length and response token length
@@ -151,8 +151,6 @@ def split_and_unpadding(input_tensor: torch.Tensor, attention_mask: torch.Tensor
     ]
     return tensor_list
 
-
-
 def unpad_input(hidden_states, attention_mask):
     """
     Arguments:
@@ -173,6 +171,8 @@ def unpad_input(hidden_states, attention_mask):
     # index with integer indices. Moreover, torch's index is a bit slower than it needs to be,
     # so we write custom forward and backward to make it a bit faster.
     if len(hidden_states.shape)>3:
+        # ==============================================================================
+        # patch for vl position_ids to merge the channel dimension
         channel_results = []
         for channel in range(hidden_states.shape[0]):
             indexed = index_first_axis(rearrange(hidden_states[channel], "b s ... -> (b s) ..."), indices)
@@ -183,6 +183,7 @@ def unpad_input(hidden_states, attention_mask):
             cu_seqlens,
             max_seqlen_in_batch,
         )
+        # ==============================================================================
     else:
         return (
             index_first_axis(rearrange(hidden_states, "b s ... -> (b s) ..."), indices),

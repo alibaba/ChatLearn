@@ -10,9 +10,10 @@ from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_inde
 
 class PromptPipeline(Dataset):
     """
-    process this format
+    Input data_list: List[Dict])
     {
         "data_source": data_source,
+        "images": [PIL.Image]
         "prompt": [{
             "role": "user",
             "content": question,
@@ -29,10 +30,21 @@ class PromptPipeline(Dataset):
             "question": question_raw,
         }
     }
-    self.data format
-    {"input_ids": prompt_ids, "prompt": prompt}
-    """
 
+    Output self.data: List[Dict])
+    {
+        "raw_input_ids": List, # only text input_ids for vllm inference
+        "prompt": String,
+        "position_ids": List[List], # [3, token_length]
+        "rope_deltas": Tensor, # [1,1]
+        "data_source": String,
+        "ground_truth": String,
+        "multi_modal_data": {'image':[PIL.Image]}, # for vllm inference
+        "mm_processor_kwargs": {'fps':[]}, # used for video useless now
+        "pixel_values": Tensor, # [token_num, token_length]
+        "image_grid_thw": Tensor, # [1,3] 3 means thw
+    }
+    """
     def __init__(
         self,
         data_list: List[Dict],
@@ -106,7 +118,7 @@ class PromptPipeline(Dataset):
             processed_data = {
                 "raw_input_ids": raw_input_ids,
                 "prompt": raw_prompt,
-                "position_ids": position_ids.squeeze().tolist(),
+                "position_ids": position_ids,
                 "rope_deltas": rope_deltas,
                 "data_source": data_source,
                 "ground_truth": ground_truth,
