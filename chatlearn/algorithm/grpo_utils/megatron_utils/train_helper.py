@@ -195,12 +195,18 @@ def _reduce_from_tensor_model_parallel_region(
     output_on_this_cp_rank: torch.Tensor,
     seq_indices: torch.Tensor
 ):
+    """
+    SHAPE:
+        output_on_this_cp_rank: [mbs, length, *] or [1, total_nnz, *]
+        seq_indices: [mbs, length] or [1, total_nnz]
+    """
     cp_size = mpu.get_context_parallel_world_size()
     cp_group = mpu.get_context_parallel_group()
     mbs, length = output_on_this_cp_rank.shape[:2]
     output = torch.zeros(mbs, length * cp_size, *output_on_this_cp_rank.shape[2:], device=output_on_this_cp_rank.device)
-    for shard_output, indices, full_output in zip(output_on_this_cp_rank, seq_indices, output):
-        full_output.scatter_(0, indices.to(torch.int64), shard_output)
+    if output.ndim > 2:
+        seq_indices = seq_indices.view((mbs, length,) + (1,) * (output.ndim - 2) )
+    output.scatter_(1, seq_indices.to(torch.int64), output_on_this_cp_rank)
     reduce_from_tensor_model_parallel_region(output, group=cp_group)
     return output
 
@@ -222,7 +228,7 @@ def reduce_from_context_parallel_region(
 
     else:
         if mpu.get_context_parallel_world_size() > 1:
-            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['all_token_position_ids'].squeeze(0))
+            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['all_token_position_ids'])
 
         logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
 
@@ -319,7 +325,7 @@ def get_batch(
             'packed_seq_params': packed_seq_params,
             "ori_seq_len": seqlen,
             "ori_batch_size": mbs,
-            "seq_indices": seq_indices,
+            "seq_indices": seq_indices.unsqueeze(0), # [1, total_nnz_per_cp_rank]
             "indices": indices,
             "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
         }
