@@ -21,8 +21,7 @@ from typing import List, Dict, Any
 import torch
 import torch.distributed as dist
 import torch.nn.functional as F
-
-from flash_attn.bert_padding import pad_input, unpad_input
+from flash_attn.bert_padding import pad_input
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
@@ -35,7 +34,9 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             generate_loss_mask_position_ids,
                             split_microbatch,
                             batching,
-                            split_and_unpadding)
+                            split_and_unpadding,
+                            unpad_input)
+
 
 class PolicyTrainer(FSDPModule):
     """policy trainer"""
@@ -99,16 +100,26 @@ class PolicyTrainer(FSDPModule):
             tokens_ = data_b["all_tokens"].long()
             prompt_token_length = data_b["prompt_token_length"]
             response_token_length = data_b["response_token_length"]
+
+            # for vl
+            position_ids = data_b.get("position_ids", None)
+            rope_deltas = data_b.get("rope_deltas", None)
+            pixel_values = data_b.get("pixel_values", None)
+            image_grid_thw = data_b.get("image_grid_thw", None)
+
             ori_batch_size, ori_seq_len = tokens_.size()
-            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length)
+            attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, position_ids)
             indices = None
             if self.packing:
                 # Packing data into one batch
                 tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
-
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
-                position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
+                if len(position_ids.shape)==3:
+                    # vl
+                    position_ids = position_ids.permute(0, 2, 1).cpu()
+                else:
+                    position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
 
             if self.sp_size > 1:
                 # Pad inputs to ensure seq_len is divisible by sp_size
@@ -117,6 +128,7 @@ class PolicyTrainer(FSDPModule):
                 pad_size = 0
                 tokens = tokens_
                 labels = torch.roll(tokens, shifts=-1, dims=1)
+
             data_obj.update(
                 {
                     "all_tokens": tokens,
@@ -130,6 +142,16 @@ class PolicyTrainer(FSDPModule):
                     "pad_size": pad_size,
                 }
             )
+
+            if 'pixel_values' in data_b:
+                data_obj.update(
+                    {
+                        "pixel_values": pixel_values, # [token_length, token_num]
+                        "image_grid_thw": image_grid_thw, # [batch_size, 3]
+                        "rope_deltas": rope_deltas # [batch_size, 1]
+                    }
+                )
+
             if training:
                 loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
                 # The last token should always be masket out
@@ -139,7 +161,7 @@ class PolicyTrainer(FSDPModule):
                         "loss_mask": loss_mask,
                         "old_logprobs": data_b["old_logprobs"],
                         "ref_logprobs": data_b["ref_logprobs"],
-                        "advantages": data_b["advantages"],
+                        "advantages": data_b["advantages"]
                     }
                 )
             data_after_process.append(data_obj)
@@ -158,16 +180,30 @@ class PolicyTrainer(FSDPModule):
         entropy_loss_list = []
         kl_loss_list = []
         sp_group = get_sp_parallel_group()
+
         response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
+
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
-            output = self.model(
-                input_ids=inputs["all_tokens"],
-                attention_mask=None,
-                position_ids=inputs["position_ids"],
-                use_cache=False,
-            )
+            if "pixel_values" in inputs:
+                output = self.model(
+                    input_ids=inputs['all_tokens'],
+                    pixel_values=inputs['pixel_values'],
+                    image_grid_thw=inputs['image_grid_thw'],
+                    attention_mask=None,
+                    position_ids=inputs['position_ids'],
+                    use_cache=False,
+                    rope_deltas=inputs['rope_deltas']
+                )
+            else:
+                output = self.model(
+                    input_ids=inputs['all_tokens'],
+                    attention_mask=None,
+                    position_ids=inputs['position_ids'],
+                    use_cache=False
+                )
+
             logprobs = logprobs_from_logits(output.logits, inputs["labels"])
 
             # save memory while not use entropy in loss
@@ -269,12 +305,23 @@ class PolicyTrainer(FSDPModule):
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
-                output = self.model(
-                    input_ids=inputs['all_tokens'],
-                    attention_mask=None,#inputs['attention_mask'],
-                    position_ids=inputs['position_ids'],
-                    use_cache=False
-                )
+                if "pixel_values" in inputs:
+                    output = self.model(
+                        input_ids=inputs['all_tokens'],
+                        pixel_values=inputs['pixel_values'],
+                        image_grid_thw=inputs['image_grid_thw'],
+                        attention_mask=None,
+                        position_ids=inputs['position_ids'],
+                        use_cache=False,
+                        rope_deltas=inputs['rope_deltas']
+                    )
+                else:
+                    output = self.model(
+                        input_ids=inputs['all_tokens'],
+                        attention_mask=None,
+                        position_ids=inputs['position_ids'],
+                        use_cache=False
+                    )
                 sp_group = get_sp_parallel_group()
                 logprobs = logprobs_from_logits(output.logits, inputs["labels"])
                 if sp_group is not None:

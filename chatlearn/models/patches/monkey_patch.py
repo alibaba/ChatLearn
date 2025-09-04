@@ -34,3 +34,12 @@ def apply_group_gemm(model):
         apply_group_gemm_patch(model)
     else:
         raise ValueError(f"Unsupported model architecture: {model.config.architectures} for groupgemm patch")
+
+def apply_qwenvl(model):
+    print(f"applying qwenvl patches for {model.config.architectures[0]}")
+    if model.config.architectures[0] == "Qwen2_5_VLForConditionalGeneration":
+        from chatlearn.models.patches.transformers.qwen2_5_vl_patch import apply_qwenvl_patch \
+        # pylint: disable=import-outside-toplevel
+        apply_qwenvl_patch()
+    else:
+        raise ValueError(f"Unsupported model architecture: {model.config.architectures} for groupgemm patch")

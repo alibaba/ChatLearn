@@ -35,13 +35,25 @@ class VLLMPolicyInference(VLLMModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         seq_length = self.module_args.get("seq_length")
+        assert len(prompts)>0, 'Dataset is empty'
 
-        prompts_dataset = PromptPipeline(
-            prompts,
-            seq_length,
-            self.tokenizer.tokenizer,
-            enable_thinking=self.module_args.get("enable_thinking", False),
-        )
+        if 'images' in prompts[0].keys():
+            from chatlearn.data.vl_prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                seq_length,
+                self.tokenizer.tokenizer,
+                self.processor,
+                enable_thinking=self.module_args.get("enable_thinking", False),
+            )
+        else:
+            from chatlearn.data.prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                seq_length,
+                self.tokenizer.tokenizer,
+                enable_thinking=self.module_args.get("enable_thinking", False),
+            )
 
         return prompts_dataset
 
@@ -107,7 +119,8 @@ class VLLMPolicyInference(VLLMModule):
                     {
                         "all_tokens": all_tokens,
                         "response_token_length": response_token_length,
-                        "str_outputs": str_outputs,
+                        "prompt_token_length": prompt_token_length,
+                        "str_outputs": str_outputs
                     }
                 )
                 if "rollout_round" in data_obj:
