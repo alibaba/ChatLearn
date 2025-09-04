@@ -96,6 +96,7 @@ class SGLangPolicyInference(SGLangModule):
     """sglang rollout"""
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
+        # TODO: move dataset to seperate node
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
     @compute_decorator(trainable=False, rollout=True)

@@ -1,7 +1,7 @@
 """Rollout Manager"""
 import random
 from typing import Dict, List, Any
-from collections import defaultdict, Counter
+from collections import defaultdict
 
 import numpy as np
 from transformers import AutoTokenizer
@@ -23,10 +23,13 @@ class RolloutManager(BaseModule):
         self.max_token_per_round = [int(self.max_gen_len * ratio) for ratio in self.ratio]
         self.num_inference_per_prompt = self.module_args.num_inference_per_prompt
         self.mini_response_per_prompt = self.module_args.mini_response_per_prompt
+        # Logging metric dict for this module
+        # It will be append to self._metric_list after logging all metrics
         self.metric_dict = {}
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
+        # TODO: move dataset to seperate node
         self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=True)
         prompts_dataset = PromptPipeline(
             prompts,

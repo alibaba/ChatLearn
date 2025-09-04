@@ -34,6 +34,7 @@ class VLLMPolicyInference(VLLMModule):
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
+        # TODO: move dataset to seperate node
         seq_length = self.module_args.get("seq_length")
         assert len(prompts)>0, 'Dataset is empty'
 

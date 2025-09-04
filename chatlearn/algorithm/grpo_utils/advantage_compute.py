@@ -26,7 +26,6 @@ class AdvantageComputer:
             s['advantages'] = (s["rule_reward"] - avg) / (std + 1e-5)
 
         # clean buffer
-        pop_keys = [k for k,v in self.rule_reward_buffer.items() if len(v) == self.num_inference_per_prompt]
-        for key in pop_keys:
-            self.rule_reward_buffer.pop(key)
+        self.rule_reward_buffer = {k: v for k, v in self.rule_reward_buffer.items() if len(v) < self.num_inference_per_prompt}
+        self.rule_reward_buffer = defaultdict(list, self.rule_reward_buffer)
         return buffers

@@ -17,6 +17,7 @@ import inspect
 import os
 from contextlib import nullcontext
 from functools import partial
+import itertools
 from typing import List, Union, Dict, Any, Sequence
 from collections import defaultdict
 import numpy as np
@@ -395,9 +396,7 @@ class MegatronPolicyTrainer(MegatronModule):
             # Split by num_train_global_batch first
             microbatch_list = []
             slice_index = even_slice(len(data), self.num_train_global_batch)
-            for train_batch_id in range(self.num_train_global_batch):
-                start_idx = slice_index[train_batch_id]
-                end_idx = slice_index[train_batch_id + 1]
+            for start_idx, end_idx in itertools.pairwise(slice_index):
                 microbatch_list.extend(split_microbatch(data_list=data[start_idx: end_idx], max_train_token=self.module_args.max_token_in_packing, process_group_list=process_group_list, offset=start_idx, packing=self.module_args.packing))
         else:
             microbatch_list = split_microbatch(data_list=data, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)

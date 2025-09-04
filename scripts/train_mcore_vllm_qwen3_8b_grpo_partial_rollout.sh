@@ -1,7 +1,7 @@
 #!/bin/bash
 set -x
 
-# Tested on 8xH20-3e with 140G VRAM
+# Tested on 8xH20 with 96G VRAM
 export RAY_CGRAPH_get_timeout=200
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export RAY_DEDUP_LOGS=1
