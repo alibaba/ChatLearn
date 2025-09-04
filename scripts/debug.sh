@@ -6,15 +6,15 @@ set -x
 export CHATLEARN=$(pwd)
 export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
-export RAY_DEDUP_LOGS=0
+export RAY_DEDUP_LOGS=1
 
 export exp_name=debug
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp_agent.yaml \
         runtime_args.exp_name=${exp_name} \
         runtime_args.rollout_backend=sglang \
-        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
-        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
+        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train_agent.json \
+        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test_agent.json \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=200 \
         runtime_args.sample_per_episode=128 \

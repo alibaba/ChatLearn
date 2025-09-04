@@ -392,7 +392,7 @@ class ModelManager:
                     _future.result()
                 except Exception as e:
                     import traceback
-                    trackback.print_exc()
+                    traceback.print_exc()
                     raise RuntimeError(f"Set dist env generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 

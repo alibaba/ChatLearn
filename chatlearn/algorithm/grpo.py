@@ -38,9 +38,10 @@ from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
 from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference, AsyncSGLangPolicyInference
+from chatlearn.models.agent.agent_module import AgentModule
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
-from chatlearn.models.agent_module import AgentModule
+from chatlearn.models.agent.agent_manager import AgentManager
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
@@ -220,7 +221,7 @@ class GRPOAgentEngine(Engine):
 
     def __init__(
         self,
-        agent: AgentModule,
+        agent: AgentManager,
         policy: VLLMPolicyInference,
         reward: RuleReward,
         ref_policy: PolicyTrainer,
@@ -284,10 +285,11 @@ class GrpoAlgorithm(BaseAlgorithm):
         if self.cfg.runtime_args.rollout_backend == "vllm":
             policy = VLLMPolicyInference("policy")
         elif self.cfg.runtime_args.rollout_backend == "sglang":
-            RolloutModule_cls = SGLangPolicyInference if self.cfg.models.policy.is_sync_mode else AsyncSGLangPolicyInference
-            policy = RolloutModule_cls("policy")
+            # RolloutModule_cls = SGLangPolicyInference if self.cfg.models.policy.is_sync_mode else AsyncSGLangPolicyInference
+            # policy = RolloutModule_cls("policy")
+            policy = AgentModule("policy")
         reward = RuleReward("reward")
-        agent = AgentModule("agent")
+        agent = AgentManager("agent")
         # engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
         engine = GRPOAgentEngine(agent, policy, reward, ref_policy, policy_trainer)
 

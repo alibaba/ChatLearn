@@ -221,12 +221,16 @@ class SGLangModule(TorchModule):
 
     def setup(self):
         super().setup()
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.module_args["load"], trust_remote_code=True
-        )
+        # self.tokenizer = AutoTokenizer.from_pretrained(
+        #     self.module_args["load"], trust_remote_code=True
+        # )
 
     @timeit()
     def setup_engine(self):
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.module_args["load"], trust_remote_code=True
+        )
 
         if self.llm is not None:  # for evaluator not setup twice
             dist.barrier()

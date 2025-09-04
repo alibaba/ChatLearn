@@ -56,14 +56,41 @@ def sglang_postprocess_func(
     print("ground_truth", data_output[0]["ground_truth"])
     return data_output
 
-class AgentModule(BaseModule):
+def agent_postprocess_func(
+    batched_outputs: List[Dict[str, Any]],
+    input_data_list: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    data_output = []
+    for output,input_data in zip(batched_outputs, input_data_list):
+        prompt_token_ids = output.prompt_ids
+        response_token_length = len(output.all_token_ids) - len(output.prompt_ids)
+        prompt_token_length = len(output.prompt_ids)
+        str_outputs = output.str_output
+        all_tokens = torch.tensor(output.all_token_ids)
+        input_data.update(
+            {
+                "prompt_token_ids": prompt_token_ids,
+                "all_tokens": all_tokens,
+                "response_token_length": response_token_length,
+                "prompt_token_length": prompt_token_length,
+                "str_outputs": str_outputs,
+            }
+        )
+        data_output.append(input_data)
+
+    print("str_outputs", data_output[0]["str_outputs"])
+    print("data_sources", data_output[0]["data_source"])
+    print("ground_truth", data_output[0]["ground_truth"])
+    return data_output
+
+class AgentManager(BaseModule):
     """Agent Module"""
 
     def __init__(self, name: str, args=None, replica_id: int=0):
         """ChatLearn main agent entrypoint
         """
         super().__init__(name, args=args, replica_id=replica_id)
-        assert self.total_gpu == 0, "AgentModule does not require GPU"
+        assert self.total_gpu == 0, "AgentManager does not require GPU"
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
 
@@ -129,14 +156,18 @@ class AgentModule(BaseModule):
         ref_list = []
         for data_item in data:
             selected_engine = next(self.engine_iter)
-            ref = selected_engine.generate.remote([data_item], is_eval)
+            # ref = selected_engine.generate.remote([data_item], is_eval)
+            ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
             ref_list.append(ref)
         
         outputs = ray.get(ref_list)
-        outputs = [item for sublist in outputs for item in sublist]
+        # outputs = [item for sublist in outputs for item in sublist]
 
+        # if outputs is not None:
+        #     rets = sglang_postprocess_func(self.tokenizer, outputs, data)
+        #     return rets
         if outputs is not None:
-            rets = sglang_postprocess_func(self.tokenizer, outputs, data)
+            rets = agent_postprocess_func(outputs, data)
             return rets
 
     @compute_decorator(trainable=False, rollout=True)
