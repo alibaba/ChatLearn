@@ -247,7 +247,6 @@ class GrpoAlgorithm(BaseAlgorithm):
             item.strip() for item in self.cfg.runtime_args.eval_data_path.split(",")
         ]
         eval_data = read_data_path_list(eval_data_path_list)
-
         # put data in engine._all_datasets
         engine.set_dataset(train_data)
         engine.evaluator.set_dataset(eval_data)

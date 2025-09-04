@@ -20,7 +20,7 @@ import copy
 import os
 import json
 from typing import List, Dict, Union, Tuple
-
+from datasets import load_dataset
 import ray
 import torch
 from torch.nn.utils.rnn import pad_sequence
@@ -30,15 +30,19 @@ from chatlearn.utils import future
 from chatlearn.utils.constant import REF_LIST
 from chatlearn.utils.utils import map_reduce_metrics
 
-def read_data_path_list(data_path_list: List[str], mode: str = "jsonl"):
+def read_data_path_list(data_path_list: List[str]):
     data = []
     for data_path in data_path_list:
-        if mode == "json":
-            with open(data_path, 'r', encoding='utf-8') as f:
-                data.extend(json.load(f))
-        elif mode == "jsonl":
+        mode = os.path.splitext(data_path)[-1][1:]
+        if mode in ('jsonl', 'json'):
+            # .json file is the same use as jsonl
             with open(data_path, 'r', encoding='utf-8') as f:
                 data.extend([json.loads(line) for line in f])
+        elif mode == "parquet":
+            dataframe = load_dataset("parquet", data_files=data_path)['train']
+            for example in dataframe:
+                # Convert the example (which is a dict-like object) to a regular Python dictionary
+                data.append(dict(example))
     return data
 
 
