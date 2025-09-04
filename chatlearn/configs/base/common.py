@@ -38,9 +38,6 @@ class RefPolicyConfig(BaseModelConfig):
 @dataclass
 class RewardConfig(BaseModelConfig):
     """Common configs for reward model"""
-    num_inference_per_prompt: int = field(
-        default=32, metadata={"help": "number of response for per prompt"}
-    )
 
 @dataclass
 class PolicyTrainerConfig(BaseModelConfig):

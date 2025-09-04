@@ -367,7 +367,6 @@ if HAVE_VLLM:
             else:
                 input_ids_key = "input_ids"
 
-            prompts_token_ids = [q[input_ids_key] for q in query]
             sampling_param = self._get_sampling_params(is_eval)
             sampling_params = []
             llm_inputs = []
@@ -381,15 +380,15 @@ if HAVE_VLLM:
                 if use_multi_modal:
                     llm_inputs.append(
                         {
-                            "multi_modal_data": query[prompt_id]['multi_modal_data'],
-                            "mm_processor_kwargs": query[prompt_id]['mm_processor_kwargs'],
-                            "prompt_token_ids": prompt_token_ids_item,
+                            "multi_modal_data": q['multi_modal_data'],
+                            "mm_processor_kwargs": q['mm_processor_kwargs'],
+                            "prompt_token_ids": q[input_ids_key],
                         }
                     )
                 else:
                     llm_inputs.append(
                         {
-                            "prompt_token_ids": prompt_token_ids_item,
+                            "prompt_token_ids": q[input_ids_key],
                         }
                     )
 

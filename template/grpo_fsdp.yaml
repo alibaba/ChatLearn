@@ -101,7 +101,6 @@ models:
   reward:
     num_cpu: 2
     cpu_per_process: 1
-    num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
     generation_batch_size: 256
   rollout_manager:
     num_cpu: 64
