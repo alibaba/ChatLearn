@@ -360,23 +360,19 @@ if HAVE_VLLM:
                 self.llm.wake_up()
 
             # preprocess query
-            prompt_key = "prompt"
+            seq_len = self.module_args.seq_length
             use_multi_modal = len(query)>0 and 'multi_modal_data' in query[0]
             if use_multi_modal:
                 input_ids_key = "raw_input_ids"
             else:
                 input_ids_key = "input_ids"
-            seq_len = self.module_args.get("seq_length")
 
-            prompts = [q[prompt_key] for q in query]
-            prompts_token_ids = [q[input_ids_key] for q in query]
             sampling_param = self._get_sampling_params(is_eval)
             sampling_params = []
             llm_inputs = []
 
-            for prompt_id, (prompt, prompt_token_ids_item) in enumerate(zip(prompts, prompts_token_ids)):
-                max_tokens = seq_len - len(prompt_token_ids_item)
-                assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+            for q in query:
+                max_tokens = q.get("max_generate_token_length", seq_len)
                 sampling_param_item = copy.deepcopy(sampling_param)
                 sampling_param_item.max_tokens = max_tokens
                 sampling_params.append(sampling_param_item)
@@ -384,15 +380,15 @@ if HAVE_VLLM:
                 if use_multi_modal:
                     llm_inputs.append(
                         {
-                            "multi_modal_data": query[prompt_id]['multi_modal_data'],
-                            "mm_processor_kwargs": query[prompt_id]['mm_processor_kwargs'],
-                            "prompt_token_ids": prompt_token_ids_item,
+                            "multi_modal_data": q['multi_modal_data'],
+                            "mm_processor_kwargs": q['mm_processor_kwargs'],
+                            "prompt_token_ids": q[input_ids_key],
                         }
                     )
                 else:
                     llm_inputs.append(
                         {
-                            "prompt_token_ids": prompt_token_ids_item,
+                            "prompt_token_ids": q[input_ids_key],
                         }
                     )
 

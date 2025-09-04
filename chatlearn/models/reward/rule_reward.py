@@ -47,7 +47,6 @@ class RuleReward(BaseModule):
         self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")
 
         reward = []
-
         for data_b in data:
             str_output = data_b["str_outputs"]
             data_source = data_b["data_source"]

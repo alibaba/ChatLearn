@@ -22,6 +22,7 @@ from collections import defaultdict
 
 import torch
 from ray.actor import ActorHandle
+import ray
 
 
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
@@ -391,7 +392,6 @@ class Engine(BaseEngine):
 
         ## 3. log model e2e time and episode time
         episode_metrics.update(model_time_dict)
-        self.metric_manager.log("engine/timer_summary", iteration + 1, episode_metrics)
 
         ## 4. log before episode looping
         if iteration == -1:
@@ -422,6 +422,11 @@ class Engine(BaseEngine):
             prefix, evaluate_metrics = self.evaluator.get_and_clear_metrics()
             self.metric_manager.log(prefix, iteration + 1, evaluate_metrics)
 
+        # Get total train token (prompt token included), divided by total episode e2e
+        total_tokens = ray.get(self._data_loader.get_total_train_tokens.remote())
+        tps_throughput = total_tokens / (episode_metrics['episode'])
+        episode_metrics.update({'tps_throughput': tps_throughput})
+        self.metric_manager.log("engine/timer_summary", iteration + 1, episode_metrics)
 
     def set_replay_sample_manager(self, replay_sample_manager):
         """
@@ -453,6 +458,7 @@ class Engine(BaseEngine):
         data_loader: ActorHandle = StreamDataset.remote(
             self.runtime_args.stream_data_loader_type,
             self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size,
+            self._replay_sample_manager,
             self.runtime_args.train_micro_batch_size,
             self.runtime_args.max_replay_episode,
             self.runtime_args.replay_episode_offset
@@ -500,8 +506,7 @@ class Engine(BaseEngine):
                 self.timers("set_train_dataset").start()
             else:
                 logger.info(f"{LOG_START} Skip generation phase for episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
-            refs = data_loader.set_dataset.remote(queue, episode_id, self._replay_sample_manager,
-                                                  self.runtime_args.sample_per_episode)
+            refs = data_loader.set_dataset.remote(queue, episode_id, self.runtime_args.sample_per_episode)
             future.wait(refs, return_output=True)
             if self.trainer is not None:
                 self.timers("set_train_dataset").stop()

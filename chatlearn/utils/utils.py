@@ -317,6 +317,15 @@ def slice_by_index_along_batch(batched_input: Dict[str, Union[torch.Tensor, List
             batched[key] = batched_input[key][start::offset]
     return batched
 
+def even_slice(total_sample:int, total_slice:int):
+    slice_size = total_sample // total_slice
+    reminder = total_sample % total_slice
+    slice_index = []
+    for i in range(total_slice):
+        slice_index.append(i * slice_size + min(i, reminder))
+    slice_index.append(total_sample)
+    return slice_index
+
 def slice_data_list_by_index(batched_input: List[Dict[str, Any]], index):
     """
     Slice input data_list by slice index
@@ -324,12 +333,9 @@ def slice_data_list_by_index(batched_input: List[Dict[str, Any]], index):
     total_length = len(batched_input)
     slice_id = index[0]
     total_slice = index[1]
-    slice_size = total_length // total_slice
-    # When total_length % total_slice != 0, Remaining data will be append to last slice to avoid droping data
-    reminder = total_length % total_slice
-    start_index = slice_id * slice_size
-    end_index = start_index + slice_size if slice_id != total_slice - 1 else start_index + slice_size + reminder
-    return batched_input[start_index : end_index]
+    slice_index = even_slice(total_length, total_slice)
+    # Try to slice list as even as possible
+    return batched_input[slice_index[slice_id] : slice_index[slice_id + 1]]
 
 def listdict_to_dictlist(ld, list_extend=True):
     '''

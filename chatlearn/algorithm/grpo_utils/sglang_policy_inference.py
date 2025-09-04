@@ -17,6 +17,7 @@
 from typing import Any, Dict, List
 
 import torch
+import numpy as np
 from transformers import AutoTokenizer
 
 from chatlearn.configs import BaseConfig
@@ -50,18 +51,17 @@ def sglang_postprocess_func(
         prompt_token_ids = input_data["input_ids"]
         output_tokens = output["output_ids"]
         response_token_length = output["meta_info"]["completion_tokens"]
-        prompt_token_length = output["meta_info"]["prompt_tokens"]
         str_outputs = tokenizer.decode(output_tokens, skip_special_tokens=True)
         all_tokens = torch.tensor(prompt_token_ids + output_tokens)
         input_data.update(
             {
-                "prompt_token_ids": prompt_token_ids,
                 "all_tokens": all_tokens,
                 "response_token_length": response_token_length,
-                "prompt_token_length": prompt_token_length,
                 "str_outputs": str_outputs,
             }
         )
+        if "rollout_round" in input_data:
+            input_data["rollout_round"] += 1
         data_output.append(input_data)
 
     print("str_outputs", data_output[0]["str_outputs"])
@@ -74,15 +74,20 @@ def metric_collect(rets, seq_length):
     # collect metric
     response_token_length = [ret["response_token_length"] for ret in rets]
     prompt_token_length = [ret["prompt_token_length"] for ret in rets]
-    seq_len = [
-        ret["response_token_length"] + ret["prompt_token_length"] for ret in rets
-    ]
-    clip_ratio = sum(l >= seq_length for l in seq_len) / len(seq_len)
+    seq_len = seq_length
+    clip_ratio = sum(
+        ret["response_token_length"] >= ret.get("max_generate_token_length", seq_len) for ret in rets
+    ) / len(rets)
+    response_token_length.sort()
     inference_stats = {
         "response_token_length": sum(response_token_length)
         / len(response_token_length),
         "prompt_token_length": sum(prompt_token_length) / len(prompt_token_length),
         "response_clip_ratio": clip_ratio,
+        "response_max": max(response_token_length),
+        "response_25_percentile": np.percentile(response_token_length, 25),
+        "response_50_percentile": np.percentile(response_token_length, 50),
+        "response_75_percentile": np.percentile(response_token_length, 75),
     }
     return inference_stats
 
@@ -91,6 +96,7 @@ class SGLangPolicyInference(SGLangModule):
     """sglang rollout"""
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
+        # TODO: move dataset to seperate node
         return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
 
     @compute_decorator(trainable=False, rollout=True)

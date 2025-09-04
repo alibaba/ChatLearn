@@ -28,7 +28,7 @@ from torch.utils.data import default_collate
 
 from chatlearn.utils import future
 from chatlearn.utils.constant import REF_LIST
-from chatlearn.utils.utils import map_reduce_metrics
+from chatlearn.utils.utils import map_reduce_metrics, even_slice
 
 def read_data_path_list(data_path_list: List[str]):
     data = []
@@ -111,7 +111,7 @@ def split_batch(batch):
 class StreamDataset:
     """dataset built from queues"""
 
-    def __init__(self, data_loader_type, num_minibsz, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
+    def __init__(self, data_loader_type, num_minibsz, relay_sample_manager, micro_batch_size, max_replay_episode=0, replay_episode_offset=0):
         """
         Args:
             data_loader_type: fixed or dynamic
@@ -129,7 +129,7 @@ class StreamDataset:
         self._max_replay_episode = max_replay_episode
         self._replay_episode_offset = replay_episode_offset
         self._episode_replay_buffers = []
-        self.replay_sample_manager = None
+        self.replay_sample_manager = relay_sample_manager
 
     def shuffle(self):
         """
@@ -147,11 +147,8 @@ class StreamDataset:
             return self.iter_dynamic()
         return self.iter_fixed()
 
-    def _get_batch(self, start_index: int):
-        end_index = min(start_index + self.batch_size, len(self.replay_buffer))
+    def _get_batch(self, start_index: int, end_index: int):
         data_to_batch = self.replay_buffer.get_samples(start_index, end_index)
-        if len(data_to_batch) < self.batch_size:
-            data_to_batch += self.replay_buffer.get_samples(0, self.batch_size - len(data_to_batch))
         return data_to_batch
 
     def iter_fixed(self):
@@ -162,15 +159,18 @@ class StreamDataset:
         produce_index = 0
         batch_count = 0
         assert self.dp_size is not None, "dp_size must be set before data fetching"
-        self.batch_size = self._total_samples // self.num_minibsz // self.dp_size
+        # For dynamic trian batchsize, slice on dp_size first and slice on num_minibsz second
+        slice_index_dp = even_slice(self._total_samples, self.dp_size)
+        slice_index_minibsz = [
+            start_index + start_minibsz
+            for start_index, end_index in zip(slice_index_dp[:-1], slice_index_dp[1:])
+            for start_minibsz in even_slice(end_index - start_index, self.num_minibsz)[:-1]
+        ]
+        slice_index_minibsz.append(self._total_samples)
 
-        while produce_index < self._total_samples:
+        for start_index, end_index in zip(slice_index_minibsz[:-1], slice_index_minibsz[1:]):
             # read from cache
-            if len(self.replay_buffer) < self._total_samples:
-                while len(self.replay_buffer) < self._total_samples and \
-                    (len(self.replay_buffer) - produce_index) < self.batch_size:
-                    self.replay_buffer.add_raw_batch()
-            batched_data = self._get_batch(produce_index)
+            batched_data = self._get_batch(start_index, end_index)
             yield batched_data
             batch_count += 1
             produce_index += self.batch_size
@@ -193,7 +193,7 @@ class StreamDataset:
                 (len(self.replay_buffer) - produce_index) < self.batch_size:
                 # get from queue
                 self.replay_buffer.add_raw_batch()
-            batched_data = self._get_batch(produce_index)
+            batched_data = self._get_batch(produce_index, produce_index + self.batch_size)
             yield batched_data
             batch_count += 1
             produce_index += self.batch_size
@@ -211,7 +211,7 @@ class StreamDataset:
         """
         return self._has_next
 
-    def set_dataset(self, queue, episode_id, replay_sample_manager=None, sample_per_episode=-1):
+    def set_dataset(self, queue, episode_id, sample_per_episode=-1):
         replay_buffer = EpisodeReplayBuffer(episode_id, queue=queue)
         if self._max_replay_episode > 0 and episode_id >= self._replay_episode_offset:
             self._episode_replay_buffers.append(replay_buffer)
@@ -223,10 +223,7 @@ class StreamDataset:
             # which will block training until environment rollout finished.
             if os.getenv("SKIP_GENERATION", None) is None:
                 replay_buffer.sync()
-            if replay_sample_manager is None:
-                raise Exception("default replay sample function is not currently supported")
 
-            self.replay_sample_manager = replay_sample_manager
             buffer = self.replay_sample_manager(self._episode_replay_buffers)
             self.replay_buffer = EpisodeReplayBuffer(episode_id, buffer=buffer)
             self._total_samples = len(self.replay_buffer)
@@ -243,6 +240,9 @@ class StreamDataset:
 
     def set_dp_size(self, dp_size:int):
         self.dp_size = dp_size
+
+    def get_total_train_tokens(self):
+        return self.replay_buffer.total_train_tokens()
 
     def episode_replay_buffers(self):
         return self._episode_replay_buffers
@@ -301,6 +301,9 @@ class EpisodeReplayBuffer:
 
     def shuffle(self):
         random.shuffle(self._buffer)
+
+    def total_train_tokens(self):
+        return sum(d['response_token_length'] + d['prompt_token_length'] for d in self._buffer)
 
     def get_samples(self, start_index, end_index):
         return self._buffer[start_index: end_index]
@@ -374,6 +377,7 @@ class RLHFDataLoader:
                 batch = []
                 for dataset_idx, data_idx, _ in batch_idxes:
                     data = copy.deepcopy(self.datasets[dataset_idx][data_idx])
+                    data['prompt_uid'] = f"{dataset_idx}_{data_idx}"
                     data['uid'] = self.uid * self.data_parallel_size + self.data_parallel_rank
                     self.uid += 1
                     batch.append(data)
