@@ -59,7 +59,7 @@ class RolloutManager(BaseModule):
         random.shuffle(train_batch)
         round_track = {f"round_{i}_samples": 0 for i in range(self.max_rollout_round)}
         for d in train_batch:
-            round_track[f"round_{d["rollout_round"]}_samples"] += 1
+            round_track[f"round_{d['rollout_round']}_samples"] += 1
         self.metric_dict.update(round_track)
         return train_batch
 
