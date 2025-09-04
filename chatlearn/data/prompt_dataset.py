@@ -55,7 +55,7 @@ class PromptPipeline(Dataset):
                     enable_thinking=enable_thinking,
                 )
             input_ids = self.tokenizer.encode(prompt)
-            # When partial rollout enabled: 
+            # When partial rollout enabled:
             # input_ids may change (contain response tokens from previous rollouts)
             # prompt_token_ids will always be origial prompt tokens
             processed_data = {
