@@ -156,16 +156,10 @@ class AgentManager(BaseModule):
         ref_list = []
         for data_item in data:
             selected_engine = next(self.engine_iter)
-            # ref = selected_engine.generate.remote([data_item], is_eval)
             ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
             ref_list.append(ref)
         
         outputs = ray.get(ref_list)
-        # outputs = [item for sublist in outputs for item in sublist]
-
-        # if outputs is not None:
-        #     rets = sglang_postprocess_func(self.tokenizer, outputs, data)
-        #     return rets
         if outputs is not None:
             rets = agent_postprocess_func(outputs, data)
             return rets
