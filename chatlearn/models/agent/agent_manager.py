@@ -67,8 +67,10 @@ def agent_postprocess_func(
         prompt_token_length = len(output.prompt_ids)
         str_outputs = output.str_output
         all_tokens = torch.tensor(output.all_token_ids)
+        loss_mask = torch.tensor(output.loss_mask)
         input_data.update(
             {
+                "loss_mask": loss_mask,
                 "prompt_token_ids": prompt_token_ids,
                 "all_tokens": all_tokens,
                 "response_token_length": response_token_length,
