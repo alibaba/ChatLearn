@@ -25,7 +25,6 @@ from hydra.core.global_hydra import GlobalHydra
 from hydra.core.config_store import ConfigStore
 
 from chatlearn.algorithm.base_algo import BaseAlgorithm
-from chatlearn.utils.parse_utils import find_parser_from_keyname
 
 # e.g. python chatlearn/chatlearn.py grpo --config-file grpo.yaml runtime.data_path=/tmp/data runtime.eval_data_path=/tmp/eval_data
 
@@ -34,7 +33,6 @@ from chatlearn.utils.parse_utils import find_parser_from_keyname
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
     "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
 }
-
 
 class ChatlearnLauncher:
     """ChatlearnLauncher"""
@@ -95,15 +93,10 @@ class ChatlearnLauncher:
             cfg = hydra.compose(config_name=algo_args.algorithm)
             if algo_args.config_file is not None:
                 external_cfg = OmegaConf.load(algo_args.config_file)
-                keynames, values = list(zip(*[arg.split('=', 1) for arg in algo_args.hydra_args if '=' in arg]))
-                default_merged_config = OmegaConf.to_object(OmegaConf.merge(cfg, external_cfg))
-                parsers = find_parser_from_keyname(default_merged_config, keynames)
-                for keyname, value in zip(keynames, values):
-                    parser = parsers[keyname]
-                    if parser is not None:
-                        value = parser(value)
-                    OmegaConf.update(external_cfg, keyname, value)
-                cfg = OmegaConf.merge(cfg, external_cfg) # include $
+                args_dict = OmegaConf.from_dotlist(algo_args.hydra_args)
+                for k, v in args_dict.items():
+                    OmegaConf.update(external_cfg, k, v)
+                cfg = OmegaConf.merge(cfg, external_cfg)
             cfg = OmegaConf.to_object(cfg) # real cfg from template and user input
             instance = algo_cls(cfg) # algo may update cfg
             instance.validate()
@@ -134,4 +127,3 @@ class ChatlearnLauncher:
 if __name__ == "__main__":
     launcher = ChatlearnLauncher()
     launcher.run()
-    

@@ -57,11 +57,16 @@ class PromptPipeline(Dataset):
                         enable_thinking=enable_thinking,
                     )
                 input_ids = self.tokenizer.encode(prompt)
+                # When partial rollout enabled:
+                # input_ids may change (contain response tokens from previous rollouts)
+                # prompt_token_ids will always be origial prompt tokens
                 processed_data = {
                     "input_ids": input_ids,
                     "prompt": prompt,
                     "data_source": data_source,
                     "ground_truth": ground_truth,
+                    "prompt_token_length": len(input_ids),
+                    "prompt_token_ids": input_ids
                 }
                 if seq_length > len(input_ids):
                     self.data.append(processed_data)

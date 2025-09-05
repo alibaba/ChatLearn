@@ -1,4 +1,4 @@
-# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ
+# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -353,14 +353,12 @@ class SGLangModule(TorchModule):
         """
         seq_len = self.module_args.seq_length
 
-        prompts = [q["prompt"] for q in query]
         prompts_token_ids = [q["input_ids"] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
 
-        for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
-            max_tokens = seq_len - len(prompt_token_ids_item)
-            assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+        for q in query:
+            max_tokens = q.get("max_generate_token_length", seq_len)
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item["max_new_tokens"] = max_tokens
             sampling_params.append(sampling_param_item)
@@ -546,6 +544,8 @@ class SGLangModule(TorchModule):
 
     @torch.no_grad()
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        from sglang.srt.patch_torch import monkey_patch_torch_reductions
+        monkey_patch_torch_reductions()
         param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:

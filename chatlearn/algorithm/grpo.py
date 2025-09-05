@@ -29,16 +29,18 @@ from chatlearn.configs import (
     AgentConfig,
     PolicyConfig,
     RuntimeConfig,
-    RuntimeEnvConfig
+    RuntimeEnvConfig,
+    RolloutManagerConfig
 )
 from chatlearn.configs.fsdp_config import FSDPPolicyTrainerConfig, FSDPRefPolicyConfig
 
-from chatlearn.algorithm.grpo_utils.advantage_compute import compute_grpo_adv
+from chatlearn.algorithm.grpo_utils.advantage_compute import AdvantageComputer
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
 from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
     VLLMPolicyInference
 from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference, AsyncSGLangPolicyInference
 from chatlearn.models.agent.agent_module import AgentModule
+from chatlearn.algorithm.grpo_utils.rollout_manager import RolloutManager
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
 from chatlearn.models.agent.agent_manager import AgentManager
@@ -70,6 +72,9 @@ class GrpoModelConfig(BaseConfig):
     )
     agent: AgentConfig = field(
         default_factory=AgentConfig, metadata={"help": "Agent config."}
+    )
+    rollout_manager: RolloutManagerConfig = field(
+        default=RolloutManagerConfig, metadata={"help": "Rollout manager config. Only useful when partial_rollout is enabled"}
     )
     ref_policy: Any = field(
         default=None,
@@ -192,10 +197,20 @@ class GRPOEngine(Engine):
         reward: RuleReward,
         ref_policy: PolicyTrainer,
         policy_trainer: PolicyTrainer,
+        rollout_manager: RolloutManager = None
     ):
         def env_compute_flow(batch):
             policy_out = policy.forward_step(batch)
             old_logprobs_out = policy_trainer.forward_step(policy_out)
+            ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
+            reward_out = reward.forward_step(ref_logprobs_out)
+            return reward_out
+
+        def env_compute_flow_with_partial(batch):
+            batch = rollout_manager.get_sample_for_rollout(batch)
+            batch = policy.forward_step(batch)
+            batch = rollout_manager.post_process_rollout_results(batch)
+            old_logprobs_out = policy_trainer.forward_step(batch)
             ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
             return reward_out
@@ -208,7 +223,10 @@ class GRPOEngine(Engine):
             reward_out = reward.eval_forward(policy_out)
             return reward_out
 
-        env = Environment(env_compute_flow)
+        if rollout_manager is None:
+            env = Environment(env_compute_flow)
+        else:
+            env = Environment(env_compute_flow_with_partial)
         trainer = Trainer(trainer_compute_flow)
         evaluator = GRPOEvaluator(evaluator_flow)
         super().__init__(
@@ -293,6 +311,13 @@ class GrpoAlgorithm(BaseAlgorithm):
         # engine = GRPOEngine(policy, reward, ref_policy, policy_trainer)
         engine = GRPOAgentEngine(agent, policy, reward, ref_policy, policy_trainer)
 
+        if self.cfg.runtime_args.partial_rollout:
+            rollout_manager = RolloutManager("rollout_manager")
+        else:
+            rollout_manager = None
+
+        # engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, rollout_manager)
+
         # get train and evaluation data
         train_data_path_list = [
             item.strip() for item in self.cfg.runtime_args.data_path.split(",")
@@ -303,11 +328,10 @@ class GrpoAlgorithm(BaseAlgorithm):
             item.strip() for item in self.cfg.runtime_args.eval_data_path.split(",")
         ]
         eval_data = read_data_path_list(eval_data_path_list)
-
         # put data in engine._all_datasets
         engine.set_dataset(train_data)
         engine.evaluator.set_dataset(eval_data)
-        engine.set_replay_sample_manager(compute_grpo_adv)
+        engine.set_replay_sample_manager(AdvantageComputer(self.cfg.runtime_args.num_inference_per_prompt))
         engine.learn()
 
     def validate(self):

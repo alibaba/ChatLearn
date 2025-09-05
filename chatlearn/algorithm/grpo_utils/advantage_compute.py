@@ -1,30 +1,31 @@
 """compute advantage for grpo"""
-from collections import defaultdict
 from typing import List, Dict, Any
+from collections import defaultdict
 
 import numpy as np
 
-def compute_grpo_adv(episode_replay_buffers: List[Dict[str, Any]]):
-    buffers = episode_replay_buffers[-1].buffer
-    queryids2samples = defaultdict(list)
-    sample_id = 0
-    for s in buffers:
-        s['sample_id'] = sample_id
-        queryids2samples[hash(",".join(map(str, s["prompt_token_ids"])))].append(s)
-        sample_id += 1
 
-    res_buffers = []
-    # TODO: torch and numpy have difference result, not knowing consequence
-    for _, l in queryids2samples.items():
-        rewards = np.array([each["rule_reward"] for each in l])
-        mean = np.mean(rewards)
-        std = np.std(rewards)
+class AdvantageComputer:
+    """advantage computer"""
+    def __init__(self, num_inference_per_prompt):
+        self.rule_reward_buffer = defaultdict(list)
+        self.num_inference_per_prompt = num_inference_per_prompt
 
-        for li in l:
-            li["advantages"] = (li["rule_reward"] - mean) / (std + 1e-5)
-        res_buffers.extend(l)
-    # Sort samples by original order in buffer
-    res_buffers.sort(key=lambda x: x["sample_id"])
-    for data in res_buffers:
-        data.pop("sample_id")
-    return res_buffers
+    def __call__(self, episode_replay_buffers: List[Dict[str, Any]]):
+        buffers = episode_replay_buffers[-1].buffer
+        # Update buffer first
+        for s in buffers:
+            sample_id = s['prompt_uid']
+            self.rule_reward_buffer[sample_id].append(s["rule_reward"])
+
+        # Calculate advantage for all samples
+        for s in buffers:
+            sample_id = s['prompt_uid']
+            avg = np.mean(self.rule_reward_buffer[sample_id])
+            std = np.std(self.rule_reward_buffer[sample_id])
+            s['advantages'] = (s["rule_reward"] - avg) / (std + 1e-5)
+
+        # clean buffer
+        self.rule_reward_buffer = {k: v for k, v in self.rule_reward_buffer.items() if len(v) < self.num_inference_per_prompt}
+        self.rule_reward_buffer = defaultdict(list, self.rule_reward_buffer)
+        return buffers

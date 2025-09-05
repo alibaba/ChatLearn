@@ -18,7 +18,7 @@ from typing import Dict, List
 import torch
 
 from chatlearn import BaseModule
-from chatlearn.utils.rule_reward_score import math
+from chatlearn.utils.rule_reward_score import math, geo3k
 from chatlearn.runtime.decorator import timeit, compute_decorator
 
 class RuleReward(BaseModule):
@@ -47,7 +47,6 @@ class RuleReward(BaseModule):
         self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")
 
         reward = []
-
         for data_b in data:
             str_output = data_b["str_outputs"]
             data_source = data_b["data_source"]
@@ -79,5 +78,8 @@ class RuleReward(BaseModule):
     def select_rule_reward_score_fn(self, data_source: str):
         if data_source in ['openai/gsm8k', 'DigitalLearningGmbH/MATH-lighteval', 'aime24', 'aime25']:
             return math.compute_score
+        elif data_source in ['hiyouga/geometry3k']:
+            # format reward is used in geo3k
+            return geo3k.compute_score
         else:
             raise NotImplementedError

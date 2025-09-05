@@ -438,7 +438,7 @@ class Executor:
             results.extend(result)
         if results:
             func_name = self.model_flow.model_nodes[0].func_name
-            future.wait(results, f"{model_names} {func_name}", True)
+            future.wait(results, f"{model_names} {func_name}")
             self._models_and_results_to_wait = []
         if data:
             self.get_all_merged_data(data, out_queue, encode=False)

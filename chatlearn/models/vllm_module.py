@@ -21,7 +21,7 @@ from typing import Optional, Dict, List, TYPE_CHECKING
 import copy
 
 import torch
-from transformers import AutoTokenizer, AutoConfig
+from transformers import AutoTokenizer, AutoConfig, AutoProcessor
 
 try:
     from vllm import SamplingParams
@@ -49,7 +49,6 @@ if HAVE_VLLM:
     # pylint: disable=unexpected-keyword-arg
     class VLLMModule(TorchModule, RayWorkerWrapper):
         """VLLMModule"""
-
         def __init__(self, name: str, args=None, replica_id: int=0, **kwargs):
             """The chatlearn wrapper for a vLLM model.
 
@@ -82,8 +81,11 @@ if HAVE_VLLM:
             self._model = None
             self.llm = None
             self.model_config =  AutoConfig.from_pretrained(self.module_args.load)
+
             if self.model_config.architectures[0] == "Qwen3MoeForCausalLM":
                 self.param_update_fn = self.update_weights_from_ipc_handles_qwen3_moe
+            elif self.model_config.architectures[0] == "Qwen2_5_VLForConditionalGeneration":
+                self.param_update_fn = self.update_weights_from_ipc_handles_qwenvl
             else:
                 self.param_update_fn = self.update_weights_from_ipc_handles_naive
 
@@ -154,9 +156,16 @@ if HAVE_VLLM:
             used in BaseEngine.setup and BaseModule.model_setup
             """
             super().setup()
+
             tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
             tokenizer.tokenizer = tokenizer
             self.tokenizer = tokenizer
+
+            if '<|vision_start|>' in tokenizer.additional_special_tokens:
+                # processor is needed for qwenvl
+                self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=True)
+            else:
+                self.processor = None
 
         @timeit()
         def setup_engine(self, workers):
@@ -326,6 +335,12 @@ if HAVE_VLLM:
                 else:
                     self.model.load_weights([(name, reconstructed_tensor)])
 
+        def update_weights_from_ipc_handles_qwenvl(self, reduce_data):
+            for name, reduced in reduce_data.items():
+                rebuild_func, rebuild_args = reduced
+                reconstructed_tensor = rebuild_func(*rebuild_args)
+                self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
+
         def update_weights_from_ipc_handles_naive(self, reduce_data):
             for name, reduced in reduce_data.items():
                 rebuild_func, rebuild_args = reduced
@@ -345,23 +360,39 @@ if HAVE_VLLM:
                 self.llm.wake_up()
 
             # preprocess query
-            prompt_key = "prompt"
-            input_ids_key = "input_ids"
             seq_len = self.module_args.seq_length
+            use_multi_modal = len(query)>0 and 'multi_modal_data' in query[0]
+            if use_multi_modal:
+                input_ids_key = "raw_input_ids"
+            else:
+                input_ids_key = "input_ids"
 
-            prompts = [q[prompt_key] for q in query]
-            prompts_token_ids = [q[input_ids_key] for q in query]
             sampling_param = self._get_sampling_params(is_eval)
             sampling_params = []
+            llm_inputs = []
 
-            for prompt, prompt_token_ids_item in zip(prompts, prompts_token_ids):
-                max_tokens = seq_len - len(prompt_token_ids_item)
-                assert max_tokens > 0, f"{prompt} is larger than {seq_len}"
+            for q in query:
+                max_tokens = q.get("max_generate_token_length", seq_len)
                 sampling_param_item = copy.deepcopy(sampling_param)
                 sampling_param_item.max_tokens = max_tokens
                 sampling_params.append(sampling_param_item)
 
-            outputs = self.llm.generate(prompt_token_ids = prompts_token_ids,
+                if use_multi_modal:
+                    llm_inputs.append(
+                        {
+                            "multi_modal_data": q['multi_modal_data'],
+                            "mm_processor_kwargs": q['mm_processor_kwargs'],
+                            "prompt_token_ids": q[input_ids_key],
+                        }
+                    )
+                else:
+                    llm_inputs.append(
+                        {
+                            "prompt_token_ids": q[input_ids_key],
+                        }
+                    )
+
+            outputs = self.llm.generate(llm_inputs,
                                         sampling_params = sampling_params,
                                         use_tqdm = True)
 
@@ -483,7 +514,6 @@ if HAVE_VLLM:
                     # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
                     shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
                     offset += numel * comm_dtype.itemsize
-
 else:
     class VLLMModule(TorchModule):
         """Dummy Module for vLLM. Note that it is not the subclass of ray worker"""

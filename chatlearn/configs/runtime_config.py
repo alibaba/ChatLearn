@@ -56,6 +56,9 @@ class RuntimeConfig(BaseConfig):
     rollout_backend: str = field(
         default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
     )
+    partial_rollout: bool = field(
+        default=False, metadata={"help": "whether to use partial rollout"}
+    )
     exp_name: str = field(
         default="CHATLEARN", metadata={"help": "exp name for each run"}
     )
@@ -107,6 +110,9 @@ class RuntimeConfig(BaseConfig):
     )
     train_global_batch_size: int = field(
         default=MISSING, metadata={"help": "[required] training global batch size."}
+    )
+    num_inference_per_prompt: int = field(
+        default=32, metadata={"help": "number of response for per prompt"}
     )
     save_episode_interval: int = field(
         default=MISSING,
