@@ -18,6 +18,7 @@ import uuid
 from typing import Dict, List, Any
 from collections import defaultdict
 import itertools
+import random
 
 import torch
 from transformers import AutoTokenizer
@@ -25,6 +26,9 @@ from transformers import AutoTokenizer
 from chatlearn import BaseModule
 from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import monitor_error, compute_decorator, timeit
+
+from typing import List, Dict, Iterator
+from itertools import cycle
 
 
 def sglang_postprocess_func(
@@ -80,9 +84,9 @@ def agent_postprocess_func(
         )
         data_output.append(input_data)
 
-    print("str_outputs", data_output[0]["str_outputs"])
-    print("data_sources", data_output[0]["data_source"])
-    print("ground_truth", data_output[0]["ground_truth"])
+    # print("str_outputs", data_output[0]["str_outputs"])
+    # print("data_sources", data_output[0]["data_source"])
+    # print("ground_truth", data_output[0]["ground_truth"])
     return data_output
 
 class AgentManager(BaseModule):
@@ -154,17 +158,55 @@ class AgentManager(BaseModule):
     #         rets = sglang_postprocess_func(self.tokenizer, outputs, data)
     #         return rets
         
+    # def _forward_step(self, data: List[Dict], iteration, is_eval):
+    #     ref_list = []
+    #     for data_item in data:
+    #         selected_engine = next(self.engine_iter)
+    #         ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
+    #         ref_list.append(ref)
+        
+    #     outputs = ray.get(ref_list)
+    #     if outputs is not None:
+    #         rets = agent_postprocess_func(outputs, data)
+    #         return rets
+
+
     def _forward_step(self, data: List[Dict], iteration, is_eval):
-        ref_list = []
-        for data_item in data:
+        random.shuffle(data)
+        MAX_CONCURRENT = 768
+        data_iter = iter(data)
+        ref_to_info = {}
+        for i in range(min(len(data), MAX_CONCURRENT)):
+            data_item = next(data_iter)
             selected_engine = next(self.engine_iter)
             ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
-            ref_list.append(ref)
-        
-        outputs = ray.get(ref_list)
-        if outputs is not None:
-            rets = agent_postprocess_func(outputs, data)
-            return rets
+            ref_to_info[ref] = {
+                "engine": selected_engine,
+                "data_item": data_item
+            }
+        results = []
+
+        while ref_to_info:
+            ready_refs, _ = ray.wait(list(ref_to_info.keys()), num_returns=1)
+            ready_ref = ready_refs[0]
+            output = ray.get(ready_ref)
+            info = ref_to_info.pop(ready_ref)
+            engine = info["engine"]
+            data_item = info["data_item"]
+            results += agent_postprocess_func([output], [data_item])
+            try:
+                next_data_item = next(data_iter)
+                new_ref = engine.generate.remote(**next_data_item, is_eval=is_eval)
+                ref_to_info[new_ref] = {
+                    "engine": engine,
+                    "data_item": next_data_item
+                }
+            except StopIteration:
+                # 所有请求已分配，不再提交新任务
+                pass
+        random.shuffle(results)
+        return results
+
 
     @compute_decorator(trainable=False, rollout=True)
     def forward_step(self, data: List[Dict], iteration=0, **kwargs):
