@@ -647,6 +647,9 @@ class BaseModule:
                 f.write(f"{self.replica_id}")
             logger.info(f"Finished to save stage outputs:{save_path}")
 
+    def set_global_var(self, gloabl_var_handle):
+        self.shared_var = gloabl_var_handle
+
     # NOTE: the following APIs are for updated parameter synchronization.
     def set_mapper(self, mapper_name: str, dst_model_config: BaseModelConfig):
         self.mapper = name_to_mapper_cls(mapper_name)(

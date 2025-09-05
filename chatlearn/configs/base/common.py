@@ -40,6 +40,11 @@ class RewardConfig(BaseModelConfig):
     """Common configs for reward model"""
 
 @dataclass
+class AgentConfig(BaseModelConfig):
+    """Common configs for Agent model"""
+    num_inference_per_prompt: int = field(default=1)
+
+@dataclass
 class PolicyTrainerConfig(BaseModelConfig):
     """PolicyTrainerConfig"""
     optimizer: OptimizerConfig = field(

@@ -36,7 +36,8 @@ class PromptPipeline(Dataset):
         data_list: List[Dict],
         seq_length: int,
         tokenizer: AutoTokenizer = None,
-        enable_thinking=False
+        enable_thinking=False,
+        return_raw=True,
     ):  # pylint: disable=super-init-not-called
         super().__init__()
 
@@ -47,27 +48,35 @@ class PromptPipeline(Dataset):
             prompt = data_item["prompt"]
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
-            if isinstance(prompt, list):
-                prompt = self.tokenizer.apply_chat_template(
-                    prompt,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=enable_thinking,
-                )
-            input_ids = self.tokenizer.encode(prompt)
-            # When partial rollout enabled:
-            # input_ids may change (contain response tokens from previous rollouts)
-            # prompt_token_ids will always be origial prompt tokens
-            processed_data = {
-                "input_ids": input_ids,
-                "prompt": prompt,
-                "data_source": data_source,
-                "ground_truth": ground_truth,
-                "prompt_token_length": len(input_ids),
-                "prompt_token_ids": input_ids
-            }
-            # Filter out data with long input_ids
-            if seq_length > len(input_ids):
+            if not return_raw:
+                if isinstance(prompt, list):
+                    prompt = self.tokenizer.apply_chat_template(
+                        prompt,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                        enable_thinking=enable_thinking,
+                    )
+                input_ids = self.tokenizer.encode(prompt)
+                # When partial rollout enabled:
+                # input_ids may change (contain response tokens from previous rollouts)
+                # prompt_token_ids will always be origial prompt tokens
+                processed_data = {
+                    "input_ids": input_ids,
+                    "prompt": prompt,
+                    "data_source": data_source,
+                    "ground_truth": ground_truth,
+                    "prompt_token_length": len(input_ids),
+                    "prompt_token_ids": input_ids
+                }
+                if seq_length > len(input_ids):
+                    self.data.append(processed_data)
+            else:
+                processed_data = {
+                    # "input_ids": input_ids,
+                    "messages": prompt,
+                    "data_source": data_source,
+                    "ground_truth": ground_truth,
+                }
                 self.data.append(processed_data)
 
     def __getitem__(self, ix: int):

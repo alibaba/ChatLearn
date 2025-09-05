@@ -221,12 +221,16 @@ class SGLangModule(TorchModule):
 
     def setup(self):
         super().setup()
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.module_args["load"], trust_remote_code=True
-        )
+        # self.tokenizer = AutoTokenizer.from_pretrained(
+        #     self.module_args["load"], trust_remote_code=True
+        # )
 
     @timeit()
     def setup_engine(self):
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.module_args["load"], trust_remote_code=True
+        )
 
         if self.llm is not None:  # for evaluator not setup twice
             dist.barrier()
@@ -362,7 +366,7 @@ class SGLangModule(TorchModule):
 
     def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
         outputs = None
-        if self.is_engine:
+        if self.is_engine():
             prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
             outputs = self.llm.generate(
                 input_ids=prompts_token_ids, sampling_params=sampling_params
@@ -373,7 +377,7 @@ class SGLangModule(TorchModule):
     def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
         if load_format == "flattened_bucket":
             gathered_data = None
-            if self.is_engine:
+            if self.is_engine():
                 gathered_data = [None] * self._tp_size
             dist.gather_object(
                 obj=reduce_data,
@@ -381,7 +385,7 @@ class SGLangModule(TorchModule):
                 dst=self.cpu_mesh["tp"].mesh.tolist()[0],
                 group=self.cpu_mesh["tp"].get_group(),
             )
-            if self.is_engine:
+            if self.is_engine():
                 self.llm.update_weights_from_tensor(
                     named_tensors=gathered_data,
                     load_format=load_format,
@@ -390,7 +394,7 @@ class SGLangModule(TorchModule):
             return
 
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-            if self.is_engine:
+            if self.is_engine():
                 gathered_serialized_tensors = [None] * self._tp_size
             else:
                 gathered_serialized_tensors = None
@@ -402,7 +406,7 @@ class SGLangModule(TorchModule):
                 group=self.cpu_mesh["tp"].get_group(),
             )
 
-            if self.is_engine:
+            if self.is_engine():
                 self.llm.update_weights_from_tensor(
                     named_tensors=[
                         (
@@ -416,7 +420,7 @@ class SGLangModule(TorchModule):
         torch.cuda.synchronize()
 
     def flush_cache(self):
-        if self.is_engine:
+        if self.is_engine():
             self.llm.flush_cache()
         torch.cuda.synchronize()
 
@@ -454,7 +458,7 @@ class SGLangModule(TorchModule):
     @timeit()
     def offload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
-        if self.is_engine:
+        if self.is_engine():
             # avoid offload offloaded param
             tags = self.preprocess_tags(tags, stage="offload")
             if not tags:
@@ -475,7 +479,7 @@ class SGLangModule(TorchModule):
         if self.need_offload:
             self.offload()
             self.need_offload = False
-        if self.is_engine:
+        if self.is_engine():
             # avoid onload onloaded param
             tags = self.preprocess_tags(tags, stage="onload")
             if not tags:
@@ -490,7 +494,6 @@ class SGLangModule(TorchModule):
             self.postprocess_tags(tags, stage="onload")
         torch.cuda.synchronize()
 
-    @property
     def is_engine(self):
         return self.llm and self.llm.tokenizer_manager is not None
 
@@ -621,7 +624,7 @@ class AsyncSGLangModule(SGLangModule):
 
     async def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
         outputs = None
-        if self.is_engine:
+        if self.is_engine():
             prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
             outputs = await self.llm.async_generate(
                 prompt=None,  # because we have already convert it to prompt token id
@@ -629,14 +632,14 @@ class AsyncSGLangModule(SGLangModule):
                 return_logprob=True,
                 input_ids=prompts_token_ids,
             )
-        await self.flush_cache()
+        # await self.flush_cache()
         return outputs
 
     async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
 
         # pylint: disable-next=import-outside-toplevel
         for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-            if self.is_engine:
+            if self.is_engine():
                 gathered_serialized_tensors = [None] * self._tp_size
             else:
                 gathered_serialized_tensors = None
@@ -648,7 +651,7 @@ class AsyncSGLangModule(SGLangModule):
                 group=self.cpu_mesh["tp"].get_group(),
             )
 
-            if self.is_engine:
+            if self.is_engine():
                 await self.llm.update_weights_from_tensor(
                     named_tensors=[
                         (
@@ -662,7 +665,7 @@ class AsyncSGLangModule(SGLangModule):
         torch.cuda.synchronize()
 
     async def flush_cache(self):
-        if self.is_engine:
+        if self.is_engine():
             await self.llm.flush_cache()
         torch.cuda.synchronize()
 
@@ -670,7 +673,7 @@ class AsyncSGLangModule(SGLangModule):
     async def offload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
 
-        if self.is_engine:
+        if self.is_engine():
             # avoid offload offloaded param
             tags = self.preprocess_tags(tags, stage="offload")
             if not tags:
@@ -691,7 +694,7 @@ class AsyncSGLangModule(SGLangModule):
         if self.need_offload:
             await self.offload()
             self.need_offload = False
-        if self.is_engine:
+        if self.is_engine():
             # avoid onload onloaded param
             tags = self.preprocess_tags(tags, stage="onload")
             if not tags:
