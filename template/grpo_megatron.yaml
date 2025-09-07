@@ -66,6 +66,8 @@ models:
     sequence_parallel: True
     use_distributed_optimizer: True
     recompute_granularity: null
+    recompute_method: null
+    recompute_num_layers: null
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2

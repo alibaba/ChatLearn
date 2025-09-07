@@ -259,11 +259,12 @@ def get_batch(
     prompt_token_length = to_device("cuda", data_b["prompt_token_length"])
     response_token_length = to_device("cuda", data_b["response_token_length"])
 
+    tp_size = mpu.get_tensor_model_parallel_world_size()
+    cp_size = mpu.get_context_parallel_world_size()
+    align_size = tp_size * cp_size * 2
+
     if is_packing:
-        tp_size = mpu.get_tensor_model_parallel_world_size()
-        cp_size = mpu.get_context_parallel_world_size()
         cp_rank = mpu.get_context_parallel_group().rank()
-        align_size = tp_size * cp_size * 2
         attn_mask = torch.zeros_like(tokens, dtype=torch.int32)
         for i, (prompt_length, response_length) in enumerate(
             zip(prompt_token_length, response_token_length)
@@ -331,16 +332,8 @@ def get_batch(
         }
 
     else:
-        pad_size = 0
-        pad_token = get_tokenizer().eod
-        if not args.variable_seq_lengths:
-            pad_size = args.seq_length - tokens.shape[1]
-        else:
-            divisor = mpu.get_tensor_model_parallel_world_size()
-            total_nnz = tokens.shape[1]
-            pad_size = (divisor - total_nnz % divisor) % divisor
-
-        tokens = F.pad(tokens, (0, pad_size), value=pad_token)
+        pad_size = (align_size - tokens.shape[1] % align_size) % align_size
+        tokens = F.pad(tokens, (0, pad_size), value=get_tokenizer().eod)
         labels = torch.roll(tokens, shifts=-1, dims=1)
         attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
             tokens,
