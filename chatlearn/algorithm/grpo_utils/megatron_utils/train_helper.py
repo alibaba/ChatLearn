@@ -512,3 +512,4 @@ def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
         logits: (*, vocab_size // tp_size)
     """
     return _VocabParallelEntropy.apply(logits)
+    

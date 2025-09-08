@@ -222,7 +222,7 @@ class SGLangModule(TorchModule):
     def setup(self):
         super().setup()
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.module_args["load"], trust_remote_code=True
+            self.module_args["load"], trust_remote_code=self.module_args.trust_remote_code
         )
 
     @timeit()
@@ -266,7 +266,7 @@ class SGLangModule(TorchModule):
                 load_format=load_format,
                 dist_init_addr=dist_init_addr,
                 nnodes=nnodes_per_replica,
-                trust_remote_code=True,
+                trust_remote_code=self.module_args.trust_remote_code,
                 port=40000 + self.replica_id,
                 nccl_port=int(os.environ["SGLANG_NCCL_PORT"]),
                 mm_attention_backend="fa3",
@@ -505,7 +505,7 @@ class SGLangModule(TorchModule):
         with torch.device('meta'):
             meta_model = AutoModelForCausalLM.from_config(
                 model_config,
-                trust_remote_code=True
+                trust_remote_code=self.module_args.trust_remote_code
             )
         names = list(meta_model.state_dict().keys())
         self.global_name_to_local_name = {n: n for n in names}
@@ -522,7 +522,7 @@ class SGLangModule(TorchModule):
         with torch.device('meta'):
             meta_model = AutoModelForCausalLM.from_config(
                 model_config,
-                trust_remote_code=True
+                trust_remote_code=self.module_args.trust_remote_code
             )
         infos = {}
         for name, sharded_info in build_sharded_info_for_huggingface_model(meta_model).items():
