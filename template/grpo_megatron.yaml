@@ -108,6 +108,7 @@ models:
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     # args_dict:
+    trust_remote_code: ${models.policy_trainer.trust_remote_code}
     load: your_hf_model_path
     num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
     seq_length: 2048

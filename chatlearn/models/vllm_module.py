@@ -125,7 +125,7 @@ if HAVE_VLLM:
                 # logger
                 disable_log_requests=self.module_args.get("disable_log_requests", True),
                 disable_log_stats=self.module_args.get("disable_log_stats", True),
-                trust_remote_code=True,
+                trust_remote_code=self.module_args.trust_remote_code,
                 enforce_eager=self.module_args.get("enforce_eager", True),
                 disable_custom_all_reduce=True,
                 distributed_executor_backend="ray",
@@ -157,13 +157,13 @@ if HAVE_VLLM:
             """
             super().setup()
 
-            tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=True)
+            tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
             tokenizer.tokenizer = tokenizer
             self.tokenizer = tokenizer
 
             if '<|vision_start|>' in tokenizer.additional_special_tokens:
                 # processor is needed for qwenvl
-                self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=True)
+                self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
             else:
                 self.processor = None
 
@@ -208,7 +208,7 @@ if HAVE_VLLM:
                 # logger
                 disable_log_requests=self.module_args.get("disable_log_requests", True),
                 disable_log_stats=self.module_args.get("disable_log_stats", True),
-                trust_remote_code=True,
+                trust_remote_code=self.module_args.trust_remote_code,
                 enforce_eager=self.module_args.get("enforce_eager", False),
                 disable_custom_all_reduce=True,
                 distributed_executor_backend="ray",
