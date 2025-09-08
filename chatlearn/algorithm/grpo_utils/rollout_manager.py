@@ -30,7 +30,7 @@ class RolloutManager(BaseModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         # TODO: move dataset to seperate node
-        self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
         max_prompt_tokens_length = self.module_args.get("max_prompt_tokens_length")
         prompts_dataset = PromptPipeline(
             prompts,
