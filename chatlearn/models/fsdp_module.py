@@ -165,7 +165,7 @@ class FSDPModule(TorchModule):
                     pretrained_model_name_or_path=model_path,
                     torch_dtype=torch_dtype,
                     attn_implementation="flash_attention_2",
-                    trust_remote_code=True
+                    trust_remote_code=self.module_args.trust_remote_code
                 )
 
                 from chatlearn.models.patches.monkey_patch import apply_qwenvl
@@ -176,7 +176,7 @@ class FSDPModule(TorchModule):
                     pretrained_model_name_or_path=model_path,
                     torch_dtype=torch_dtype,
                     attn_implementation="flash_attention_2",
-                    trust_remote_code=True,
+                    trust_remote_code=self.module_args.trust_remote_code,
                 )
         else:
             model_config = AutoConfig.from_pretrained(model_path)
@@ -186,7 +186,7 @@ class FSDPModule(TorchModule):
                     model_config,
                     torch_dtype=torch_dtype,
                     attn_implementation="flash_attention_2",
-                    trust_remote_code=True
+                    trust_remote_code=self.module_args.trust_remote_code
                 )
         dist.barrier()
         return model
@@ -246,7 +246,7 @@ class FSDPModule(TorchModule):
             self.create_sp_device_mesh()
             apply_sp_monkey_patch(model.config)
         self.tokenizer = AutoTokenizer.from_pretrained(
-            args.load, trust_remote_code=True, use_fast=True
+            args.load, trust_remote_code=self.module_args.trust_remote_code, use_fast=True
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
