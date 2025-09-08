@@ -19,8 +19,6 @@ import importlib
 import inspect
 from functools import partial
 import uuid
-from numbers import Number
-# from ray import ActorHandle
 
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
@@ -32,46 +30,6 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-
-RAY_REMOTE = "remote"
-
-
-import ray
-
-@ray.remote
-class GlobalVarActor:
-    """
-    set shared variable for all actors in one distmodel
-    """
-    def __init__(self):
-        pass
-
-    def set(self, name, value):
-        print(f"debughh set {name} to {value}")
-        setattr(self, name, value)
-
-    def get(self, name):
-        if hasattr(self, name):
-            return getattr(self, name)
-        else:
-            raise AttributeError(f"Attribute '{name}' not found")
-
-    def has(self, name):
-        return hasattr(self, name)
-
-    def delete(self, name):
-        if hasattr(self, name):
-            delattr(self, name)
-        else:
-            raise AttributeError(f"Attribute '{name}' not found")
-
-    def add(self, name, num = 1):
-        if hasattr(self, name):
-            value = getattr(self, name)
-            assert isinstance(value, Number), f'{name} must be number'
-            setattr(self, name, value+num)
-        else:
-            raise AttributeError(f"Attribute '{name}' not found")
 
 
 class DistActor:
@@ -137,7 +95,7 @@ class DistActor:
 
     def call_actor_remote_func(self, actor, func_name, *args, **kwargs):
         func = getattr(actor, func_name)
-        remote_func = getattr(func, RAY_REMOTE)
+        remote_func = getattr(func, "remote")
         res = remote_func(*args, **kwargs)
         return res
 
@@ -157,7 +115,6 @@ class DistActor:
             placement_group_bundle_index=group_index,
         )
         # use max_concurrency=1 to make sure only one task execute at one time
-        # .options(scheduling_strategy=scheduling_strategy) \
         actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(cls) \
             .options(scheduling_strategy=scheduling_strategy, namespace=self.name, name=f"{self.name}_replica{self.replica_id}_{uuid.uuid4().hex}") \
             .remote(self.model.name, self.model.global_args, self.replica_id, **kwargs)
@@ -381,22 +338,10 @@ class DistModel:
         self.register_func()
         self._is_colocate = False
         self._colocate_models = []
-        # used for share var between actors in distmodel
-        self.shared_var = GlobalVarActor.remote()
 
     def add_replica(self, replica):
         self.replicas.append(replica)
         self.name = replica.name
-
-    def set_global_var(self):
-        """
-        set shared variable for all actors in DistModel
-        """
-        for replica in self.replicas:
-            for actor in replica.all_actors:
-                future.get(actor.set_global_var.remote(self.shared_var))
-            if hasattr(replica, 'engine'):
-                future.get(replica.engine.set_global_var.remote(self.shared_var))
 
     @property
     def trainable(self):
@@ -465,8 +410,6 @@ class DistModel:
                 replica.id_to_actors[actor_id] = actor
                 replica.all_actor_ids.append(actor_id)
                 actor_id += 1
-
-        self.set_global_var()
 
     def register_func(self):
         for func_name in ["model_setup",

@@ -151,8 +151,8 @@ class TorchModule(BaseModule):
                     self.onload_optimizer_states()
             torch.distributed.barrier()
             torch.cuda.synchronize()
-            torch.cuda.empty_cache()
-            gc.collect()
+            # torch.cuda.empty_cache()
+            # gc.collect()
             timer.stop()
             log_rank_0(get_full_proc_memory_info('After onload'), self._logger)
 

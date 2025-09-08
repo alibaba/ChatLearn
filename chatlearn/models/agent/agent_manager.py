@@ -31,6 +31,71 @@ from typing import List, Dict, Iterator
 from itertools import cycle
 
 
+import heapq
+
+def group_dictionaries(data, num_groups=8, group_size=256, length_key='all_token_length'):
+    """
+    将字典列表按 length_key 的值进行负载均衡分组，每组最多 group_size 个元素。
+    
+    参数:
+    - data: 字典列表，每个字典包含 length_key 字段
+    - num_groups: 分成多少组（默认16）
+    - group_size: 每组最多多少个元素（默认128）
+    - length_key: 用于表示长度的键名（如 'length', 'len' 等）
+    
+    返回:
+    - 列表，包含num_groups个组，每组是字典的列表
+    """
+    # 按 length_key 从大到小排序（优先处理长的）
+    sorted_data = sorted(data, key=lambda x: x[length_key], reverse=True)
+    
+    # 初始化最小堆：(当前总长度, 组索引, 组内元素列表)
+    heap = [(0, i, []) for i in range(num_groups)]
+    heapq.heapify(heap)
+    
+    # 存储已满的组
+    full_groups = []
+    
+    # 贪心分配
+    for item in sorted_data:
+        # 如果堆为空，说明所有组都满了
+        if not heap:
+            break
+            
+        # 取出当前总长度最小的组
+        total_len, idx, group = heapq.heappop(heap)
+        
+        # 添加当前元素到组中
+        group.append(item)
+        new_total_len = total_len + item[length_key]
+        
+        # 检查该组是否已满
+        if len(group) >= group_size:
+            # 组已满，加入到full_groups，不再放回堆中
+            full_groups.append((new_total_len, idx, group))
+        else:
+            # 组未满，放回堆中继续参与分配
+            heapq.heappush(heap, (new_total_len, idx, group))
+    
+    # 合并结果：堆中未满的组 + 已满的组
+    all_groups = []
+    # 添加堆中剩余的未满组
+    while heap:
+        total_len, idx, group = heapq.heappop(heap)
+        all_groups.append((idx, group))
+    
+    # 添加已满的组
+    for total_len, idx, group in full_groups:
+        all_groups.append((idx, group))
+    
+    # 按组索引排序并提取结果
+    result = [group for idx, group in sorted(all_groups, key=lambda x: x[0])]
+
+    flattened_result = [item for sublist in result for item in sublist]
+    
+    return flattened_result
+
+
 def sglang_postprocess_func(
     tokenizer: AutoTokenizer,
     batched_outputs: List[Dict[str, Any]],
@@ -79,6 +144,7 @@ def agent_postprocess_func(
                 "all_tokens": all_tokens,
                 "response_token_length": response_token_length,
                 "prompt_token_length": prompt_token_length,
+                "all_token_length": response_token_length + prompt_token_length,
                 "str_outputs": str_outputs,
             }
         )
@@ -90,7 +156,7 @@ def agent_postprocess_func(
     return data_output
 
 class AgentManager(BaseModule):
-    """Agent Module"""
+    """Agent Manager"""
 
     def __init__(self, name: str, args=None, replica_id: int=0):
         """ChatLearn main agent entrypoint
@@ -99,6 +165,7 @@ class AgentManager(BaseModule):
         assert self.total_gpu == 0, "AgentManager does not require GPU"
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
+        assert self._num_replica == 1, "There should only be one AgentManager"
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
 
@@ -120,11 +187,7 @@ class AgentManager(BaseModule):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.global_args.models.policy.get("load"), trust_remote_code=True
         )
-        # set shard variable
-        ray.get(self.shared_var.set.remote('finish_cnt', 0))
-        # self.engine2request_map = defaultdict(list)
-        # for engine in self.rollout_engine:
-        #     self.engine2request_map[engine] = []
+
 
     def get_rollout(self, namespace="policy"):
         all_actors = ray.util.list_named_actors(all_namespaces=True)
@@ -134,23 +197,6 @@ class AgentManager(BaseModule):
         self.rollout_engines = [worker for worker in self.rollout_workers if ray.get(worker.is_engine.remote())]
         self.engine_iter = itertools.cycle(iter(self.rollout_engines))
 
-    # def select_engine(self, request_id):
-        # RoundRobin
-
-        # # find request id whether in engine
-        # least_request_engine = None
-        # least_request_cnt = None
-        # for engine, request_list in self.engine2request_map:
-        #     if request_id in request_list:
-        #         return engine
-        #     if not least_request_engine or (len(request_list) < least_request_cnt):
-        #         least_request_engine = engine
-        #         least_request_cnt = len(request_list)
-        
-        # self.engine2request_map[least_request_engine].append(request_id)
-        # return least_request_engine
-        
-
     # def _forward_step(self, data: List[Dict], iteration, is_eval):
     #     outputs = ray.get(self.rollout_engines[0].generate.remote(data, is_eval))
 
@@ -158,54 +204,59 @@ class AgentManager(BaseModule):
     #         rets = sglang_postprocess_func(self.tokenizer, outputs, data)
     #         return rets
         
-    # def _forward_step(self, data: List[Dict], iteration, is_eval):
-    #     ref_list = []
-    #     for data_item in data:
-    #         selected_engine = next(self.engine_iter)
-    #         ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
-    #         ref_list.append(ref)
-        
-    #     outputs = ray.get(ref_list)
-    #     if outputs is not None:
-    #         rets = agent_postprocess_func(outputs, data)
-    #         return rets
-
-
     def _forward_step(self, data: List[Dict], iteration, is_eval):
-        random.shuffle(data)
-        MAX_CONCURRENT = 768
-        data_iter = iter(data)
-        ref_to_info = {}
-        for i in range(min(len(data), MAX_CONCURRENT)):
-            data_item = next(data_iter)
+        # random.shuffle(data)
+        ref_list = []
+        for data_item in data:
             selected_engine = next(self.engine_iter)
             ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
-            ref_to_info[ref] = {
-                "engine": selected_engine,
-                "data_item": data_item
-            }
-        results = []
+            ref_list.append(ref)
+        
+        outputs = ray.get(ref_list)
+        # random.shuffle(outputs)
+        # dist.barrier()
+        if outputs is not None:
+            rets = agent_postprocess_func(outputs, data)
+            return rets
 
-        while ref_to_info:
-            ready_refs, _ = ray.wait(list(ref_to_info.keys()), num_returns=1)
-            ready_ref = ready_refs[0]
-            output = ray.get(ready_ref)
-            info = ref_to_info.pop(ready_ref)
-            engine = info["engine"]
-            data_item = info["data_item"]
-            results += agent_postprocess_func([output], [data_item])
-            try:
-                next_data_item = next(data_iter)
-                new_ref = engine.generate.remote(**next_data_item, is_eval=is_eval)
-                ref_to_info[new_ref] = {
-                    "engine": engine,
-                    "data_item": next_data_item
-                }
-            except StopIteration:
-                # 所有请求已分配，不再提交新任务
-                pass
-        random.shuffle(results)
-        return results
+
+    # def _forward_step(self, data: List[Dict], iteration, is_eval):
+    #     # random.shuffle(data)
+    #     MAX_CONCURRENT = 1536
+    #     data_iter = iter(data)
+    #     ref_to_info = {}
+    #     for i in range(min(len(data), MAX_CONCURRENT)):
+    #         data_item = next(data_iter)
+    #         selected_engine = next(self.engine_iter)
+    #         ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
+    #         ref_to_info[ref] = {
+    #             "engine": selected_engine,
+    #             "data_item": data_item
+    #         }
+    #     results = []
+
+    #     while ref_to_info:
+    #         ready_refs, _ = ray.wait(list(ref_to_info.keys()), num_returns=1)
+    #         ready_ref = ready_refs[0]
+    #         output = ray.get(ready_ref)
+    #         info = ref_to_info.pop(ready_ref)
+    #         engine = info["engine"]
+    #         data_item = info["data_item"]
+    #         results += agent_postprocess_func([output], [data_item])
+    #         try:
+    #             next_data_item = next(data_iter)
+    #             new_ref = engine.generate.remote(**next_data_item, is_eval=is_eval)
+    #             ref_to_info[new_ref] = {
+    #                 "engine": engine,
+    #                 "data_item": next_data_item
+    #             }
+    #         except StopIteration:
+    #             # 所有请求已分配，不再提交新任务
+    #             pass
+    #     # random.shuffle(results)
+    #     results = group_dictionaries(results)
+    #     # dist.barrier()
+    #     return results
 
 
     @compute_decorator(trainable=False, rollout=True)
@@ -219,21 +270,7 @@ class AgentManager(BaseModule):
         return rets
 
     def onload(self):
-        finish_cnt = ray.get(self.shared_var.get.remote('finish_cnt'))
-        finish_cnt += 1
-        if finish_cnt == self._num_replica:
-            for engine in self.rollout_engines:
-                ray.get(engine.onload.remote())
-            ray.get(self.shared_var.set.remote('finish_cnt', 0))
-        else:
-            ray.get(self.shared_var.set.remote('finish_cnt', finish_cnt))
+        ray.get([engine.onload.remote() for engine in self.rollout_engines])
 
     def offload(self):
-        finish_cnt = ray.get(self.shared_var.get.remote('finish_cnt'))
-        finish_cnt += 1
-        if finish_cnt == self._num_replica:
-            for engine in self.rollout_engines:
-                ray.get(engine.offload.remote())
-            ray.get(self.shared_var.set.remote('finish_cnt', 0))
-        else:
-            ray.get(self.shared_var.set.remote('finish_cnt', finish_cnt))
+        ray.get([engine.offload.remote() for engine in self.rollout_engines])

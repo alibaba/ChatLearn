@@ -17,7 +17,7 @@ runtime_args:
   save_episode_interval: 200
   # config for data
   data_shuffle: True
-  data_rerank: True
+  data_rerank: False
   max_replay_episode: 2
   # config for eval
   eval_episode_interval: 5
@@ -101,7 +101,7 @@ models:
     cpu_per_process: 1
     generation_batch_size: 256
   agent:
-    num_cpu: 2
+    num_cpu: 1
     cpu_per_process: 1
-    generation_batch_size: 256
+    generation_batch_size: 2048
     num_inference_per_prompt: ${models.policy.num_inference_per_prompt}
