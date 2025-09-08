@@ -161,7 +161,7 @@ if HAVE_VLLM:
             tokenizer.tokenizer = tokenizer
             self.tokenizer = tokenizer
 
-            if '<|vision_start|>' in tokenizer.additional_special_tokens:
+            if self.runtime_args.model_type == 'vlm':
                 # processor is needed for qwenvl
                 self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
             else:
@@ -361,7 +361,7 @@ if HAVE_VLLM:
 
             # preprocess query
             max_response_tokens_length = self.module_args.max_response_tokens_length
-            use_multi_modal = len(query)>0 and 'multi_modal_data' in query[0]
+            use_multi_modal = self.runtime_args.model_type == 'vlm'
             if use_multi_modal:
                 input_ids_key = "raw_input_ids"
             else:
