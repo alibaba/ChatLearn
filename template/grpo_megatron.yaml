@@ -44,7 +44,8 @@ models:
       min_lr: 2e-6
       clip_grad: 1
     bf16: True
-    seq_length: 2048
+    max_prompt_tokens_length: ${models.policy.max_prompt_tokens_length}
+    max_response_tokens_length: ${models.policy.max_response_tokens_length}
     tokenizer_type: 'HuggingFaceTokenizer'
     trust_remote_code: False
     tokenizer_model: ${models.policy.load}
@@ -79,8 +80,8 @@ models:
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: ${models.policy_trainer.generation_batch_size}
-    seq_length: ${models.policy_trainer.seq_length}
-    tokenizer_type: ${models.policy_trainer.tokenizer_type}
+    max_prompt_tokens_length: ${models.policy.max_prompt_tokens_length}
+    max_response_tokens_length: ${models.policy.max_response_tokens_length}
     trust_remote_code: ${models.policy_trainer.trust_remote_code}
     tokenizer_model: ${models.policy.load}
     bf16: True
@@ -111,8 +112,8 @@ models:
     trust_remote_code: ${models.policy_trainer.trust_remote_code}
     load: your_hf_model_path
     num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
-    seq_length: 2048
-    max_seq_len_to_capture: 2348
+    max_prompt_tokens_length: 1024
+    max_response_tokens_length: 2048
     temperature: 1.0
     top_p: 1.0
     eval_temperature: 0.6
@@ -135,6 +136,7 @@ models:
     mini_response_per_prompt: 16
     enable_thinking: ${models.policy.enable_thinking}
     max_rollout_round: 2
-    max_gen_len: ${models.policy.seq_length}
+    max_response_tokens_length: ${models.policy.max_response_tokens_length}
+    max_prompt_tokens_length: ${models.policy.max_prompt_tokens_length}
     rollout_ratio: [0.5, 0.5]
     load: ${models.policy_trainer.load}

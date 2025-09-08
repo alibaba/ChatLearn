@@ -44,7 +44,6 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.sequence_parallel=true \
         models.policy_trainer.use_distributed_optimizer=true \
         models.policy_trainer.recompute_granularity='selective' \
-        models.policy_trainer.seq_length=2048 \
         models.policy_trainer.tensor_model_parallel_size=4 \
         models.policy_trainer.pipeline_model_parallel_size=2 \
         models.policy_trainer.expert_tensor_parallel_size=4 \
@@ -60,8 +59,8 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy.load=${hf_ckpt_path} \
         models.policy.generation_batch_size=128 \
         models.policy.tensor_model_parallel_size=4 \
-        models.policy.seq_length=2048 \
-        models.policy.max_seq_len_to_capture=2348 \
+        models.policy.max_prompt_tokens_length=1024 \
+        models.policy.max_response_tokens_length=2048 \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=True \

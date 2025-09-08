@@ -360,7 +360,7 @@ if HAVE_VLLM:
                 self.llm.wake_up()
 
             # preprocess query
-            seq_len = self.module_args.seq_length
+            max_response_tokens_length = self.module_args.max_response_tokens_length
             use_multi_modal = self.runtime_args.model_type == 'vlm'
             if use_multi_modal:
                 input_ids_key = "raw_input_ids"
@@ -372,7 +372,10 @@ if HAVE_VLLM:
             llm_inputs = []
 
             for q in query:
-                max_tokens = q.get("max_generate_token_length", seq_len)
+                # When partial_rollout is enabled, max_generate_token_length will be set by RolloutManager
+                # for different rollotu rounds.
+                # When partial_rollout is disabled, max_response_tokens_length from config will be used
+                max_tokens = q.get("max_generate_token_length", max_response_tokens_length)
                 sampling_param_item = copy.deepcopy(sampling_param)
                 sampling_param_item.max_tokens = max_tokens
                 sampling_params.append(sampling_param_item)

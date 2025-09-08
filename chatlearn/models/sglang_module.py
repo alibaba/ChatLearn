@@ -347,14 +347,17 @@ class SGLangModule(TorchModule):
         """
         generate sampling parameter query-wise
         """
-        seq_len = self.module_args.seq_length
+        max_response_tokens_length = self.module_args.max_response_tokens_length
 
         prompts_token_ids = [q["input_ids"] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
 
         for q in query:
-            max_tokens = q.get("max_generate_token_length", seq_len)
+            # When partial_rollout is enabled, max_generate_token_length will be set by RolloutManager
+            # for different rollotu rounds.
+            # When partial_rollout is disabled, max_response_tokens_length from config will be used
+            max_tokens = q.get("max_generate_token_length", max_response_tokens_length)
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item["max_new_tokens"] = max_tokens
             sampling_params.append(sampling_param_item)

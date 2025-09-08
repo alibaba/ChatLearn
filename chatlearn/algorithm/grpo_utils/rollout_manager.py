@@ -18,9 +18,9 @@ class RolloutManager(BaseModule):
         self.num_response_track = defaultdict(int)
         self.rollout_not_finished = []
         self.max_rollout_round = self.module_args.max_rollout_round
-        self.max_gen_len = self.module_args.max_gen_len
+        self.max_response_tokens_length = self.module_args.max_response_tokens_length
         self.ratio = self.module_args.rollout_ratio
-        self.max_token_per_round = [int(self.max_gen_len * ratio) for ratio in self.ratio]
+        self.max_token_per_round = [int(self.max_response_tokens_length * ratio) for ratio in self.ratio]
         self.num_inference_per_prompt = self.module_args.num_inference_per_prompt
         self.mini_response_per_prompt = self.module_args.mini_response_per_prompt
         # Logging metric dict for this module
@@ -31,11 +31,12 @@ class RolloutManager(BaseModule):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         # TODO: move dataset to seperate node
         self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
+        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
         prompts_dataset = PromptPipeline(
             prompts,
-            sum(self.max_token_per_round),
+            max_prompt_tokens_length,
             self.tokenizer,
-            enable_thinking=self.module_args.get("enable_thinking", False),
+            enable_thinking=self.module_args.enable_thinking,
         )
         return prompts_dataset
 

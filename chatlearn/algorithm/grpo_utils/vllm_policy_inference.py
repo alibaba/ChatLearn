@@ -35,26 +35,27 @@ class VLLMPolicyInference(VLLMModule):
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # prompts seems like the total data set by engine.set_dataset(dataset)
         # TODO: move dataset to seperate node
-        seq_length = self.module_args.get("seq_length")
+        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
         assert len(prompts)>0, 'Dataset is empty'
 
         if self.runtime_args.model_type == 'vlm':
             from chatlearn.data.vl_prompt_dataset import PromptPipeline
             prompts_dataset = PromptPipeline(
                 prompts,
-                seq_length,
+                max_prompt_tokens_length,
                 self.tokenizer.tokenizer,
                 self.processor,
-                enable_thinking=self.module_args.get("enable_thinking", False),
+                enable_thinking=self.module_args.enable_thinking,
             )
         else:
             from chatlearn.data.prompt_dataset import PromptPipeline
             prompts_dataset = PromptPipeline(
                 prompts,
-                seq_length,
+                max_prompt_tokens_length,
                 self.tokenizer.tokenizer,
-                enable_thinking=self.module_args.get("enable_thinking", False),
+                enable_thinking=self.module_args.enable_thinking,
             )
+        self._logger.info(f"Max prompt token in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
 
         return prompts_dataset
 
@@ -80,11 +81,12 @@ class VLLMPolicyInference(VLLMModule):
             data.sort(key=lambda x: x['rollout_round'], reverse=True)
         rets = self._forward_step(data, iteration, False)
         # collect metric
-        seq_len = self.module_args.get("seq_length")
+        max_response_tokens_length = self.module_args.max_response_tokens_length
         response_token_length = [ret["response_token_length"] for ret in rets]
         prompt_token_length = [ret["prompt_token_length"] for ret in rets]
         clip_ratio = sum(
-            ret["response_token_length"] >= ret.get("max_generate_token_length", seq_len) for ret in rets
+            ret["response_token_length"] >= ret.get("max_generate_token_length", max_response_tokens_length) \
+                for ret in rets
         ) / len(rets)
         response_token_length.sort()
         inference_stats = {
