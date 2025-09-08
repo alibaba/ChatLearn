@@ -46,6 +46,7 @@ models:
     bf16: True
     seq_length: 2048
     tokenizer_type: 'HuggingFaceTokenizer'
+    trust_remote_code: False
     tokenizer_model: ${models.policy.load}
     trainable: True
     generation_batch_size: 8
@@ -66,6 +67,8 @@ models:
     sequence_parallel: True
     use_distributed_optimizer: True
     recompute_granularity: null
+    recompute_method: null
+    recompute_num_layers: null
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
@@ -77,7 +80,8 @@ models:
       offload_weights: True
     generation_batch_size: ${models.policy_trainer.generation_batch_size}
     seq_length: ${models.policy_trainer.seq_length}
-    tokenizer_type: 'HuggingFaceTokenizer'
+    tokenizer_type: ${models.policy_trainer.tokenizer_type}
+    trust_remote_code: ${models.policy_trainer.trust_remote_code}
     tokenizer_model: ${models.policy.load}
     bf16: True
     sequence_parallel: True
@@ -104,6 +108,7 @@ models:
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     # args_dict:
+    trust_remote_code: ${models.policy_trainer.trust_remote_code}
     load: your_hf_model_path
     num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
     seq_length: 2048
