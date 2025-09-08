@@ -160,7 +160,7 @@ class FSDPModule(TorchModule):
     def create_model(self, model_path: str , torch_dtype: torch.dtype, meta_init: bool) -> nn.Module:
         if not meta_init:
             model_config = AutoConfig.from_pretrained(model_path)
-            if "Qwen2_5_VLForConditionalGeneration" in model_config.architectures:
+            if self.runtime_args.model_type == 'vlm':
                 model = AutoModelForImageTextToText.from_pretrained(
                     pretrained_model_name_or_path=model_path,
                     torch_dtype=torch_dtype,
@@ -447,7 +447,7 @@ class FSDPModule(TorchModule):
                 self.tokenizer.save_pretrained(hf_path)
 
                 with torch.device("meta"):
-                    if "Qwen2_5_VLForConditionalGeneration" in model_config.architectures:
+                    if self.runtime_args.model_type == 'vlm':
                         save_model = AutoModelForImageTextToText.from_config(model_config, torch_dtype=torch.bfloat16)
                     else:
                         save_model = AutoModelForCausalLM.from_config(model_config, torch_dtype=torch.bfloat16)

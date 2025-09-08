@@ -12,6 +12,7 @@ export exp_name=qwen2-5-vl-grpo-7b
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
         runtime_args.exp_name=${exp_name} \
+        runtime_args.model_type=vlm \
         runtime_args.data_path=${CHATLEARN}/dataset/geo3k/train.parquet \
         runtime_args.eval_data_path=${CHATLEARN}/dataset/geo3k/test.parquet \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
