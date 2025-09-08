@@ -71,4 +71,9 @@ class BaseModelConfig(BaseConfig):
         default=1,
         metadata={"help": "The number of replica of this model."}
     )
+
+    model_type: int = field(
+        default=1,
+        metadata={"help": "The number of replica of this model."}
+    )
     

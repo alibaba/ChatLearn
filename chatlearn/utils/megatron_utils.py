@@ -35,7 +35,15 @@ def update_cfg(cfg):
     cfg.models.policy_trainer.megatron_model_cfg.untie_embeddings_and_output_weights = not hf_transformer_config.tie_word_embeddings
     cfg.models.policy_trainer.megatron_model_cfg.vocab_size = hf_transformer_config.vocab_size
     cfg.models.policy_trainer.megatron_model_cfg.qk_layernorm = True
-    cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
+    
+    if hf_transformer_config.architectures[0] == 'Qwen2_5_VLForConditionalGeneration':
+        # bug we hard code here
+        cfg.models.policy_trainer.megatron_model_cfg.kv_channels = 128
+        cfg.models.policy_trainer.megatron_model_cfg.llm_model_type = "vlm"
+    else:
+        cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
+        cfg.models.policy_trainer.megatron_model_cfg.llm_model_type = "llm"
+
 
     if "Qwen" in hf_transformer_config.architectures[0]:
         cfg.models.policy_trainer.megatron_model_cfg.group_query_attention = True
@@ -84,5 +92,4 @@ def update_cfg(cfg):
     if cfg.models.policy_trainer.context_parallel_size > 1:
         cfg.models.policy_trainer.megatron_model_cfg.apply_rope_fusion = False
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg
-
     return cfg

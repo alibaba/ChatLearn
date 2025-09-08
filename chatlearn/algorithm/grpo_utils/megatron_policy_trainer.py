@@ -73,6 +73,7 @@ class MegatronPolicyTrainer(MegatronModule):
     def setup(self):
         self.stats = {}
         self.buffer = {}
+        breakpoint()
         self.args = get_args()
         self.report_memory_flag = True
         self.iteration_for_log = 0
@@ -88,6 +89,7 @@ class MegatronPolicyTrainer(MegatronModule):
                 get_args().no_load_rng = False
                 get_args().no_load_scheduler = False
                 self._logger.info(f"Overwrite load path for resuming training.")
+            
             self.model, self.optimizer, self.opt_param_scheduler = (
                 setup_model_and_optimizer(
                     self.model_provider, ModelType.encoder_or_decoder
@@ -144,6 +146,7 @@ class MegatronPolicyTrainer(MegatronModule):
 
         print_rank_0("building GPT model ...")
         # Experimental loading arguments from yaml
+        breakpoint()
         if args.yaml_cfg is not None:
             config = core_transformer_config_from_yaml(args, "language_model")
         else:

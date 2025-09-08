@@ -10,15 +10,20 @@ export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
 export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250624
-export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
+export MEGATRON_PATCH_PATH=${CHATLEARN}/../Pai-Megatron-Patch
+export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATCH_PATH}:${MEGATRON_PATH}:${PYTHONPATH}
+
 source scripts/base_env.sh
 
 # hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B
 # mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B-to-mcore
-hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen3-8B
-mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore/
+hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen2.5-VL-7B-Instruct
+mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen2.5-VL-7B-Instruct-to-mcore
 
-exp_name="test_qwen3_8b"
+export WANDB_BASE_URL=http://120.26.137.9:8080
+export WANDB_API_KEY=xx
+
+exp_name="test_qwen2_5_vl_7b"
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
@@ -29,8 +34,8 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.exp_name=${exp_name} \
         runtime_args.log_args_dict.enable_tensorboard=True \
         runtime_args.train_backend=megatron \
-        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
-        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
+        runtime_args.data_path=${CHATLEARN}/dataset/geo3k/train.parquet \
+        runtime_args.eval_data_path=${CHATLEARN}/dataset/geo3k/test.parquet \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=50 \
         runtime_args.sample_per_episode=2048 \
@@ -66,4 +71,6 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=False \
+        runtime_args.log_args_dict.enable_wandb=True \
+        runtime_args.log_args_dict.wandb_project=zxy_qenvl_chatlearn \
         2>&1 | tee ${log_file} ; exit ${PIPESTATUS[0]}
