@@ -29,13 +29,13 @@ from chatlearn.runtime.decorator import compute_decorator, timeit
 def build_dataset_func(
     cfg: BaseConfig, tokenizer: AutoTokenizer, prompts: List[Dict], is_eval=False
 ):
-    max_prompt_tokens_length = cfg.get("max_prompt_tokens_length")
+    max_prompt_tokens_length = cfg.max_prompt_tokens_length
 
     prompts_dataset = PromptPipeline(
         prompts,
         max_prompt_tokens_length,
         tokenizer,
-        enable_thinking=cfg.get("enable_thinking", False),
+        enable_thinking=cfg.enable_thinking,
     )
     return prompts_dataset
 

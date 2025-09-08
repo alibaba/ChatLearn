@@ -354,6 +354,9 @@ class SGLangModule(TorchModule):
         sampling_params = []
 
         for q in query:
+            # When partial_rollout is enabled, max_generate_token_length will be set by RolloutManager
+            # for different rollotu rounds.
+            # When partial_rollout is disabled, max_response_tokens_length from config will be used
             max_tokens = q.get("max_generate_token_length", max_response_tokens_length)
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item["max_new_tokens"] = max_tokens

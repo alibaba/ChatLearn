@@ -46,7 +46,6 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy_trainer.sequence_parallel=true \
         models.policy_trainer.use_distributed_optimizer=true \
         models.policy_trainer.recompute_granularity='selective' \
-        models.policy_trainer.seq_length=2048 \
         models.policy_trainer.tensor_model_parallel_size=1 \
         models.policy_trainer.pipeline_model_parallel_size=16 \
         models.policy_trainer.expert_model_parallel_size=16 \
