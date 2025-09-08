@@ -72,6 +72,6 @@ class BaseModelConfig(BaseConfig):
         metadata={"help": "The number of replica of this model."}
     )
     trust_remote_code: bool = field(
-        default=False, metadata={"help": "Whether or not to allow PreTrainedTokenizer to execute remote code"}
+        default=True, metadata={"help": "Whether or not to allow PreTrainedTokenizer to execute remote code"}
     )
     
