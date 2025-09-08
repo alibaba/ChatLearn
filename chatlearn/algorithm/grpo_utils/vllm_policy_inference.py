@@ -38,7 +38,7 @@ class VLLMPolicyInference(VLLMModule):
         seq_length = self.module_args.get("seq_length")
         assert len(prompts)>0, 'Dataset is empty'
 
-        if 'images' in prompts[0].keys():
+        if self.runtime_args.model_type == 'vlm':
             from chatlearn.data.vl_prompt_dataset import PromptPipeline
             prompts_dataset = PromptPipeline(
                 prompts,
