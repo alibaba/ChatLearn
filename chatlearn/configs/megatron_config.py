@@ -226,6 +226,14 @@ class MegatronConfig(BaseConfig):
         metadata={"help": "Enable sequence parallel optimization for mcore"},
     )
     # NOTE: model parallel config
+    max_response_tokens_length: int = field(
+        default=2048,
+        metadata={"help": "max length of response"}
+    )
+    max_prompt_tokens_length: int = field(
+        default=2048,
+        metadata={"help": "max length of prompt"}
+    )
     seq_length: int = field(
         default=MISSING,
         metadata={"help": "Maximum sequence length to process."},
@@ -303,6 +311,8 @@ class MegatronConfig(BaseConfig):
             self.variable_seq_lengths = self.packing
             if self.variable_seq_lengths and self.megatron_model_cfg.num_experts is None:
                 self.megatron_model_cfg.moe_token_dispatcher_type = 'alltoall'
+            # setup seqlen
+            self.seq_length = self.max_response_tokens_length + self.max_prompt_tokens_length
 
 
 @dataclass

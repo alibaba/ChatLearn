@@ -138,7 +138,8 @@ policy_trainer:
 ```yaml
 policy_trainer: 
   bf16: True
-  seq_length: 2048
+  max_prompt_tokens_length: ${models.policy.max_prompt_tokens_length}
+  max_response_tokens_length: ${models.policy.max_response_tokens_length}
   tokenizer_type: 'HuggingFaceTokenizer'
   tokenizer_model: ${models.policy.load}
   tensor_model_parallel_size: 1
@@ -159,7 +160,7 @@ policy_trainer:
 ```
 
 - `models.policy_trainer.bf16`：启用 bfloat16 精度。若为 `False`，则使用 fp32。
-- `models.policy_trainer.seq_length`：Megatron 训练的序列长度。若启用了 `packing`，此值将被忽略；否则必须与Rollout中seq_length一致。
+- `models.policy_trainer.max_prompt_tokens_length, models.policy_trainer.max_response_tokens_length`：用于计算Megatron 训练的序列长度，`models.policy_trainer.seq_length = models.policy_trainer.max_prompt_tokens_length + models.policy_trainer.max_prompt_tokens_length`。若启用了 `packing`，此值将被忽略；否则必须与Rollout中seq_length一致。
 - `models.policy_trainer.tokenizer_type`：Megatron 训练所用的 tokenizer 类型。大多数情况下推荐使用 `HuggingFaceTokenizer`。
 - `models.policy_trainer.tokenizer_model`：Megatron 训练所用的 tokenizer 模型路径。
 - `models.policy_trainer.tensor_model_parallel_size`：张量并行大小。
@@ -259,8 +260,8 @@ policy:
   trainable: False
   load: ${models.policy_trainer.load}
   num_inference_per_prompt: 32
-  seq_length: 2048
-  max_seq_len_to_capture: 2348
+  max_prompt_tokens_length: 1024
+  max_response_tokens_length: 2048
   temperature: 1.0
   top_p: 1.0
   eval_temperature: 0.6
@@ -278,8 +279,8 @@ policy:
 - `models.policy.trainable`：推理模型不可训练。
 - `models.policy.load`：模型权重路径；GRPO 中应与 `policy_trainer.load` 一致。
 - `models.policy.num_inference_per_prompt`：每个 prompt 生成的response数量。
-- `models.policy.seq_length`：序列的最大长度（prompt length + response length）。
-- `models.policy.max_seq_len_to_capture`：推理时捕获的最大序列长度。必须 ≥ `seq_length`。
+- `models.policy.max_prompt_tokens_length`：用于筛选输入prompt，如果输入prompt tokens的长度超过此值，则该prompt将被忽略。
+- `models.policy.max_response_tokens_length`：最大生成的response tokens长度。
 - `models.policy.temperature`, `models.policy.top_p`：训练推理时的采样超参数。
 - `models.policy.eval_temperature`, `models.policy.eval_top_p`, `models.policy.eval_top_k`：评估推理时的采样超参数。
 - `models.policy.enable_thinking`：若启用，为 Qwen3 模型启用“思考模式”。

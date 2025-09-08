@@ -40,8 +40,8 @@ python chatlearn/entrypoint.py grpo \
         models.policy.generation_batch_size=256 \
         models.policy.enforce_eager=True \
         models.policy.tensor_model_parallel_size=8 \
-        models.policy.seq_length=4096 \
-        models.policy.max_seq_len_to_capture=4348 \
+        models.policy.max_prompt_tokens_length=1024 \
+        models.policy.max_response_tokens_length=2048 \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.85 \
         models.policy.enable_thinking=False \
