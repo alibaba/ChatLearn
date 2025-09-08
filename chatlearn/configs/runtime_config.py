@@ -159,6 +159,12 @@ class RuntimeConfig(BaseConfig):
         default="fixed", metadata={"help": "stream_data_loader type, fixed or dynamic"}
     )
 
+    # config for model
+    model_type: str = field(
+        default='llm',
+        metadata={"help": "model type, llm or vlm"},
+    )
+
     # eval config
     eval_episode_interval: int = field(
         default=0,

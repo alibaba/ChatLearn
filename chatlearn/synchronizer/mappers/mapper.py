@@ -254,7 +254,7 @@ class MegatronMapper:
             # NOTE: if transformer.config have n_shared_experts, mapping to `shared_experts`, otherwise `shared_expert`
             # `shared_experts`: DeepSeek-V2, DeepSeek-V3, etc.
             # `shared_expert`: Qwen2-MoE, LLaMA-4, etc.
-            hf_config = AutoConfig.from_pretrained(self._dst_model_config.load, trust_remote_code=True)
+            hf_config = AutoConfig.from_pretrained(self._dst_model_config.load, trust_remote_code=self._dst_model_config.trust_remote_code)
             shared_expert_key = 'shared_experts' if hasattr(hf_config, 'n_shared_experts') else 'shared_expert'
             self._update_mapping(self._map_mlp(
                 module.shared_experts,

@@ -118,7 +118,7 @@ class PolicyTrainer(FSDPModule):
                 tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
-                if len(position_ids.shape)==3:
+                if self.runtime_args.model_type == 'vlm':
                     # vl
                     position_ids = position_ids.permute(0, 2, 1).cpu()
                 else:
@@ -146,7 +146,7 @@ class PolicyTrainer(FSDPModule):
                 }
             )
 
-            if 'pixel_values' in data_b:
+            if self.runtime_args.model_type == 'vlm':
                 data_obj.update(
                     {
                         "pixel_values": pixel_values, # [token_length, token_num]
@@ -189,7 +189,7 @@ class PolicyTrainer(FSDPModule):
         for inputs in data_list:
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
-            if "pixel_values" in inputs:
+            if self.runtime_args.model_type == 'vlm':
                 output = self.model(
                     input_ids=inputs['all_tokens'],
                     pixel_values=inputs['pixel_values'],
@@ -308,7 +308,7 @@ class PolicyTrainer(FSDPModule):
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
-                if "pixel_values" in inputs:
+                if self.runtime_args.model_type == 'vlm':
                     output = self.model(
                         input_ids=inputs['all_tokens'],
                         pixel_values=inputs['pixel_values'],

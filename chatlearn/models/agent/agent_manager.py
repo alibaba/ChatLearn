@@ -204,59 +204,59 @@ class AgentManager(BaseModule):
     #         rets = sglang_postprocess_func(self.tokenizer, outputs, data)
     #         return rets
         
-    def _forward_step(self, data: List[Dict], iteration, is_eval):
-        # random.shuffle(data)
-        ref_list = []
-        for data_item in data:
-            selected_engine = next(self.engine_iter)
-            ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
-            ref_list.append(ref)
-        
-        outputs = ray.get(ref_list)
-        # random.shuffle(outputs)
-        # dist.barrier()
-        if outputs is not None:
-            rets = agent_postprocess_func(outputs, data)
-            return rets
-
-
     # def _forward_step(self, data: List[Dict], iteration, is_eval):
     #     # random.shuffle(data)
-    #     MAX_CONCURRENT = 1536
-    #     data_iter = iter(data)
-    #     ref_to_info = {}
-    #     for i in range(min(len(data), MAX_CONCURRENT)):
-    #         data_item = next(data_iter)
+    #     ref_list = []
+    #     for data_item in data:
     #         selected_engine = next(self.engine_iter)
     #         ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
-    #         ref_to_info[ref] = {
-    #             "engine": selected_engine,
-    #             "data_item": data_item
-    #         }
-    #     results = []
-
-    #     while ref_to_info:
-    #         ready_refs, _ = ray.wait(list(ref_to_info.keys()), num_returns=1)
-    #         ready_ref = ready_refs[0]
-    #         output = ray.get(ready_ref)
-    #         info = ref_to_info.pop(ready_ref)
-    #         engine = info["engine"]
-    #         data_item = info["data_item"]
-    #         results += agent_postprocess_func([output], [data_item])
-    #         try:
-    #             next_data_item = next(data_iter)
-    #             new_ref = engine.generate.remote(**next_data_item, is_eval=is_eval)
-    #             ref_to_info[new_ref] = {
-    #                 "engine": engine,
-    #                 "data_item": next_data_item
-    #             }
-    #         except StopIteration:
-    #             # 所有请求已分配，不再提交新任务
-    #             pass
-    #     # random.shuffle(results)
-    #     results = group_dictionaries(results)
+    #         ref_list.append(ref)
+        
+    #     outputs = ray.get(ref_list)
+    #     # random.shuffle(outputs)
     #     # dist.barrier()
-    #     return results
+    #     if outputs is not None:
+    #         rets = agent_postprocess_func(outputs, data)
+    #         return rets
+
+
+    def _forward_step(self, data: List[Dict], iteration, is_eval):
+        # random.shuffle(data)
+        MAX_CONCURRENT = 1536
+        data_iter = iter(data)
+        ref_to_info = {}
+        for i in range(min(len(data), MAX_CONCURRENT)):
+            data_item = next(data_iter)
+            selected_engine = next(self.engine_iter)
+            ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
+            ref_to_info[ref] = {
+                "engine": selected_engine,
+                "data_item": data_item
+            }
+        results = []
+
+        while ref_to_info:
+            ready_refs, _ = ray.wait(list(ref_to_info.keys()), num_returns=1)
+            ready_ref = ready_refs[0]
+            output = ray.get(ready_ref)
+            info = ref_to_info.pop(ready_ref)
+            engine = info["engine"]
+            data_item = info["data_item"]
+            results += agent_postprocess_func([output], [data_item])
+            try:
+                next_data_item = next(data_iter)
+                new_ref = engine.generate.remote(**next_data_item, is_eval=is_eval)
+                ref_to_info[new_ref] = {
+                    "engine": engine,
+                    "data_item": next_data_item
+                }
+            except StopIteration:
+                # 所有请求已分配，不再提交新任务
+                pass
+        # random.shuffle(results)
+        results = group_dictionaries(results)
+        # dist.barrier()
+        return results
 
 
     @compute_decorator(trainable=False, rollout=True)
