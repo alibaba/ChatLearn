@@ -146,6 +146,7 @@ policy_trainer:
 - `models.policy_trainer.max_prompt_tokens_length, models.policy_trainer.max_prompt_tokens_length`: Used to calculate sequence length for Megatron Training, `models.policy_trainer.seq_length = models.policy_trainer.max_prompt_tokens_length + models.policy_trainer.max_prompt_tokens_length`. If `models.policy_trainer.packing` is enabled, the value will be ignored.
 Otherwise, the value must be equal to the value used for data generation.
 - `models.policy_trainer.tokenizer_type`: Tokenizer type for Megatron Training. For most cases, HuggingFaceTokenizer is recommended.
+- `models.policy_trainer.trust_remote_code`: Whether or not to allow Tokenizer to execute remote code, HuggingFaceTokenizer is recommended.
 - `models.policy_trainer.tokenizer_model`: Path to the tokenizer model for Megatron training.
 - `models.policy_trainer.tensor_model_parallel_size`: Tensor model parallel world size.
 - `models.policy_trainer.pipeline_model_parallel_size`: Pipeline model parallel world size.
@@ -159,6 +160,8 @@ Otherwise, the value must be equal to the value used for data generation.
 - `models.policy_trainer.sequence_parallel`: Whether to use sequence parallelism. Valid when `tensor_model_parallel_size` larger than 1.
 - `models.policy_trainer.use_distributed_optimizer`: Whether to use distributed optimizer to reduce memory consumption. Recommended to set True.
 - `models.policy_trainer.recompute_granularity`: Select recompute granularity to save memory usage. Should be null, `sel` or `full`. 
+- `models.policy_trainer.recompute_method`: When recompute_granularity is full, select recompute_method to recompute. Should be null, `uniform` or `block`. 
+- `models.policy_trainer.recompute_num_layers`: When recompute_granularity is full, select recompute_num_layers to recompute. Should be null or `num_layers`. 
 - `models.policy_trainer.use_group_sequence_policy`: Whether to use [GSPO](https://qwenlm.github.io/blog/gspo/).
 
 

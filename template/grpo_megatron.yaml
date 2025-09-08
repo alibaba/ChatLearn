@@ -47,6 +47,7 @@ models:
     max_prompt_tokens_length: ${models.policy.max_prompt_tokens_length}
     max_response_tokens_length: ${models.policy.max_response_tokens_length}
     tokenizer_type: 'HuggingFaceTokenizer'
+    trust_remote_code: False
     tokenizer_model: ${models.policy.load}
     trainable: True
     generation_batch_size: 8
@@ -67,6 +68,8 @@ models:
     sequence_parallel: True
     use_distributed_optimizer: True
     recompute_granularity: null
+    recompute_method: null
+    recompute_num_layers: null
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
@@ -106,6 +109,7 @@ models:
     num_gpu: ${models.policy_trainer.num_gpu}
     trainable: False
     # args_dict:
+    trust_remote_code: ${models.policy_trainer.trust_remote_code}
     load: your_hf_model_path
     num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
     max_prompt_tokens_length: 1024

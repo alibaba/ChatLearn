@@ -330,6 +330,22 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
             2) selective: submodules set in --recompute-modules are recomputed, default is core_attn."
         },
     )
+    recompute_method: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "1) uniform: uniformly divide the total number of Transformer layers \
+            and recompute the input activation of each divided chunk at specified granularity,  \
+            2) recompute the input activations of only a set number of individual Transformer layers per pipeline stage and do the \
+            rest without any recomputing at specified granularity default) do not apply activations recompute to any layers."
+        },
+    )
+    recompute_num_layers: Optional[int] = field(
+        default=None,
+        metadata={
+            "help": "1) uniform: the number of Transformer layers in each uniformly divided recompute unit, \
+            2) block: the number of individual Transformer layers to recompute within each pipeline stage."
+        },
+    )
     use_distributed_optimizer: bool = field(
         default=False,
         metadata={"help": "use_distributed_optimizer"},
