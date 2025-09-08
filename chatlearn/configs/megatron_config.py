@@ -233,6 +233,9 @@ class MegatronConfig(BaseConfig):
     tokenizer_type: str = field(
         default="NullTokenizer", metadata={"help": "What type of tokenizer to use."}
     )
+    trust_remote_code: bool = field(
+        default=False, metadata={"help": "Whether or not to allow PreTrainedTokenizer to execute remote code"}
+    )
     tokenizer_model: Optional[str] = field(
         default=None, metadata={"help": "pretrained model name or path. If None, use cfg.load instead"}
     )
