@@ -322,16 +322,15 @@ class MultiDatasetSampler:
             idxes = []
             datasize = sum(self.dataset_sizes)
             slice_index = utils.even_slice(datasize, self.data_parallel_size)
-            start_local = slice_index[self.data_parallel_rank]
-            end_local = slice_index[self.data_parallel_rank + 1]
+            start = slice_index[self.data_parallel_rank]
+            end = slice_index[self.data_parallel_rank + 1]
             for dataset_idx, dataset_size in enumerate(self.dataset_sizes):
                 idxes.extend([(dataset_idx, j, (len(idxes) + j)) for j in range(dataset_size)])
-            yield idxes[start_local : end_local]
+            yield idxes[start : end]
         else:
-            self.remainder = self.sample_per_episode % self.data_parallel_size
-            batch_size_list = [self.sample_per_episode // self.data_parallel_size + 1] * self.remainder + \
-                [self.sample_per_episode // self.data_parallel_size] * (self.data_parallel_size - self.remainder)
-            start, end = sum(batch_size_list[:self.data_parallel_rank]), sum(batch_size_list[:self.data_parallel_rank + 1])
+            slice_index = utils.even_slice(self.sample_per_episode, self.data_parallel_size)
+            start = slice_index[self.data_parallel_rank]
+            end = slice_index[self.data_parallel_rank + 1]
             num_samples = self.sample_per_episode // self.num_inference_per_prompt
             while True:
                 if self.drop_last == "drop":
