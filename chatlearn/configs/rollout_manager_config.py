@@ -12,8 +12,11 @@ class RolloutManagerConfig(BaseModelConfig):
     max_rollout_round: int = field(
         default=2, metadata={"help": "Max rollout round for one sample"}
     )
-    max_gen_len: int = field(
-        default=2048, metadata={"help": "max response token length for one sample"}
+    max_response_tokens_length: int = field(
+        default=2048, metadata={"help": "max length of response"}
+    )
+    max_prompt_tokens_length: int = field(
+        default=2048, metadata={"help": "max length of prompt"}
     )
     num_inference_per_prompt: int = field(
         default=32, metadata={"help": "number of response for per prompt"}

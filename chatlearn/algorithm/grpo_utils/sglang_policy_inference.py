@@ -29,15 +29,14 @@ from chatlearn.runtime.decorator import compute_decorator, timeit
 def build_dataset_func(
     cfg: BaseConfig, tokenizer: AutoTokenizer, prompts: List[Dict], is_eval=False
 ):
-    seq_length = cfg.get("seq_length")
+    max_prompt_tokens_length = cfg.max_prompt_tokens_length
 
     prompts_dataset = PromptPipeline(
         prompts,
-        seq_length,
+        max_prompt_tokens_length,
         tokenizer,
-        enable_thinking=cfg.get("enable_thinking", False),
+        enable_thinking=cfg.enable_thinking,
     )
-
     return prompts_dataset
 
 
@@ -70,13 +69,13 @@ def sglang_postprocess_func(
     return data_output
 
 
-def metric_collect(rets, seq_length):
+def metric_collect(rets, max_response_tokens_length):
     # collect metric
     response_token_length = [ret["response_token_length"] for ret in rets]
     prompt_token_length = [ret["prompt_token_length"] for ret in rets]
-    seq_len = seq_length
     clip_ratio = sum(
-        ret["response_token_length"] >= ret.get("max_generate_token_length", seq_len) for ret in rets
+        ret["response_token_length"] >= ret.get("max_generate_token_length", max_response_tokens_length) \
+            for ret in rets
     ) / len(rets)
     response_token_length.sort()
     inference_stats = {
@@ -97,7 +96,9 @@ class SGLangPolicyInference(SGLangModule):
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
         # TODO: move dataset to seperate node
-        return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
+        prompts_dataset= build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
+        self._logger.info(f"Max prompt token in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
+        return prompts_dataset
 
     @compute_decorator(trainable=False, rollout=True)
     @timeit()
@@ -121,14 +122,16 @@ class SGLangPolicyInference(SGLangModule):
 
         rets = self._forward_step(data, iteration, False)
         # collect metric
-        self._metric_list.append(metric_collect(rets, self.module_args.seq_length))
+        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
         return rets
 
 
 class AsyncSGLangPolicyInference(AsyncSGLangModule):
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
-        return build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
+        prompts_dataset= build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
+        self._logger.info(f"Max prompt token in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
+        return prompts_dataset
 
     @compute_decorator(trainable=False, rollout=True)
     @timeit()
@@ -151,5 +154,5 @@ class AsyncSGLangPolicyInference(AsyncSGLangModule):
     ) -> List[Dict[str, Any]]:  # pylint: disable=unused-argument
         rets = await self._forward_step(data, iteration, False)
         # collect metric
-        self._metric_list.append(metric_collect(rets, self.module_args.seq_length))
+        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
         return rets

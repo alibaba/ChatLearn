@@ -34,7 +34,7 @@ class PromptPipeline(Dataset):
     def __init__(
         self,
         data_list: List[Dict],
-        seq_length: int,
+        max_prompt_tokens_length: int,
         tokenizer: AutoTokenizer = None,
         enable_thinking=False,
         return_raw=True,
@@ -43,6 +43,7 @@ class PromptPipeline(Dataset):
 
         self.tokenizer = tokenizer
         self.data = []
+        self.max_prompt = 0
 
         for data_item in data_list:
             prompt = data_item["prompt"]
@@ -68,7 +69,10 @@ class PromptPipeline(Dataset):
                     "prompt_token_length": len(input_ids),
                     "prompt_token_ids": input_ids
                 }
-                if seq_length > len(input_ids):
+                # Filter out data with long input_ids
+                if len(input_ids) > self.max_prompt:
+                    self.max_prompt = len(input_ids)
+                if max_prompt_tokens_length > len(input_ids):
                     self.data.append(processed_data)
             else:
                 processed_data = {
@@ -78,6 +82,7 @@ class PromptPipeline(Dataset):
                     "ground_truth": ground_truth,
                 }
                 self.data.append(processed_data)
+        self.valid_ratio = len(self.data) / len(data_list)
 
     def __getitem__(self, ix: int):
         return self.data[ix]
