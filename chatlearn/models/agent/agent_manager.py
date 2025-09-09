@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""agent module"""
+"""agent manager"""
 import ray
 import uuid
 from typing import Dict, List, Any
@@ -65,66 +65,6 @@ def data_balance(data: List[Dict], dp_size, batch_size, key='all_token_length'):
     
     return result
 
-
-def sglang_postprocess_func(
-    tokenizer: AutoTokenizer,
-    batched_outputs: List[Dict[str, Any]],
-    input_data_list: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    data_output = []
-    for output, input_data in zip(batched_outputs, input_data_list):
-        prompt_token_ids = input_data["input_ids"]
-        output_tokens = output["output_ids"]
-        response_token_length = output["meta_info"]["completion_tokens"]
-        prompt_token_length = output["meta_info"]["prompt_tokens"]
-        str_outputs = tokenizer.decode(output_tokens, skip_special_tokens=True)
-        all_tokens = torch.tensor(prompt_token_ids + output_tokens)
-        input_data.update(
-            {
-                "prompt_token_ids": prompt_token_ids,
-                "all_tokens": all_tokens,
-                "response_token_length": response_token_length,
-                "prompt_token_length": prompt_token_length,
-                "str_outputs": str_outputs,
-            }
-        )
-        data_output.append(input_data)
-
-    print("str_outputs", data_output[0]["str_outputs"])
-    print("data_sources", data_output[0]["data_source"])
-    print("ground_truth", data_output[0]["ground_truth"])
-    return data_output
-
-def agent_postprocess_func(
-    batched_outputs: List[Dict[str, Any]],
-    input_data_list: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    data_output = []
-    for output,input_data in zip(batched_outputs, input_data_list):
-        prompt_token_ids = output.prompt_ids
-        response_token_length = len(output.all_token_ids) - len(output.prompt_ids)
-        prompt_token_length = len(output.prompt_ids)
-        str_outputs = output.str_output
-        all_tokens = torch.tensor(output.all_token_ids)
-        loss_mask = torch.tensor(output.loss_mask)
-        input_data.update(
-            {
-                "loss_mask": loss_mask,
-                "prompt_token_ids": prompt_token_ids,
-                "all_tokens": all_tokens,
-                "response_token_length": response_token_length,
-                "prompt_token_length": prompt_token_length,
-                "all_token_length": response_token_length + prompt_token_length,
-                "str_outputs": str_outputs,
-            }
-        )
-        data_output.append(input_data)
-
-    # print("str_outputs", data_output[0]["str_outputs"])
-    # print("data_sources", data_output[0]["data_source"])
-    # print("ground_truth", data_output[0]["ground_truth"])
-    return data_output
-
 class AgentManager(BaseModule):
     """Agent Manager"""
 
@@ -137,25 +77,13 @@ class AgentManager(BaseModule):
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
         assert self._num_replica == 1, "There should only be one AgentManager"
 
-    # def build_dataset(self, prompts: List[Dict], is_eval=False):
-
-    #     seq_length = self.global_args.models.policy.get("seq_length")
-    #     prompts_dataset = PromptPipeline(
-    #         prompts,
-    #         seq_length,
-    #         self.tokenizer,
-    #         enable_thinking=self.global_args.models.policy.get("enable_thinking", False),
-    #     )
-
-    #     return prompts_dataset
-
     @monitor_error()
     def setup(self):
         self.stats = {}
         self._metric_prefix = "agent"
         self.get_rollout()
         self.tokenizer = AutoTokenizer.from_pretrained(
-            self.global_args.models.policy.get("load"), trust_remote_code=True
+            self.global_args.models.policy.load, trust_remote_code=True
         )
 
 
@@ -163,7 +91,7 @@ class AgentManager(BaseModule):
         all_actors = ray.util.list_named_actors(all_namespaces=True)
         rollout_actors = [actor for actor in all_actors if actor['namespace'] == namespace]
         self.rollout_workers = [ray.get_actor(**item) for item in rollout_actors]
-        # rollout engine is not setup need to load later
+        # only support async sglang
         self.rollout_engines = [worker for worker in self.rollout_workers if ray.get(worker.is_engine.remote())]
         self.engine_iter = itertools.cycle(iter(self.rollout_engines))
 
@@ -182,7 +110,9 @@ class AgentManager(BaseModule):
                 "engine": selected_engine,
                 "data_item": data_item
             }
-        results = []
+        
+        output_list = []
+        data_list = []
 
         while ref_to_info:
             ready_refs, _ = ray.wait(list(ref_to_info.keys()), num_returns=1)
@@ -191,7 +121,8 @@ class AgentManager(BaseModule):
             info = ref_to_info.pop(ready_ref)
             engine = info["engine"]
             data_item = info["data_item"]
-            results += agent_postprocess_func([output], [data_item])
+            output_list.append(output)
+            data_list.append(data_item)
             try:
                 next_data_item = next(data_iter)
                 new_ref = engine.generate.remote(**next_data_item, is_eval=is_eval)
@@ -201,12 +132,11 @@ class AgentManager(BaseModule):
                 }
             except StopIteration:
                 pass
-        # random.shuffle(results)
-        # breakpoint()
+        
+        results = ray.get(self.rollout_engines[0].postprocess_func.remote(output_list, data_list))
         trainer_dp_size = self.global_args.models.policy_trainer.replica_dp_size * self.global_args.models.policy_trainer.num_replica
         batch_size_per_dp = len(data) / trainer_dp_size
         results = data_balance(results, trainer_dp_size, batch_size_per_dp)
-        # dist.barrier()
         return results
 
 
