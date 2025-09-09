@@ -27,19 +27,6 @@ class RolloutManager(BaseModule):
         # It will be append to self._metric_list after logging all metrics
         self.metric_dict = {}
 
-    def build_dataset(self, prompts: List[Dict], is_eval=False):
-        # prompts seems like the total data set by engine.set_dataset(dataset)
-        # TODO: move dataset to seperate node
-        self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
-        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
-        prompts_dataset = PromptPipeline(
-            prompts,
-            max_prompt_tokens_length,
-            self.tokenizer,
-            enable_thinking=self.module_args.enable_thinking,
-        )
-        return prompts_dataset
-
     def initialze_data(self, data: List[Dict[str, Any]]):
         for sample in data:
             sample["rollout_round"] = 0

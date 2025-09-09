@@ -32,30 +32,30 @@ from chatlearn.models.vllm_module import VLLMModule
 class VLLMPolicyInference(VLLMModule):
     """Policy vLLM Inference"""
 
-    def build_dataset(self, prompts: List[Dict], is_eval=False):
-        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
-        assert len(prompts)>0, 'Dataset is empty'
+    # def build_dataset(self, prompts: List[Dict], is_eval=False):
+    #     max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
+    #     assert len(prompts)>0, 'Dataset is empty'
 
-        if self.runtime_args.model_type == 'vlm':
-            from chatlearn.data.vl_prompt_dataset import PromptPipeline
-            prompts_dataset = PromptPipeline(
-                prompts,
-                max_prompt_tokens_length,
-                self.tokenizer,
-                self.processor,
-                enable_thinking=self.module_args.enable_thinking,
-            )
-        else:
-            from chatlearn.data.prompt_dataset import PromptPipeline
-            prompts_dataset = PromptPipeline(
-                prompts,
-                max_prompt_tokens_length,
-                self.tokenizer,
-                enable_thinking=self.module_args.enable_thinking,
-            )
-        self._logger.info(f"Max prompt token length in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
+    #     if self.runtime_args.model_type == 'vlm':
+    #         from chatlearn.data.vl_prompt_dataset import PromptPipeline
+    #         prompts_dataset = PromptPipeline(
+    #             prompts,
+    #             max_prompt_tokens_length,
+    #             self.tokenizer,
+    #             self.processor,
+    #             enable_thinking=self.module_args.enable_thinking,
+    #         )
+    #     else:
+    #         from chatlearn.data.prompt_dataset import PromptPipeline
+    #         prompts_dataset = PromptPipeline(
+    #             prompts,
+    #             max_prompt_tokens_length,
+    #             self.tokenizer,
+    #             enable_thinking=self.module_args.enable_thinking,
+    #         )
+    #     self._logger.info(f"Max prompt token length in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
 
-        return prompts_dataset
+    #     return prompts_dataset
 
     @compute_decorator(trainable=False, rollout=True)
     @timeit()

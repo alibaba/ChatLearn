@@ -129,6 +129,10 @@ class RuntimeConfig(BaseConfig):
     )
 
     # config for data
+    raw_chat: bool = field(
+        default=False,
+        metadata={"help": "whether return raw chat messages or prompt ids"},
+    )
     data_ratio: List[int] = field(
         default_factory=list,
         metadata={"help": "the ratio for each kind of data_path in a training episode"},

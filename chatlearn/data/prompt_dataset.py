@@ -37,7 +37,7 @@ class PromptPipeline(Dataset):
         max_prompt_tokens_length: int,
         tokenizer: AutoTokenizer = None,
         enable_thinking=False,
-        return_raw=True,
+        raw_chat=True,
         **kwargs
     ):  # pylint: disable=super-init-not-called
         super().__init__()
@@ -50,7 +50,7 @@ class PromptPipeline(Dataset):
             prompt = data_item["prompt"]
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
-            if not return_raw:
+            if not raw_chat:
                 if isinstance(prompt, list):
                     prompt = self.tokenizer.apply_chat_template(
                         prompt,

@@ -26,20 +26,6 @@ from chatlearn.models.sglang_module import AsyncSGLangModule, SGLangModule
 from chatlearn.runtime.decorator import compute_decorator, timeit
 
 
-def build_dataset_func(
-    cfg: BaseConfig, tokenizer: AutoTokenizer, prompts: List[Dict], is_eval=False
-):
-    max_prompt_tokens_length = cfg.max_prompt_tokens_length
-
-    prompts_dataset = PromptPipeline(
-        prompts,
-        max_prompt_tokens_length,
-        tokenizer,
-        enable_thinking=cfg.enable_thinking,
-    )
-    return prompts_dataset
-
-
 def sglang_postprocess_func(
     tokenizer: AutoTokenizer,
     batched_outputs: List[Dict[str, Any]],
@@ -94,12 +80,6 @@ def metric_collect(rets, max_response_tokens_length):
 class SGLangPolicyInference(SGLangModule):
     """sglang rollout"""
 
-    def build_dataset(self, prompts: List[Dict], is_eval=False):
-        # TODO: move dataset to seperate node
-        prompts_dataset= build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
-        self._logger.info(f"Max prompt token in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
-        return prompts_dataset
-
     @compute_decorator(trainable=False, rollout=True)
     @timeit()
     def eval_forward(self, data, iteration=0, **kwargs):
@@ -127,11 +107,6 @@ class SGLangPolicyInference(SGLangModule):
 
 
 class AsyncSGLangPolicyInference(AsyncSGLangModule):
-
-    def build_dataset(self, prompts: List[Dict], is_eval=False):
-        prompts_dataset= build_dataset_func(self.module_args, self.tokenizer, prompts, is_eval)
-        self._logger.info(f"Max prompt token in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
-        return prompts_dataset
 
     @compute_decorator(trainable=False, rollout=True)
     @timeit()

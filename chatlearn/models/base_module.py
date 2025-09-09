@@ -284,16 +284,33 @@ class BaseModule:
     def build_dataset(self, prompts, is_eval=False):
         """
         Build prompt dataset
-
-        Args
-        ----
-            prompts: [Str]
-                A list of prompt string.
-        Returns
-        -------
-            torch.utils.data.Dataset
-                Dataset with user-defined collate_fn
         """
+        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
+        assert len(prompts)>0, 'Dataset is empty'
+
+        if self.runtime_args.model_type == 'vlm':
+            from chatlearn.data.vl_prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                max_prompt_tokens_length,
+                self.tokenizer,
+                self.processor,
+                enable_thinking=self.module_args.enable_thinking,
+            )
+        else:
+            from chatlearn.data.prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                max_prompt_tokens_length,
+                self.tokenizer,
+                enable_thinking=self.module_args.enable_thinking,
+                raw_chat=self.runtime_args.raw_chat
+            )
+
+        if not self.runtime_args.raw_chat:
+            self._logger.info(f"Max prompt token length in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
+
+        return prompts_dataset
 
     def build_all_dataset(self, prompts_list, is_eval=False):
         """

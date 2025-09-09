@@ -137,17 +137,17 @@ class AgentManager(BaseModule):
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
         assert self._num_replica == 1, "There should only be one AgentManager"
 
-    def build_dataset(self, prompts: List[Dict], is_eval=False):
+    # def build_dataset(self, prompts: List[Dict], is_eval=False):
 
-        seq_length = self.global_args.models.policy.get("seq_length")
-        prompts_dataset = PromptPipeline(
-            prompts,
-            seq_length,
-            self.tokenizer,
-            enable_thinking=self.global_args.models.policy.get("enable_thinking", False),
-        )
+    #     seq_length = self.global_args.models.policy.get("seq_length")
+    #     prompts_dataset = PromptPipeline(
+    #         prompts,
+    #         seq_length,
+    #         self.tokenizer,
+    #         enable_thinking=self.global_args.models.policy.get("enable_thinking", False),
+    #     )
 
-        return prompts_dataset
+    #     return prompts_dataset
 
     @monitor_error()
     def setup(self):
