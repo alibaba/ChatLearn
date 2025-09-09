@@ -74,4 +74,3 @@ class BaseModelConfig(BaseConfig):
     trust_remote_code: bool = field(
         default=True, metadata={"help": "Whether or not to allow PreTrainedTokenizer to execute remote code"}
     )
-    
