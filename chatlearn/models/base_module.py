@@ -229,32 +229,6 @@ class BaseModule:
         # Preprocess after get list of sample
         return data
 
-    def data_fetch(self, data_ref, train_func: bool):
-        # Get data from remote dataset
-        data_list = future.get(data_ref)
-        # For data in trainer, data_list is [microbatch0, microbatch1, ...]
-        # For data in environment which is inter-node in graph, data_list is [inque_input_node0, inque_input_node1, ...]
-        if not train_func:
-            batched_data_list = [[] for _ in range(len(data_list))]
-            for idx, data_obj in enumerate(data_list):
-                if isinstance(data_obj, list):
-                    batched_data_list[idx] = data_obj
-                if REF_LIST in data_obj:
-                    for data_slice in data_obj[REF_LIST]:
-                        batched_data_list[idx].extend(data_slice)
-                if INDEX_TAG in data_obj:
-                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], data_obj[INDEX_TAG])
-            if len(batched_data_list) > 1:
-                # When current node have several input nodes, we need to merge them
-                # Data size for each input node must be same
-                assert len({len(input_list) for input_list in batched_data_list}) == 1
-                data_list = [{k: v for d in group for k, v in d.items()} for group in zip(*batched_data_list)]
-            else:
-                data_list = batched_data_list[0]
-        else:
-            data_list = data_list[0]
-        return self._preprocess_impl(data_list)
-
     def eval_step(self, data):
         """
         Perform eval_step for one batch
@@ -459,6 +433,32 @@ class BaseModule:
             return next(self._eval_data_iter)
         else:
             return next(self._data_iter)
+
+    def data_fetch(self, data_ref, train_func: bool):
+        # Get data from remote dataset
+        data_list = future.get(data_ref)
+        # For data in trainer, data_list is [microbatch0, microbatch1, ...]
+        # For data in environment which is inter-node in graph, data_list is [inque_input_node0, inque_input_node1, ...]
+        if not train_func:
+            batched_data_list = [[] for _ in range(len(data_list))]
+            for idx, data_obj in enumerate(data_list):
+                if isinstance(data_obj, list):
+                    batched_data_list[idx] = data_obj
+                if REF_LIST in data_obj:
+                    for data_slice in data_obj[REF_LIST]:
+                        batched_data_list[idx].extend(data_slice)
+                if INDEX_TAG in data_obj:
+                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], data_obj[INDEX_TAG])
+            if len(batched_data_list) > 1:
+                # When current node have several input nodes, we need to merge them
+                # Data size for each input node must be same
+                assert len({len(input_list) for input_list in batched_data_list}) == 1
+                data_list = [{k: v for d in group for k, v in d.items()} for group in zip(*batched_data_list)]
+            else:
+                data_list = batched_data_list[0]
+        else:
+            data_list = data_list[0]
+        return self._preprocess_impl(data_list)
 
     @property
     def num_replica(self):

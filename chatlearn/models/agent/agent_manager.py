@@ -33,67 +33,37 @@ from itertools import cycle
 
 import heapq
 
-def group_dictionaries(data, num_groups=8, group_size=256, length_key='all_token_length'):
+# def data_balance(data: List[Dict], num_groups, group_size, length_key='all_token_length'):
+def data_balance(data: List[Dict], dp_size, batch_size, key='all_token_length'):
     """
-    将字典列表按 length_key 的值进行负载均衡分组，每组最多 group_size 个元素。
-    
-    参数:
-    - data: 字典列表，每个字典包含 length_key 字段
-    - num_groups: 分成多少组（默认16）
-    - group_size: 每组最多多少个元素（默认128）
-    - length_key: 用于表示长度的键名（如 'length', 'len' 等）
-    
-    返回:
-    - 列表，包含num_groups个组，每组是字典的列表
+    balance total token budget between dp
     """
-    # 按 length_key 从大到小排序（优先处理长的）
-    sorted_data = sorted(data, key=lambda x: x[length_key], reverse=True)
-    
-    # 初始化最小堆：(当前总长度, 组索引, 组内元素列表)
-    heap = [(0, i, []) for i in range(num_groups)]
+    sorted_data = sorted(data, key=lambda x: x[key], reverse=True)
+    heap = [(0,i,[]) for i in range(dp_size)]
     heapq.heapify(heap)
-    
-    # 存储已满的组
     full_groups = []
-    
-    # 贪心分配
+    # Greedy
     for item in sorted_data:
-        # 如果堆为空，说明所有组都满了
         if not heap:
             break
-            
-        # 取出当前总长度最小的组
         total_len, idx, group = heapq.heappop(heap)
-        
-        # 添加当前元素到组中
         group.append(item)
-        new_total_len = total_len + item[length_key]
+        new_total_len = total_len + item[key]
         
-        # 检查该组是否已满
-        if len(group) >= group_size:
-            # 组已满，加入到full_groups，不再放回堆中
-            full_groups.append((new_total_len, idx, group))
+        if len(group) >= batch_size:
+            full_groups.append(group)
         else:
-            # 组未满，放回堆中继续参与分配
             heapq.heappush(heap, (new_total_len, idx, group))
     
-    # 合并结果：堆中未满的组 + 已满的组
-    all_groups = []
-    # 添加堆中剩余的未满组
     while heap:
         total_len, idx, group = heapq.heappop(heap)
-        all_groups.append((idx, group))
-    
-    # 添加已满的组
-    for total_len, idx, group in full_groups:
-        all_groups.append((idx, group))
-    
-    # 按组索引排序并提取结果
-    result = [group for idx, group in sorted(all_groups, key=lambda x: x[0])]
+        full_groups.append(group)
 
-    flattened_result = [item for sublist in result for item in sublist]
+    result = []
+    for group_data in full_groups:
+        result += group_data
     
-    return flattened_result
+    return result
 
 
 def sglang_postprocess_func(
@@ -197,32 +167,11 @@ class AgentManager(BaseModule):
         self.rollout_engines = [worker for worker in self.rollout_workers if ray.get(worker.is_engine.remote())]
         self.engine_iter = itertools.cycle(iter(self.rollout_engines))
 
-    # def _forward_step(self, data: List[Dict], iteration, is_eval):
-    #     outputs = ray.get(self.rollout_engines[0].generate.remote(data, is_eval))
-
-    #     if outputs is not None:
-    #         rets = sglang_postprocess_func(self.tokenizer, outputs, data)
-    #         return rets
-        
-    # def _forward_step(self, data: List[Dict], iteration, is_eval):
-    #     # random.shuffle(data)
-    #     ref_list = []
-    #     for data_item in data:
-    #         selected_engine = next(self.engine_iter)
-    #         ref = selected_engine.generate.remote(**data_item, is_eval=is_eval)
-    #         ref_list.append(ref)
-        
-    #     outputs = ray.get(ref_list)
-    #     # random.shuffle(outputs)
-    #     # dist.barrier()
-    #     if outputs is not None:
-    #         rets = agent_postprocess_func(outputs, data)
-    #         return rets
-
-
     def _forward_step(self, data: List[Dict], iteration, is_eval):
         # random.shuffle(data)
-        MAX_CONCURRENT = 1536
+        MAX_CONCURRENT = int(0.75*len(data))
+        # MAX_CONCURRENT = int(1*len(data))
+        
         data_iter = iter(data)
         ref_to_info = {}
         for i in range(min(len(data), MAX_CONCURRENT)):
@@ -251,10 +200,12 @@ class AgentManager(BaseModule):
                     "data_item": next_data_item
                 }
             except StopIteration:
-                # 所有请求已分配，不再提交新任务
                 pass
         # random.shuffle(results)
-        results = group_dictionaries(results)
+        # breakpoint()
+        trainer_dp_size = self.global_args.models.policy_trainer.replica_dp_size * self.global_args.models.policy_trainer.num_replica
+        batch_size_per_dp = len(data) / trainer_dp_size
+        results = data_balance(results, trainer_dp_size, batch_size_per_dp)
         # dist.barrier()
         return results
 

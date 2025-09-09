@@ -157,7 +157,6 @@ class Environment(Executor):
         # prepare batches for all model replicas
         for mb in range(self.global_dp_size(self.models[0])):
             current_data_producer = next(data_producer_iter)
-            # master is vllm.engine or self.all_actors[0]
             query = current_data_producer.master.next_batch.remote(is_eval=is_eval)
             encoded_data = encode_data(mb, query)
             for data_queue in data_queues:
