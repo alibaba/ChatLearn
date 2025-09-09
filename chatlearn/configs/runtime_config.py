@@ -56,6 +56,9 @@ class RuntimeConfig(BaseConfig):
     rollout_backend: str = field(
         default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
     )
+    task_type: str = field(
+        default="chat", metadata={"help": "RL task type, one of chat or agent"}
+    )
     partial_rollout: bool = field(
         default=False, metadata={"help": "whether to use partial rollout"}
     )

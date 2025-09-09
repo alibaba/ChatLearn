@@ -324,7 +324,6 @@ class MultiDatasetSampler:
         start, end = sum(batch_size_list[:self.data_parallel_rank]), sum(batch_size_list[:self.data_parallel_rank + 1])
 
         if self.is_eval:
-            assert self.sample_per_episode <= sum(self.dataset_sizes), "eval dataset size must be larger than sample_per_episode"
             idxes = []
             for dataset_idx, dataset_size in enumerate(self.dataset_sizes):
                 idxes.extend([(dataset_idx, j, (len(idxes) + j)) for j in range(dataset_size)])

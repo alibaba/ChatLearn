@@ -157,13 +157,11 @@ if HAVE_VLLM:
             """
             super().setup()
 
-            tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
-            tokenizer.tokenizer = tokenizer
-            self.tokenizer = tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
 
             if self.runtime_args.model_type == 'vlm':
                 # processor is needed for qwenvl
-                self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
+                self.processor = AutoProcessor.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
             else:
                 self.processor = None
 

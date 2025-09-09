@@ -33,8 +33,6 @@ class VLLMPolicyInference(VLLMModule):
     """Policy vLLM Inference"""
 
     def build_dataset(self, prompts: List[Dict], is_eval=False):
-        # prompts seems like the total data set by engine.set_dataset(dataset)
-        # TODO: move dataset to seperate node
         max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
         assert len(prompts)>0, 'Dataset is empty'
 
@@ -43,7 +41,7 @@ class VLLMPolicyInference(VLLMModule):
             prompts_dataset = PromptPipeline(
                 prompts,
                 max_prompt_tokens_length,
-                self.tokenizer.tokenizer,
+                self.tokenizer,
                 self.processor,
                 enable_thinking=self.module_args.enable_thinking,
             )
@@ -52,10 +50,10 @@ class VLLMPolicyInference(VLLMModule):
             prompts_dataset = PromptPipeline(
                 prompts,
                 max_prompt_tokens_length,
-                self.tokenizer.tokenizer,
+                self.tokenizer,
                 enable_thinking=self.module_args.enable_thinking,
             )
-        self._logger.info(f"Max prompt token in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
+        self._logger.info(f"Max prompt token length in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
 
         return prompts_dataset
 
@@ -114,7 +112,7 @@ class VLLMPolicyInference(VLLMModule):
                 output_tokens = list(output.outputs[res_idx].token_ids)
                 response_token_length = len(output_tokens)
                 prompt_token_length = len(output.prompt_token_ids)
-                str_outputs = self.tokenizer.tokenizer.decode(
+                str_outputs = self.tokenizer.decode(
                         output_tokens, skip_special_tokens=True
                     )
                 all_tokens = torch.tensor(output.prompt_token_ids + output_tokens)

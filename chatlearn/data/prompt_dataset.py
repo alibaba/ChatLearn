@@ -38,6 +38,7 @@ class PromptPipeline(Dataset):
         tokenizer: AutoTokenizer = None,
         enable_thinking=False,
         return_raw=True,
+        **kwargs
     ):  # pylint: disable=super-init-not-called
         super().__init__()
 
