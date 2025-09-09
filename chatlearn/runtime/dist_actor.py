@@ -251,7 +251,7 @@ class DistVLLMActor(DistTorchActor):
                 "eval_forward",
                 "forward_step",
                 "setup_engine",
-                "generate_vllm",
+                "generate",
                 "offload",
                 "onload",
                 "get_and_clear_metrics",

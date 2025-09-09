@@ -36,9 +36,9 @@ from chatlearn.configs.fsdp_config import FSDPPolicyTrainerConfig, FSDPRefPolicy
 
 from chatlearn.algorithm.grpo_utils.advantage_compute import AdvantageComputer
 from chatlearn.algorithm.grpo_utils.policy_trainer import PolicyTrainer
-from chatlearn.algorithm.grpo_utils.vllm_policy_inference import \
-    VLLMPolicyInference
-from chatlearn.algorithm.grpo_utils.sglang_policy_inference import SGLangPolicyInference, AsyncSGLangPolicyInference
+from chatlearn.models.vllm_module import VLLMModule
+from chatlearn.models.sglang_module import SGLangModule, AsyncSGLangModule
+from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.agent.agent_module import AgentModule
 from chatlearn.algorithm.grpo_utils.rollout_manager import RolloutManager
 from chatlearn.data.data import read_data_path_list
@@ -193,7 +193,7 @@ class GRPOEngine(Engine):
 
     def __init__(
         self,
-        policy: VLLMPolicyInference,
+        policy: TorchModule,
         reward: RuleReward,
         ref_policy: PolicyTrainer,
         policy_trainer: PolicyTrainer,
@@ -248,7 +248,7 @@ class GRPOAgentEngine(Engine):
     def __init__(
         self,
         agent: AgentManager,
-        policy: VLLMPolicyInference,
+        policy: TorchModule,
         reward: RuleReward,
         ref_policy: PolicyTrainer,
         policy_trainer: PolicyTrainer,
@@ -302,9 +302,9 @@ class GrpoAlgorithm(BaseAlgorithm):
         # setup for rollout
         if self.cfg.runtime_args.task_type == "chat":
             if self.cfg.runtime_args.rollout_backend == "vllm":
-                policy = VLLMPolicyInference("policy")
+                policy = VLLMModule("policy")
             elif self.cfg.runtime_args.rollout_backend == "sglang":
-                RolloutModule_cls = SGLangPolicyInference if self.cfg.models.policy.is_sync_mode else AsyncSGLangPolicyInference
+                RolloutModule_cls = SGLangModule if self.cfg.models.policy.is_sync_mode else AsyncSGLangModule
                 policy = RolloutModule_cls("policy")
         elif self.cfg.runtime_args.task_type == "agent":
             assert self.cfg.models.policy.is_sync_mode == False and self.cfg.runtime_args.rollout_backend == "sglang", \

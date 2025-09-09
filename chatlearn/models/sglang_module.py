@@ -21,16 +21,17 @@ import os
 import traceback
 import warnings
 from unittest.mock import MagicMock
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 
 import ray
+import numpy as np
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
-from chatlearn.runtime.decorator import timeit
+from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.mappings.huggingface_helpers import build_sharded_info_for_huggingface_model
@@ -115,6 +116,28 @@ except Exception:
     warnings.warn("SGLang is not installed.")
     # Mock Engine
     Engine = MagicMock()
+
+
+def metric_collect(rets, max_response_tokens_length):
+    # collect metric
+    response_token_length = [ret["response_token_length"] for ret in rets]
+    prompt_token_length = [ret["prompt_token_length"] for ret in rets]
+    clip_ratio = sum(
+        ret["response_token_length"] >= ret.get("max_generate_token_length", max_response_tokens_length) \
+            for ret in rets
+    ) / len(rets)
+    response_token_length.sort()
+    inference_stats = {
+        "response_token_length": sum(response_token_length)
+        / len(response_token_length),
+        "prompt_token_length": sum(prompt_token_length) / len(prompt_token_length),
+        "response_clip_ratio": clip_ratio,
+        "response_max": max(response_token_length),
+        "response_25_percentile": np.percentile(response_token_length, 25),
+        "response_50_percentile": np.percentile(response_token_length, 50),
+        "response_75_percentile": np.percentile(response_token_length, 75),
+    }
+    return inference_stats
 
 
 # modified from https://github.com/volcengine/verl/blob/main/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L128
@@ -614,6 +637,59 @@ class SGLangModule(TorchModule):
         torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
 
+    def postprocess_func(
+        self,
+        batched_outputs: List[Dict[str, Any]],
+        input_data_list: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        data_output = []
+        for output, input_data in zip(batched_outputs, input_data_list):
+            prompt_token_ids = input_data["input_ids"]
+            output_tokens = output["output_ids"]
+            response_token_length = output["meta_info"]["completion_tokens"]
+            str_outputs = self.tokenizer.decode(output_tokens, skip_special_tokens=True)
+            all_tokens = torch.tensor(prompt_token_ids + output_tokens)
+            input_data.update(
+                {
+                    "all_tokens": all_tokens,
+                    "response_token_length": response_token_length,
+                    "str_outputs": str_outputs,
+                }
+            )
+            if "rollout_round" in input_data:
+                input_data["rollout_round"] += 1
+            data_output.append(input_data)
+
+        print("str_outputs", data_output[0]["str_outputs"])
+        print("data_sources", data_output[0]["data_source"])
+        print("ground_truth", data_output[0]["ground_truth"])
+        return data_output
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    def eval_forward(self, data, iteration=0, **kwargs):
+        return self._forward_step(data, iteration, True)
+
+    def _forward_step(
+        self, data, iteration, is_eval
+    ):
+        outputs = self.generate(data, is_eval)
+
+        if outputs is not None:
+            rets = self.postprocess_func(outputs, data)
+            return rets
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    def forward_step(
+        self, data: List[Dict[str, Any]], iteration=0, **kwargs
+    ) -> List[Dict[str, Any]]:
+
+        rets = self._forward_step(data, iteration, False)
+        # collect metric
+        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
+        return rets
+
 
 class AsyncSGLangModule(SGLangModule):
     """AsyncSGLangModule"""
@@ -708,3 +784,27 @@ class AsyncSGLangModule(SGLangModule):
             )
             self.postprocess_tags(tags, stage="onload")
         torch.cuda.synchronize()
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    async def eval_forward(self, data, iteration=0, **kwargs):
+        return await self._forward_step(data, iteration, True)
+
+    async def _forward_step(
+        self, data, iteration, is_eval
+    ):  # pylint: disable=unused-argument
+        outputs = await self.generate(data, is_eval)
+
+        if outputs is not None:
+            rets = self.postprocess_func(outputs, data)
+            return rets
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    async def forward_step(
+        self, data: List[Dict[str, Any]], iteration=0, **kwargs
+    ) -> List[Dict[str, Any]]:  # pylint: disable=unused-argument
+        rets = await self._forward_step(data, iteration, False)
+        # collect metric
+        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
+        return rets
