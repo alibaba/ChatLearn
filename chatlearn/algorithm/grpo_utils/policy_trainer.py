@@ -111,7 +111,7 @@ class PolicyTrainer(FSDPModule):
             attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, position_ids)
             if 'loss_mask' in data_b:
                 loss_mask = data_b['loss_mask']
-            # breakpoint()
+
             indices = None
             if self.packing:
                 # Packing data into one batch
