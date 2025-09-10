@@ -25,7 +25,7 @@ log_file=$log_dir/${exp_name}_rank${RANK}.log
 
 python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.exp_name=${exp_name} \
-        runtime_args.partial_rollout=True \
+        runtime_args.use_partial_rollout=True \
         runtime_args.log_args_dict.enable_tensorboard=True \
         runtime_args.train_backend=megatron \
         runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
@@ -64,7 +64,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=False \
-        models.rollout_manager.max_rollout_round=2 \
-        models.rollout_manager.rollout_ratio=[0.5,0.5] \
-        models.rollout_manager.mini_response_per_prompt=8 \
+        models.partial_rollout_manager.max_rollout_round=2 \
+        models.partial_rollout_manager.rollout_ratio=[0.5,0.5] \
+        models.partial_rollout_manager.mini_response_per_prompt=8 \
         2>&1 | tee ${log_file} ; exit ${PIPESTATUS[0]}

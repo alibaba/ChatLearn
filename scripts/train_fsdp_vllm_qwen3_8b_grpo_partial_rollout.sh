@@ -12,7 +12,7 @@ export exp_name=qwen3-grpo-8b
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
         runtime_args.exp_name=${exp_name} \
-        runtime_args.partial_rollout=True \
+        runtime_args.use_partial_rollout=True \
         runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
         runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
@@ -45,8 +45,8 @@ python chatlearn/entrypoint.py grpo \
         models.policy.gpu_memory_utilization=0.85 \
         models.policy.enable_thinking=False \
         models.reward.generation_batch_size=256 \
-        models.rollout_manager.max_rollout_round=2 \
-        models.rollout_manager.rollout_ratio=[0.5,0.5] \
-        models.rollout_manager.mini_response_per_prompt=8 \
+        models.partial_rollout_manager.max_rollout_round=2 \
+        models.partial_rollout_manager.rollout_ratio=[0.5,0.5] \
+        models.partial_rollout_manager.mini_response_per_prompt=8 \
         models.reward.generation_batch_size=256 \
         2>&1 | tee log_${exp_name}.log ; exit ${PIPESTATUS[0]}

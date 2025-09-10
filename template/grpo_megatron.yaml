@@ -2,7 +2,7 @@ runtime_args:
   # setup config
   train_backend: megatron
   rollout_backend: vllm
-  partial_rollout: False
+  use_partial_rollout: False
   exp_name: grpo_megatron
   colocation: [policy,policy_trainer,ref_policy]
   # path config
@@ -129,7 +129,7 @@ models:
     num_cpu: 2
     cpu_per_process: 1
     generation_batch_size: 256
-  rollout_manager:
+  partial_rollout_manager:
     num_cpu: 64
     cpu_per_process: 64
     num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}

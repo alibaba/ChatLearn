@@ -29,7 +29,7 @@ def timing(operation_name: str):
         yield
     finally:
         duration = time.time() - start_time
-        logger.info(f"{LOG_START} {operation_name} completed. Duration: {duration:.3f}s")
+        logger.info(f"{LOG_START} {operation_name} completed. Duration: {duration:.8f}s")
 
 
 class _Timer:

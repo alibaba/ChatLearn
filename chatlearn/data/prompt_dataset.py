@@ -45,7 +45,6 @@ class PromptPipeline(Dataset):
         self.tokenizer = tokenizer
         self.data = []
         self.max_prompt = 0
-
         for data_item in data_list:
             prompt = data_item["prompt"]
             data_source = data_item.get("data_source", "")

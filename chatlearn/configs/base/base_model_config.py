@@ -84,7 +84,7 @@ class BaseModelConfig(BaseConfig):
         default=False, metadata={"help": "whether enable think or not"}
     )
     max_prompt_tokens_length: int = field(
-        default=2048,
+        default=1024,
         metadata={"help": "max length of prompt"}
     )
     max_response_tokens_length: int = field(

@@ -100,7 +100,7 @@ class BaseEngine:
         self.timers("setup_models").start()
 
         # setup for rollout engine
-        # make ture setup rollout engine before AgentManager
+        # make ture setup rollout engine before RolloutManager
         for remote_model in self.remote_models:
             model = remote_model.replicas[0]
             if model.model.name == "policy":

@@ -26,11 +26,11 @@ from chatlearn import Engine
 from chatlearn.configs import (
     BaseConfig,
     RewardConfig,
-    AgentConfig,
+    RolloutManagerConfig,
     PolicyConfig,
     RuntimeConfig,
     RuntimeEnvConfig,
-    RolloutManagerConfig
+    PartialRolloutManagerConfig
 )
 from chatlearn.configs.fsdp_config import FSDPPolicyTrainerConfig, FSDPRefPolicyConfig
 
@@ -40,10 +40,10 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.models.sglang_module import SGLangModule, AsyncSGLangModule
 from chatlearn.models.torch_module import TorchModule
 from chatlearn.models.agent.agent_module import AgentModule
-from chatlearn.algorithm.grpo_utils.rollout_manager import RolloutManager
+from chatlearn.algorithm.grpo_utils.partial_rollout_manager import PartialRolloutManager
 from chatlearn.data.data import read_data_path_list
 from chatlearn.models.reward.rule_reward import RuleReward
-from chatlearn.models.agent.agent_manager import AgentManager
+from chatlearn.models.agent.rollout_manager import RolloutManager
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.evaluator import Evaluator
 from chatlearn.runtime.trainer import Trainer
@@ -70,11 +70,11 @@ class GrpoModelConfig(BaseConfig):
     reward: RewardConfig = field(
         default_factory=RewardConfig, metadata={"help": "Reward config."}
     )
-    agent: AgentConfig = field(
-        default_factory=AgentConfig, metadata={"help": "Agent config."}
-    )
     rollout_manager: RolloutManagerConfig = field(
-        default=RolloutManagerConfig, metadata={"help": "Rollout manager config. Only useful when partial_rollout is enabled"}
+        default_factory=RolloutManagerConfig, metadata={"help": "rollout manager config."}
+    )
+    partial_rollout_manager: PartialRolloutManagerConfig = field(
+        default=PartialRolloutManagerConfig, metadata={"help": "partial Rollout manager config. Only useful when partial_rollout is enabled"}
     )
     ref_policy: Any = field(
         default=None,
@@ -197,8 +197,7 @@ class GRPOEngine(Engine):
         reward: RuleReward,
         ref_policy: PolicyTrainer,
         policy_trainer: PolicyTrainer,
-        agent_manager: AgentManager = None,
-        rollout_manager: RolloutManager = None
+        partial_rollout_manager: PartialRolloutManager = None
     ):
 
         def env_compute_flow(batch):
@@ -209,9 +208,9 @@ class GRPOEngine(Engine):
             return reward_out
 
         def env_compute_flow_partial(batch):
-            batch = rollout_manager.get_sample_for_rollout(batch)
+            batch = partial_rollout_manager.get_sample_for_rollout(batch)
             batch = policy.forward_step(batch)
-            batch = rollout_manager.post_process_rollout_results(batch)
+            batch = partial_rollout_manager.post_process_rollout_results(batch)
             old_logprobs_out = policy_trainer.forward_step(batch)
             ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
@@ -227,9 +226,9 @@ class GRPOEngine(Engine):
 
         models = [policy, reward, ref_policy, policy_trainer]
 
-        if rollout_manager:
+        if partial_rollout_manager:
             env = Environment(env_compute_flow_partial)
-            models.append(rollout_manager)
+            models.append(partial_rollout_manager)
         else:
             env = Environment(env_compute_flow)
 
@@ -242,12 +241,12 @@ class GRPOEngine(Engine):
         self.set_parameter_sync(policy_trainer, policy)
 
 
-class GRPOAgentEngine(Engine):
-    """GRPO Agent Engine."""
+class RolloutManagerGRPOEngine(Engine):
+    """GRPO Engine use Rollout Manager"""
 
     def __init__(
         self,
-        agent: AgentManager,
+        rollout_manager: RolloutManager,
         policy: TorchModule,
         reward: RuleReward,
         ref_policy: PolicyTrainer,
@@ -255,8 +254,8 @@ class GRPOAgentEngine(Engine):
     ):
 
         def env_compute_flow(batch):
-            agent_out = agent.forward_step(batch)
-            old_logprobs_out = policy_trainer.forward_step(agent_out)
+            rollout_out = rollout_manager.forward_step(batch)
+            old_logprobs_out = policy_trainer.forward_step(rollout_out)
             ref_logprobs_out = ref_policy.forward_step(old_logprobs_out)
             reward_out = reward.forward_step(ref_logprobs_out)
             return reward_out
@@ -265,14 +264,14 @@ class GRPOAgentEngine(Engine):
             policy_trainer.train_step(batch)
 
         def evaluator_flow(batch):
-            agent_out = agent.eval_forward(batch)
-            reward_out = reward.eval_forward(agent_out)
+            rollout_out = rollout_manager.eval_forward(batch)
+            reward_out = reward.eval_forward(rollout_out)
             return reward_out
 
         env = Environment(env_compute_flow)
         trainer = Trainer(trainer_compute_flow)
         evaluator = GRPOEvaluator(evaluator_flow)
-        models = [agent, policy, reward, ref_policy, policy_trainer]
+        models = [rollout_manager, policy, reward, ref_policy, policy_trainer]
         super().__init__(
             environment=env, trainer=trainer, evaluator=evaluator, name="grpo", models=models
         )
@@ -309,16 +308,19 @@ class GrpoAlgorithm(BaseAlgorithm):
         elif self.cfg.runtime_args.task_type == "agent":
             assert self.cfg.models.policy.is_sync_mode == False and self.cfg.runtime_args.rollout_backend == "sglang", \
                 "agent task only support async sglang engine"
+            assert self.cfg.runtime_args.use_rollout_manager, "agent task must set use_rollout_manager=True"
             policy = AgentModule("policy")
             
         reward = RuleReward("reward")
-        agent = AgentManager("agent") if self.cfg.runtime_args.task_type == "agent" else None
-        rollout_manager =  RolloutManager("rollout_manager") if self.cfg.runtime_args.partial_rollout else None
+        rollout_manager = RolloutManager("rollout_manager") if self.cfg.runtime_args.use_rollout_manager else None
+        partial_rollout_manager =  PartialRolloutManager("partial_rollout_manager") if self.cfg.runtime_args.use_partial_rollout else None
 
-        if self.cfg.runtime_args.task_type == "agent":
-            engine = GRPOAgentEngine(agent, policy, reward, ref_policy, policy_trainer)
-        elif self.cfg.runtime_args.task_type == "chat":
-            engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, rollout_manager)
+        if self.cfg.runtime_args.use_rollout_manager:
+            assert self.cfg.models.policy.is_sync_mode == False and self.cfg.runtime_args.rollout_backend == "sglang", \
+                "rollout manager only support async sglang engine"
+            engine = RolloutManagerGRPOEngine(rollout_manager, policy, reward, ref_policy, policy_trainer)
+        else:
+            engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, partial_rollout_manager)
 
 
 

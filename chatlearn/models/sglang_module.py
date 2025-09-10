@@ -25,6 +25,7 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 
 import ray
+from ray import ObjectRef
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -35,6 +36,7 @@ from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.mappings.huggingface_helpers import build_sharded_info_for_huggingface_model
+from chatlearn.utils.timer import timing
 
 from .torch_module import TorchModule
 
@@ -642,6 +644,8 @@ class SGLangModule(TorchModule):
         batched_outputs: List[Dict[str, Any]],
         input_data_list: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        if isinstance(batched_outputs[0], ObjectRef):
+            batched_outputs = ray.get(batched_outputs)
         data_output = []
         for output, input_data in zip(batched_outputs, input_data_list):
             prompt_token_ids = input_data["input_ids"]
@@ -654,6 +658,7 @@ class SGLangModule(TorchModule):
                     "all_tokens": all_tokens,
                     "response_token_length": response_token_length,
                     "str_outputs": str_outputs,
+                    "all_token_length": len(prompt_token_ids) + len(output_tokens)
                 }
             )
             if "rollout_round" in input_data:
@@ -705,10 +710,23 @@ class AsyncSGLangModule(SGLangModule):
             outputs = await self.llm.async_generate(
                 prompt=None,  # because we have already convert it to prompt token id
                 sampling_params=sampling_params,
-                return_logprob=True,
+                return_logprob=False,
                 input_ids=prompts_token_ids,
             )
-        # await self.flush_cache()
+        return outputs
+
+    async def generate_per_request(self, query: Dict, is_eval: bool) -> Dict:
+        outputs = None
+        if self.is_engine():
+            prompts_token_ids = query['input_ids']
+            sampling_param = self._get_sampling_params(is_eval)
+            sampling_param["max_new_tokens"] = self.module_args.max_response_tokens_length
+            outputs = await self.llm.async_generate(
+                prompt=None,
+                sampling_params=sampling_param,
+                return_logprob=False,
+                input_ids=prompts_token_ids,
+            )
         return outputs
 
     async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):

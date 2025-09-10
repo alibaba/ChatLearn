@@ -30,10 +30,11 @@ class AgentModule(AsyncSGLangModule):
     def build_agent_graph(self, agent_name: str):
         self.graph = MathEvalAgentGraph(agent_name=agent_name, llm=self.llm, tokenizer=self.tokenizer)
 
-    async def generate(self, messages, is_eval: bool, **kwargs):
+    async def generate_per_request(self, query: Dict, is_eval: bool):
+        messages = query['messages']
         sampling_params = self._get_sampling_params(is_eval)
         sampling_params["max_new_tokens"] = 2048
-        output = await self.graph.run(messages=messages, sampling_params=sampling_params, gt=kwargs['ground_truth'])
+        output = await self.graph.run(messages=messages, sampling_params=sampling_params, gt=query['ground_truth'])
         return output
 
     def postprocess_func(

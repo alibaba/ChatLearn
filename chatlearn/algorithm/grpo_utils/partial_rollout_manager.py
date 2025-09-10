@@ -10,10 +10,10 @@ from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn import BaseModule
 
-class RolloutManager(BaseModule):
-    """Rollout Manager"""
+class PartialRolloutManager(BaseModule):
+    """Partial Rollout Manager"""
     def setup(self):
-        self._metric_prefix = "rollout_manager"
+        self._metric_prefix = "partial_rollout_manager"
         self.rollout_finished_no_train = defaultdict(list)
         self.num_response_track = defaultdict(int)
         self.rollout_not_finished = []

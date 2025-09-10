@@ -1,5 +1,5 @@
 """Config classes for ChatLearn"""
-from .base import BaseConfig, RewardConfig, AgentConfig
+from .base import BaseConfig, RewardConfig, RolloutManagerConfig
 from .runtime_config import RuntimeConfig, RuntimeEnvConfig
 from .policy_config import PolicyConfig
-from .rollout_manager_config import RolloutManagerConfig
+from .partial_rollout_manager_config import PartialRolloutManagerConfig

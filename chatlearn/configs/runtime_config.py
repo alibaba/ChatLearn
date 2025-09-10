@@ -54,12 +54,14 @@ class RuntimeConfig(BaseConfig):
         metadata={"help": "which train backend to use, one of megatron or fsdp"},
     )
     rollout_backend: str = field(
-        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
-    )
+        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"})
     task_type: str = field(
         default="chat", metadata={"help": "RL task type, one of chat or agent"}
     )
-    partial_rollout: bool = field(
+    use_rollout_manager: bool = field(
+        default=False, metadata={"help": "whether to use rollout manager"}
+    )
+    use_partial_rollout: bool = field(
         default=False, metadata={"help": "whether to use partial rollout"}
     )
     exp_name: str = field(

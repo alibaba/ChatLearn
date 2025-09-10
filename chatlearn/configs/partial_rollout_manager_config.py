@@ -5,7 +5,7 @@ from typing import List
 from .base import BaseModelConfig
 
 @dataclass
-class RolloutManagerConfig(BaseModelConfig):
+class PartialRolloutManagerConfig(BaseModelConfig):
     """The config for rollout models. Currently this config is
     shared between vLLM and SGLang.
     """
