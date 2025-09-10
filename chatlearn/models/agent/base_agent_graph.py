@@ -45,14 +45,14 @@ class BaseAgentGraph:
     def __init__(
         self,
         agent_name: str,
-        # cfg: DictConfig,
+        cfg: DictConfig,
         llm: AsyncEngine,
         tokenizer: AutoTokenizer,
         **kwargs
     ):
 
         self.agent_name = agent_name
-        # self.cfg = cfg
+        self.cfg = cfg
         self.llm = llm
         self.tokenizer = tokenizer
 

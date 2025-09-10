@@ -97,6 +97,8 @@ if __name__ == "__main__":
                             "Put your final answer within \\boxed{}."
                         )
             data = {
+                "agent_name": "matheval_agent",
+                "agent_cfg_path": "template/agent/math_eval.yaml",
                 "data_source": data_source,
                 "prompt": [{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
                 "ability": "math",

@@ -1,10 +1,23 @@
 from typing import Optional, Dict, List, Any
 
 import torch
+import ray
+from ray import ObjectRef
+from omegaconf import OmegaConf
 
 from chatlearn.models.sglang_module import AsyncSGLangModule
-from chatlearn.models.agent.math_eval_agent_graph import MathEvalAgentGraph
+from chatlearn.models.agent.base_agent_graph import BaseAgentGraph
 
+
+_graph_registry: Dict[str, BaseAgentGraph] = {}
+
+def register(agent_name: str):
+
+    def decorator(subclass: type[BaseAgentGraph]) -> type[BaseAgentGraph]:
+        _graph_registry[agent_name] = subclass
+        return subclass
+
+    return decorator
 
 class AgentModule(AsyncSGLangModule):
 
@@ -12,7 +25,7 @@ class AgentModule(AsyncSGLangModule):
         """The chatlearn wrapper for a langgraph+async sglang model."""
         super().__init__(name, args=args, replica_id=replica_id)
 
-        self.agent_factory = []
+        self.agent_factory: Dict[str, BaseAgentGraph] = {}
         self.chat_model = None
 
 
@@ -20,21 +33,23 @@ class AgentModule(AsyncSGLangModule):
         # setup sglang engine
         super().setup_engine()
 
-        # construct chat model based on sglang AsyncEngine
 
-        # to implement
-        if self.is_engine():
-            self.build_agent_graph("debugh")
-
-
-    def build_agent_graph(self, agent_name: str):
-        self.graph = MathEvalAgentGraph(agent_name=agent_name, llm=self.llm, tokenizer=self.tokenizer)
+    def build_agent_graph(self, agent_name: str, agent_cfg_path: str) -> BaseAgentGraph:
+        
+        cfg = OmegaConf.load(agent_cfg_path) if agent_cfg_path else None
+        graph_instance = _graph_registry[agent_name](agent_name=agent_name, cfg=cfg, llm=self.llm, tokenizer=self.tokenizer)
+        self.agent_factory[agent_name] = graph_instance
+        return graph_instance
 
     async def generate_per_request(self, query: Dict, is_eval: bool):
-        messages = query['messages']
+        # make sure key:messages in query
+        assert "agent_name" in query and query["agent_name"], "make sure set agent_name in dataset"
+        agent_name = query["agent_name"]
+        agent_cfg_path = query["agent_cfg_path"]
+        graph = self.agent_factory[agent_name] if agent_name in self.agent_factory else self.build_agent_graph(agent_name, agent_cfg_path)
         sampling_params = self._get_sampling_params(is_eval)
-        sampling_params["max_new_tokens"] = 2048
-        output = await self.graph.run(messages=messages, sampling_params=sampling_params, gt=query['ground_truth'])
+        sampling_params["max_new_tokens"] = self.module_args.max_response_tokens_length
+        output = await graph.run(sampling_params=sampling_params, **query)
         return output
 
     def postprocess_func(
@@ -42,6 +57,9 @@ class AgentModule(AsyncSGLangModule):
         batched_outputs: List[Dict[str, Any]],
         input_data_list: List[Dict[str, Any]],
     ) -> List[Dict[str, Any]]:
+        # item in batched_outputs maybe ray ObjectRef to avoid cpu overhead
+        if isinstance(batched_outputs[0], ObjectRef):
+            batched_outputs = ray.get(batched_outputs)
         data_output = []
         for output,input_data in zip(batched_outputs, input_data_list):
             prompt_token_ids = output.prompt_ids

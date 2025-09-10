@@ -49,6 +49,8 @@ class PromptPipeline(Dataset):
             prompt = data_item["prompt"]
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
+            agent_name = data_item.get("agent_name", None)
+            agent_cfg_path = data_item.get("agent_cfg_path", None)
             if not raw_chat:
                 if isinstance(prompt, list):
                     prompt = self.tokenizer.apply_chat_template(
@@ -67,7 +69,9 @@ class PromptPipeline(Dataset):
                     "data_source": data_source,
                     "ground_truth": ground_truth,
                     "prompt_token_length": len(input_ids),
-                    "prompt_token_ids": input_ids
+                    "prompt_token_ids": input_ids,
+                    "agent_name": agent_name,
+                    "agent_cfg_path": agent_cfg_path
                 }
                 # Filter out data with long input_ids
                 if len(input_ids) > self.max_prompt:
@@ -80,6 +84,8 @@ class PromptPipeline(Dataset):
                     "messages": prompt,
                     "data_source": data_source,
                     "ground_truth": ground_truth,
+                    "agent_name": agent_name,
+                    "agent_cfg_path": agent_cfg_path
                 }
                 self.data.append(processed_data)
         self.valid_ratio = len(self.data) / len(data_list)
