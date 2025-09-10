@@ -1,5 +1,5 @@
 """
-Preprocess the math dataset to json format
+Preprocess the math dataset to json format for agent task
 """
 
 import os
@@ -76,7 +76,7 @@ if __name__ == "__main__":
     test_dataset = dataset["test"]
 
     instruction_following = (
-        "Let's think step by step and output the final answer within \\boxed{}."
+        "Let's think step by step and output the final answer within \\boxed{}.You must use the `mathlighteval_reward` tool after step by step solving the question"
     )
 
     # add a row to each data item that represents a unique id
@@ -89,9 +89,18 @@ if __name__ == "__main__":
 
             answer = example.pop("solution")
             solution = extract_solution(answer)
+            system_prompt = (
+                            "You are a math expert. You are given a question and you need to solve it step by step. "
+                            "Reasoning step by step before any tool call. "
+                            "You should use the `mathlighteval_reward` tool after step by step solving the question, "
+                            "before generate final answer at least once and refine your answer if necessary. "
+                            "Put your final answer within \\boxed{}."
+                        )
             data = {
+                "agent_name": "matheval_agent",
+                "agent_cfg_path": "template/agent/math_eval.yaml",
                 "data_source": data_source,
-                "prompt": [{"role": "user", "content": question}],
+                "prompt": [{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
                 "ability": "math",
                 "reward_model": {"style": "rule", "ground_truth": solution},
                 "extra_info": {"split": split, "index": idx},
@@ -105,5 +114,5 @@ if __name__ == "__main__":
 
     local_dir = args.local_dir
 
-    train_dataset.to_json(os.path.join(local_dir, "train.json"))
-    test_dataset.to_json(os.path.join(local_dir, "test.json"))
+    train_dataset.to_json(os.path.join(local_dir, "train_agent.json"))
+    test_dataset.to_json(os.path.join(local_dir, "test_agent.json"))
