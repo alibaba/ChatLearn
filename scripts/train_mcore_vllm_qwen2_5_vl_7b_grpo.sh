@@ -46,6 +46,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.log_args_dict.tensorboard_dir=${output_dir}/tensorboard \
         runtime_args.eval_episode_interval=1 \
         runtime_args.enable_eval_before_training=true \
+        runtime_args.model_type=vlm \
         models.policy_trainer.num_gpu=${num_device} \
         models.policy_trainer.packing=true \
         models.policy_trainer.max_token_in_packing=8192 \
@@ -71,6 +72,6 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=False \
-        runtime_args.log_args_dict.enable_wandb=True \
+        runtime_args.log_args_dict.enable_wandb=False \
         runtime_args.log_args_dict.wandb_project=zxy_qenvl_chatlearn \
         2>&1 | tee ${log_file} ; exit ${PIPESTATUS[0]}

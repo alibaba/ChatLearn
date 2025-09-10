@@ -10,7 +10,9 @@ export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
 export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250624
-export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
+export MEGATRON_PATCH_PATH=${CHATLEARN}/../Pai-Megatron-Patch
+export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATCH_PATH}:${MEGATRON_PATH}:${PYTHONPATH}
+
 source scripts/base_env.sh
 
 # hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B

@@ -39,10 +39,9 @@ def update_cfg(cfg):
     if hf_transformer_config.architectures[0] == 'Qwen2_5_VLForConditionalGeneration':
         # bug we hard code here
         cfg.models.policy_trainer.megatron_model_cfg.kv_channels = 128
-        cfg.models.policy_trainer.megatron_model_cfg.llm_model_type = "vlm"
+        cfg.models.policy_trainer.megatron_model_cfg.patch_tokenizer_type = 'Qwen2VLTokenizer'
     else:
         cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
-        cfg.models.policy_trainer.megatron_model_cfg.llm_model_type = "llm"
 
 
     if "Qwen" in hf_transformer_config.architectures[0]:

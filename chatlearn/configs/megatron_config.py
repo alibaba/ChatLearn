@@ -187,6 +187,12 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=1.0, metadata={"help": "rotary_scaling_factor "}
     )
 
+    # vl
+    patch_tokenizer_type: str = field(
+        default='Qwen2VLTokenizer', metadata={"help": "patch_tokenizer_type"}
+    )
+
+
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'

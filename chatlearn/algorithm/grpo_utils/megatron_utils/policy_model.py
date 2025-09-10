@@ -35,20 +35,11 @@ from chatlearn.configs.base import BaseModelConfig
 from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 from .train_helper import entropy_from_tensor_parallel_logits, reduce_from_context_parallel_region
 
+from megatron_patch.model.qwen2_5_vl.model import Qwen2_5VLModel
 
-# TODO: replace this class with GPTModel
-class PolicyModel(GPTModel):
-    """PolicyModel"""
 
-    def __init__(self, *args, module_args: Optional[BaseModelConfig] = None, **kwargs):
-        """Create a Megatron-Core Policy Model. For more descriptions, please
-        refer to `megatron.core.models.gpt.GPTModel`
-
-        Args:
-            module_args (Optional[BaseModelConfig], optional): Arguments for chatlearn modules.
-            Defaults to None.
-        """
-        super().__init__(*args, **kwargs)
+class BasePolicyModel:
+    def __init__(self, module_args: Optional[BaseModelConfig] = None):
         self.module_args = module_args
 
     def forward(
@@ -185,3 +176,14 @@ class PolicyModel(GPTModel):
                 'entropy_loss': entropy_loss,
                 'kl_loss': kl_loss
             }
+
+class GPTPolicyModel(BasePolicyModel, GPTModel):
+    def __init__(self, *args,  module_args: Optional[BaseModelConfig] = None, **kwargs):
+        BasePolicyModel.__init__(self, module_args)
+        GPTModel.__init__(self, *args, **kwargs)
+
+
+class Qwen2_5VLPolicyModel(BasePolicyModel, Qwen2_5VLModel):
+    def __init__(self, *args, module_args: Optional[BaseModelConfig] = None, **kwargs):
+        BasePolicyModel.__init__(self, module_args)
+        Qwen2_5VLModel.__init__(self, *args, **kwargs)

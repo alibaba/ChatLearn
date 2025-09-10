@@ -21,6 +21,7 @@ import itertools
 from typing import List, Union, Dict, Any, Sequence
 from collections import defaultdict
 import numpy as np
+from copy import deepcopy
 
 import torch
 from megatron.core import mpu
@@ -46,12 +47,28 @@ from megatron.training.utils import (
 )
 from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
+
+from megatron_patch.tokenizer import build_tokenizer, get_tokenizer
+from megatron_patch.model.qwen2_5_vl.transformer_config import (
+    Qwen2VLTransformerConfig,
+    get_vision_model_config,
+    get_vision_projection_config
+)
+
+from megatron_patch.model.qwen2_vl.layer_specs import (
+    get_gpt_layer_with_transformer_engine_spec,
+    get_qwen2vl_vision_model_spec,
+    get_mlp_module_spec
+
+)
+
 import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.utils.utils import even_slice
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
-    PolicyModel, 
+    GPTPolicyModel,
+    Qwen2_5VLPolicyModel,
     forward_step, 
     training_log
 )
@@ -73,7 +90,7 @@ class MegatronPolicyTrainer(MegatronModule):
     def setup(self):
         self.stats = {}
         self.buffer = {}
-        breakpoint()
+ 
         self.args = get_args()
         self.report_memory_flag = True
         self.iteration_for_log = 0
@@ -89,18 +106,29 @@ class MegatronPolicyTrainer(MegatronModule):
                 get_args().no_load_rng = False
                 get_args().no_load_scheduler = False
                 self._logger.info(f"Overwrite load path for resuming training.")
-            
-            self.model, self.optimizer, self.opt_param_scheduler = (
-                setup_model_and_optimizer(
-                    self.model_provider, ModelType.encoder_or_decoder
+            if self.runtime_args.model_type == 'vlm':
+                self.model, self.optimizer, self.opt_param_scheduler = (
+                    setup_model_and_optimizer(
+                        self.model_provider_vl, ModelType.encoder_or_decoder
+                    )
                 )
-            )
+                # from megatron_patch.model.qwen2_vl.layer_specs import get_gpt_layer_with_transformer_engine_spec
+            else:
+                self.model, self.optimizer, self.opt_param_scheduler = (
+                    setup_model_and_optimizer(
+                        self.model_provider, ModelType.encoder_or_decoder
+                    )
+                )
+                # from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
             self.config = get_model_config(self.model[0])
             self.config.grad_scale_func = self.optimizer.scale_loss
             self.config.finalize_model_grads_func = finalize_model_grads
 
         else:
-            self.model = get_model(self.model_provider, wrap_with_ddp=False)
+            if self.runtime_args.model_type == 'vlm':
+                self.model = get_model(self.model_provider_vl, wrap_with_ddp=False)
+            else:
+                self.model = get_model(self.model_provider, wrap_with_ddp=False)
             if self.args.load is not None:
                 print(f"reference loading : {self.args.load}")
                 _, _ = load_checkpoint(
@@ -115,7 +143,7 @@ class MegatronPolicyTrainer(MegatronModule):
                     device_ids=[int(os.environ.get("LOCAL_RANK", 0))]
                 )
 
-    def model_provider(self, pre_process=True, post_process=True) -> Union[PolicyModel]:
+    def model_provider(self, pre_process=True, post_process=True) -> Union[GPTPolicyModel]:
         args = get_args()
         use_te = args.transformer_impl == "transformer_engine"
 
@@ -146,7 +174,7 @@ class MegatronPolicyTrainer(MegatronModule):
 
         print_rank_0("building GPT model ...")
         # Experimental loading arguments from yaml
-        breakpoint()
+
         if args.yaml_cfg is not None:
             config = core_transformer_config_from_yaml(args, "language_model")
         else:
@@ -208,7 +236,7 @@ class MegatronPolicyTrainer(MegatronModule):
                 )
 
         with build_model_context(**build_model_context_args):
-            model = PolicyModel(
+            model = GPTPolicyModel(
                 config=config,
                 transformer_layer_spec=transformer_layer_spec,
                 vocab_size=args.padded_vocab_size,
@@ -228,6 +256,97 @@ class MegatronPolicyTrainer(MegatronModule):
 
         return model
 
+    def model_provider_vl(self, pre_process=True, post_process=True, add_encoder=True, add_decoder=True) -> Union[Qwen2_5VLPolicyModel]:
+
+        args = get_args()
+        # args.patch_tokenizer_type = 'Qwen2VLTokenizer'
+        # args.extra_vocab_size = 421
+
+        # build_tokenizer(args)
+        print_rank_0("start building qwen2-vl model ...")
+
+        # Config of vit, llm and projector
+        config = core_transformer_config_from_args(args, Qwen2VLTransformerConfig)
+        use_te = args.transformer_impl == "transformer_engine"
+        if not use_te:
+            raise NotImplementedError("The Qwen2-VL model is only implemented with TransformerEngine!")
+        
+        if args.rotary_seq_len_interpolation_factor is not None or args.rotary_seq_len_interpolation_factor != 1:
+            print_rank_0('Multimodal RoPE currently not support RoPE interpolation, set to None...')
+            args.rotary_seq_len_interpolation_factor = None
+
+        vision_config = get_vision_model_config(args, deepcopy(config))
+        vision_config.pipeline_model_parallel_size = 1
+        vision_config.num_layers_in_first_pipeline_stage = None
+
+        vision_projector_config = get_vision_projection_config(deepcopy(config), vision_config.hidden_size, vision_config.spatial_merge_size)
+        
+        print_rank_0("building Qwen2-5-VL model in TE...")
+        # Layer Specs of vit, llm and projector
+        
+        transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(args.qk_layernorm)
+        vision_model_spec = get_qwen2vl_vision_model_spec()
+        vision_projector_spec = get_mlp_module_spec(add_norm=False).submodules
+
+        build_model_context = nullcontext
+        build_model_context_args = {}
+        if args.fp8_param_gather:
+            try:
+                from transformer_engine.pytorch import fp8_model_init
+
+                build_model_context = fp8_model_init
+                build_model_context_args["enabled"] = True
+
+                # Check if fp8_model_init supports preserve_high_precision_init_val
+                if (
+                    "preserve_high_precision_init_val"
+                    in inspect.signature(fp8_model_init).parameters
+                ):
+                    build_model_context_args["preserve_high_precision_init_val"] = True
+            except:
+                raise RuntimeError(
+                    "--fp8-param-gather requires `fp8_model_init` from TransformerEngine, but not found."
+                )
+        # breakpoint()
+        with build_model_context(**build_model_context_args):
+            model = Qwen2_5VLPolicyModel(
+                language_transformer_config=config,
+                language_transformer_layer_spec=transformer_layer_spec,
+                language_vocab_size=args.padded_vocab_size,
+                language_max_sequence_length=args.max_position_embeddings,
+
+                vision_transformer_config=vision_config,
+                vision_transformer_layer_spec=vision_model_spec,
+                drop_vision_class_token=False, # NOTE: no class token to drop?
+
+                vision_projection_config=vision_projector_config,
+                vision_projection_layer_spec=vision_projector_spec, 
+                vision_projection_type='mlp',
+                allow_missing_vision_projection_checkpoint= False, # TODO: may parameterized
+
+                language_position_embedding_type=args.position_embedding_type,
+                language_rotary_percent=args.rotary_percent,
+                language_rotary_base=args.rotary_base,
+                
+                pre_process=pre_process,
+                post_process=post_process,
+                add_decoder=add_decoder,
+                add_encoder=add_encoder,
+
+                fp16_lm_cross_entropy=args.fp16_lm_cross_entropy,
+                parallel_output=True,
+                language_share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
+
+                module_args=self.module_args
+            )
+
+        model.freeze(
+            freeze_language_model=args.freeze_LM, 
+            freeze_vision_model=args.freeze_ViT, 
+            freeze_vision_projection=False
+        )
+
+    #     return model
     @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
     @timeit()
