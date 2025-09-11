@@ -285,8 +285,8 @@ class BaseModule:
         """
         Build prompt dataset
         """
-        max_prompt_tokens_length = self.global_args.models.ploicy.max_prompt_tokens_length
-        enable_thinking = self.global_args.models.ploicy.enable_thinking
+        max_prompt_tokens_length = self.global_args.models.policy.max_prompt_tokens_length
+        enable_thinking = self.global_args.models.policy.enable_thinking
         assert len(prompts)>0, 'Dataset is empty'
 
         if self.runtime_args.model_type == 'vlm':
