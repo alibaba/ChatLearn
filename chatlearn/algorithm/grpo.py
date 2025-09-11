@@ -303,8 +303,8 @@ class GrpoAlgorithm(BaseAlgorithm):
             if self.cfg.runtime_args.rollout_backend == "vllm":
                 policy = VLLMModule("policy")
             elif self.cfg.runtime_args.rollout_backend == "sglang":
-                RolloutModule_cls = SGLangModule if self.cfg.models.policy.is_sync_mode else AsyncSGLangModule
-                policy = RolloutModule_cls("policy")
+                rollout_cls = SGLangModule if self.cfg.models.policy.is_sync_mode else AsyncSGLangModule
+                policy = rollout_cls("policy")
         elif self.cfg.runtime_args.task_type == "agent":
             assert self.cfg.models.policy.is_sync_mode is False and self.cfg.runtime_args.rollout_backend == "sglang", \
                 "agent task only support async sglang engine"
@@ -321,8 +321,6 @@ class GrpoAlgorithm(BaseAlgorithm):
             engine = RolloutManagerGRPOEngine(rollout_manager, policy, reward, ref_policy, policy_trainer)
         else:
             engine = GRPOEngine(policy, reward, ref_policy, policy_trainer, partial_rollout_manager)
-
-
 
         # get train and evaluation data
         train_data_path_list = [
