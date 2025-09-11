@@ -710,9 +710,9 @@ class AsyncSGLangModule(SGLangModule):
         if self.is_engine():
             prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
             outputs = await self.llm.async_generate(
-                prompt=None,  # because we have already convert it to prompt token id
+                prompt=None,
                 sampling_params=sampling_params,
-                return_logprob=False,
+                return_logprob=False, # sglang has memory leaky problem while return_logprob=True
                 input_ids=prompts_token_ids,
             )
         return outputs
