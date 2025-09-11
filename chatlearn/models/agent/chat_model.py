@@ -102,7 +102,6 @@ class CustomChatModel(BaseChatModel):
         """
         convert list[BaseMessage] to SGLangModule.generate input
         """
-        # todo support partial tokenizer
 
         # messages: [system], human, ai, human|tool, ai, human|tool, ...
         assert messages[-1].type in [
