@@ -103,9 +103,9 @@ class RolloutManager(BaseModule):
         data_length = len(data)
         data_iter = iter(data)
         max_concurrent = (
-            data_length
+            len(self.rollout_engines) * self.module_args.max_concurrent_per_engine
             if self.module_args.use_dynamic_load_blance
-            else len(self.rollout_engines) * self.module_args.max_concurrent_per_engine
+            else data_length
         )
 
         ref_to_info = {}
