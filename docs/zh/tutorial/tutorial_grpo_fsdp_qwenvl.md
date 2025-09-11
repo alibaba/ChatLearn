@@ -38,7 +38,7 @@ python chatlearn/data/data_preprocess/geo3k.py
 ```bash
 # 下载模型权重
 modelscope download --model Qwen/Qwen2.5-VL-7B-Instruct --local_dir pretrained_models/Qwen2.5-VL-7B-Instruct
-bash scripts/train_fsdp_vllm_qwen2_5_vl_7b.sh
+bash scripts/fsdp_vllm/train_fsdp_vllm_qwen2_5_vl_7b.sh
 ```
 
 ## 使用 Wandb 监控

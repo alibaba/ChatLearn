@@ -390,12 +390,14 @@ def get_batch(
         ref_logprobs = data_b["ref_logprobs"].float()
         old_logprobs = data_b["old_logprobs"].float()
         advantages = data_b["advantages"]
-
-        loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32)
-        for i, (prompt_length, response_length) in enumerate(
-            zip(prompt_token_length, response_token_length)
-        ):
-            loss_mask[i, prompt_length: prompt_length + response_length] = 1
+        if "loss_mask" in data_b:
+            loss_mask = data_b['loss_mask']
+        else:
+            loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32)
+            for i, (prompt_length, response_length) in enumerate(
+                zip(prompt_token_length, response_token_length)
+            ):
+                loss_mask[i, prompt_length: prompt_length + response_length] = 1
         loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
 
         input_data.update({
@@ -508,4 +510,3 @@ def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
         logits: (*, vocab_size // tp_size)
     """
     return _VocabParallelEntropy.apply(logits)
-    

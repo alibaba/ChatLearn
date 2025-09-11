@@ -16,7 +16,6 @@
 
 import os
 import shutil
-import time
 from typing import Dict, List, Tuple
 from collections import defaultdict
 
@@ -28,6 +27,7 @@ import ray
 from chatlearn.checkpoint.checkpoint_manager import CheckpointManager
 from chatlearn.data.data import StreamDataset
 from chatlearn.models.base_module import BaseModule
+from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.runtime.dist_actor import DistVLLMActor, DistSGLangActor
 from chatlearn.runtime.environment import Environment
 from chatlearn.runtime.trainer import Trainer
@@ -39,14 +39,14 @@ from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.global_vars import get_args
 from chatlearn.utils.logger import logger
 from chatlearn.utils.utils import get_full_proc_memory_info
-from chatlearn.utils.timer import Timers
+from chatlearn.utils.timer import Timers, timing
 from chatlearn.utils.utils import map_reduce_metrics
 
 
 class BaseEngine:
     """Base Engine"""
 
-    def __init__(self, *models):
+    def __init__(self, models: List[BaseModule]):
         self._models = models
         self.global_args = get_args()
         self.runtime_args = self.global_args.runtime_args
@@ -83,12 +83,8 @@ class BaseEngine:
         3. init remote models
         4. model_setup for remote models
         """
-        logger.info(f"{LOG_START} setup, start to create_remote_models")
         self._create_metric_manager()
-        t1 = time.time()
         self._create_remote_models()
-        t2 = time.time()
-        logger.info(f"{LOG_START} setup, finished to create_remote_models(s):{(t2-t1)}")
         # for ease to access model by self.{model_name}
         for model in self.remote_models:
             setattr(self, model.name, model)
@@ -101,6 +97,23 @@ class BaseEngine:
         # do not include compile dependencies in setup
         # if the program hang in setup, may try to set concurrent_setup to False.
         self.timers("setup_models").start()
+
+        # setup for rollout engine
+        # make ture setup rollout engine before RolloutManager
+        for remote_model in self.remote_models:
+            model = remote_model.replicas[0]
+            if model.model.name == "policy":
+                logger.info(f"setup engine for rollout {model.model}")
+                refs = []
+                for replica in remote_model.replicas:
+                    if isinstance(model.model, VLLMModule):
+                        refs.append(replica.setup_engine(replica.all_actors))
+                    else:
+                        refs.append(replica.setup_engine())
+                future.wait(refs, return_output=True)
+                # offload rollout here, because async rollout can't offload in setup_engine function
+                remote_model.offload()
+
         if self.runtime_args.concurrent_setup:
             refs = []
             refs_val = []
@@ -115,6 +128,7 @@ class BaseEngine:
                 future.wait(model.model_setup())
                 future.wait(model.validate())
                 logger.info(f"{LOG_START} done setup and validate {model.name}")
+
         self.timers("setup_models").stop()
         logger.info(
             f"{LOG_START} setup_models summary {self.timers.log(names=['setup_models'])}")
@@ -212,7 +226,7 @@ class BaseEngine:
 class Engine(BaseEngine):
     """Engine"""
 
-    def __init__(self, environment=None, trainer=None, evaluator=None, name='alignment'):
+    def __init__(self, environment=None, trainer=None, evaluator=None, name='alignment', models: List[BaseModule] = None):
         """
         Engine.
 
@@ -222,13 +236,7 @@ class Engine(BaseEngine):
         trainer : Trainer
         evaluator: Evaluator
         """
-        models = []
-        for executor in [environment, trainer, evaluator]:
-            if executor:
-                for model in executor.models:
-                    if model not in models:
-                        models.append(model)
-        super().__init__(*models)
+        super().__init__(models)
         if environment:
             environment.set_timers(self.timers)
         if trainer:
@@ -264,21 +272,14 @@ class Engine(BaseEngine):
         """
         :meta private:
         """
-        logger.info(f"{LOG_START} create_remote_models, start to create resource_manager")
-        t1 = time.time()
-        resource_manager = ResourceManager(self._models)
-        t2 = time.time()
-        logger.info(f"{LOG_START} create_remote_models, finished to create resource_manager(s):{(t2-t1)}")
-        self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
-        for src_model, dst_model in self._param_sync_pairs:
-            self.model_manager.set_parameter_sync(src_model, dst_model)
-        self.model_manager.remote()
-        t3 = time.time()
-        logger.info(f"{LOG_START} create_remote_models, finished to set_parameter_sync(s):{(t3-t2)}")
-        self.remote_models = self.model_manager.dist_models
-        self.named_models = {model.name: model for model in self.remote_models}
-        t4 = time.time()
-        logger.info(f"{LOG_START} create_remote_models, finished to get named_models(s):{(t4-t3)}")
+        with timing("create remote models"):
+            resource_manager = ResourceManager(self._models)
+            self.model_manager = ModelManager(self._models, resource_manager, self.global_args)
+            for src_model, dst_model in self._param_sync_pairs:
+                self.model_manager.set_parameter_sync(src_model, dst_model)
+            self.model_manager.create_dist_models()
+            self.remote_models = self.model_manager.dist_models
+            self.named_models = {model.name: model for model in self.remote_models}
 
     def setup(self):
         """

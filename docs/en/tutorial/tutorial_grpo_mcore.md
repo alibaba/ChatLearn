@@ -54,7 +54,7 @@ You can run the following command to start training:
 
 ```bash
 cd ${CHATLEARN_ROOT}
-bash scripts/train_mcore_vllm_qwen3_8b_grpo.sh
+bash scripts/mcore_vllm/train_mcore_vllm_qwen3_8b_grpo.sh
 ```
 
 ## Using Wandb

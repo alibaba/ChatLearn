@@ -1,7 +1,7 @@
 #!/bin/bash
 set -x
 
-# Tested on 8xH20 with 96G VRAM
+# Tested on 8xH20-3e with 140G VRAM
 export RAY_CGRAPH_get_timeout=200
 export CUDA_DEVICE_MAX_CONNECTIONS=1
 export RAY_DEDUP_LOGS=1
@@ -25,7 +25,6 @@ log_file=$log_dir/${exp_name}_rank${RANK}.log
 
 python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.exp_name=${exp_name} \
-        runtime_args.partial_rollout=True \
         runtime_args.log_args_dict.enable_tensorboard=True \
         runtime_args.train_backend=megatron \
         runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
@@ -36,16 +35,16 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.train_global_batch_size=2048 \
         runtime_args.train_micro_batch_size=1 \
         runtime_args.save_episode_interval=1000000 \
-        runtime_args.log_args_dict.enable_tensorboard=true \
+        runtime_args.log_args_dict.enable_tensorboard=True \
         runtime_args.log_args_dict.tensorboard_dir=${output_dir}/tensorboard \
         runtime_args.eval_episode_interval=1 \
-        runtime_args.enable_eval_before_training=true \
+        runtime_args.enable_eval_before_training=True \
         models.policy_trainer.num_gpu=${num_device} \
-        models.policy_trainer.packing=true \
+        models.policy_trainer.packing=True \
         models.policy_trainer.max_token_in_packing=8192 \
-        models.policy_trainer.bf16=true \
-        models.policy_trainer.sequence_parallel=true \
-        models.policy_trainer.use_distributed_optimizer=true \
+        models.policy_trainer.bf16=True \
+        models.policy_trainer.sequence_parallel=True \
+        models.policy_trainer.use_distributed_optimizer=True \
         models.policy_trainer.recompute_granularity=null \
         models.policy_trainer.tensor_model_parallel_size=2 \
         models.policy_trainer.pipeline_model_parallel_size=1 \
@@ -64,7 +63,4 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=False \
-        models.rollout_manager.max_rollout_round=2 \
-        models.rollout_manager.rollout_ratio=[0.5,0.5] \
-        models.rollout_manager.mini_response_per_prompt=8 \
         2>&1 | tee ${log_file} ; exit ${PIPESTATUS[0]}

@@ -77,13 +77,11 @@ class ChatlearnLauncher:
 
     def _load_algorithm(self, algo_name: str) -> Tuple[Type[BaseAlgorithm], Type[Any]]:
         module_path, algo_cls_name, config_cls_name = ALGO_REGISTRY[algo_name]
-        try:
-            module = import_module(module_path)
-            algo_cls = getattr(module, algo_cls_name)
-            config_cls = getattr(module, config_cls_name)
-            return algo_cls, config_cls
-        except Exception as e:
-            raise RuntimeError(f"Failed to load algorithm: {algo_name} ({str(e)})") from e
+        module = import_module(module_path)
+        algo_cls = getattr(module, algo_cls_name)
+        config_cls = getattr(module, config_cls_name)
+        return algo_cls, config_cls
+
 
 
     def _run_algorithm(self, algo_args) -> None:

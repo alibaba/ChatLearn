@@ -20,14 +20,6 @@ class RolloutConfig(BaseConfig):
     expert_model_parallel_size: int = field(
         default=1, metadata={"help": "expert model parallel size for Rollout Engine"}
     )
-    max_response_tokens_length: int = field(
-        default=2048,
-        metadata={"help": "max length of response"}
-    )
-    max_prompt_tokens_length: int = field(
-        default=2048,
-        metadata={"help": "max length of prompt"}
-    )
     temperature: float = field(
         default=1.0,
         metadata={"help": "temperature for sample train data"}
@@ -79,9 +71,6 @@ class RolloutConfig(BaseConfig):
 @dataclass
 class PolicyConfig(BaseModelConfig, RolloutConfig):
     """General Config Class for Policy/Rollout Model"""
-    num_inference_per_prompt: int = field(
-        default=32, metadata={"help": "number of response for per prompt"}
-    )
     seq_length: int = field(
         default=2048, metadata={"help": "length of prompt + response"}
     )

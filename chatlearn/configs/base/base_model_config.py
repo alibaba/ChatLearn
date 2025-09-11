@@ -74,3 +74,21 @@ class BaseModelConfig(BaseConfig):
     trust_remote_code: bool = field(
         default=True, metadata={"help": "Whether or not to allow PreTrainedTokenizer to execute remote code"}
     )
+
+    # config for first node module
+    # !!! now we only set these config in policy module
+    # TODO: refactor a dataset module
+    num_inference_per_prompt: int = field(
+        default=32, metadata={"help": "number of response for per prompt"}
+    )
+    enable_thinking: bool = field(
+        default=False, metadata={"help": "whether enable think or not"}
+    )
+    max_prompt_tokens_length: int = field(
+        default=1024,
+        metadata={"help": "max length of prompt"}
+    )
+    max_response_tokens_length: int = field(
+        default=2048,
+        metadata={"help": "max length of response"}
+    )

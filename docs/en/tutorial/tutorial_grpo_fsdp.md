@@ -36,7 +36,7 @@ Run this command on server with 8 GPUs
 ```bash
 # download model weight
 modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
-bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
+bash scripts/fsdp_vllm/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
 ## Using Wandb

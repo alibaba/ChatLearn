@@ -18,8 +18,8 @@ from typing import List, Dict, Union, Any
 import warnings
 
 import torch
-
 import numpy as np
+
 def bin_packing(seq_len_list: List[int], max_train_token: int):
     """
     Implementation of best fit decreasing bin packing algorithm
