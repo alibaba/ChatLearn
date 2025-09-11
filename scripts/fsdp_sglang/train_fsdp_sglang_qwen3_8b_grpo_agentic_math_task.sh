@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Tested on 8xH20-3e with 140G VRAM
 set -x
 
 export CHATLEARN=$(pwd)
@@ -8,12 +7,17 @@ export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
 export RAY_DEDUP_LOGS=1
 
-export exp_name=qwen3-grpo-8b
+export exp_name=qwen3-grpo-8b-sglang-agent-math-task
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp.yaml \
         runtime_args.exp_name=${exp_name} \
-        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
-        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
+        runtime_args.task_type=agent \
+        runtime_args.rollout_backend=sglang \
+        runtime_args.use_rollout_manager=True \
+        runtime_args.data_rerank=False \
+        runtime_args.raw_chat=true \
+        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train_agent.json \
+        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test_agent.json \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=200 \
         runtime_args.sample_per_episode=2048 \
@@ -34,7 +38,8 @@ python chatlearn/entrypoint.py grpo \
         models.policy_trainer.optimizer.lr=2e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \
-        models.ref_policy.generation_batch_size=2564 \
+        models.ref_policy.generation_batch_size=256 \
+        models.policy.is_sync_mode=False \
         models.policy.generation_batch_size=256 \
         models.policy.enforce_eager=False \
         models.policy.tensor_model_parallel_size=1 \
