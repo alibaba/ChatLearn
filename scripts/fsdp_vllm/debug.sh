@@ -8,36 +8,43 @@ export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
 export RAY_DEDUP_LOGS=1
 
-export exp_name=debug_mini
+export WANDB_BASE_URL=http://120.26.137.9:8080
+export WANDB_API_KEY=local-330098da54db392d6d188861d47e0028ec65b355
+
+export exp_name=first_agentic_try_loadblance_75_postgroup_0910
 python chatlearn/entrypoint.py grpo \
         --config-file template/grpo_fsdp_agent.yaml \
         runtime_args.exp_name=${exp_name} \
         runtime_args.rollout_backend=sglang \
+        runtime_args.task_type=agent \
+        runtime_args.use_rollout_manager=True \
+        runtime_args.data_rerank=False \
+        runtime_args.raw_chat=true \
         runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train_agent.json \
         runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test_agent.json \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=200 \
-        runtime_args.sample_per_episode=128 \
-        runtime_args.train_global_batch_size=128 \
-        runtime_args.train_micro_batch_size=64 \
+        runtime_args.sample_per_episode=2048 \
+        runtime_args.train_global_batch_size=2048 \
+        runtime_args.train_micro_batch_size=256 \
         runtime_args.save_episode_interval=200 \
         runtime_args.eval_episode_interval=5 \
         runtime_args.enable_eval_before_training=False \
-        runtime_args.log_args_dict.enable_wandb=False \
-        runtime_args.log_args_dict.wandb_project=your_wandb_project \
-        models.policy_trainer.num_gpu=2 \
+        runtime_args.log_args_dict.enable_wandb=True \
+        runtime_args.log_args_dict.wandb_project=agentic_hh \
+        models.policy_trainer.num_gpu=8 \
         models.policy_trainer.packing=True \
         models.policy_trainer.meta_init=False \
         models.policy_trainer.groupgemm=False \
-        models.policy_trainer.generation_batch_size=64 \
+        models.policy_trainer.generation_batch_size=256 \
         models.policy_trainer.ulysses_sequence_parallel_size=1 \
-        models.policy_trainer.load=${CHATLEARN}/Qwen3-1.7B/ \
+        models.policy_trainer.load=${CHATLEARN}/Qwen3-8B/ \
         models.policy_trainer.optimizer.lr=2e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \
-        models.ref_policy.generation_batch_size=64 \
+        models.ref_policy.generation_batch_size=256 \
         models.policy.is_sync_mode=False \
-        models.policy.generation_batch_size=64 \
+        models.policy.generation_batch_size=256 \
         models.policy.enforce_eager=False \
         models.policy.tensor_model_parallel_size=1 \
         models.policy.max_prompt_tokens_length=1024 \

@@ -35,7 +35,7 @@ python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH
 ```bash
 # 下载模型权重
 modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
-bash scripts/train_fsdp_vllm_qwen3_8b_grpo.sh
+bash scripts/fsdp_vllm/train_fsdp_vllm_qwen3_8b_grpo.sh
 ```
 
 ## 使用 Wandb 监控
