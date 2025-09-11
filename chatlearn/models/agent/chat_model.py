@@ -142,7 +142,6 @@ class CustomChatModel(BaseChatModel):
                 None,
                 lambda: self.tokenizer.apply_chat_template(
                     convert_to_openai_messages(remaining_messages),
-                    # tools=kwargs.get("tools"),
                     add_generation_prompt=True,
                     enable_thinking=False,
                     tokenize=True,
