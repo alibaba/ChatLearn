@@ -1,10 +1,10 @@
+# pylint: disable=arguments-differ,cell-var-from-loop,unnecessary-lambda,bare-except,missing-module-docstring,missing-class-docstring
 import asyncio
 import copy
-import json
 from typing import Annotated, Any, Sequence, TypedDict
 
-from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
@@ -15,9 +15,7 @@ from chatlearn.models.agent.agent_module import register
 from chatlearn.models.agent.base_agent_graph import (AgentGraphOutput,
                                                      BaseAgentGraph)
 from chatlearn.models.agent.chat_model import CustomChatModel
-from chatlearn.utils.rule_reward_score.math import (is_equiv,
-                                                    last_boxed_only_string,
-                                                    remove_boxed)
+from chatlearn.utils.rule_reward_score.math import is_equiv
 
 
 class AgentState(TypedDict):

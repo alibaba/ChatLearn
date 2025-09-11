@@ -1,4 +1,5 @@
-from typing import Any, Dict, List, Optional
+"""agent module"""
+from typing import Any, Dict, List
 
 import ray
 import torch
@@ -21,17 +22,13 @@ def register(agent_name: str):
 
 
 class AgentModule(AsyncSGLangModule):
-
+    """agent module"""
     def __init__(self, name: str, args=None, replica_id: int = 0):
         """The chatlearn wrapper for a langgraph+async sglang model."""
         super().__init__(name, args=args, replica_id=replica_id)
 
         self.agent_factory: Dict[str, BaseAgentGraph] = {}
         self.chat_model = None
-
-    def setup_engine(self):
-        # setup sglang engine
-        super().setup_engine()
 
     def build_agent_graph(self, agent_name: str, agent_cfg_path: str) -> BaseAgentGraph:
 

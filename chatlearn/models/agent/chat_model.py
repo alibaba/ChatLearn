@@ -1,3 +1,5 @@
+# pylint: disable=unused-argument
+"""base chat model warp for langgraph"""
 import asyncio
 import json
 import uuid
@@ -9,13 +11,11 @@ from langchain_core.messages import (AIMessage, BaseMessage,
                                      convert_to_openai_messages)
 from langchain_core.messages.tool import InvalidToolCall, ToolCall
 from langchain_core.outputs import ChatGeneration, ChatResult
-from langchain_core.runnables import Runnable, RunnableConfig
+from langchain_core.runnables import Runnable
 from langchain_core.utils.function_calling import convert_to_openai_tool
 from pydantic import Field
-from transformers import AutoTokenizer
 
 from chatlearn.models.agent.tool_parser import ToolParser
-from chatlearn.models.sglang_module import AsyncEngine
 from chatlearn.utils.logger import logger
 
 
@@ -27,6 +27,7 @@ def find_last_ai_index(messages):
 
 
 class CustomChatModel(BaseChatModel):
+    """CustomChatModel for async sglang"""
     model_name: str = Field(alias="model")
     llm: Any
     tokenizer: Any

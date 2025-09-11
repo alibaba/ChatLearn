@@ -45,7 +45,8 @@ class RolloutManagerConfig(BaseModelConfig):
     use_dynamic_load_blance: bool = field(
         default=True, metadata={"help": "whether use dynamic load blance to avoid idle gpu problem"})
     max_concurrent_per_engine: int = field(
-        default=192, metadata={"help": "used in dynamic_load_blance mode, the maximum number of requests that can be processed simultaneously by a rollout engine"})
+        default=192, metadata={"help": "used in dynamic_load_blance mode, \
+            the maximum number of requests that can be processed simultaneously by a rollout engine"})
 
 @dataclass
 class PolicyTrainerConfig(BaseModelConfig):

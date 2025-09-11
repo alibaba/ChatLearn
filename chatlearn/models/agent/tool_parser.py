@@ -1,3 +1,4 @@
+# pylint: disable=missing-module-docstring,missing-class-docstring
 # Copyright 2024 Bytedance Ltd. and/or its affiliates
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -13,8 +14,6 @@
 # limitations under the License.
 import asyncio
 import json
-import logging
-import os
 from abc import ABC, abstractmethod
 
 import regex as re

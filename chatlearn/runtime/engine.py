@@ -16,7 +16,6 @@
 
 import os
 import shutil
-import time
 from typing import Dict, List, Tuple
 from collections import defaultdict
 
@@ -227,7 +226,7 @@ class BaseEngine:
 class Engine(BaseEngine):
     """Engine"""
 
-    def __init__(self, environment=None, trainer=None, evaluator=None, name='alignment', models: List[BaseModule]=[]):
+    def __init__(self, environment=None, trainer=None, evaluator=None, name='alignment', models: List[BaseModule] = None):
         """
         Engine.
 

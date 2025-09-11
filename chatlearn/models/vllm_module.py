@@ -1,4 +1,4 @@
-# pylint: disable=arguments-differ
+# pylint: disable=arguments-differ,unused-argument
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -556,7 +556,6 @@ if HAVE_VLLM:
                 num_responses_per_prompt = len(output.outputs)
                 for res_idx in range(num_responses_per_prompt):
                     data_obj = copy.deepcopy(input_data)
-                    prompt_token_ids = output.prompt_token_ids
                     output_tokens = list(output.outputs[res_idx].token_ids)
                     response_token_length = len(output_tokens)
                     prompt_token_length = len(output.prompt_token_ids)
@@ -581,7 +580,7 @@ if HAVE_VLLM:
             print("ground_truth", data_output[0]["ground_truth"])
 
             return data_output
-    
+
 
 else:
     class VLLMModule(TorchModule):

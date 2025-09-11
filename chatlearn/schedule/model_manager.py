@@ -18,7 +18,6 @@ import concurrent.futures
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, List
-import time
 import traceback
 
 import ray
@@ -33,10 +32,8 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistSGLangActor, DistModel
 from chatlearn.synchronizer import MCoreParameterSyncGroup, FSDPParameterSyncGroup
-from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
-from chatlearn.utils.timer import timing
 from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
 
 from .port_manager import PortManager

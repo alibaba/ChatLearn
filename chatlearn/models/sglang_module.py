@@ -1,4 +1,4 @@
-# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel
+# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel,unused-argument
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -36,7 +36,6 @@ from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.mappings.huggingface_helpers import build_sharded_info_for_huggingface_model
-from chatlearn.utils.timer import timing
 
 from .torch_module import TorchModule
 
@@ -248,9 +247,6 @@ class SGLangModule(TorchModule):
             sorted(list(self.visible_devices_set))
         )
         dist.barrier(group=self.cpu_mesh.get_group())
-
-    def setup(self):
-        super().setup()
 
     @timeit()
     def setup_engine(self):

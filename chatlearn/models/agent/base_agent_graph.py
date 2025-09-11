@@ -1,8 +1,9 @@
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional
+# pylint: disable=unused-argument
+"""base agent graph"""
+from abc import abstractmethod
+from typing import Any, Dict, Optional
 
-from langchain_core.messages import BaseMessage
-from langgraph.graph import END, MessagesState, StateGraph
+from langgraph.graph import StateGraph
 from omegaconf import DictConfig
 from pydantic import BaseModel
 from transformers import AutoTokenizer
@@ -21,6 +22,7 @@ def find_first_zero_group_end(lst):
 
 # modifyed from https://github.com/volcengine/verl/blob/main/verl/experimental/agent_loop/agent_loop.py#L121
 class AgentGraphOutput(BaseModel):
+    """AgentGraphOutput"""
     # TODO: support multi_modal
     str_output: str
     """total rollout str"""

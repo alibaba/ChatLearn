@@ -4,9 +4,7 @@ from typing import Dict, List, Any
 from collections import defaultdict
 
 import numpy as np
-from transformers import AutoTokenizer
 
-from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn import BaseModule
 

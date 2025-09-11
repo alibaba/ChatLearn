@@ -1,3 +1,4 @@
+# pylint: disable=unused-argument,unused-variable
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,23 +16,16 @@
 """agent manager"""
 import heapq
 import itertools
-import random
-import uuid
-from collections import defaultdict
-from itertools import cycle
-from typing import Any, Dict, Iterator, List
+from typing import Dict, List
 
 import ray
-import torch
 from ray import ObjectRef
 from transformers import AutoTokenizer
 
 from chatlearn import BaseModule
-from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.models.sglang_module import metric_collect
 from chatlearn.runtime.decorator import (compute_decorator, monitor_error,
                                          timeit)
-from chatlearn.utils.timer import timing
 
 
 class RolloutManager(BaseModule):
