@@ -166,25 +166,6 @@ class AsyncEngine(Engine):
 
         return await self.tokenizer_manager.resume_memory_occupation(obj, None)
 
-    # async def update_weights_from_tensor(
-    #     self,
-    #     named_tensors: List[Tuple[str, torch.Tensor]],
-    #     load_format: Optional[str] = None,
-    #     flush_cache: bool = True,
-    # ):
-    #     """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
-    #     to avoid duplicated cache cleaning operation."""
-    #     obj = UpdateWeightsFromTensorReqInput(
-    #         serialized_named_tensors=[
-    #             MultiprocessingSerializer.serialize(named_tensors)
-    #             for _ in range(self.server_args.tp_size)
-    #         ],
-    #         load_format=load_format,
-    #         flush_cache=flush_cache,
-    #     )
-    #     return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
-
-
     async def update_weights_from_tensor(
         self,
         named_tensors: List[Tuple[str, torch.Tensor]],
@@ -205,12 +186,8 @@ class AsyncEngine(Engine):
             load_format=load_format,
             flush_cache=flush_cache,
         )
-        # loop = asyncio.get_event_loop()
 
         return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
-        # return loop.run_until_complete(
-        #     self.tokenizer_manager.update_weights_from_tensor(obj, None)
-        # )
 
     async def flush_cache(self):
         return await self.tokenizer_manager.flush_cache()
@@ -389,9 +366,6 @@ class SGLangModule(TorchModule):
             "min_p": min_p,
             "ignore_eos": self.module_args.get("ignore_eos", False),
             "stop": stop,
-            # "logprobs": self.module_args.get("logprobs", 1), # not found
-            # "detokenize": self.module_args.get("detokenize", False),
-            # "prompt_logprobs": self.module_args.get("prompt_logprobs", None),
             "skip_special_tokens": self.module_args.get("skip_special_tokens", True),
         }
 
@@ -756,35 +730,6 @@ class AsyncSGLangModule(SGLangModule):
                 input_ids=prompts_token_ids,
             )
         return outputs
-
-    # async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
-
-    #     # pylint: disable-next=import-outside-toplevel
-    #     for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-    #         if self.is_engine():
-    #             gathered_serialized_tensors = [None] * self._tp_size
-    #         else:
-    #             gathered_serialized_tensors = None
-
-    #         dist.gather_object(
-    #             obj=serialized_tensor,
-    #             object_gather_list=gathered_serialized_tensors,
-    #             dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-    #             group=self.cpu_mesh["tp"].get_group(),
-    #         )
-
-    #         if self.is_engine():
-    #             await self.llm.update_weights_from_tensor(
-    #                 named_tensors=[
-    #                     (
-    #                         name,
-    #                         LocalSerializedTensor(values=gathered_serialized_tensors),
-    #                     )
-    #                 ],
-    #                 # load_format=load_format,
-    #                 flush_cache=index == len(reduce_data) - 1,
-    #             )
-    #     torch.cuda.synchronize()
 
     async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
         if load_format == "flattened_bucket":
