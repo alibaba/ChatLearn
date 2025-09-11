@@ -142,27 +142,33 @@ class GrpoConfig(BaseConfig):
             'ref_policy': self.models.ref_policy
         }
         for name, conf in models.items():
+            # NOTE: sample_per_episode should be divided by total DP
             assert sample_per_episode % (conf.num_replica * conf.replica_dp_size) == 0, (
-                f"runtime_args.sample_per_episode must be divisible by models.{name}.num_replica times models.{name}.replica_dp_size, "
-                f"but {name} got num_replica: {conf.num_replica}; replica_dp_size: {conf.replica_dp_size}"
+                f"runtime_args.sample_per_episode of {name} ({self.runtime_args.sample_per_episode}) must be divisible "
+                f"by models.{name}.num_replica ({conf.num_replica}) times models.{name}.replica_dp_size ({conf.replica_dp_size})."
             )
-            sample_per_dp_rank = sample_per_episode // (conf.num_replica * conf.replica_dp_size)
-            assert sample_per_dp_rank % conf.generation_batch_size == 0, (
-                f"sample_per_dp_rank must be divisible by models.{name}.generation_batch_size, "
-                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; generation_batch_size: {conf.generation_batch_size}"
-            )
+            if conf.trainable:
+                # NOTE: train_global_batch_size should be divided by total DP if trainable
+                assert self.runtime_args.train_global_batch_size % (conf.num_replica * conf.replica_dp_size) == 0, (
+                    f"runtime_args.train_global_batch_size ({self.runtime_args.train_global_batch_size}) must be divisible by "
+                    f"models.{name}.num_replica ({conf.num_replica}) times models.{name}.replica_dp_size ({conf.replica_dp_size})."
+                )
 
-            # TODO: add checks after dataflow refactorization
-            # NOTE: each rank will get `generation_batch_size` samples, and then:
-            # mcore: use micro_batch_size=train_micro_batch_size
-            # fsdp: use micro_batch_size=generation_batch_size
-            # we skip these checks currently
+            if not conf.packing:
+                sample_per_dp_rank = sample_per_episode // (conf.num_replica * conf.replica_dp_size)
+                assert sample_per_dp_rank % conf.generation_batch_size == 0, (
+                    f"sample_per_dp_rank of {name} ({sample_per_dp_rank}) must be divisible by "
+                    f"models.{name}.generation_batch_size ({conf.generation_batch_size})."
+                )
 
-            train_global_batch_size_per_dp_rank = self.runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
-            assert train_global_batch_size_per_dp_rank % self.runtime_args.train_micro_batch_size == 0, (
-                f"sample_per_dp_rank must be divisible by runtime_args.train_micro_batch_size, "
-                f"but {name} got sample_per_dp_rank: {sample_per_dp_rank}; train_micro_batch_size: {self.runtime_args.train_micro_batch_size}"
-            )
+                if conf.trainable:
+                    train_global_batch_size_per_dp_rank = (
+                        self.runtime_args.train_global_batch_size // (conf.num_replica * conf.replica_dp_size)
+                    )
+                    assert train_global_batch_size_per_dp_rank % self.runtime_args.train_micro_batch_size == 0, (
+                        f"train_global_batch_size_per_dp_rank of {name} ({sample_per_dp_rank}) must be divisible by "
+                        f"runtime_args.train_micro_batch_size ({self.runtime_args.train_micro_batch_size})."
+                    )
 
 
 
