@@ -306,7 +306,7 @@ class GrpoAlgorithm(BaseAlgorithm):
                 rollout_cls = SGLangModule if self.cfg.models.policy.is_sync_mode else AsyncSGLangModule
                 policy = rollout_cls("policy")
         elif self.cfg.runtime_args.task_type == "agent":
-            assert self.cfg.models.policy.is_sync_mode is False and self.cfg.runtime_args.rollout_backend == "sglang", \
+            assert not self.cfg.models.policy.is_sync_mode and self.cfg.runtime_args.rollout_backend == "sglang", \
                 "agent task only support async sglang engine"
             assert self.cfg.runtime_args.use_rollout_manager, "agent task must set use_rollout_manager=True"
             policy = AgentModule("policy")
@@ -316,7 +316,7 @@ class GrpoAlgorithm(BaseAlgorithm):
         partial_rollout_manager =  PartialRolloutManager("partial_rollout_manager") if self.cfg.runtime_args.use_partial_rollout else None
 
         if self.cfg.runtime_args.use_rollout_manager:
-            assert self.cfg.models.policy.is_sync_mode is False and self.cfg.runtime_args.rollout_backend == "sglang", \
+            assert not self.cfg.models.policy.is_sync_mode and self.cfg.runtime_args.rollout_backend == "sglang", \
                 "rollout manager only support async sglang engine"
             engine = RolloutManagerGRPOEngine(rollout_manager, policy, reward, ref_policy, policy_trainer)
         else:
