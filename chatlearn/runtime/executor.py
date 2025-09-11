@@ -394,8 +394,7 @@ class Executor:
         logger.info(f"{LOG_START} start to generate_step_one_model for {model_node}")
         for step in range(num_batch):
             to_empty_cache = step >= last_step_start and model.is_colocate
-            # to_onload = step < replica_num and (model.is_colocate and model.enable_offload)
-            # to_offload = step >= last_step_start and (model.is_colocate and model.enable_offload)
+            # Warning: rollout_manager is a cpu module, but need to onload/offload rollout engine
             to_onload = step < replica_num and ((model.is_colocate and model.enable_offload) or model.name=="rollout_manager")
             to_offload = step >= last_step_start and ((model.is_colocate and model.enable_offload) or model.name=="rollout_manager")
             replica = self._next_model(model)

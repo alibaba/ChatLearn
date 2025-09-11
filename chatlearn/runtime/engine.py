@@ -237,12 +237,6 @@ class Engine(BaseEngine):
         trainer : Trainer
         evaluator: Evaluator
         """
-        # models = []
-        # for executor in [environment, trainer, evaluator]:
-        #     if executor:
-        #         for model in executor.models:
-        #             if model not in models:
-        #                 models.append(model)s
         super().__init__(models)
         if environment:
             environment.set_timers(self.timers)

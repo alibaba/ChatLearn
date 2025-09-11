@@ -19,6 +19,7 @@ from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, List
 import time
+import traceback
 
 import ray
 import ray.experimental.state.api
@@ -391,7 +392,6 @@ class ModelManager:
                 try:
                     _future.result()
                 except Exception as e:
-                    import traceback
                     traceback.print_exc()
                     raise RuntimeError(f"Set dist env generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)

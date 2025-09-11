@@ -98,18 +98,6 @@ class Environment(Executor):
         super().setup()
         self.setup_dataset()
 
-        # for model_node in self.model_flow.model_nodes:
-        #     model = model_node.model.replicas[0]
-        #     if model.model.name == "policy":
-        #         logger.info(f"setup engine for rollout {model.model}")
-        #         refs = []
-        #         for replica in model_node.model.replicas:
-        #             if isinstance(model.model, VLLMModule):
-        #                 refs.append(replica.setup_engine(replica.all_actors))
-        #             else:
-        #                 refs.append(replica.setup_engine())
-        #         future.wait(refs, return_output=True)
-
     @property
     def sample_per_episode(self):
         return self.args.sample_per_episode
