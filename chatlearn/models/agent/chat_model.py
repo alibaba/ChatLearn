@@ -98,38 +98,6 @@ class CustomChatModel(BaseChatModel):
         message = await self._postprocess(output, token_ids, loss_mask)
         generation = ChatGeneration(message=message)
         return ChatResult(generations=[generation])
-        
-
-    # async def _preprocess(self, messages: list[BaseMessage], **kwargs: Any):
-    #     """
-    #     convert list[BaseMessage] to SGLangModule.generate input
-    #     """
-    #     # todo support partial tokenizer
-
-    #     # messages: [system], human, ai, human|tool, ai, human|tool, ...
-    #     assert messages[-1].type in ["human", "tool"], (
-    #         f"Last message must be human or tool, but got {messages[-1].type}"
-    #     )
-    #     loop = asyncio.get_running_loop()
-    #     # tokenizer all messages
-    #     # if len(messages)<=2:
-    #     prompt = await loop.run_in_executor(
-    #         None,
-    #         lambda: self.tokenizer.apply_chat_template(
-    #             convert_to_openai_messages(messages),
-    #             tools=kwargs.get("tools"),
-    #             add_generation_prompt=True,
-    #             enable_thinking=False,
-    #             tokenize=False,
-    #         ),
-    #     )
-
-    #     token_ids = await loop.run_in_executor(
-    #         None,
-    #         lambda: self.tokenizer.encode(prompt)
-    #     )
-
-    #     return token_ids
 
     async def _preprocess(self, messages: list[BaseMessage], **kwargs: Any):
         """
@@ -238,60 +206,3 @@ class CustomChatModel(BaseChatModel):
             },
         )
         return message
-
-        
-if __name__ == "__main__":
-    import sglang
-    from typing import Annotated
-    from typing_extensions import TypedDict
-    import os
-    import pprint
-    import asyncio
-
-    from langgraph.graph import StateGraph, START, END
-    from langgraph.graph.message import add_messages
-    from langchain_openai import ChatOpenAI
-    from langchain_core.runnables import RunnableConfig
-    llm = sglang.Engine(model_path="Qwen3-1.7B")
-    sampling_params = {"temperature": 0.8, "top_p": 0.95, "max_new_tokens": 2048}
-    tokenizer = AutoTokenizer.from_pretrained(
-            "Qwen3-1.7B", trust_remote_code=True
-        )
-    chatmodel = CustomChatModel(model="debughh", llm=llm, tokenizer=tokenizer)
-
-    class State(TypedDict):
-        messages: Annotated[list, add_messages]
-
-    graph_builder = StateGraph(State)
-
-
-    async def chatbot(state: State, config: RunnableConfig):
-        """
-        RunnableConfig: langchain_core.runnables.config
-        """
-        sampling_params = config['configurable']['sampling_params']
-        message = await chatmodel.ainvoke(state["messages"], sampling_params=sampling_params)
-        return {"messages": [message]}
-
-    # init graph
-    graph_builder = StateGraph(State)
-
-    # add node
-    graph_builder.add_node("chatbot", chatbot)
-
-    # add edge
-    graph_builder.add_edge(START, "chatbot")
-    graph_builder.add_edge("chatbot", END)
-
-    # compile graph
-    graph = graph_builder.compile()
-
-
-    config = {
-        "configurable": {
-            "sampling_params": sampling_params,
-        }
-    }
-    out = asyncio.run(graph.ainvoke({"messages": [{"role": "user", "content": "你是谁"}]}, config=config))
-    pprint.pprint(out)
-    

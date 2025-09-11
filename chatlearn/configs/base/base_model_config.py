@@ -76,6 +76,7 @@ class BaseModelConfig(BaseConfig):
     )
 
     # config for first node module
+    # !!! now we only set these config in policy module
     # TODO: refactor a dataset module
     num_inference_per_prompt: int = field(
         default=32, metadata={"help": "number of response for per prompt"}
