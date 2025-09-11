@@ -80,7 +80,6 @@ class PromptPipeline(Dataset):
                     self.data.append(processed_data)
             else:
                 processed_data = {
-                    # "input_ids": input_ids,
                     "messages": prompt,
                     "data_source": data_source,
                     "ground_truth": ground_truth,

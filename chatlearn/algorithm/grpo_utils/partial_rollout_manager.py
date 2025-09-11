@@ -18,11 +18,13 @@ class PartialRolloutManager(BaseModule):
         self.num_response_track = defaultdict(int)
         self.rollout_not_finished = []
         self.max_rollout_round = self.module_args.max_rollout_round
-        self.max_response_tokens_length = self.module_args.max_response_tokens_length
+        self.max_response_tokens_length = self.global_args.models.policy.max_response_tokens_length
         self.ratio = self.module_args.rollout_ratio
         self.max_token_per_round = [int(self.max_response_tokens_length * ratio) for ratio in self.ratio]
-        self.num_inference_per_prompt = self.module_args.num_inference_per_prompt
+        self.num_inference_per_prompt = self.global_args.models.policy.num_inference_per_prompt
         self.mini_response_per_prompt = self.module_args.mini_response_per_prompt
+        assert self.mini_response_per_prompt < self.num_inference_per_prompt, \
+            "mini_response_per_prompt must be less than num_inference_per_prompt"
         # Logging metric dict for this module
         # It will be append to self._metric_list after logging all metrics
         self.metric_dict = {}

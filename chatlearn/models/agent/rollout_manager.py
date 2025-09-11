@@ -163,7 +163,7 @@ class RolloutManager(BaseModule):
 
         # collect metric
         self._metric_list.append(
-            metric_collect(rets, self.module_args.max_response_tokens_length)
+            metric_collect(rets, self.global_args.models.policy.max_response_tokens_length)
         )
         return rets
 

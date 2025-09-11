@@ -285,7 +285,8 @@ class BaseModule:
         """
         Build prompt dataset
         """
-        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
+        max_prompt_tokens_length = self.global_args.models.ploicy.max_prompt_tokens_length
+        enable_thinking = self.global_args.models.ploicy.enable_thinking
         assert len(prompts)>0, 'Dataset is empty'
 
         if self.runtime_args.model_type == 'vlm':
@@ -295,7 +296,7 @@ class BaseModule:
                 max_prompt_tokens_length,
                 self.tokenizer,
                 self.processor,
-                enable_thinking=self.module_args.enable_thinking,
+                enable_thinking=enable_thinking
             )
         else:
             from chatlearn.data.prompt_dataset import PromptPipeline
@@ -303,7 +304,7 @@ class BaseModule:
                 prompts,
                 max_prompt_tokens_length,
                 self.tokenizer,
-                enable_thinking=self.module_args.enable_thinking,
+                enable_thinking=enable_thinking,
                 raw_chat=self.runtime_args.raw_chat
             )
 
@@ -398,10 +399,9 @@ class BaseModule:
             f"data_ratio: {data_ratio}",
             self._logger
         )
-        if "num_inference_per_prompt" in self.module_args:
-            num_inference_per_prompt = self.module_args["num_inference_per_prompt"]
-        else:
-            num_inference_per_prompt = 1
+
+        num_inference_per_prompt = self.global_args.models.policy.num_inference_per_prompt
+
         self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
