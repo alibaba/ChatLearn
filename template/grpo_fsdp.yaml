@@ -69,6 +69,7 @@ models:
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
     fsdp_size: ${models.policy_trainer.num_gpu}
+    ulysses_sequence_parallel_size: ${models.policy_trainer.ulysses_sequence_parallel_size}
     meta_init: ${models.policy_trainer.meta_init}
     groupgemm: ${models.policy_trainer.groupgemm}
     trainable: False
