@@ -43,7 +43,9 @@ class ToolParser(ABC):
         self.tokenizer = tokenizer
 
     @abstractmethod
-    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
+    async def extract_tool_calls(
+        self, responses_ids: list[int]
+    ) -> tuple[str, list[FunctionCall]]:
         """Extract tool calls from the responses.
 
         Args:
@@ -80,10 +82,15 @@ class HermesToolParser(ToolParser):
         self.tool_call_end_token: str = "</tool_call>"
         self.tool_call_regex = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
-    async def extract_tool_calls(self, responses_ids: list[int]) -> tuple[str, list[FunctionCall]]:
+    async def extract_tool_calls(
+        self, responses_ids: list[int]
+    ) -> tuple[str, list[FunctionCall]]:
         loop = asyncio.get_running_loop()
         text = await loop.run_in_executor(None, self.tokenizer.decode, responses_ids)
-        if self.tool_call_start_token not in text or self.tool_call_end_token not in text:
+        if (
+            self.tool_call_start_token not in text
+            or self.tool_call_end_token not in text
+        ):
             return text, []
 
         matches = self.tool_call_regex.findall(text)
@@ -92,7 +99,11 @@ class HermesToolParser(ToolParser):
             try:
                 function_call = json.loads(match)
                 name, arguments = function_call["name"], function_call["arguments"]
-                function_calls.append(FunctionCall(name=name, arguments=json.dumps(arguments, ensure_ascii=False)))
+                function_calls.append(
+                    FunctionCall(
+                        name=name, arguments=json.dumps(arguments, ensure_ascii=False)
+                    )
+                )
             except Exception as e:
                 logger.error(f"Failed to decode tool call: {e}")
 

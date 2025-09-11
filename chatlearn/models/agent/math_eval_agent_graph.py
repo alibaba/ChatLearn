@@ -1,31 +1,32 @@
+import asyncio
 import copy
 import json
-from typing import (
-    Annotated,
-    Sequence,
-    TypedDict,
-    Any
-)
-import asyncio
+from typing import Annotated, Any, Sequence, TypedDict
 
-from transformers import AutoTokenizer
-from omegaconf import DictConfig
-from langgraph.graph import StateGraph, END
+from langchain_core.messages import BaseMessage, SystemMessage, ToolMessage
 from langchain_core.runnables import Runnable, RunnableConfig
-from langchain_core.messages import BaseMessage, ToolMessage, SystemMessage
-from langgraph.graph.message import add_messages
 from langchain_core.tools import tool
+from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
+from omegaconf import DictConfig
+from transformers import AutoTokenizer
 
 from chatlearn.models.agent.agent_module import register
+from chatlearn.models.agent.base_agent_graph import (AgentGraphOutput,
+                                                     BaseAgentGraph)
 from chatlearn.models.agent.chat_model import CustomChatModel
-from chatlearn.models.agent.base_agent_graph import BaseAgentGraph, AgentGraphOutput
-from chatlearn.utils.rule_reward_score.math import last_boxed_only_string, remove_boxed, is_equiv
+from chatlearn.utils.rule_reward_score.math import (is_equiv,
+                                                    last_boxed_only_string,
+                                                    remove_boxed)
+
 
 class AgentState(TypedDict):
     """The state of the agent."""
+
     # add_messages is a reducer
     # See https://langchain-ai.github.io/langgraph/concepts/low_level/#reducers
     messages: Annotated[Sequence[BaseMessage], add_messages]
+
 
 @register("matheval_agent")
 class MathEvalAgentGraph(BaseAgentGraph):
@@ -41,25 +42,28 @@ class MathEvalAgentGraph(BaseAgentGraph):
         super().__init__(agent_name, cfg, llm, tokenizer, **kwargs)
         self.build_graph()
 
-
     def build_graph(self) -> StateGraph:
 
-        self.chatmodel = CustomChatModel(model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer)
-        
+        self.chatmodel = CustomChatModel(
+            model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer
+        )
+
         # define node function
         async def call_model(
             state: AgentState,
             config: RunnableConfig,
         ):
-            chatmodel = config['configurable']['chat_model']
-            sampling_params = config['configurable']['sampling_params']
-            message = await chatmodel.ainvoke(state["messages"], sampling_params=sampling_params)
+            chatmodel = config["configurable"]["chat_model"]
+            sampling_params = config["configurable"]["sampling_params"]
+            message = await chatmodel.ainvoke(
+                state["messages"], sampling_params=sampling_params
+            )
             return {"messages": [message]}
 
         @tool
         def mathlighteval_reward(answer: str, **kwargs):
             """A tool for calculating the reward of mathlighteval."""
-            if is_equiv(answer, kwargs['ground_truth']):
+            if is_equiv(answer, kwargs["ground_truth"]):
                 return "The answer is correct."
             else:
                 return "The answer is wrong."
@@ -67,10 +71,10 @@ class MathEvalAgentGraph(BaseAgentGraph):
         async def tool_node(state: AgentState, config: RunnableConfig):
 
             outputs = []
-            
+
             for tool_call in state["messages"][-1].tool_calls:
                 args = copy.deepcopy(tool_call["args"])
-                args['ground_truth'] = config['configurable']['ground_truth']
+                args["ground_truth"] = config["configurable"]["ground_truth"]
                 loop = asyncio.get_running_loop()
                 try:
                     tool_result = await loop.run_in_executor(
@@ -80,7 +84,7 @@ class MathEvalAgentGraph(BaseAgentGraph):
                     # tool_result = tools_by_name[tool_call["name"]].func(**args)
                     outputs.append(
                         ToolMessage(
-                            content = tool_result,
+                            content=tool_result,
                             name=tool_call["name"],
                             tool_call_id=tool_call["id"],
                         )
@@ -88,7 +92,7 @@ class MathEvalAgentGraph(BaseAgentGraph):
                 except:
                     outputs.append(
                         ToolMessage(
-                            content = "tool execute error",
+                            content="tool execute error",
                             name=tool_call["name"],
                             tool_call_id=tool_call["id"],
                         )
@@ -105,12 +109,16 @@ class MathEvalAgentGraph(BaseAgentGraph):
                     ai_messages_cnt += 1
                     total_token_cnt = len(message.response_metadata["loss_mask"])
             # If there is no function call, then we finish
-            if not last_message.tool_calls or ai_messages_cnt >= self.cfg.max_ai_message_turn or total_token_cnt >= self.cfg.max_total_token_length:
+            if (
+                not last_message.tool_calls
+                or ai_messages_cnt >= self.cfg.max_ai_message_turn
+                or total_token_cnt >= self.cfg.max_total_token_length
+            ):
                 return "end"
             # Otherwise if there is, we continue
             else:
                 return "continue"
-        
+
         # Define graph
         workflow = StateGraph(AgentState)
 
@@ -142,23 +150,21 @@ class MathEvalAgentGraph(BaseAgentGraph):
         workflow.add_edge("tools", "agent")
         self.graph = workflow.compile()
 
-    async def run(self, messages, sampling_params: dict[str, Any], **kwargs) -> AgentGraphOutput:
-        
+    async def run(
+        self, messages, sampling_params: dict[str, Any], **kwargs
+    ) -> AgentGraphOutput:
+
         config = {
             "configurable": {
                 "chat_model": self.chatmodel,
                 "sampling_params": sampling_params,
-                "ground_truth": kwargs['ground_truth']
+                "ground_truth": kwargs["ground_truth"],
             }
         }
 
-        output = await self.graph.ainvoke(
-            input = {'messages': messages},
-            config=config
-        )
+        output = await self.graph.ainvoke(input={"messages": messages}, config=config)
         loop = asyncio.get_running_loop()
         output = await loop.run_in_executor(
-            None,
-            lambda: self.convert_agent_graph_output(output)
+            None, lambda: self.convert_agent_graph_output(output)
         )
         return output

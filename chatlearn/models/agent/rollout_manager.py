@@ -68,7 +68,9 @@ class RolloutManager(BaseModule):
         ]
         self.engine_iter = itertools.cycle(iter(self.rollout_engines))
 
-    def data_balance(self, data: List[Dict], dp_size, batch_size, key="all_token_length"):
+    def data_balance(
+        self, data: List[Dict], dp_size, batch_size, key="all_token_length"
+    ):
         """
         balance total token budget between dp
         """
@@ -100,8 +102,10 @@ class RolloutManager(BaseModule):
         return result
 
     def _forward_step(self, data: List[Dict], iteration, is_eval):
-        
-        assert not self.runtime_args.data_rerank, "while use rollout manager, data_rerank shuold be false"
+
+        assert (
+            not self.runtime_args.data_rerank
+        ), "while use rollout manager, data_rerank shuold be false"
         data_length = len(data)
         data_iter = iter(data)
         max_concurrent = (
@@ -158,7 +162,9 @@ class RolloutManager(BaseModule):
         rets = self._forward_step(data, iteration, False)
 
         # collect metric
-        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
+        self._metric_list.append(
+            metric_collect(rets, self.module_args.max_response_tokens_length)
+        )
         return rets
 
     @compute_decorator(trainable=False, rollout=True)

@@ -1,13 +1,14 @@
 from abc import ABC, abstractmethod
-from typing import Optional, Any, List, Dict
+from typing import Any, Dict, List, Optional
 
-from omegaconf import DictConfig
-from transformers import AutoTokenizer
-from pydantic import BaseModel
-from langgraph.graph import END, MessagesState, StateGraph
 from langchain_core.messages import BaseMessage
+from langgraph.graph import END, MessagesState, StateGraph
+from omegaconf import DictConfig
+from pydantic import BaseModel
+from transformers import AutoTokenizer
 
-from chatlearn.models.agent.chat_model import CustomChatModel, find_last_ai_index
+from chatlearn.models.agent.chat_model import (CustomChatModel,
+                                               find_last_ai_index)
 from chatlearn.models.sglang_module import AsyncEngine
 
 
@@ -37,6 +38,7 @@ class AgentGraphOutput(BaseModel):
     extra_fields: dict[str, Any] = {}
     """Extra fields for dynamic addition."""
 
+
 class BaseAgentGraph:
     """
     AgentGraph used for process a prompt by a self-defined LangGraph graph
@@ -61,23 +63,25 @@ class BaseAgentGraph:
         raise NotImplementedError
 
     def build_graph(self) -> StateGraph:
-        self.chatmodel = CustomChatModel(model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer)
+        self.chatmodel = CustomChatModel(
+            model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer
+        )
 
     def convert_agent_graph_output(self, messages: Dict) -> AgentGraphOutput:
-        messages = messages['messages']
+        messages = messages["messages"]
         last_ai_message_idx = find_last_ai_index(messages)
 
         # discard messages after last ai message
-        all_token_ids = messages[last_ai_message_idx].response_metadata['token_ids']
-        loss_mask = messages[last_ai_message_idx].response_metadata['loss_mask']
+        all_token_ids = messages[last_ai_message_idx].response_metadata["token_ids"]
+        loss_mask = messages[last_ai_message_idx].response_metadata["loss_mask"]
         prompt_end_idx = find_first_zero_group_end(loss_mask)
-        prompt_ids = all_token_ids[:prompt_end_idx+1]
+        prompt_ids = all_token_ids[: prompt_end_idx + 1]
         num_turns = last_ai_message_idx + 1
-        str_output = self.tokenizer.decode(all_token_ids[prompt_end_idx+1:])
+        str_output = self.tokenizer.decode(all_token_ids[prompt_end_idx + 1 :])
         return AgentGraphOutput(
-            str_output = str_output,
+            str_output=str_output,
             prompt_ids=prompt_ids,
             all_token_ids=all_token_ids,
             loss_mask=loss_mask,
-            num_turns=num_turns
+            num_turns=num_turns,
         )
