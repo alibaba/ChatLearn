@@ -169,7 +169,7 @@ class Executor:
                         micro_batch_index: Optional[int] = None, # pylint: disable-next=unused-argument
                         model_node: Optional[ModelNode] = None, # pylint: disable-next=unused-argument
                         trainable: bool = False
-                        ):
+        ):
         """
         merge data from different queues, get data from queues for current node by dp-wise.
         It will be executed in form of a for loop for dp size-times.
@@ -215,6 +215,8 @@ class Executor:
         out_queues = [None] * len(in_queues)
         # in environment, num_consumers is global dp size(replica_dp_size*dp_size)
         num_consumers = self.global_dp_size(model_node.model)
+        #! Here indicates if model_node has input nodes, len(in_queues) == len(model_node.input_nodes)
+        #! In other words, self._input_queue will be None for all model node with input nodes
         for index, (input_node, in_queue) in enumerate(zip(model_node.input_nodes, in_queues)):
             num_producers = self.global_dp_size(input_node.model)
             if num_producers == num_consumers:
@@ -254,32 +256,19 @@ class Executor:
                                                               INDEX_TAG: (q_idx % division, division)}))
         return out_queues
 
-    def get_next_data(self, in_queue: Union[Queue, List[Queue]], model_node: ModelNode, micro_batch_index):
+    def get_next_data(self, in_queue_list: List[Queue], model_node: ModelNode, micro_batch_index):
         """
         get a dp-rank data
         """
-        if isinstance(in_queue, list):
-            if len(in_queue) > 0:
-                # this should happen for inference models, will trigger bug for training models
-                # since training models accept a list of remote object, which has the same
-                # behavior for models accept multiple inputs
-                # we need to deal with it later
-                assert not model_node.trainable
-                data = self.get_merged_data(in_queue, micro_batch_index=micro_batch_index,
-                                                    model_node=model_node, trainable=model_node.trainable)
-                mb, query = decode_data(data)
-            else:
-                mb, query = micro_batch_index, []
-        else:
-            data = self.get_merged_data([in_queue], micro_batch_index=micro_batch_index,
-                                                model_node=model_node, trainable=model_node.trainable)
-            assert len(data['data']) == 1
-            data['data'] = data['data'][0]
-            mb, query = decode_data(data)
-            query = [query]
-        return mb, query
+        data = self.get_merged_data(
+            in_queue_list, 
+            micro_batch_index=micro_batch_index,
+            model_node=model_node, 
+            trainable=model_node.trainable
+        )
+        return decode_data(data)
 
-    def generate_step_one_model_internal(self, model_node, in_queue, step_num, replica, func_name="forward_step", to_empty_cache=None,
+    def generate_step_one_model_internal(self, model_node, in_queue_list: List[Queue], step_num, replica, func_name="forward_step", to_empty_cache=None,
                                          is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
 
         """
@@ -301,14 +290,14 @@ class Executor:
 
         if isinstance(replica.model, (VLLMModule, SGLangModule)):
             # for rollout we only to pass data to engine for every replica
-            mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
+            mb, query = self.get_next_data(in_queue_list, model_node, micro_batch_index)
             assert isinstance(query, list)
             ret = replica.call_actor_remote_func(replica.engine, func_name, *query, **kwargs)
             # output length is num replica
             output.append((ret, mb))
         else:
             for _, actors in replica.dp_rank_to_actors.items():
-                mb, query = self.get_next_data(in_queue, model_node, micro_batch_index)
+                mb, query = self.get_next_data(in_queue_list, model_node, micro_batch_index)
                 assert isinstance(query, list)
                 for actor in actors:
                     ret = replica.call_actor_remote_func(actor, func_name, *query, **kwargs)
@@ -316,13 +305,13 @@ class Executor:
                     output.append((ret, mb))
         return output
 
-    def generate_step_one_model(self, model_node, replica, in_queue, out_queue, step_num, func_name="forward_step",
+    def generate_step_one_model(self, model_node, replica, in_queue_list: List[Queue], out_queue, step_num, func_name="forward_step",
                                 to_empty_cache=None, is_eval=False, to_onload=None, to_offload=None, micro_batch_index=None):
         """
         forward for a model replica, and only set the output of last rank in dp rank to out_queue
         """
         # output is a list of tuple, each tuple is (remote_refs, mb)
-        output = self.generate_step_one_model_internal(model_node, in_queue, step_num, replica, func_name, to_empty_cache,
+        output = self.generate_step_one_model_internal(model_node, in_queue_list, step_num, replica, func_name, to_empty_cache,
                                                        is_eval, to_onload, to_offload, micro_batch_index)
 
         # for get the data in last actor of a dp rank
@@ -349,14 +338,12 @@ class Executor:
         remote_refs = [item[0] for item in output]
         return out_queue, remote_refs
 
-    def regroup_inqueue(self, model_node: ModelNode, queues, is_eval=False):
+    def regroup_inqueue(self, model_node: ModelNode, queues: List[Queue], is_eval=False):
         """
         re-construct input_queues[node_num, previous_node_global_dp_size] to output_queues[node_num, current_node_global_dp_size]
         """
         if self.args.policy_to_regroup_queue == "global_barrier":
             # barrier to regroup all queues of producer node
-            if not isinstance(queues, list):
-                queues = [queues]
             logger.info(f"{LOG_START} regroup_inqueue in_queue {model_node}:  {[ele.qsize() for ele in queues]}")
             out_queues = self.rebatch_all_merged_data(model_node, queues, is_eval=is_eval)
             logger.info(f"{LOG_START} regroup_inqueue out_queues {model_node}:  {[ele.qsize() for ele in out_queues]}")
@@ -372,6 +359,7 @@ class Executor:
         model = model_node.model
         is_eval = self.is_eval
 
+        # NOTE: Each `batch` is a batch of data for a replica to compute one time
         if num_batch is None:
             num_batch = self.num_iteration(model)
 
@@ -382,22 +370,23 @@ class Executor:
             logger.info(f"{LOG_START} complete to wait colocate models to finish for {model_node}")
         replica_num = len(model.replicas)
         last_step_start = max(num_batch - replica_num, 0)
-        in_queue = model_node.get_input_queues()
+        in_queue_list: List[Queue] = model_node.get_input_queues()
 
-        logger.info(f"{LOG_START} start to regroup in_queue for {model_node}")
-        in_queue = self.regroup_inqueue(model_node, in_queue, is_eval=is_eval)
-        logger.info(f"{LOG_START} complete to regroup in_queue for {model_node}")
+        logger.info(f"{LOG_START} start to regroup in_queue_list for {model_node}")
+        in_queue_list: List[Queue] = self.regroup_inqueue(model_node, in_queue_list, is_eval=is_eval)
+        logger.info(f"{LOG_START} complete to regroup in_queue_list for {model_node}")
 
-        if isinstance(in_queue, list) and len(in_queue) == 1:
-            in_queue = in_queue[0]
         results = []
         logger.info(f"{LOG_START} start to generate_step_one_model for {model_node}")
         for step in range(num_batch):
+            # NOTE: if onload and offload is required, for a model with K replicas and M batches,
+            # ONLOAD STEP: the first step of each replica, i.e., step < K
+            # OFFLOAD STEP: the final step of each replica, i.e., step >= max(M - K, 0)
             to_empty_cache = step >= last_step_start and model.is_colocate
             to_onload = step < replica_num and (model.is_colocate and model.enable_offload)
             to_offload = step >= last_step_start and (model.is_colocate and model.enable_offload)
             replica = self._next_model(model)
-            _, data = self.generate_step_one_model(model_node, replica, in_queue, model_node.out_queues, step, func_name, to_empty_cache,
+            _, data = self.generate_step_one_model(model_node, replica, in_queue_list, model_node.out_queues, step, func_name, to_empty_cache,
                                                    is_eval=is_eval, to_onload=to_onload, to_offload=to_offload)
             results.append(data)
         if model_node.next_colocate_node:
