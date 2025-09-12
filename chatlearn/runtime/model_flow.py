@@ -15,7 +15,7 @@
 """Model FLow"""
 
 from collections import defaultdict, deque
-from typing import List, Callable, Dict
+from typing import List, Callable, Dict, Optional
 
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import unwrap_func
@@ -25,6 +25,7 @@ from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.models.base_module import BaseModule
 from .decorator import decorate_class_func
 
+from ray.util.queue import Queue
 
 class ControlDependencies:
     """ControlDependencies"""
@@ -60,9 +61,9 @@ class ModelNode:
         self.input_nodes = []
         self.output_nodes = []
         self.out_queues = None
-        self._input_queue = None
+        self._input_queue: Queue = None
         # next colocate model node to execute
-        self.next_colocate_node = None
+        self.next_colocate_node: Optional[ModelNode] = None
         # model to wait before the execution of current model
         self.models_to_wait = []
         # remote objects to wait before the execution of current model
@@ -85,15 +86,17 @@ class ModelNode:
     def set_input_queue(self, queue):
         self._input_queue = queue
 
-    def get_input_queues(self):
+    def get_input_queues(self) -> List[Queue]:
+        """
+        Get all input queues of this model node. len(self.input_nodes) + 1 or 
+        len(self.input_nodes) queues in total.
+        """
         input_queues = []
         if self._input_queue is not None:
             input_queues.append(self._input_queue)
         for input_model_node in self.input_nodes:
             out_index = input_model_node.output_nodes.index(self)
             input_queues.append(input_model_node.out_queues[out_index])
-        if len(input_queues) == 1:
-            return input_queues[0]
         return input_queues
 
     def _find_all_parents(self, model, prev_models_results):
