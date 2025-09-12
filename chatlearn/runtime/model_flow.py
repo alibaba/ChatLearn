@@ -19,28 +19,12 @@ from typing import List, Callable, Dict, Optional
 
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import unwrap_func
-from chatlearn.utils.global_vars import reset_dependencies, set_dependencies, get_dependencies
 from chatlearn.utils.utils import flatten
 from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.models.base_module import BaseModule
 from .decorator import decorate_class_func
 
 from ray.util.queue import Queue
-
-class ControlDependencies:
-    """ControlDependencies"""
-
-    def __init__(self, dependencies):
-        if not isinstance(dependencies, list):
-            dependencies = [dependencies]
-        self.dependencies = dependencies
-
-    def __enter__(self):
-        set_dependencies(self.dependencies)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        reset_dependencies()
 
 
 class DummyData:
@@ -155,11 +139,11 @@ class ModelFlow:
         self.input_consumers = []
 
     def fake_compute(self, fn):
-        def inner(*args):
+        def inner(*args): #! self, *args
             assert len(args) > 0
             original_fn = unwrap_func(fn)
             func_name = original_fn.__name__
-            model_node = ModelNode(args[0], func_name)
+            model_node = ModelNode(args[0], func_name) # args[0] == self
             dist_model = self.name2remote_model[model_node.name]
             model_node.model = dist_model
             dist_model.model_node = model_node
@@ -169,10 +153,6 @@ class ModelFlow:
                     data.to_nodes.append(model_node)
                     if data.from_node:
                         model_node.add_input_node(data.from_node)
-            dependencies = get_dependencies()
-            if dependencies is not None:
-                for dep in dependencies:
-                    dep.from_node.dependent_output_nodes.append(model_node)
             res = DummyData(model_node)
             return res
 
@@ -197,7 +177,7 @@ class ModelFlow:
 
         dummy_data = DummyData()
         assert compute_flow is not None
-        dummy_output = compute_flow(dummy_data)
+        dummy_output = compute_flow(dummy_data) # TODO: remove it? *args
         # convert decorator back
         for model in local_models:
             for func_name in self.cls.model_to_call_funcs[model]:
