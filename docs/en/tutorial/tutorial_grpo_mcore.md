@@ -48,6 +48,7 @@ ${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B-to-mcore \
 false  \
 true  \
 bf16
+```
 
 ## Training
 You can run the following command to start training:
