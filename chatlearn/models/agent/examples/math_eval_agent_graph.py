@@ -79,7 +79,6 @@ class MathEvalAgentGraph(BaseAgentGraph):
                         None,
                         lambda: tools_by_name[tool_call["name"]].func(**args),
                     )
-                    # tool_result = tools_by_name[tool_call["name"]].func(**args)
                     outputs.append(
                         ToolMessage(
                             content=tool_result,
