@@ -23,3 +23,4 @@ RUN pip uninstall -y apex && pip install https://pai-vision-data-hz.oss-cn-zhang
 RUN pip uninstall -y transformer_engine && pip install https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/transformer_engine/torch2.6.0-cuda12x/transformer_engine-1.13.0%2Be5edd6c-cp312-cp312-linux_x86_64.whl --no-cache-dir
 RUN pip install --no-cache-dir mathruler==0.1.0 pylatexenc==2.10 qwen-vl-utils==0.0.11
 RUN pip install --no-cache-dir langgraph==0.6.6
+RUN pip install --no-cache-dir accelerate==1.10.0
