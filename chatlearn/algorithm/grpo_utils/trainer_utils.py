@@ -75,6 +75,7 @@ def generate_loss_mask_position_ids(
     batch_size, seq_len = tokens.size()
 
     if prompt_position_ids:
+        # vl preprocess
         position_ids = torch.zeros((3, batch_size, seq_len), dtype=torch.long, device=tokens.device)
         for batch_idx, batch in enumerate(prompt_position_ids):
             for list_idx in range(3):

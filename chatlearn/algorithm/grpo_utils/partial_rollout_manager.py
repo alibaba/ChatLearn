@@ -4,41 +4,28 @@ from typing import Dict, List, Any
 from collections import defaultdict
 
 import numpy as np
-from transformers import AutoTokenizer
 
-from chatlearn.data.prompt_dataset import PromptPipeline
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn import BaseModule
 
-class RolloutManager(BaseModule):
-    """Rollout Manager"""
+class PartialRolloutManager(BaseModule):
+    """Partial Rollout Manager"""
     def setup(self):
-        self._metric_prefix = "rollout_manager"
+        self._metric_prefix = "partial_rollout_manager"
         self.rollout_finished_no_train = defaultdict(list)
         self.num_response_track = defaultdict(int)
         self.rollout_not_finished = []
         self.max_rollout_round = self.module_args.max_rollout_round
-        self.max_response_tokens_length = self.module_args.max_response_tokens_length
+        self.max_response_tokens_length = self.global_args.models.policy.max_response_tokens_length
         self.ratio = self.module_args.rollout_ratio
         self.max_token_per_round = [int(self.max_response_tokens_length * ratio) for ratio in self.ratio]
-        self.num_inference_per_prompt = self.module_args.num_inference_per_prompt
+        self.num_inference_per_prompt = self.global_args.models.policy.num_inference_per_prompt
         self.mini_response_per_prompt = self.module_args.mini_response_per_prompt
+        assert self.mini_response_per_prompt < self.num_inference_per_prompt, \
+            "mini_response_per_prompt must be less than num_inference_per_prompt"
         # Logging metric dict for this module
         # It will be append to self._metric_list after logging all metrics
         self.metric_dict = {}
-
-    def build_dataset(self, prompts: List[Dict], is_eval=False):
-        # prompts seems like the total data set by engine.set_dataset(dataset)
-        # TODO: move dataset to seperate node
-        self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
-        max_prompt_tokens_length = self.module_args.max_prompt_tokens_length
-        prompts_dataset = PromptPipeline(
-            prompts,
-            max_prompt_tokens_length,
-            self.tokenizer,
-            enable_thinking=self.module_args.enable_thinking,
-        )
-        return prompts_dataset
 
     def initialze_data(self, data: List[Dict[str, Any]]):
         for sample in data:

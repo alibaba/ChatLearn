@@ -1,4 +1,4 @@
-# pylint: disable=import-outside-toplevel
+# pylint: disable=import-outside-toplevel,unused-argument
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -369,17 +369,11 @@ class FSDPModule(TorchModule):
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()
         self.model.to(torch.device(f"cuda:{device_id}"))
-        if empty_cache:
-            gc.collect()
-            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def offload_weights(self, empty_cache=True):
         self.model.cpu()
         torch.cuda.ipc_collect()
-        if empty_cache:
-            gc.collect()
-            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def offload_optimizer_states(self, empty_cache=True):
@@ -392,8 +386,6 @@ class FSDPModule(TorchModule):
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to("cpu", non_blocking=True)
         torch.cuda.synchronize()
-        if empty_cache:
-            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def onload_optimizer_states(self, empty_cache=True):
@@ -406,9 +398,6 @@ class FSDPModule(TorchModule):
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to(torch.device(f"cuda:{device_id}"), non_blocking=True)
-
-        if empty_cache:
-            torch.cuda.empty_cache()
 
     @timeit()
     def save_checkpoint(self, iteration):

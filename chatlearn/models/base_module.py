@@ -1,3 +1,4 @@
+# pylint: disable=import-outside-toplevel,unused-argument
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -229,32 +230,6 @@ class BaseModule:
         # Preprocess after get list of sample
         return data
 
-    def data_fetch(self, data_ref, train_func: bool):
-        # Get data from remote dataset
-        data_list = future.get(data_ref)
-        # For data in trainer, data_list is [microbatch0, microbatch1, ...]
-        # For data in environment which is inter-node in graph, data_list is [inque_input_node0, inque_input_node1, ...]
-        if not train_func:
-            batched_data_list = [[] for _ in range(len(data_list))]
-            for idx, data_obj in enumerate(data_list):
-                if isinstance(data_obj, list):
-                    batched_data_list[idx] = data_obj
-                if REF_LIST in data_obj:
-                    for data_slice in data_obj[REF_LIST]:
-                        batched_data_list[idx].extend(data_slice)
-                if INDEX_TAG in data_obj:
-                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], data_obj[INDEX_TAG])
-            if len(batched_data_list) > 1:
-                # When current node have several input nodes, we need to merge them
-                # Data size for each input node must be same
-                assert len({len(input_list) for input_list in batched_data_list}) == 1
-                data_list = [{k: v for d in group for k, v in d.items()} for group in zip(*batched_data_list)]
-            else:
-                data_list = batched_data_list[0]
-        else:
-            data_list = data_list[0]
-        return self._preprocess_impl(data_list)
-
     def eval_step(self, data):
         """
         Perform eval_step for one batch
@@ -310,16 +285,34 @@ class BaseModule:
     def build_dataset(self, prompts, is_eval=False):
         """
         Build prompt dataset
-
-        Args
-        ----
-            prompts: [Str]
-                A list of prompt string.
-        Returns
-        -------
-            torch.utils.data.Dataset
-                Dataset with user-defined collate_fn
         """
+        max_prompt_tokens_length = self.global_args.models.policy.max_prompt_tokens_length
+        enable_thinking = self.global_args.models.policy.enable_thinking
+        assert len(prompts)>0, 'Dataset is empty'
+
+        if self.runtime_args.model_type == 'vlm':
+            from chatlearn.data.vl_prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                max_prompt_tokens_length,
+                self.tokenizer,
+                self.processor,
+                enable_thinking=enable_thinking
+            )
+        else:
+            from chatlearn.data.prompt_dataset import PromptPipeline
+            prompts_dataset = PromptPipeline(
+                prompts,
+                max_prompt_tokens_length,
+                self.tokenizer,
+                enable_thinking=enable_thinking,
+                raw_chat=self.runtime_args.raw_chat
+            )
+
+        if not self.runtime_args.raw_chat:
+            self._logger.info(f"Max prompt token length in data: {prompts_dataset.max_prompt}, valid data ratio: {prompts_dataset.valid_ratio}")
+
+        return prompts_dataset
 
     def build_all_dataset(self, prompts_list, is_eval=False):
         """
@@ -407,10 +400,9 @@ class BaseModule:
             f"data_ratio: {data_ratio}",
             self._logger
         )
-        if "num_inference_per_prompt" in self.module_args:
-            num_inference_per_prompt = self.module_args["num_inference_per_prompt"]
-        else:
-            num_inference_per_prompt = 1
+
+        num_inference_per_prompt = self.global_args.models.policy.num_inference_per_prompt
+
         self._logger.info(f"====Data Rerank: {data_rerank}")
         if is_eval:
             batch_sampler = MultiDatasetSampler(
@@ -459,6 +451,32 @@ class BaseModule:
             return next(self._eval_data_iter)
         else:
             return next(self._data_iter)
+
+    def data_fetch(self, data_ref, train_func: bool):
+        # Get data from remote dataset
+        data_list = future.get(data_ref)
+        # For data in trainer, data_list is [microbatch0, microbatch1, ...]
+        # For data in environment which is inter-node in graph, data_list is [inque_input_node0, inque_input_node1, ...]
+        if not train_func:
+            batched_data_list = [[] for _ in range(len(data_list))]
+            for idx, data_obj in enumerate(data_list):
+                if isinstance(data_obj, list):
+                    batched_data_list[idx] = data_obj
+                if REF_LIST in data_obj:
+                    for data_slice in data_obj[REF_LIST]:
+                        batched_data_list[idx].extend(data_slice)
+                if INDEX_TAG in data_obj:
+                    batched_data_list[idx] = slice_data_list_by_index(batched_data_list[idx], data_obj[INDEX_TAG])
+            if len(batched_data_list) > 1:
+                # When current node have several input nodes, we need to merge them
+                # Data size for each input node must be same
+                assert len({len(input_list) for input_list in batched_data_list}) == 1
+                data_list = [{k: v for d in group for k, v in d.items()} for group in zip(*batched_data_list)]
+            else:
+                data_list = batched_data_list[0]
+        else:
+            data_list = data_list[0]
+        return self._preprocess_impl(data_list)
 
     @property
     def num_replica(self):

@@ -1,4 +1,4 @@
-# pylint: disable=arguments-differ
+# pylint: disable=arguments-differ,unused-argument
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,7 +17,7 @@
 
 import inspect
 import os
-from typing import Optional, Dict, List, TYPE_CHECKING
+from typing import Optional, Dict, List, TYPE_CHECKING, Any
 import copy
 
 import torch
@@ -38,8 +38,9 @@ except ImportError:
     HAVE_VLLM = False
 
 from chatlearn.utils.utils import get_full_proc_memory_info
-from chatlearn.runtime.decorator import timeit
+from chatlearn.runtime.decorator import timeit, compute_decorator
 from .torch_module import TorchModule
+from .sglang_module import metric_collect
 
 if TYPE_CHECKING:
     from chatlearn.synchronizer.structs import BucketInfo
@@ -157,13 +158,11 @@ if HAVE_VLLM:
             """
             super().setup()
 
-            tokenizer = AutoTokenizer.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
-            tokenizer.tokenizer = tokenizer
-            self.tokenizer = tokenizer
+            self.tokenizer = AutoTokenizer.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
 
             if self.runtime_args.model_type == 'vlm':
                 # processor is needed for qwenvl
-                self.processor = AutoProcessor.from_pretrained(self.module_args['load'], trust_remote_code=self.module_args.trust_remote_code)
+                self.processor = AutoProcessor.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
             else:
                 self.processor = None
 
@@ -350,7 +349,7 @@ if HAVE_VLLM:
         def update_weights_from_ipc_handles(self, reduce_data):
             self.param_update_fn(reduce_data)
 
-        def generate_vllm(self, query, is_eval, iteration=0, is_first_run=True):
+        def generate(self, query, is_eval, iteration=0, is_first_run=True):
             # resume from stage checkpoint.
             outputs = self.load_stage_outputs(is_eval, iteration)
             if outputs is not None:
@@ -517,6 +516,72 @@ if HAVE_VLLM:
                     # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
                     shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
                     offset += numel * comm_dtype.itemsize
+
+        @compute_decorator(trainable=False, rollout=True)
+        @timeit()
+        def eval_forward(self, data, iteration=0, **kwargs):
+            return self._forward_step(data, iteration, True)
+
+        def _forward_step(
+            self, data, iteration, is_eval
+        ):
+            outputs = self.generate(data, is_eval)
+
+            if outputs is not None:
+                rets = self.postprocess_func(outputs, data)
+                return rets
+
+        @compute_decorator(trainable=False, rollout=True)
+        @timeit()
+        def forward_step(
+            self, data: List[Dict[str, Any]], iteration=0, **kwargs
+        ) -> List[Dict[str, Any]]:
+
+            # sort data by rollout round in decreasing order
+            if "rollout_round" in data[0]:
+                data.sort(key=lambda x: x['rollout_round'], reverse=True)
+
+            rets = self._forward_step(data, iteration, False)
+            # collect metric
+            self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
+            return rets
+
+        def postprocess_func(
+            self,
+            batched_outputs: List[Dict[str, Any]],
+            input_data_list: List[Dict[str, Any]],
+        ) -> List[Dict[str, Any]]:
+            data_output = []
+            for output, input_data in zip(batched_outputs, input_data_list):
+                num_responses_per_prompt = len(output.outputs)
+                for res_idx in range(num_responses_per_prompt):
+                    data_obj = copy.deepcopy(input_data)
+                    output_tokens = list(output.outputs[res_idx].token_ids)
+                    response_token_length = len(output_tokens)
+                    prompt_token_length = len(output.prompt_token_ids)
+                    str_outputs = self.tokenizer.decode(
+                            output_tokens, skip_special_tokens=True
+                        )
+                    all_tokens = torch.tensor(output.prompt_token_ids + output_tokens)
+                    data_obj.update(
+                        {
+                            "all_tokens": all_tokens,
+                            "response_token_length": response_token_length,
+                            "prompt_token_length": prompt_token_length,
+                            "str_outputs": str_outputs
+                        }
+                    )
+                    if "rollout_round" in data_obj:
+                        data_obj["rollout_round"] += 1
+                    data_output.append(data_obj)
+
+            print("str_outputs", data_output[0]["str_outputs"])
+            print("data_sources", data_output[0]["data_source"])
+            print("ground_truth", data_output[0]["ground_truth"])
+
+            return data_output
+
+
 else:
     class VLLMModule(TorchModule):
         """Dummy Module for vLLM. Note that it is not the subclass of ray worker"""

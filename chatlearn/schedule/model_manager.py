@@ -18,7 +18,7 @@ import concurrent.futures
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from typing import Tuple, List
-import time
+import traceback
 
 import ray
 import ray.experimental.state.api
@@ -32,7 +32,6 @@ from chatlearn.models.vllm_module import VLLMModule
 from chatlearn.models.sglang_module import SGLangModule
 from chatlearn.runtime.dist_actor import DistActor, DistTorchActor, DistVLLMActor, DistSGLangActor, DistModel
 from chatlearn.synchronizer import MCoreParameterSyncGroup, FSDPParameterSyncGroup
-from chatlearn.utils.constant import LOG_START
 from chatlearn.utils.error_monitor import ErrorMonitor, ErrorSignalActor
 from chatlearn.utils.logger import logger
 from chatlearn.synchronizer.base_parameter_sync import BaseParameterSyncGroup
@@ -48,7 +47,7 @@ class ModelManager:
     def __init__(self, models: Tuple[BaseModule], resouce_manager: ResourceManager, global_args: BaseConfig):
         self.local_models = models
         self.resouce_manager = resouce_manager
-        self.dist_models = []
+        self.dist_models: List[DistModel] = []
         self.env_args = global_args.env_args
         self.runtime_args = global_args.runtime_args
         self.converted = False
@@ -79,15 +78,13 @@ class ModelManager:
                 total_gpu += max_gpu
         return total_gpu
 
-    def remote(self) -> list:
+    def create_dist_models(self) -> List[DistModel]:
         """
         convert model to remote
         1. create DistModel and DistActor object for every BaseModule
         2. place every DistActor to specific device
         3. set environment variables for every DistActor
         """
-        logger.info(f"{LOG_START} model_manager start to convert model to remote")
-        t1 = time.time()
         if self.converted:
             return self.dist_models
 
@@ -107,8 +104,6 @@ class ModelManager:
                            f"while the number of required gpus is {total_gpu_required}, " + \
                            f"there is {self.resouce_manager.total_gpu - total_gpu_required} wasted gpus")
 
-        t2 = time.time()
-        logger.info(f"{LOG_START} model_manager convert model to remote, get_total_gpu_required(s):{(t2-t1)}")
         env_list = []
         for group in self.runtime_args.colocation:
             colocate_models: List[DistModel] = [self._name2distmodel[name] for name in group]
@@ -122,16 +117,14 @@ class ModelManager:
                 future.wait(set_colocate)
             for name in group:
                 remote_states.add(name)
-        t3 = time.time()
-        logger.info(f"{LOG_START} model_manager convert model to remote, set_colocate(s):{(t3-t2)}")
+
         for dist_model in self.dist_models:
             # place non-colocate models
             if dist_model.name not in remote_states:
                 self.place_models_to_remote_devices([dist_model], env_list)
         self.set_dist_env_concurrent(env_list)
         self.converted = True
-        t4 = time.time()
-        logger.info(f"{LOG_START} model_manager convert model to remote, place_models_to_remote_devices(s):{(t4-t3)}")
+
         return self.dist_models
 
     def build_parameter_group(self):
@@ -396,6 +389,7 @@ class ModelManager:
                 try:
                     _future.result()
                 except Exception as e:
+                    traceback.print_exc()
                     raise RuntimeError(f"Set dist env generated an exception: {e}") # pylint: disable=raise-missing-from
             concurrent.futures.wait(futures)
 
