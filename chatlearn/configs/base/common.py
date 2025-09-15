@@ -48,6 +48,9 @@ class RolloutManagerConfig(BaseModelConfig):
         default=192, metadata={"help": "used in dynamic_load_blance mode, \
             the maximum number of requests that can be processed simultaneously by a rollout engine"})
 
+    def _validate_impl(self):
+        assert self.num_gpu == 0, "RolloutManager does not require GPU"
+
 @dataclass
 class PolicyTrainerConfig(BaseModelConfig):
     """PolicyTrainerConfig"""

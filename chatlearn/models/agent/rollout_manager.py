@@ -34,7 +34,6 @@ class RolloutManager(BaseModule):
     def __init__(self, name: str, args=None, replica_id: int = 0):
         """ChatLearn rollout manager entrypoint"""
         super().__init__(name, args=args, replica_id=replica_id)
-        assert self.total_gpu == 0, "RolloutManager does not require GPU"
         self._num_gpu_per_replica = 0
         self._num_replica = self.module_args.num_cpu // self.module_args.cpu_per_process
         assert self._num_replica == 1, "There should only be one RolloutManager"
