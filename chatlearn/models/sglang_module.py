@@ -45,7 +45,7 @@ if TYPE_CHECKING:
 try:
     import sglang
     from sglang.srt.entrypoints.engine import Engine
-    from sglang.srt.managers.tokenizer_manager import (
+    from sglang.srt.managers.io_struct import (
         ReleaseMemoryOccupationReqInput,
         ResumeMemoryOccupationReqInput,
         UpdateWeightsFromTensorReqInput,

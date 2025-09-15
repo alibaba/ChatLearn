@@ -1,7 +1,7 @@
 FROM nvcr.io/nvidia/pytorch:24.12-py3
 ENV PIP_INDEX_URL=https://mirrors.aliyun.com/pypi/simple/
 ENV PIP_TRUSTED_HOST=mirrors.aliyun.com
-RUN pip install --no-cache-dir "sglang[all]>=0.5.1.post2"
+RUN pip install --no-cache-dir "sglang[all]==0.5.2"
 RUN pip install --no-cache-dir langgraph==0.6.6
 RUN pip install --no-cache-dir ray[default]==2.46.0
 RUN pip install --no-cache-dir accelerate==1.10.0
