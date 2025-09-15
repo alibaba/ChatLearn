@@ -50,6 +50,12 @@ class PromptPipeline(Dataset):
             ground_truth = data_item["reward_model"]["ground_truth"]
             agent_name = data_item.get("agent_name", None)
             agent_cfg_path = data_item.get("agent_cfg_path", None)
+            processed_data = {
+                "data_source": data_source,
+                "ground_truth": ground_truth,
+                "agent_name": agent_name,
+                "agent_cfg_path": agent_cfg_path
+            }
             if not raw_chat:
                 if isinstance(prompt, list):
                     prompt = self.tokenizer.apply_chat_template(
@@ -62,29 +68,21 @@ class PromptPipeline(Dataset):
                 # When partial rollout enabled:
                 # input_ids may change (contain response tokens from previous rollouts)
                 # prompt_token_ids will always be origial prompt tokens
-                processed_data = {
+                processed_data.update({
                     "input_ids": input_ids,
                     "prompt": prompt,
-                    "data_source": data_source,
-                    "ground_truth": ground_truth,
                     "prompt_token_length": len(input_ids),
-                    "prompt_token_ids": input_ids,
-                    "agent_name": agent_name,
-                    "agent_cfg_path": agent_cfg_path
-                }
+                    "prompt_token_ids": input_ids
+                })
                 # Filter out data with long input_ids
                 if len(input_ids) > self.max_prompt:
                     self.max_prompt = len(input_ids)
                 if max_prompt_tokens_length > len(input_ids):
                     self.data.append(processed_data)
             else:
-                processed_data = {
-                    "messages": prompt,
-                    "data_source": data_source,
-                    "ground_truth": ground_truth,
-                    "agent_name": agent_name,
-                    "agent_cfg_path": agent_cfg_path
-                }
+                processed_data.update({
+                    "messages": prompt
+                })
                 self.data.append(processed_data)
         self.valid_ratio = len(self.data) / len(data_list)
 

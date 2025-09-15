@@ -21,6 +21,7 @@ from omegaconf import OmegaConf
 from ray import ObjectRef
 
 from chatlearn.models.agent.base_agent_graph import BaseAgentGraph
+from chatlearn.models.agent.chat_model import CustomChatModel
 from chatlearn.models.sglang_module import AsyncSGLangModule
 
 _graph_registry: Dict[str, BaseAgentGraph] = {}
@@ -42,7 +43,7 @@ class AgentModule(AsyncSGLangModule):
         super().__init__(name, args=args, replica_id=replica_id)
 
         self.agent_factory: Dict[str, BaseAgentGraph] = {}
-        self.chat_model = None
+        self.chat_model: CustomChatModel = None
 
     def build_agent_graph(self, agent_name: str, agent_cfg_path: str) -> BaseAgentGraph:
 

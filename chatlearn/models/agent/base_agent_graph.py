@@ -34,7 +34,7 @@ def find_first_zero_group_end(lst):
     return len(lst) - 1 if lst else -1
 
 
-# modifyed from https://github.com/volcengine/verl/blob/main/verl/experimental/agent_loop/agent_loop.py#L121
+# modified from https://github.com/volcengine/verl/blob/main/verl/experimental/agent_loop/agent_loop.py#L121
 class AgentGraphOutput(BaseModel):
     """AgentGraphOutput"""
     # TODO: support multi_modal
