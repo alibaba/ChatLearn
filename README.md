@@ -25,8 +25,8 @@ A flexible and efficient reinforcement learning framework for large language mod
 ---
 
 *Latest News* 🔥
-- [2025/9] Support forfor Agentic RL tasks. [Documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_sglang_agent.md) 🔥
-- [2025/9] Support for Vision-Language model RL tasks. [Documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_qwenvl.md) 🔥
+- [2025/9] Support for Agentic RL tasks. [documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_sglang_agent.md) 🔥
+- [2025/9] Support for Vision-Language model RL tasks. [documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_qwenvl.md) 🔥
 - [2025/8] We support GSPO on [Mcore](scripts/train_mcore_vllm_qwen3_30b_gspo.sh)! 🔥
 - [2025/7] We give a reinforcement learning training example for DeepSeek-V3-671B based on [Mcore](scripts/train_mcore_vllm_deepseek_v3_671b_grpo.sh)! 🔥
 - [2025/7] We give reinforcement learning training examples for Qwen3-235B-A22B based on [Mcore](scripts/train_mcore_vllm_qwen3_235b_grpo.sh) and [FSDP2](scripts/train_fsdp_vllm_qwen3_235b_a22b_grpo.sh)!
