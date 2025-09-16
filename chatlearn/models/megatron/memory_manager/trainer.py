@@ -348,7 +348,7 @@ class TrainerMemoryManager:
             for _, m in model_chunk.named_modules():
                 if isinstance(m, MoELayer):
                     m.token_dispatcher.probs, m.token_dispatcher.routing_map = None, None
-        
+
         for bucket_group in self._bucket_groups:
             if hasattr(bucket_group, 'cached_grad_buffer_shard_list'):
                 bucket_group.cached_grad_buffer_shard_list = [None] * len(bucket_group.buckets)
