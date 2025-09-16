@@ -70,6 +70,7 @@ class TrainerMemoryManager:
         # internal class. In MemoryManager, we have to do some modification on their
         # data.
         self._buffers = self._get_buffers(model)
+        self._bucket_groups = self._get_bucket_groups(model)
         self._group_flat_weights: Optional[List[BucketizedFlatTensors]] = None
 
     def _flat_param_groups(self, multi_groups: List[List[List[torch.Tensor]]]):
@@ -116,15 +117,30 @@ class TrainerMemoryManager:
         processed_buffers = set()
         buffers = []
         for model_chunk in model:
-            for buffer in model_chunk.buffers:
-                if buffer not in processed_buffers:
-                    processed_buffers.add(buffer)
-                    buffers.append(buffer)
-            for buffer in model_chunk.expert_parallel_buffers:
-                if buffer not in processed_buffers:
-                    processed_buffers.add(buffer)
-                    buffers.append(buffer)
+            for buffers_from_model in [
+                model_chunk.buffers,
+                model_chunk.expert_parallel_buffers
+            ]:
+                for buffer in buffers_from_model:
+                    if buffer not in processed_buffers:
+                        processed_buffers.add(buffer)
+                        buffers.append(buffer)
         return buffers
+
+    @staticmethod
+    def _get_bucket_groups(model):
+        processed_bucket_groups = set()
+        bucket_groups = []
+        for model_chunk in model:
+            for bucket_groups_from_model in [
+                model_chunk.bucket_groups,
+                model_chunk.expert_parallel_bucket_groups
+            ]:
+                for bucket_group in bucket_groups_from_model:
+                    if bucket_group not in processed_bucket_groups:
+                        processed_bucket_groups.add(bucket_group)
+                        bucket_groups.append(bucket_group)
+        return bucket_groups
 
     def param_to_buffer(self):
         param_to_buffer = {}
@@ -204,6 +220,10 @@ class TrainerMemoryManager:
 
         for model_chunk in self._model:
             model_chunk.grad_accs.clear()
+
+        for bucket_group in self._bucket_groups:
+            if hasattr(bucket_group, 'cached_param_buffer_shard_list'):
+                bucket_group.cached_param_buffer_shard_list = [None] * len(bucket_group.buckets)
 
         self._weights_offloaded = True
 
@@ -328,6 +348,11 @@ class TrainerMemoryManager:
             for _, m in model_chunk.named_modules():
                 if isinstance(m, MoELayer):
                     m.token_dispatcher.probs, m.token_dispatcher.routing_map = None, None
+        
+        for bucket_group in self._bucket_groups:
+            if hasattr(bucket_group, 'cached_grad_buffer_shard_list'):
+                bucket_group.cached_grad_buffer_shard_list = [None] * len(bucket_group.buckets)
+
 
         # NOTE: delete main_grad in params of ChainedOptimizer / Float16Optimizer
         for p, buffer in self.param_to_buffer().items():
