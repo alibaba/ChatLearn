@@ -136,6 +136,7 @@ class GroupGemm(torch.autograd.Function):
             )
 
 class Qwen3NextMLP(nn.Module):
+    """ Qwen3-Next MLP layer """
     def __init__(self, config, intermediate_size=None):
         super().__init__()
         self.config = config
