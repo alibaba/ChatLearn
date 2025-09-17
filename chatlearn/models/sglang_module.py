@@ -397,49 +397,21 @@ class SGLangModule(TorchModule):
         self.flush_cache()
         return outputs
 
-    def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
-        if load_format == "flattened_bucket":
-            gathered_data = None
-            if self.is_engine():
-                gathered_data = [None] * self._tp_size
-            dist.gather_object(
-                obj=reduce_data,
-                object_gather_list=gathered_data,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
+    def update_weights_from_ipc_handles(self, reduce_data):
+        gathered_data = None
+        if self.is_engine():
+            gathered_data = [None] * self._tp_size
+        dist.gather_object(
+            obj=reduce_data,
+            object_gather_list=gathered_data,
+            dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+            group=self.cpu_mesh["tp"].get_group(),
+        )
+        if self.is_engine():
+            self.llm.update_weights_from_tensor(
+                named_tensors=gathered_data,
+                load_format="flattened_bucket",
             )
-            if self.is_engine():
-                self.llm.update_weights_from_tensor(
-                    named_tensors=gathered_data,
-                    load_format=load_format,
-                )
-            torch.cuda.synchronize()
-            return
-
-        for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-            if self.is_engine():
-                gathered_serialized_tensors = [None] * self._tp_size
-            else:
-                gathered_serialized_tensors = None
-
-            dist.gather_object(
-                obj=serialized_tensor,
-                object_gather_list=gathered_serialized_tensors,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
-            )
-
-            if self.is_engine():
-                self.llm.update_weights_from_tensor(
-                    named_tensors=[
-                        (
-                            name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
-                        )
-                    ],
-                    # load_format=load_format,
-                    flush_cache=index == len(reduce_data) - 1,
-                )
         torch.cuda.synchronize()
 
     def flush_cache(self):
@@ -567,6 +539,8 @@ class SGLangModule(TorchModule):
 
     @torch.no_grad()
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        """Used for Mcore2SGLang Parameter Sync
+        """
         from sglang.srt.patch_torch import monkey_patch_torch_reductions
         monkey_patch_torch_reductions()
         param_id_to_update = set()
@@ -584,10 +558,12 @@ class SGLangModule(TorchModule):
             for shard_idx, (offset, sharded_tensor_info) in enumerate(bucket.recv_layout):
                 param_id_to_bucket[sharded_tensor_info.param_id].append((bucket_idx, shard_idx))
 
+        # 1-dim concated flattened tensor
         buffer = None
         buffer_offset = 0
         buffer_size = 4 * 1024 ** 3
-        metadatas = []
+        # metadata: name, shape, dtype, start_idx, end_idx, numel for every tensor item in buffer
+        metadatas: List[FlattenedTensorMetadata] = []
         for param_id in param_id_to_update:
             param_name = self.param_id_to_local_name[param_id]
             shard_info = self.param_id_to_metadata[param_id]
@@ -600,7 +576,7 @@ class SGLangModule(TorchModule):
                 serialized_bucket = MultiprocessingSerializer.serialize(
                     bucket_dict, output_str=True
                 )
-                self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+                self.update_weights_from_ipc_handles(serialized_bucket)
                 buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
                 buffer_offset = 0
                 metadatas = []
@@ -630,7 +606,7 @@ class SGLangModule(TorchModule):
             serialized_bucket = MultiprocessingSerializer.serialize(
                 bucket_dict, output_str=True
             )
-            self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+            self.update_weights_from_ipc_handles(serialized_bucket)
 
         del buffer, weight, shard, bucket_dict
         torch.cuda.synchronize()
@@ -727,49 +703,22 @@ class AsyncSGLangModule(SGLangModule):
             )
         return outputs
 
-    async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
-        if load_format == "flattened_bucket":
-            gathered_data = None
-            if self.is_engine():
-                gathered_data = [None] * self._tp_size
-            dist.gather_object(
-                obj=reduce_data,
-                object_gather_list=gathered_data,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
+    async def update_weights_from_ipc_handles(self, reduce_data):
+
+        gathered_data = None
+        if self.is_engine():
+            gathered_data = [None] * self._tp_size
+        dist.gather_object(
+            obj=reduce_data,
+            object_gather_list=gathered_data,
+            dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+            group=self.cpu_mesh["tp"].get_group(),
+        )
+        if self.is_engine():
+            await self.llm.update_weights_from_tensor(
+                named_tensors=gathered_data,
+                load_format="flattened_bucket",
             )
-            if self.is_engine():
-                await self.llm.update_weights_from_tensor(
-                    named_tensors=gathered_data,
-                    load_format=load_format,
-                )
-            torch.cuda.synchronize()
-            return
-
-        for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-            if self.is_engine():
-                gathered_serialized_tensors = [None] * self._tp_size
-            else:
-                gathered_serialized_tensors = None
-
-            dist.gather_object(
-                obj=serialized_tensor,
-                object_gather_list=gathered_serialized_tensors,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
-            )
-
-            if self.is_engine():
-                await self.llm.update_weights_from_tensor(
-                    named_tensors=[
-                        (
-                            name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
-                        )
-                    ],
-                    # load_format=load_format,
-                    flush_cache=index == len(reduce_data) - 1,
-                )
         torch.cuda.synchronize()
 
     @torch.no_grad()
