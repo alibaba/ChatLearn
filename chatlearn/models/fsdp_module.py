@@ -330,7 +330,7 @@ class FSDPModule(TorchModule):
         param_cnt = 0
         current_group = []
         for name, param in self.model.named_parameters():
-            param_cnt += param.numel() * self.fsdp_size \ 
+            param_cnt += param.numel() * self.fsdp_size \
             if isinstance(param, DTensor) else param.numel()
             current_group.append(name)
             if param_cnt >= block_size:
@@ -388,7 +388,7 @@ class FSDPModule(TorchModule):
             if name in block_name:
                 block_parameter[name] = param.full_tensor().detach() \
                     if isinstance(param, DTensor) else param.detach()
-        
+
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang

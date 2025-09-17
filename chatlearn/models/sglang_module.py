@@ -50,7 +50,6 @@ try:
         ResumeMemoryOccupationReqInput,
         UpdateWeightsFromTensorReqInput,
     )
-    from sglang.srt.model_executor.model_runner import LocalSerializedTensor
     from sglang.srt.utils import (
         MultiprocessingSerializer,
         assert_pkg_version,
@@ -756,7 +755,7 @@ class AsyncSGLangModule(SGLangModule):
                 serialized_bucket = MultiprocessingSerializer.serialize(
                     bucket_dict, output_str=True
                 )
-                await self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+                await self.update_weights_from_ipc_handles(serialized_bucket)
                 buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
                 buffer_offset = 0
                 metadatas = []
@@ -786,7 +785,7 @@ class AsyncSGLangModule(SGLangModule):
             serialized_bucket = MultiprocessingSerializer.serialize(
                 bucket_dict, output_str=True
             )
-            await self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+            await self.update_weights_from_ipc_handles(serialized_bucket)
 
         del buffer, weight, shard, bucket_dict
         torch.cuda.synchronize()
