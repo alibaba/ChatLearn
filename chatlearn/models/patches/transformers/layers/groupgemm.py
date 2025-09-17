@@ -1,8 +1,7 @@
 """groupgemm layer with transformer_engine ops"""
 from transformers.activations import ACT2FN
 import torch
-import torch.nn as nn
-import torch.nn.functional as F
+from torch import nn
 
 try:
     from transformer_engine.pytorch.cpp_extensions import grouped_gemm
