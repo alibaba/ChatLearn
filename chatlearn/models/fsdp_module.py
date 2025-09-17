@@ -17,10 +17,11 @@
 import os
 import random
 import gc
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import torch
+from torch import Tensor
 import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch import optim, nn
@@ -304,6 +305,7 @@ class FSDPModule(TorchModule):
             torch.cuda.synchronize()
             for name, buf in model.named_buffers():
                 dist.broadcast(buf, src=0)
+
         self.model = model
         self.model.to(torch.float32)
 
@@ -324,12 +326,16 @@ class FSDPModule(TorchModule):
         del full_state
         self.offload()
 
-    def get_fsdp_param_name(self, block_size=300_000_000) -> List[List]:
+    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
         name_list = []
         param_cnt = 0
         current_group = []
         for name, param in self.model.named_parameters():
-            param_cnt += param.numel()
+            param_cnt += (
+                param.numel() * self.fsdp_size
+                if isinstance(param, DTensor)
+                else param.numel()
+            )
             current_group.append(name)
             if param_cnt >= block_size:
                 name_list.append(current_group)
@@ -339,42 +345,114 @@ class FSDPModule(TorchModule):
             name_list.append(current_group)
         return name_list
 
+    def convert_block2flattened_bucket(self, block_parameter: Dict[str, Tensor]):
+        from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
+
+        flatten_tensor_list = []
+        metadatas: List[FlattenedTensorMetadata] = []
+
+        def convert_tensor(
+            name: str,
+            param: Tensor,
+            flatten_tensor_list: List[Tensor],
+            metadatas:  List[FlattenedTensorMetadata],
+            buffer_offset=0,
+            is_experts=False,
+            num_block=1,
+            ):
+            """
+            convert a param tensor(single or group mlp) to flatten_tensor_list
+            which is used in sglang update_weights_from_tensor api
+            """
+            assert (
+                param.shape[0] % num_block == 0
+            ), "param can't be chunked by num_block in dim 0"
+            interval = param.numel() // num_block
+            shape = torch.Size((param.shape[0] // num_block,) + param.shape[1:])
+
+            for i in range(num_block):
+                start_idx = buffer_offset
+                end_idx = buffer_offset + interval
+                buffer_offset = end_idx
+                local_name = name.replace("group_mlp", f"experts.{i}") if is_experts else name
+                metadata = FlattenedTensorMetadata(
+                    name=local_name,
+                    shape=shape,
+                    dtype=param.dtype,
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    numel=interval,
+                )
+                metadatas.append(metadata)
+            flattened_param = param.contiguous().view(-1)
+            flatten_tensor_list.append(flattened_param)
+            return flatten_tensor_list, metadatas, buffer_offset
+
+        buffer_offset = 0
+        for name, param in block_parameter.items():
+            param = (
+                param.full_tensor().detach()
+                if isinstance(param, DTensor)
+                else param.detach()
+            )
+            if self.module_args.groupgemm and "group_mlp" in name:
+                num_experts = self.model_config.num_experts
+                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
+                    name=name,
+                    param=param,
+                    flatten_tensor_list=flatten_tensor_list,
+                    metadatas=metadatas,
+                    buffer_offset=buffer_offset,
+                    is_experts=True,
+                    num_block=num_experts,
+                )
+            else:
+                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
+                    name, param, flatten_tensor_list, metadatas, buffer_offset
+                )
+        flattened_tensor = torch.cat(flatten_tensor_list)
+        return flattened_tensor, metadatas
+
     def get_weight_ipc_handles_by_name(self, block_name: List[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        # get matched param full tensor
+        block_parameter = {}
+        reduce_tensor_dict = {}  # used for vllm
+        for name, param in self.model.named_parameters():
+            if name in block_name:
+                block_parameter[name] = (
+                    param.full_tensor().detach()
+                    if isinstance(param, DTensor)
+                    else param.detach()
+                )
+
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
             from sglang.srt.utils import MultiprocessingSerializer
             from sglang.srt.patch_torch import monkey_patch_torch_reductions
+
             monkey_patch_torch_reductions()
-        if self.module_args.use_expandable_segments:
-            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
-        reduce_tensor_dict = {}
-        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
-        for name, param in self.model.named_parameters():
-            if name in block_name:
-                if self.module_args.groupgemm and "group_mlp" in name:
-                    # This model is using groupgemm for moe forward
-                    param = param.full_tensor().detach()
-                    num_experts = self.model_config.num_experts
-                    #split_size = param.shape[0] // num_experts
-                    param_per_expert = torch.chunk(param, num_experts, dim=0)
-                    #param_per_expert = torch.split(param, split_size, dim=0)
-                    for i in range(num_experts):
-                        local_name = name.replace('group_mlp', f"experts.{i}")
-                        reduce_tensor_dict[local_name] = serialize_func(param_per_expert[i])
-                else:
-                    reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
-                                            if isinstance(param, DTensor) else param.detach())
+            flattened_tensor, metadatas = self.convert_block2flattened_bucket(
+                block_parameter
+            )
+            bucket_dict = {"flattened_tensor": flattened_tensor, "metadata": metadatas}
+            serialized_bucket = MultiprocessingSerializer.serialize(
+                bucket_dict, output_str=True
+            )
+            return serialized_bucket
+        elif rollout_engine == "vllm":
+            for name, param in block_parameter.items():
+                reduce_tensor_dict[name] = reduce_tensor(param)
+
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
-
-    def update_weights_from_buckets(self, buckets):
-        pass
 
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
