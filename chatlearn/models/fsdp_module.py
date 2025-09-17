@@ -237,6 +237,7 @@ class FSDPModule(TorchModule):
         # When meta_init is enabled, we only load checkpoint on rank 0
         meta_init = self.module_args.meta_init and local_rank != 0
         model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
+        self.model_config = model.config
         if self.module_args.groupgemm:
             apply_group_gemm(model)
             dist.barrier()
