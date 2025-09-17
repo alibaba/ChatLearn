@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""patches for qwen3-moe model"""
+"""patches for qwen3-next model"""
 from concurrent.futures import ThreadPoolExecutor
 
 import torch
@@ -20,6 +20,22 @@ from torch import nn
 import torch.nn.functional as F
 
 from chatlearn.models.patches.transformers.layers.groupgemm import MoeGroupMLP
+
+class Qwen3NextMLP(nn.Module):
+    """ Qwen3-Next MLP layer """
+    def __init__(self, config, intermediate_size=None):
+        super().__init__()
+        self.config = config
+        self.hidden_size = config.hidden_size
+        self.intermediate_size = intermediate_size if intermediate_size is not None else config.intermediate_size
+        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
+        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
+        self.act_fn = ACT2FN[config.hidden_act]
+
+    def forward(self, x):
+        down_proj = self.down_proj(self.act_fn(self.gate_proj(x)) * self.up_proj(x))
+        return down_proj
 
 class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
     """ MOE Block support grouped linear """
@@ -32,6 +48,9 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
         # gating
         self.gate = nn.Linear(config.hidden_size, config.num_experts, bias=False)
         self.group_mlp = MoeGroupMLP(config, config.moe_intermediate_size)
+
+        self.shared_expert = Qwen3NextMLP(config, intermediate_size=config.shared_expert_intermediate_size)
+        self.shared_expert_gate = torch.nn.Linear(config.hidden_size, 1, bias=False)
 
     def topk_expert(self, logits):
         routing_weights = F.softmax(logits, dim=1, dtype=torch.float)
@@ -56,7 +75,12 @@ class Qwen3MoeSparseMoeBlock_Grouped(nn.Module):
                                 selected_experts,
                                 tokens_per_expert
                                 )
+        shared_expert_output = self.shared_expert(hidden_states)
+        shared_expert_output = F.sigmoid(self.shared_expert_gate(hidden_states)) * shared_expert_output
+
+        final_hidden_states = final_hidden_states + shared_expert_output
         final_hidden_states = final_hidden_states.view(ori_shape)
+
         return final_hidden_states, router_logits
 
 def apply_group_gemm_patch(model):
@@ -90,7 +114,16 @@ def apply_group_gemm_patch(model):
                 moe_group_layer = Qwen3MoeSparseMoeBlock_Grouped(model.config).to(model.dtype)
         else:
             moe_group_layer = Qwen3MoeSparseMoeBlock_Grouped(model.config).to(model.dtype)
+            # Copy gate weight
             moe_group_layer.gate.weight.data.copy_(layer.mlp.gate.weight.data)
+
+            # Copy shared expert weights
+            moe_group_layer.shared_expert.gate_proj.weight.data.copy_(layer.mlp.shared_expert.gate_proj.weight.data)
+            moe_group_layer.shared_expert.up_proj.weight.data.copy_(layer.mlp.shared_expert.up_proj.weight.data)
+            moe_group_layer.shared_expert.down_proj.weight.data.copy_(layer.mlp.shared_expert.down_proj.weight.data)
+            moe_group_layer.shared_expert_gate.weight.data.copy_(layer.mlp.shared_expert_gate.weight.data)
+
+            # Copy other expert weights
             with ThreadPoolExecutor(max_workers=16) as executor:
                 futures = [
                     executor.submit(

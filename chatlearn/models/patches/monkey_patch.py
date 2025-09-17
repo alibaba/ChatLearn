@@ -32,6 +32,10 @@ def apply_group_gemm(model):
         from chatlearn.models.patches.transformers.qwen3_moe_patch import apply_group_gemm_patch \
             # pylint: disable=import-outside-toplevel
         apply_group_gemm_patch(model)
+    elif model.config.architectures[0] == "Qwen3NextForCausalLM":
+        from chatlearn.models.patches.transformers.qwen3_next_moe_patch import apply_group_gemm_patch \
+            # pylint: disable=import-outside-toplevel
+        apply_group_gemm_patch(model)
     else:
         raise ValueError(f"Unsupported model architecture: {model.config.architectures} for groupgemm patch")
 

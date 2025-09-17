@@ -236,6 +236,7 @@ class FSDPModule(TorchModule):
         # When meta_init is enabled, we only load checkpoint on rank 0
         meta_init = self.module_args.meta_init and local_rank != 0
         model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
+        self.model_config = model.config
         if self.module_args.groupgemm:
             apply_group_gemm(model)
             dist.barrier()
@@ -303,7 +304,6 @@ class FSDPModule(TorchModule):
             torch.cuda.synchronize()
             for name, buf in model.named_buffers():
                 dist.broadcast(buf, src=0)
-
         self.model = model
         self.model.to(torch.float32)
 
@@ -324,7 +324,7 @@ class FSDPModule(TorchModule):
         del full_state
         self.offload()
 
-    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
+    def get_fsdp_param_name(self, block_size=300_000_000) -> List[List]:
         name_list = []
         param_cnt = 0
         current_group = []
@@ -356,8 +356,19 @@ class FSDPModule(TorchModule):
         serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
         for name, param in self.model.named_parameters():
             if name in block_name:
-                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
-                                        if isinstance(param, DTensor) else param.detach())
+                if self.module_args.groupgemm and "group_mlp" in name:
+                    # This model is using groupgemm for moe forward
+                    param = param.full_tensor().detach()
+                    num_experts = self.model_config.num_experts
+                    #split_size = param.shape[0] // num_experts
+                    param_per_expert = torch.chunk(param, num_experts, dim=0)
+                    #param_per_expert = torch.split(param, split_size, dim=0)
+                    for i in range(num_experts):
+                        local_name = name.replace('group_mlp', f"experts.{i}")
+                        reduce_tensor_dict[local_name] = serialize_func(param_per_expert[i])
+                else:
+                    reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
+                                            if isinstance(param, DTensor) else param.detach())
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
