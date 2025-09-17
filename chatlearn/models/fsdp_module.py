@@ -407,11 +407,6 @@ class FSDPModule(TorchModule):
                     is_experts=True,
                     num_block=num_experts,
                 )
-                # param_per_expert = torch.chunk(param, num_experts, dim=0)
-                # for i in range(num_experts):
-                #     local_name = name.replace('group_mlp', f"experts.{i}")
-                #     flatten_tensor_list, metadatas, buffer_offset = \
-                #         convert_tensor(local_name, param_per_expert[i], flatten_tensor_list, metadatas, buffer_offset)
             else:
                 flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
                     name, param, flatten_tensor_list, metadatas, buffer_offset
