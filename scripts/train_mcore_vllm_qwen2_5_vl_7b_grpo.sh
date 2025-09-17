@@ -18,7 +18,8 @@ source scripts/base_env.sh
 # hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B
 # mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B-to-mcore
 hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen2.5-VL-7B-Instruct
-mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen2.5-VL-7B-Instruct-to-mcore
+# mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen2.5-VL-7B-Instruct-to-mcore
+mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen2.5-VL-7B-Instruct-to-mcore-dist
 
 export WANDB_BASE_URL=http://120.26.137.9:8080
 export WANDB_API_KEY=xx
@@ -45,10 +46,10 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.log_args_dict.enable_tensorboard=true \
         runtime_args.log_args_dict.tensorboard_dir=${output_dir}/tensorboard \
         runtime_args.eval_episode_interval=1 \
-        runtime_args.enable_eval_before_training=true \
+        runtime_args.enable_eval_before_training=False \
         runtime_args.model_type=vlm \
         models.policy_trainer.num_gpu=${num_device} \
-        models.policy_trainer.packing=true \
+        models.policy_trainer.packing=false \
         models.policy_trainer.max_token_in_packing=8192 \
         models.policy_trainer.bf16=true \
         models.policy_trainer.sequence_parallel=true \

@@ -283,9 +283,7 @@ class MegatronPolicyTrainer(MegatronModule):
         transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(args.qk_layernorm)
         vision_model_spec = get_qwen2vl_vision_model_spec()
         vision_projector_spec = get_mlp_module_spec(add_norm=False).submodules
-        # breakpoint()
-        # args.position_embedding_type = 'mrope'
-        # args.mrope_section = [16,24,24]
+
         model = Qwen2_5VLPolicyModel(
             language_transformer_config=config,
             language_transformer_layer_spec=transformer_layer_spec,
@@ -319,7 +317,7 @@ class MegatronPolicyTrainer(MegatronModule):
         )
 
         args.freeze_LM = False
-        args.freeze_ViT = True
+        args.freeze_ViT = False
 
         model.freeze(
             freeze_language_model=args.freeze_LM, 
@@ -538,6 +536,7 @@ class MegatronPolicyTrainer(MegatronModule):
         # trainable is True --> policy trainer; False --> PolicyReference
 
         # update data for each sample in list
+        
         for logprobs, data_b in zip(forward_data_store, data_list):
             attn_mask, *_ = generate_loss_mask_position_ids(data_b["all_tokens"].long(), data_b["prompt_token_length"], data_b["response_token_length"])
             logprobs_tensor_list = split_and_unpadding(-logprobs, attn_mask)

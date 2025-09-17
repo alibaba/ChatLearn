@@ -101,7 +101,7 @@ if IS_MEGATRON_SUPPORTED:
                         used_names.add(key)
                         setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
             set_megatron_cfg(self.module_args)
-
+            
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
             args.micro_batch_size = self.runtime_args.train_micro_batch_size
             args.global_batch_size = self.runtime_args.train_global_batch_size
@@ -110,7 +110,6 @@ if IS_MEGATRON_SUPPORTED:
 
             # NOTE: Megatron-Core will override variable_seq_lengths to be False, override it back
             get_args().variable_seq_lengths = self.module_args.variable_seq_lengths
-            get_args().position_embedding_type = 'mrope'
             self.num_train_global_batch = self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size
 
             if self.trainable:

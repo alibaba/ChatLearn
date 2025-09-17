@@ -57,6 +57,9 @@ class MegatronModelArchitectureConfig(BaseConfig):
     position_embedding_type: str = field(
         default="rope", metadata={"help": "Position embedding type."}
     )
+    mrope_section: str = field(
+        default=None, metadata={"help": "mrope_section when using mrope"}
+    )
     add_qkv_bias: bool = field(
         default=False, metadata={"help": "Enable bias only in the QKV linear layers"}
     )

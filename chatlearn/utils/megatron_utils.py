@@ -43,6 +43,7 @@ def update_cfg(cfg):
         cfg.models.policy_trainer.megatron_model_cfg.add_qkv_bias = True
         cfg.models.policy_trainer.megatron_model_cfg.qk_layernorm = False
         cfg.models.policy_trainer.megatron_model_cfg.mrope_section = [16,24,24]
+        cfg.models.policy_trainer.megatron_model_cfg.position_embedding_type = 'mrope'
     else:
         cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
         cfg.models.policy_trainer.megatron_model_cfg.add_qkv_bias = False

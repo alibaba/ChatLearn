@@ -84,7 +84,7 @@ def _prepare_metadata(prefix: str, module: nn.Module):
             else:
                 # NOTE: shared_experts have tp_group
                 tp_rank, tp_size = module.tp_group.rank(), module.tp_group.size()
-                
+
         w, h = module.weight.shape
         if parallel_mode == 'row':
             global_shape=(w, h * tp_size)

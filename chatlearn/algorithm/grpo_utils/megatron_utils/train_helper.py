@@ -37,7 +37,7 @@ from megatron.training import (
 from megatron.training.training import print_datetime
 from megatron.training.utils import (
     get_batch_on_this_cp_rank,
-    get_ltor_masks_and_position_ids,
+    # get_ltor_masks_and_position_ids,
     report_memory,
     unwrap_model
 )
@@ -340,6 +340,7 @@ def get_batch(
             total_nnz = tokens.shape[1]
             pad_size = (divisor - total_nnz % divisor) % divisor
 
+        position_ids = data_b.get('position_ids', None)
         tokens = F.pad(tokens, (0, pad_size), value=pad_token)
         labels = torch.roll(tokens, shifts=-1, dims=1)
         attention_mask, _, position_ids = get_ltor_masks_and_position_ids(
@@ -348,6 +349,7 @@ def get_batch(
             args.reset_position_ids,
             args.reset_attention_mask,
             args.eod_mask_loss,
+            position_ids
         )
         if mpu.get_context_parallel_world_size() == 1:
             input_data = {
@@ -389,6 +391,16 @@ def get_batch(
                 "pad_size": pad_size,
                 "num_tokens_on_this_cp_rank": chunked_dataset['loss_mask'].sum(),
             }
+    if 'pixel_values' in data_b.keys():
+        # vl
+        input_data.update(
+            {
+                "pixel_values": data_b['pixel_values'], # [token_length, token_num]
+                "image_grid_thw": data_b['image_grid_thw'], # [batch_size, 3]
+                "rope_deltas": data_b['rope_deltas'], # [batch_size, 1]
+                "image_input_mask": tokens==get_tokenizer()._tokenizer.convert_tokens_to_ids("<|image_pad|>") # [batch_size, token_length]
+            }
+        )
 
     if is_training:
         ref_logprobs = data_b["ref_logprobs"].float()
@@ -411,6 +423,8 @@ def get_batch(
 
     for k, v in input_data.items():
         input_data[k] = to_device("cuda", v)
+
+
     return input_data
 
 def loss_func(
@@ -449,6 +463,8 @@ def loss_func(
     num_tokens = inputs.get('num_tokens_on_this_cp_rank', loss_mask.sum().clone().detach()).to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
     reporting_losses["num_samples"] = torch.ones_like(num_tokens)
+    print(torch.distributed.get_rank(), total_loss_for_bp)
+    
     return total_loss_for_bp, num_tokens, reporting_losses
 
 
@@ -461,17 +477,33 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         is_packing=is_packing
     )
 
-    output_tensor = model(
-        input_ids=inputs["all_tokens"],
-        position_ids=inputs["all_token_position_ids"],
-        attention_mask=inputs["all_token_attention_mask"],
-        labels=inputs["labels"],
-        training_inputs=inputs if is_training else None,
-        packed_seq_params=inputs['packed_seq_params'] if is_packing else None
-    )
+    if 'pixel_values' in inputs.keys():
+        # vl
+        output_tensor = model(
+            input_ids=inputs["all_tokens"],
+            position_ids=inputs["all_token_position_ids"],
+            attention_mask=None,
+            labels=inputs["labels"],
+            pixel_values=inputs["pixel_values"],
+            image_grid_thw=inputs["image_grid_thw"],
+            rope_deltas=inputs["rope_deltas"],
+            image_input_mask=inputs["image_input_mask"],
+            training_inputs=inputs if is_training else None,
+            packed_seq_params=inputs['packed_seq_params'] if is_packing else None
+        )
+    else:
+        output_tensor = model(
+            input_ids=inputs["all_tokens"],
+            position_ids=inputs["all_token_position_ids"],
+            attention_mask=inputs["all_token_attention_mask"],
+            labels=inputs["labels"],
+            training_inputs=inputs if is_training else None,
+            packed_seq_params=inputs['packed_seq_params'] if is_packing else None
+        )
 
     if is_training:
         wrapped_loss_func = partial(loss_func, inputs)
+
     else:
         if unwrap_model(model).post_process:
             output_tensor = reduce_from_context_parallel_region(output_tensor, is_packing, inputs)
@@ -513,3 +545,78 @@ def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
     """
     return _VocabParallelEntropy.apply(logits)
     
+
+def get_ltor_masks_and_position_ids(
+    data, eod_token, reset_position_ids, reset_attention_mask, eod_mask_loss, prompt_position_ids
+):
+    """
+    Build masks and position id for left to right model.
+    Copy from megatron.training.utils.get_ltor_masks_and_position_ids
+    Patch for extra input of position_ids
+    """
+
+    # Extract batch size and sequence length.
+    micro_batch_size, seq_length = data.size()
+
+    # Attention mask (lower triangular).
+    if reset_attention_mask:
+        att_mask_batch = micro_batch_size
+    else:
+        att_mask_batch = 1
+    attention_mask = torch.tril(
+        torch.ones((att_mask_batch, seq_length, seq_length), device=data.device)
+    ).view(att_mask_batch, 1, seq_length, seq_length)
+
+    # Loss mask.
+    loss_mask = torch.ones(data.size(), dtype=torch.float, device=data.device)
+    if eod_mask_loss:
+        loss_mask[data == eod_token] = 0.0
+
+    # Position ids.
+    if prompt_position_ids is not None:
+        # for vl model we compute position ids in data_iter
+        position_ids = torch.zeros((3, micro_batch_size, seq_length), dtype=torch.long, device=data.device)
+        for batch_idx, batch in enumerate(prompt_position_ids):
+            for list_idx in range(3):
+                sublist = batch[list_idx]
+                # Fill the beginning of the result tensor with the existing sublist
+                position_ids[list_idx, batch_idx, :len(sublist)] = torch.tensor(sublist)
+                # Determine the starting value for padding
+                start_value = max(sublist) + 1
+                # Fill the rest with increasing values starting from max(sublist) + 1
+                position_ids[list_idx, batch_idx, len(sublist):] = torch.arange(
+                    start_value, start_value + (seq_length - len(sublist))
+                )
+    else:
+        position_ids = torch.arange(seq_length, dtype=torch.long, device=data.device)
+        position_ids = position_ids.unsqueeze(0).expand_as(data)
+        # We need to clone as the ids will be modifed based on batch index.
+        if reset_position_ids:
+            position_ids = position_ids.clone()
+
+        if reset_position_ids or reset_attention_mask:
+            # Loop through the batches:
+            for b in range(micro_batch_size):
+
+                # Find indecies where EOD token is.
+                eod_index = position_ids[b, data[b] == eod_token]
+                # Detach indecies from positions if going to modify positions.
+                if reset_position_ids:
+                    eod_index = eod_index.clone()
+
+                # Loop through EOD indecies:
+                prev_index = 0
+                for j in range(eod_index.size()[0]):
+                    i = eod_index[j]
+                    # Mask attention loss.
+                    if reset_attention_mask:
+                        attention_mask[b, 0, (i + 1) :, : (i + 1)] = 0
+                    # Reset positions.
+                    if reset_position_ids:
+                        position_ids[b, (i + 1) :] -= i + 1 - prev_index
+                        prev_index = i + 1
+
+    # Convert attention mask to binary:
+    attention_mask = attention_mask < 0.5
+
+    return attention_mask, loss_mask, position_ids

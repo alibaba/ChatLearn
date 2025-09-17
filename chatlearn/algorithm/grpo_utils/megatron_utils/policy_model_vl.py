@@ -35,9 +35,11 @@ from chatlearn.configs.base import BaseModelConfig
 from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 from .train_helper import entropy_from_tensor_parallel_logits, reduce_from_context_parallel_region
 
+from megatron_patch.model.qwen2_5_vl.model import Qwen2_5VLModel
+
 
 # TODO: replace this class with GPTModel
-class GPTPolicyModel(GPTModel):
+class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
     """PolicyModel"""
 
     def __init__(self, *args, module_args: Optional[BaseModelConfig] = None, **kwargs):
@@ -56,8 +58,11 @@ class GPTPolicyModel(GPTModel):
         input_ids: Tensor,
         position_ids: Tensor,
         attention_mask: Tensor,
-        decoder_input: Tensor = None,
         labels: Tensor = None,
+        pixel_values: Tensor = None,
+        image_grid_thw: Tensor = None,
+        rope_deltas: Tensor = None,
+        image_input_mask: Tensor = None,
         inference_context: BaseInferenceContext = None,
         packed_seq_params: PackedSeqParams = None,
         extra_block_kwargs: dict = None,
@@ -68,26 +73,29 @@ class GPTPolicyModel(GPTModel):
         training_inputs: dict = None,
     ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         # untransposed hidden_states or transposed logits with shape [b, s, h]
+
         hidden_states_or_logits = super().forward(
             input_ids=input_ids,
             position_ids=position_ids,
-            attention_mask=attention_mask,
-            decoder_input=decoder_input,
+            vision_data=pixel_values,
+            vision_grid_thw=image_grid_thw,
+            video_start_index=image_input_mask.sum().cpu().item(),
+            image_input_mask=image_input_mask,
+            video_input_mask= None,
+            attention_mask=None,
             labels=None,
-            loss_mask=loss_mask,
-            inference_context=inference_context,
+            inference_params=inference_params,
             packed_seq_params=packed_seq_params,
             extra_block_kwargs=extra_block_kwargs,
-            runtime_gather_output=runtime_gather_output,
-            inference_params=inference_params,
         )
 
         if not self.post_process:
             return hidden_states_or_logits
 
         if training_inputs is None:
+            # breakpoint()
             return (
-                self.compute_language_model_loss(
+                self.language_model.compute_language_model_loss(
                     labels,
                     hidden_states_or_logits.transpose(
                         0, 1
@@ -117,8 +125,9 @@ class GPTPolicyModel(GPTModel):
             training_inputs (Dict[str, Any]): All training inputs.
         
         """
+        # breakpoint()
         forward_logprob = (
-            self.compute_language_model_loss(labels, all_token_logits) * -1
+            self.language_model.compute_language_model_loss(labels, all_token_logits) * -1
         )
 
         forward_logprob = reduce_from_context_parallel_region(forward_logprob, self.module_args.packing, training_inputs)
