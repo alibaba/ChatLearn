@@ -396,7 +396,6 @@ class FSDPModule(TorchModule):
                 else param.detach()
             )
             if self.module_args.groupgemm and "group_mlp" in name:
-                # breakpoint()
                 num_experts = self.model_config.num_experts
                 flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
                     name=name,
