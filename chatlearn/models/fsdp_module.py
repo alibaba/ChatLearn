@@ -17,13 +17,14 @@
 import os
 import random
 import gc
-from typing import List
+from typing import List, Dict
 import glob
 import json
 from safetensors.torch import load_file
 
 import numpy as np
 import torch
+from torch import Tensor
 import torch.distributed as dist
 from torch.distributed.tensor import DTensor, distribute_tensor
 from torch import optim, nn
@@ -128,16 +129,15 @@ class FSDPModule(TorchModule):
         tensor_buffer = {}
         for shape in shape_list:
             tensor_buffer[shape] = torch.empty(shape, dtype=torch.bfloat16, device="cuda")
-        print(tensor_buffer.keys())
         for param_name in meta_sharded_sd.keys():
-        # print(param_name)
             sharded_meta_param = meta_sharded_sd.get(param_name)
             shape_key = meta_sharded_sd[param_name].shape
-            if param_name.split('.')[-1] in mapping:
+            if 'group_mlp' in param_name:
                 sequential_mlp_name_list = []
+                num_expert = model.config.num_experts
                 for i in range(512):
                     part = param_name.split('.')[-1]
-                    sequential_mlp_name_list.append(name.replace('group_mlp', f"experts.{i}").replace(part, mapping[part]))
+                    sequential_mlp_name_list.append(param_name.replace('group_mlp', f"experts.{i}"))
                 single_expert_shape = (sharded_meta_param.shape[0] // 512, sharded_meta_param.shape[1])
                 local_tensor = torch.empty(single_expert_shape, dtype=torch.bfloat16, device='cuda')
                 group_gemm_tensor = tensor_buffer[shape_key]
@@ -154,8 +154,11 @@ class FSDPModule(TorchModule):
                                 break
                     dist.broadcast(local_tensor, src=rank_has_data)
                     group_gemm_tensor[idx * single_expert_shape[0]: (idx + 1) * single_expert_shape[0], :].copy_(local_tensor)
-                local_tensor = torch.chunk(tensor_buffer[shape_key],world_size, dim=0)[local_rank]
-                sharded_tensor = DTensor.from_local(local_tensor.clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
+                sharded_tensor = distribute_tensor(
+                    group_gemm_tensor.clone(),
+                    sharded_meta_param.device_mesh,
+                    sharded_meta_param.placements,
+                )
                 sharded_sd[param_name] = nn.Parameter(sharded_tensor)
             else:
                 if param_name in local_tensors:
@@ -171,24 +174,16 @@ class FSDPModule(TorchModule):
                             rank_has_data = i
                             break
                 dist.broadcast(tensor_buffer[shape_key], src=rank_has_data)
-                if False:
-                    print(f"{local_rank}: {sharded_meta_param}")
-                    # no shard
-                    if local_rank==0:
-                        sharded_sd[param_name] = DTensor.from_local(tensor_buffer[shape_key].clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
-                    else:
-                        sharded_sd[param_name] = DTensor.from_local(torch.empty((0, sharded_meta_param.size()[1]), dtype=torch.bfloat16, device='cuda'), sharded_meta_param.device_mesh, sharded_meta_param.placements)
-                    print(f"{local_rank}: {sharded_sd[param_name]}")
-                else:
-                    #local_tensor = torch.chunk(tensor_buffer[shape_key], world_size, dim=0)[local_rank]
-                    sharded_tensor = distribute_tensor(
-                        tensor_buffer[shape_key].clone(),
-                        sharded_meta_param.device_mesh,
-                        sharded_meta_param.placements,
-                    )
-                        #DTensor.from_local(local_tensor.clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
-                    sharded_sd[param_name] = nn.Parameter(sharded_tensor)
+                #local_tensor = torch.chunk(tensor_buffer[shape_key], world_size, dim=0)[local_rank]
+                sharded_tensor = distribute_tensor(
+                    tensor_buffer[shape_key].clone(),
+                    sharded_meta_param.device_mesh,
+                    sharded_meta_param.placements,
+                )
+                    #DTensor.from_local(local_tensor.clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
+                sharded_sd[param_name] = nn.Parameter(sharded_tensor)
             dist.barrier()
+        del tensor_buffer
         return sharded_sd
 
     def create_device_mesh(self, world_size, fsdp_size):
@@ -432,7 +427,11 @@ class FSDPModule(TorchModule):
         param_cnt = 0
         current_group = []
         for name, param in self.model.named_parameters():
-            param_cnt += param.numel()
+            param_cnt += (
+                param.numel() * self.fsdp_size
+                if isinstance(param, DTensor)
+                else param.numel()
+            )
             current_group.append(name)
             if param_cnt >= block_size:
                 name_list.append(current_group)
@@ -442,42 +441,114 @@ class FSDPModule(TorchModule):
             name_list.append(current_group)
         return name_list
 
+    def convert_block2flattened_bucket(self, block_parameter: Dict[str, Tensor]):
+        from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
+
+        flatten_tensor_list = []
+        metadatas: List[FlattenedTensorMetadata] = []
+
+        def convert_tensor(
+            name: str,
+            param: Tensor,
+            flatten_tensor_list: List[Tensor],
+            metadatas:  List[FlattenedTensorMetadata],
+            buffer_offset=0,
+            is_experts=False,
+            num_block=1,
+            ):
+            """
+            convert a param tensor(single or group mlp) to flatten_tensor_list
+            which is used in sglang update_weights_from_tensor api
+            """
+            assert (
+                param.shape[0] % num_block == 0
+            ), "param can't be chunked by num_block in dim 0"
+            interval = param.numel() // num_block
+            shape = torch.Size((param.shape[0] // num_block,) + param.shape[1:])
+
+            for i in range(num_block):
+                start_idx = buffer_offset
+                end_idx = buffer_offset + interval
+                buffer_offset = end_idx
+                local_name = name.replace("group_mlp", f"experts.{i}") if is_experts else name
+                metadata = FlattenedTensorMetadata(
+                    name=local_name,
+                    shape=shape,
+                    dtype=param.dtype,
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    numel=interval,
+                )
+                metadatas.append(metadata)
+            flattened_param = param.contiguous().view(-1)
+            flatten_tensor_list.append(flattened_param)
+            return flatten_tensor_list, metadatas, buffer_offset
+
+        buffer_offset = 0
+        for name, param in block_parameter.items():
+            param = (
+                param.full_tensor().detach()
+                if isinstance(param, DTensor)
+                else param.detach()
+            )
+            if self.module_args.groupgemm and "group_mlp" in name:
+                num_experts = self.model_config.num_experts
+                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
+                    name=name,
+                    param=param,
+                    flatten_tensor_list=flatten_tensor_list,
+                    metadatas=metadatas,
+                    buffer_offset=buffer_offset,
+                    is_experts=True,
+                    num_block=num_experts,
+                )
+            else:
+                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
+                    name, param, flatten_tensor_list, metadatas, buffer_offset
+                )
+        flattened_tensor = torch.cat(flatten_tensor_list)
+        return flattened_tensor, metadatas
+
     def get_weight_ipc_handles_by_name(self, block_name: List[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        # get matched param full tensor
+        block_parameter = {}
+        reduce_tensor_dict = {}  # used for vllm
+        for name, param in self.model.named_parameters():
+            if name in block_name:
+                block_parameter[name] = (
+                    param.full_tensor().detach()
+                    if isinstance(param, DTensor)
+                    else param.detach()
+                )
+
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
             from sglang.srt.utils import MultiprocessingSerializer
             from sglang.srt.patch_torch import monkey_patch_torch_reductions
+
             monkey_patch_torch_reductions()
-        if self.module_args.use_expandable_segments:
-            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
-        reduce_tensor_dict = {}
-        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
-        for name, param in self.model.named_parameters():
-            if name in block_name:
-                if self.module_args.groupgemm and "group_mlp" in name:
-                    # This model is using groupgemm for moe forward
-                    param = param.full_tensor().detach()
-                    num_experts = self.model_config.num_experts
-                    #split_size = param.shape[0] // num_experts
-                    param_per_expert = torch.chunk(param, num_experts, dim=0)
-                    #param_per_expert = torch.split(param, split_size, dim=0)
-                    for i in range(num_experts):
-                        local_name = name.replace('group_mlp', f"experts.{i}")
-                        reduce_tensor_dict[local_name] = serialize_func(param_per_expert[i])
-                else:
-                    reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
-                                            if isinstance(param, DTensor) else param.detach())
+            flattened_tensor, metadatas = self.convert_block2flattened_bucket(
+                block_parameter
+            )
+            bucket_dict = {"flattened_tensor": flattened_tensor, "metadata": metadatas}
+            serialized_bucket = MultiprocessingSerializer.serialize(
+                bucket_dict, output_str=True
+            )
+            return serialized_bucket
+        elif rollout_engine == "vllm":
+            for name, param in block_parameter.items():
+                reduce_tensor_dict[name] = reduce_tensor(param)
+
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
-
-    def update_weights_from_buckets(self, buckets):
-        pass
 
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
