@@ -18,11 +18,14 @@ import os
 import random
 import gc
 from typing import List
+import glob
+import json
+from safetensors.torch import load_file
 
 import numpy as np
 import torch
 import torch.distributed as dist
-from torch.distributed.tensor import DTensor
+from torch.distributed.tensor import DTensor, distribute_tensor
 from torch import optim, nn
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
 from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict, get_model_state_dict
@@ -94,6 +97,99 @@ class FSDPModule(TorchModule):
         _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
 
         return total_norm
+
+    def split_list(self, lst, n):
+        """Split list into n roughly equal chunks."""
+        k, m = divmod(len(lst), n)
+        return [lst[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
+
+    def get_dtensor(self, model, hf_dir):
+        mapping = {
+            'gate_weight': 'gate_proj.weight',
+            'up_weight': 'up_proj.weight',
+            'down_weight': 'down_proj.weight'
+        }
+        world_size = dist.get_world_size()
+        local_rank = dist.get_rank()
+        safetensor_files = glob.glob(os.path.join(hf_dir, "*.safetensors"))
+        safetensor_files = self.split_list(safetensor_files, world_size)
+        local_safetensor_file = safetensor_files[local_rank]
+        local_tensors = {}
+        for file in local_safetensor_file:
+            local_tensors.update(load_file(file, device="cuda"))
+
+        weight_map = json.load(open(os.path.join(hf_dir, "model.safetensors.index.json")))['weight_map']
+        meta_sharded_sd = model.state_dict()
+        sharded_sd = {}
+        shape_list=[]
+        for param_name, param in meta_sharded_sd.items():
+            if meta_sharded_sd[param_name].shape not in shape_list:
+                shape_list.append(meta_sharded_sd[param_name].shape)
+        tensor_buffer = {}
+        for shape in shape_list:
+            tensor_buffer[shape] = torch.empty(shape, dtype=torch.bfloat16, device="cuda")
+        print(tensor_buffer.keys())
+        for param_name in meta_sharded_sd.keys():
+        # print(param_name)
+            sharded_meta_param = meta_sharded_sd.get(param_name)
+            shape_key = meta_sharded_sd[param_name].shape
+            if param_name.split('.')[-1] in mapping:
+                sequential_mlp_name_list = []
+                for i in range(512):
+                    part = param_name.split('.')[-1]
+                    sequential_mlp_name_list.append(name.replace('group_mlp', f"experts.{i}").replace(part, mapping[part]))
+                single_expert_shape = (sharded_meta_param.shape[0] // 512, sharded_meta_param.shape[1])
+                local_tensor = torch.empty(single_expert_shape, dtype=torch.bfloat16, device='cuda')
+                group_gemm_tensor = tensor_buffer[shape_key]
+                for idx, single_mlp_name in enumerate(sequential_mlp_name_list):
+                    if single_mlp_name in local_tensors:
+                        local_tensor.copy_(local_tensors.pop(single_mlp_name))
+                    #sharded_sd[single_mlp_name] = local_tensor
+                    safe_tensor_file = weight_map[single_mlp_name]
+                    rank_has_data=None
+                    for i, file_list in enumerate(safetensor_files):
+                        for file in file_list:
+                            if safe_tensor_file in file:
+                                rank_has_data = i
+                                break
+                    dist.broadcast(local_tensor, src=rank_has_data)
+                    group_gemm_tensor[idx * single_expert_shape[0]: (idx + 1) * single_expert_shape[0], :].copy_(local_tensor)
+                local_tensor = torch.chunk(tensor_buffer[shape_key],world_size, dim=0)[local_rank]
+                sharded_tensor = DTensor.from_local(local_tensor.clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
+                sharded_sd[param_name] = nn.Parameter(sharded_tensor)
+            else:
+                if param_name in local_tensors:
+                    tensor_buffer[shape_key].copy_(local_tensors.pop(param_name))
+                # else:
+                #     full_tensor = torch.empty(meta_sharded_sd[param_name].shape, dtype=torch.bfloat16, device=local_rank)
+            # print(full_tensor.shape)
+                safe_tensor_file = weight_map[param_name]
+                rank_has_data=None
+                for i, file_list in enumerate(safetensor_files):
+                    for file in file_list:
+                        if safe_tensor_file in file:
+                            rank_has_data = i
+                            break
+                dist.broadcast(tensor_buffer[shape_key], src=rank_has_data)
+                if False:
+                    print(f"{local_rank}: {sharded_meta_param}")
+                    # no shard
+                    if local_rank==0:
+                        sharded_sd[param_name] = DTensor.from_local(tensor_buffer[shape_key].clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
+                    else:
+                        sharded_sd[param_name] = DTensor.from_local(torch.empty((0, sharded_meta_param.size()[1]), dtype=torch.bfloat16, device='cuda'), sharded_meta_param.device_mesh, sharded_meta_param.placements)
+                    print(f"{local_rank}: {sharded_sd[param_name]}")
+                else:
+                    #local_tensor = torch.chunk(tensor_buffer[shape_key], world_size, dim=0)[local_rank]
+                    sharded_tensor = distribute_tensor(
+                        tensor_buffer[shape_key].clone(),
+                        sharded_meta_param.device_mesh,
+                        sharded_meta_param.placements,
+                    )
+                        #DTensor.from_local(local_tensor.clone(), sharded_meta_param.device_mesh, sharded_meta_param.placements)
+                    sharded_sd[param_name] = nn.Parameter(sharded_tensor)
+            dist.barrier()
+        return sharded_sd
 
     def create_device_mesh(self, world_size, fsdp_size):
         if not self.device_mesh:
@@ -234,7 +330,7 @@ class FSDPModule(TorchModule):
 
         local_rank = dist.get_rank()
         # When meta_init is enabled, we only load checkpoint on rank 0
-        meta_init = self.module_args.meta_init and local_rank != 0
+        meta_init = self.module_args.meta_init
         model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
         self.model_config = model.config
         if self.module_args.groupgemm:
@@ -276,34 +372,42 @@ class FSDPModule(TorchModule):
         for module in modules:
             fully_shard(module, **fsdp_kwargs)
         fully_shard(model, **fsdp_kwargs)
+
         if self.module_args.meta_init:
-            # save buffer data
-            buffer_dict = {}
-            for name, buf in model.named_buffers():
-                buffer_dict[name] = buf
-            model.to_empty(device="cuda")
-
-            # load real state dict
-            options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
-
-            # module-wise sync avoid OOM while run model like qwen3-moe-235B
+            shard_dict = self.get_dtensor(model, args.load)
+            model.load_state_dict(shard_dict, assign=True)
             for name, module in model.named_modules():
-                has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
-                if has_weights:
-                    set_model_state_dict(
-                        module,
-                        {k.replace(name + ".", ""): v for k, v in full_state.items() if k.startswith(name + ".")},
-                        options=options
-                    )
-            # set_model_state_dict(model, full_state, options=options)
+                if "rotary_emb" in name:
+                    module.__init__(model.config)
+            
+        # if self.module_args.meta_init:
+        #     # save buffer data
+        #     buffer_dict = {}
+        #     for name, buf in model.named_buffers():
+        #         buffer_dict[name] = buf
+        #     model.to_empty(device="cuda")
 
-            # load buffer data
-            if dist.get_rank()==0:
-                for name, buf in model.named_buffers():
-                    buf.data.copy_(buffer_dict[name])
-            torch.cuda.synchronize()
-            for name, buf in model.named_buffers():
-                dist.broadcast(buf, src=0)
+        #     # load real state dict
+        #     options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
+
+        #     # module-wise sync avoid OOM while run model like qwen3-moe-235B
+        #     for name, module in model.named_modules():
+        #         has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
+        #         if has_weights:
+        #             set_model_state_dict(
+        #                 module,
+        #                 {k.replace(name + ".", ""): v for k, v in full_state.items() if k.startswith(name + ".")},
+        #                 options=options
+        #             )
+        #     # set_model_state_dict(model, full_state, options=options)
+
+        #     # load buffer data
+        #     if dist.get_rank()==0:
+        #         for name, buf in model.named_buffers():
+        #             buf.data.copy_(buffer_dict[name])
+        #     torch.cuda.synchronize()
+        #     for name, buf in model.named_buffers():
+        #         dist.broadcast(buf, src=0)
         self.model = model
         self.model.to(torch.float32)
 
@@ -321,7 +425,6 @@ class FSDPModule(TorchModule):
         # resume model weights
         if self.resume_training:
             self.load_checkpoint(self._episode_id)
-        del full_state
         self.offload()
 
     def get_fsdp_param_name(self, block_size=300_000_000) -> List[List]:
