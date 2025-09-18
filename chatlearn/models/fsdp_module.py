@@ -287,7 +287,7 @@ class FSDPModule(TorchModule):
             # load real state dict
             options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True, strict=False)
 
-            # module-wise sync avoid OOM while run model like qwen3-moe-235B
+            # bucket-wise sync avoid OOM while run model like qwen3-moe-235B
             update_bucket = {}
             bucket_size = 3 * 1024 ** 3
             numel_cnt = 0
