@@ -135,10 +135,10 @@ class FSDPModule(TorchModule):
             if 'group_mlp' in param_name:
                 sequential_mlp_name_list = []
                 num_expert = model.config.num_experts
-                for i in range(512):
+                for i in range(num_expert):
                     part = param_name.split('.')[-1]
                     sequential_mlp_name_list.append(param_name.replace('group_mlp', f"experts.{i}"))
-                single_expert_shape = (sharded_meta_param.shape[0] // 512, sharded_meta_param.shape[1])
+                single_expert_shape = (sharded_meta_param.shape[0] // num_expert, sharded_meta_param.shape[1])
                 local_tensor = torch.empty(single_expert_shape, dtype=torch.bfloat16, device='cuda')
                 group_gemm_tensor = tensor_buffer[shape_key]
                 for idx, single_mlp_name in enumerate(sequential_mlp_name_list):
