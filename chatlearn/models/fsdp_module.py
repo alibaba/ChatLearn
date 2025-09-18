@@ -254,6 +254,7 @@ class FSDPModule(TorchModule):
 
         # get state_dict to init model for meta init
         full_state = None
+        buffer_dict = None
         if self.module_args.meta_init:
             full_state = model.state_dict()
 
@@ -325,7 +326,7 @@ class FSDPModule(TorchModule):
         # resume model weights
         if self.resume_training:
             self.load_checkpoint(self._episode_id)
-        del full_state, update_bucket
+        del full_state, buffer_dict
         self.offload()
 
     def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
