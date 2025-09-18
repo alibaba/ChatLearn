@@ -254,6 +254,7 @@ class FSDPModule(TorchModule):
 
         # get state_dict to init model for meta init
         full_state = None
+        update_bucket = None
         if self.module_args.meta_init:
             full_state = model.state_dict()
 
