@@ -390,7 +390,8 @@ def get_batch(
             }
     if 'pixel_values' in data_b.keys():
         # vl
-        try:
+        # try:
+        if 1:
             input_data.update(
                 {
                     "pixel_values": data_b['pixel_values'], # [token_length, token_num]
@@ -399,9 +400,9 @@ def get_batch(
                     "image_input_mask": tokens==get_tokenizer()._tokenizer.convert_tokens_to_ids("<|image_pad|>") # [batch_size, token_length]
                 }
             )
-            breakpoint()
-        except:
-            breakpoint()
+        #     breakpoint()
+        # except:
+        #     breakpoint()
 
     if is_training:
         ref_logprobs = data_b["ref_logprobs"].float()

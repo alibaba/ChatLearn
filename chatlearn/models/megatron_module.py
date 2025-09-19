@@ -107,7 +107,7 @@ if IS_MEGATRON_SUPPORTED:
             args.global_batch_size = self.runtime_args.train_global_batch_size
             args.bf16 = self.module_args.bf16
             initialize_megatron(parsed_args=args)
-
+            # breakpoint()
             # NOTE: Megatron-Core will override variable_seq_lengths to be False, override it back
             get_args().variable_seq_lengths = self.module_args.variable_seq_lengths
             self.num_train_global_batch = self.runtime_args.sample_per_episode // self.runtime_args.train_global_batch_size
