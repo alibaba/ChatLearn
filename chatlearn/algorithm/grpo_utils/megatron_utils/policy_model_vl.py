@@ -73,6 +73,9 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
         training_inputs: dict = None,
     ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         # untransposed hidden_states or transposed logits with shape [b, s, h]
+        self.input_ids = input_ids
+        self.position_ids = position_ids
+        self.labels = labels
 
         hidden_states_or_logits = super().forward(
             input_ids=input_ids,
@@ -170,7 +173,13 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
 
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
-        ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
+
+        # print('ratio', ratio.shape)
+        # print('training_inputs all_token_loss_mask', training_inputs['all_token_loss_mask'].shape)
+        try:
+            ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
+        except:
+            breakpoint()
         assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()

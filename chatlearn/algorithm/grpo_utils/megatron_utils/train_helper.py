@@ -335,6 +335,7 @@ def get_batch(
         pad_token = get_tokenizer().eod
         if not args.variable_seq_lengths:
             pad_size = args.seq_length - tokens.shape[1]
+            
         else:
             divisor = mpu.get_tensor_model_parallel_world_size()
             total_nnz = tokens.shape[1]
@@ -407,18 +408,19 @@ def get_batch(
         old_logprobs = data_b["old_logprobs"].float()
         advantages = data_b["advantages"]
 
-        loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32)
         for i, (prompt_length, response_length) in enumerate(
             zip(prompt_token_length, response_token_length)
         ):
             loss_mask[i, prompt_length: prompt_length + response_length] = 1
         loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
-
+        # breakpoint()
         input_data.update({
             "all_token_loss_mask": loss_mask,
             "advantages": advantages,
             "ref_logprobs": ref_logprobs,
             "old_logprobs": old_logprobs,
+            "response_token_length": response_token_length,
+            "prompt_token_length": prompt_token_length
         })
 
     for k, v in input_data.items():
@@ -463,7 +465,7 @@ def loss_func(
     num_tokens = inputs.get('num_tokens_on_this_cp_rank', loss_mask.sum().clone().detach()).to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
     reporting_losses["num_samples"] = torch.ones_like(num_tokens)
-    print(torch.distributed.get_rank(), total_loss_for_bp)
+    # print(torch.distributed.get_rank(), total_loss_for_bp)
     
     return total_loss_for_bp, num_tokens, reporting_losses
 
