@@ -48,7 +48,7 @@ class PromptPipeline(Dataset):
     def __init__(
         self,
         data_list: List[Dict],
-        seq_length: int,
+        max_prompt_tokens_length: int,
         tokenizer: AutoTokenizer = None,
         processor: AutoProcessor = None,
         enable_thinking=False
@@ -63,6 +63,7 @@ class PromptPipeline(Dataset):
         self.image_key = "images"
         self.video_key = "videos"
         self.data = []
+        self.max_prompt = 0
 
         for data_item in data_list:
             messages = self._build_messages(data_item)
@@ -128,8 +129,12 @@ class PromptPipeline(Dataset):
                 "image_grid_thw": image_grid_thw
             }
 
-            if seq_length > len(input_ids[0]):
+            if len(input_ids[0]) > self.max_prompt:
+                self.max_prompt = len(input_ids[0])
+
+            if max_prompt_tokens_length > len(input_ids[0]):
                 self.data.append(processed_data)
+        self.valid_ratio = len(self.data) / len(data_list)
     def _build_messages(self, example: dict):
         messages: list = example.pop(self.prompt_key)
 

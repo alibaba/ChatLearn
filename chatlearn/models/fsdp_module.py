@@ -1,4 +1,4 @@
-# pylint: disable=import-outside-toplevel
+# pylint: disable=import-outside-toplevel,unused-argument
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,10 +17,11 @@
 import os
 import random
 import gc
-from typing import List
+from typing import List, Dict
 
 import numpy as np
 import torch
+from torch import Tensor
 import torch.distributed as dist
 from torch.distributed.tensor import DTensor
 from torch import optim, nn
@@ -236,6 +237,7 @@ class FSDPModule(TorchModule):
         # When meta_init is enabled, we only load checkpoint on rank 0
         meta_init = self.module_args.meta_init and local_rank != 0
         model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
+        self.model_config = model.config
         if self.module_args.groupgemm:
             apply_group_gemm(model)
             dist.barrier()
@@ -252,6 +254,7 @@ class FSDPModule(TorchModule):
 
         # get state_dict to init model for meta init
         full_state = None
+        update_bucket = None
         if self.module_args.meta_init:
             full_state = model.state_dict()
 
@@ -283,20 +286,22 @@ class FSDPModule(TorchModule):
             model.to_empty(device="cuda")
 
             # load real state dict
-            options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True)
+            options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True, strict=False)
 
-            # module-wise sync avoid OOM while run model like qwen3-moe-235B
-            for name, module in model.named_modules():
-                has_weights = any(k.startswith(name + ".") for k in full_state.keys()) and len(list(module.children()))==0
-                if has_weights:
-                    set_model_state_dict(
-                        module,
-                        {k.replace(name + ".", ""): v for k, v in full_state.items() if k.startswith(name + ".")},
-                        options=options
-                    )
-            # set_model_state_dict(model, full_state, options=options)
+            # bucket-wise sync avoid OOM while run model like qwen3-moe-235B
+            update_bucket = {}
+            bucket_size = 3 * 1024 ** 3
+            numel_cnt = 0
+            for name, param in full_state.items():
+                numel_cnt += param.numel()
+                update_bucket[name] = full_state[name]
+                if numel_cnt >= bucket_size:
+                    set_model_state_dict(model, update_bucket, options=options)
+                    update_bucket = {}
+                    numel_cnt = 0
+            set_model_state_dict(model, update_bucket, options=options)
 
-            # load buffer data
+            # load buffer data because persistent maybe False
             if dist.get_rank()==0:
                 for name, buf in model.named_buffers():
                     buf.data.copy_(buffer_dict[name])
@@ -321,7 +326,7 @@ class FSDPModule(TorchModule):
         # resume model weights
         if self.resume_training:
             self.load_checkpoint(self._episode_id)
-        del full_state
+        del full_state, update_bucket
         self.offload()
 
     def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
@@ -329,7 +334,11 @@ class FSDPModule(TorchModule):
         param_cnt = 0
         current_group = []
         for name, param in self.model.named_parameters():
-            param_cnt += param.numel()
+            param_cnt += (
+                param.numel() * self.fsdp_size
+                if isinstance(param, DTensor)
+                else param.numel()
+            )
             current_group.append(name)
             if param_cnt >= block_size:
                 name_list.append(current_group)
@@ -339,47 +348,124 @@ class FSDPModule(TorchModule):
             name_list.append(current_group)
         return name_list
 
+    def convert_block2flattened_bucket(self, block_parameter: Dict[str, Tensor]):
+        from sglang.srt.weight_sync.tensor_bucket import FlattenedTensorMetadata
+
+        flatten_tensor_list = []
+        metadatas: List[FlattenedTensorMetadata] = []
+
+        def convert_tensor(
+            name: str,
+            param: Tensor,
+            flatten_tensor_list: List[Tensor],
+            metadatas:  List[FlattenedTensorMetadata],
+            buffer_offset=0,
+            is_experts=False,
+            num_block=1,
+            ):
+            """
+            convert a param tensor(single or group mlp) to flatten_tensor_list
+            which is used in sglang update_weights_from_tensor api
+            """
+            assert (
+                param.shape[0] % num_block == 0
+            ), "param can't be chunked by num_block in dim 0"
+            interval = param.numel() // num_block
+            shape = torch.Size((param.shape[0] // num_block,) + param.shape[1:])
+
+            for i in range(num_block):
+                start_idx = buffer_offset
+                end_idx = buffer_offset + interval
+                buffer_offset = end_idx
+                local_name = name.replace("group_mlp", f"experts.{i}") if is_experts else name
+                metadata = FlattenedTensorMetadata(
+                    name=local_name,
+                    shape=shape,
+                    dtype=param.dtype,
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    numel=interval,
+                )
+                metadatas.append(metadata)
+            flattened_param = param.contiguous().view(-1)
+            flatten_tensor_list.append(flattened_param)
+            return flatten_tensor_list, metadatas, buffer_offset
+
+        buffer_offset = 0
+        for name, param in block_parameter.items():
+            param = (
+                param.full_tensor().detach()
+                if isinstance(param, DTensor)
+                else param.detach()
+            )
+            if self.module_args.groupgemm and "group_mlp" in name:
+                num_experts = self.model_config.num_experts
+                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
+                    name=name,
+                    param=param,
+                    flatten_tensor_list=flatten_tensor_list,
+                    metadatas=metadatas,
+                    buffer_offset=buffer_offset,
+                    is_experts=True,
+                    num_block=num_experts,
+                )
+            else:
+                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
+                    name, param, flatten_tensor_list, metadatas, buffer_offset
+                )
+        flattened_tensor = torch.cat(flatten_tensor_list)
+        return flattened_tensor, metadatas
+
     def get_weight_ipc_handles_by_name(self, block_name: List[str]):
         """
         get fsdp warpped module weight by name get from named_parameters
         avoid get total model state_dict
         """
+        if self.module_args.use_expandable_segments:
+            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
+        # get matched param full tensor
+        block_parameter = {}
+        reduce_tensor_dict = {}  # used for vllm
+        for name, param in self.model.named_parameters():
+            if name in block_name:
+                block_parameter[name] = (
+                    param.full_tensor().detach()
+                    if isinstance(param, DTensor)
+                    else param.detach()
+                )
+
         rollout_engine = self._runtime_args.rollout_backend
         if rollout_engine == "sglang":
             # lazy import sglang
             from sglang.srt.utils import MultiprocessingSerializer
             from sglang.srt.patch_torch import monkey_patch_torch_reductions
+
             monkey_patch_torch_reductions()
-        if self.module_args.use_expandable_segments:
-            torch.cuda.memory._set_allocator_settings("expandable_segments:False")
-        reduce_tensor_dict = {}
-        serialize_func = reduce_tensor if rollout_engine=='vllm' else MultiprocessingSerializer.serialize
-        for name, param in self.model.named_parameters():
-            if name in block_name:
-                reduce_tensor_dict[name] = serialize_func(param.full_tensor().detach() \
-                                        if isinstance(param, DTensor) else param.detach())
+            flattened_tensor, metadatas = self.convert_block2flattened_bucket(
+                block_parameter
+            )
+            bucket_dict = {"flattened_tensor": flattened_tensor, "metadata": metadatas}
+            serialized_bucket = MultiprocessingSerializer.serialize(
+                bucket_dict, output_str=True
+            )
+            return serialized_bucket
+        elif rollout_engine == "vllm":
+            for name, param in block_parameter.items():
+                reduce_tensor_dict[name] = reduce_tensor(param)
+
         if self.module_args.use_expandable_segments:
             torch.cuda.memory._set_allocator_settings("expandable_segments:True")
         return reduce_tensor_dict
-
-    def update_weights_from_buckets(self, buckets):
-        pass
 
     @torch.no_grad()
     def onload_weights(self, empty_cache=True):
         device_id = torch.cuda.current_device()
         self.model.to(torch.device(f"cuda:{device_id}"))
-        if empty_cache:
-            gc.collect()
-            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def offload_weights(self, empty_cache=True):
         self.model.cpu()
         torch.cuda.ipc_collect()
-        if empty_cache:
-            gc.collect()
-            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def offload_optimizer_states(self, empty_cache=True):
@@ -392,8 +478,6 @@ class FSDPModule(TorchModule):
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to("cpu", non_blocking=True)
         torch.cuda.synchronize()
-        if empty_cache:
-            torch.cuda.empty_cache()
 
     @torch.no_grad()
     def onload_optimizer_states(self, empty_cache=True):
@@ -406,9 +490,6 @@ class FSDPModule(TorchModule):
                 for key, value in state.items():
                     if isinstance(value, torch.Tensor):
                         state[key] = value.to(torch.device(f"cuda:{device_id}"), non_blocking=True)
-
-        if empty_cache:
-            torch.cuda.empty_cache()
 
     @timeit()
     def save_checkpoint(self, iteration):

@@ -1,4 +1,5 @@
 """Configs for runtime"""
+import os
 from dataclasses import dataclass, field
 from typing import Optional, List
 from omegaconf import MISSING
@@ -54,9 +55,14 @@ class RuntimeConfig(BaseConfig):
         metadata={"help": "which train backend to use, one of megatron or fsdp"},
     )
     rollout_backend: str = field(
-        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"}
+        default="vllm", metadata={"help": "rollout backend type, one of vllm or sglang"})
+    task_type: str = field(
+        default="chat", metadata={"help": "RL task type, one of chat or agent"}
     )
-    partial_rollout: bool = field(
+    use_rollout_manager: bool = field(
+        default=False, metadata={"help": "whether to use rollout manager"}
+    )
+    use_partial_rollout: bool = field(
         default=False, metadata={"help": "whether to use partial rollout"}
     )
     exp_name: str = field(
@@ -126,6 +132,10 @@ class RuntimeConfig(BaseConfig):
     )
 
     # config for data
+    raw_chat: bool = field(
+        default=False,
+        metadata={"help": "whether return raw chat messages or prompt ids"},
+    )
     data_ratio: List[int] = field(
         default_factory=list,
         metadata={"help": "the ratio for each kind of data_path in a training episode"},

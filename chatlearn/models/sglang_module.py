@@ -1,4 +1,4 @@
-# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel
+# pylint: disable=invalid-overridden-method,abstract-method,arguments-differ,import-outside-toplevel,unused-argument
 # Copyright 2025 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -21,16 +21,18 @@ import os
 import traceback
 import warnings
 from unittest.mock import MagicMock
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Any
 from collections import defaultdict
 
 import ray
+from ray import ObjectRef
+import numpy as np
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
 
-from chatlearn.runtime.decorator import timeit
+from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.utils.utils import get_full_proc_memory_info
 from chatlearn.utils.mappings import ShardedTensorInfo
 from chatlearn.utils.mappings.huggingface_helpers import build_sharded_info_for_huggingface_model
@@ -43,12 +45,11 @@ if TYPE_CHECKING:
 try:
     import sglang
     from sglang.srt.entrypoints.engine import Engine
-    from sglang.srt.managers.tokenizer_manager import (
+    from sglang.srt.managers.io_struct import (
         ReleaseMemoryOccupationReqInput,
         ResumeMemoryOccupationReqInput,
         UpdateWeightsFromTensorReqInput,
     )
-    from sglang.srt.model_executor.model_runner import LocalSerializedTensor
     from sglang.srt.utils import (
         MultiprocessingSerializer,
         assert_pkg_version,
@@ -117,6 +118,28 @@ except Exception:
     Engine = MagicMock()
 
 
+def metric_collect(rets, max_response_tokens_length):
+    # collect metric
+    response_token_length = [ret["response_token_length"] for ret in rets]
+    prompt_token_length = [ret["prompt_token_length"] for ret in rets]
+    clip_ratio = sum(
+        ret["response_token_length"] >= ret.get("max_generate_token_length", max_response_tokens_length) \
+            for ret in rets
+    ) / len(rets)
+    response_token_length.sort()
+    inference_stats = {
+        "response_token_length": sum(response_token_length)
+        / len(response_token_length),
+        "prompt_token_length": sum(prompt_token_length) / len(prompt_token_length),
+        "response_clip_ratio": clip_ratio,
+        "response_max": max(response_token_length),
+        "response_25_percentile": np.percentile(response_token_length, 25),
+        "response_50_percentile": np.percentile(response_token_length, 50),
+        "response_75_percentile": np.percentile(response_token_length, 75),
+    }
+    return inference_stats
+
+
 # modified from https://github.com/volcengine/verl/blob/main/verl/workers/rollout/sglang_rollout/sglang_rollout.py#L128
 class AsyncEngine(Engine):
     """
@@ -149,14 +172,19 @@ class AsyncEngine(Engine):
     ):
         """Update weights from distributed source. If there are going to be more updates, set `flush_cache` to be false
         to avoid duplicated cache cleaning operation."""
-        obj = UpdateWeightsFromTensorReqInput(
-            serialized_named_tensors=[
+        if load_format == "flattened_bucket":
+            serialized_named_tensors = named_tensors
+        else:
+            serialized_named_tensors = [
                 MultiprocessingSerializer.serialize(named_tensors)
                 for _ in range(self.server_args.tp_size)
-            ],
+            ]
+        obj = UpdateWeightsFromTensorReqInput(
+            serialized_named_tensors=serialized_named_tensors,
             load_format=load_format,
             flush_cache=flush_cache,
         )
+
         return await self.tokenizer_manager.update_weights_from_tensor(obj, None)
 
     async def flush_cache(self):
@@ -219,14 +247,12 @@ class SGLangModule(TorchModule):
         )
         dist.barrier(group=self.cpu_mesh.get_group())
 
-    def setup(self):
-        super().setup()
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.module_args["load"], trust_remote_code=self.module_args.trust_remote_code
-        )
-
     @timeit()
     def setup_engine(self):
+
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.module_args.load, trust_remote_code=self.module_args.trust_remote_code
+        )
 
         if self.llm is not None:  # for evaluator not setup twice
             dist.barrier()
@@ -335,9 +361,6 @@ class SGLangModule(TorchModule):
             "min_p": min_p,
             "ignore_eos": self.module_args.get("ignore_eos", False),
             "stop": stop,
-            # "logprobs": self.module_args.get("logprobs", 1), # not found
-            # "detokenize": self.module_args.get("detokenize", False),
-            # "prompt_logprobs": self.module_args.get("prompt_logprobs", None),
             "skip_special_tokens": self.module_args.get("skip_special_tokens", True),
         }
 
@@ -347,14 +370,17 @@ class SGLangModule(TorchModule):
         """
         generate sampling parameter query-wise
         """
-        seq_len = self.module_args.seq_length
+        max_response_tokens_length = self.module_args.max_response_tokens_length
 
         prompts_token_ids = [q["input_ids"] for q in query]
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
 
         for q in query:
-            max_tokens = q.get("max_generate_token_length", seq_len)
+            # When partial_rollout is enabled, max_generate_token_length will be set by RolloutManager
+            # for different rollotu rounds.
+            # When partial_rollout is disabled, max_response_tokens_length from config will be used
+            max_tokens = q.get("max_generate_token_length", max_response_tokens_length)
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item["max_new_tokens"] = max_tokens
             sampling_params.append(sampling_param_item)
@@ -362,7 +388,7 @@ class SGLangModule(TorchModule):
 
     def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
         outputs = None
-        if self.is_engine:
+        if self.is_engine():
             prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
             outputs = self.llm.generate(
                 input_ids=prompts_token_ids, sampling_params=sampling_params
@@ -370,53 +396,25 @@ class SGLangModule(TorchModule):
         self.flush_cache()
         return outputs
 
-    def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
-        if load_format == "flattened_bucket":
-            gathered_data = None
-            if self.is_engine:
-                gathered_data = [None] * self._tp_size
-            dist.gather_object(
-                obj=reduce_data,
-                object_gather_list=gathered_data,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
+    def update_weights_from_ipc_handles(self, reduce_data):
+        gathered_data = None
+        if self.is_engine():
+            gathered_data = [None] * self._tp_size
+        dist.gather_object(
+            obj=reduce_data,
+            object_gather_list=gathered_data,
+            dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+            group=self.cpu_mesh["tp"].get_group(),
+        )
+        if self.is_engine():
+            self.llm.update_weights_from_tensor(
+                named_tensors=gathered_data,
+                load_format="flattened_bucket",
             )
-            if self.is_engine:
-                self.llm.update_weights_from_tensor(
-                    named_tensors=gathered_data,
-                    load_format=load_format,
-                )
-            torch.cuda.synchronize()
-            return
-
-        for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-            if self.is_engine:
-                gathered_serialized_tensors = [None] * self._tp_size
-            else:
-                gathered_serialized_tensors = None
-
-            dist.gather_object(
-                obj=serialized_tensor,
-                object_gather_list=gathered_serialized_tensors,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
-            )
-
-            if self.is_engine:
-                self.llm.update_weights_from_tensor(
-                    named_tensors=[
-                        (
-                            name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
-                        )
-                    ],
-                    # load_format=load_format,
-                    flush_cache=index == len(reduce_data) - 1,
-                )
         torch.cuda.synchronize()
 
     def flush_cache(self):
-        if self.is_engine:
+        if self.is_engine():
             self.llm.flush_cache()
         torch.cuda.synchronize()
 
@@ -454,7 +452,7 @@ class SGLangModule(TorchModule):
     @timeit()
     def offload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
-        if self.is_engine:
+        if self.is_engine():
             # avoid offload offloaded param
             tags = self.preprocess_tags(tags, stage="offload")
             if not tags:
@@ -475,7 +473,7 @@ class SGLangModule(TorchModule):
         if self.need_offload:
             self.offload()
             self.need_offload = False
-        if self.is_engine:
+        if self.is_engine():
             # avoid onload onloaded param
             tags = self.preprocess_tags(tags, stage="onload")
             if not tags:
@@ -490,7 +488,6 @@ class SGLangModule(TorchModule):
             self.postprocess_tags(tags, stage="onload")
         torch.cuda.synchronize()
 
-    @property
     def is_engine(self):
         return self.llm and self.llm.tokenizer_manager is not None
 
@@ -541,6 +538,190 @@ class SGLangModule(TorchModule):
 
     @torch.no_grad()
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
+        """Used for Mcore2SGLang Parameter Sync
+        """
+        from sglang.srt.patch_torch import monkey_patch_torch_reductions
+        monkey_patch_torch_reductions()
+        param_id_to_update = set()
+        for bucket in buckets:
+            if bucket is None:
+                continue
+            if bucket.buffer is None:
+                raise ValueError("Attempt to read from a bucket without buffer")
+            param_id_to_update.update({sharded_tensor_info.param_id for _, sharded_tensor_info in bucket.recv_layout})
+
+        param_id_to_bucket = defaultdict(list)
+        for bucket_idx, bucket in enumerate(buckets):
+            if bucket is None:
+                continue
+            for shard_idx, (offset, sharded_tensor_info) in enumerate(bucket.recv_layout):
+                param_id_to_bucket[sharded_tensor_info.param_id].append((bucket_idx, shard_idx))
+
+        # 1-dim concated flattened tensor
+        buffer = None
+        buffer_offset = 0
+        buffer_size = 4 * 1024 ** 3
+        # metadata: name, shape, dtype, start_idx, end_idx, numel for every tensor item in buffer
+        metadatas: List[FlattenedTensorMetadata] = []
+        for param_id in param_id_to_update:
+            param_name = self.param_id_to_local_name[param_id]
+            shard_info = self.param_id_to_metadata[param_id]
+            if buffer is None:
+                buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
+                buffer_offset = 0
+                metadatas = []
+            elif buffer.dtype != shard_info.dtype or buffer_offset + shard_info.numel() > buffer_size:
+                bucket_dict = {"flattened_tensor": buffer[:buffer_offset], "metadata": metadatas}
+                serialized_bucket = MultiprocessingSerializer.serialize(
+                    bucket_dict, output_str=True
+                )
+                self.update_weights_from_ipc_handles(serialized_bucket)
+                buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
+                buffer_offset = 0
+                metadatas = []
+
+            weight = buffer[buffer_offset: buffer_offset + shard_info.numel()].view(shard_info.global_shape)
+            metadatas.append(FlattenedTensorMetadata(
+                name=param_name,
+                shape=weight.shape,
+                dtype=weight.dtype,
+                start_idx=buffer_offset,
+                end_idx=buffer_offset + shard_info.numel(),
+                numel=shard_info.numel(),
+            ))
+            for bucket_idx, shard_idx in param_id_to_bucket[param_id]:
+                bucket = buckets[bucket_idx]
+                offset, sharded_tensor_info = bucket.recv_layout[shard_idx]
+                byte_data = bucket.buffer[offset: offset + sharded_tensor_info.size]
+                shard = sharded_tensor_info.index(weight)
+                comm_dtype = sharded_tensor_info.dtype
+                # NOTE: if shard.dtype != comm_dtype, an implicit datatype conversion will happen
+                shard.copy_(byte_data.view(comm_dtype).view(shard.shape))
+
+            buffer_offset += shard_info.numel()
+
+        if buffer_offset > 0:
+            bucket_dict = {"flattened_tensor": buffer[:buffer_offset], "metadata": metadatas}
+            serialized_bucket = MultiprocessingSerializer.serialize(
+                bucket_dict, output_str=True
+            )
+            self.update_weights_from_ipc_handles(serialized_bucket)
+
+        del buffer, weight, shard, bucket_dict
+        torch.cuda.synchronize()
+        torch.cuda.ipc_collect()
+        torch.cuda.empty_cache()
+
+    def postprocess_func(
+        self,
+        batched_outputs: List[Dict[str, Any]],
+        input_data_list: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        if isinstance(batched_outputs[0], ObjectRef):
+            batched_outputs = ray.get(batched_outputs)
+        data_output = []
+        for output, input_data in zip(batched_outputs, input_data_list):
+            prompt_token_ids = input_data["input_ids"]
+            output_tokens = output["output_ids"]
+            response_token_length = output["meta_info"]["completion_tokens"]
+            str_outputs = self.tokenizer.decode(output_tokens, skip_special_tokens=True)
+            all_tokens = torch.tensor(prompt_token_ids + output_tokens)
+            input_data.update(
+                {
+                    "all_tokens": all_tokens,
+                    "response_token_length": response_token_length,
+                    "str_outputs": str_outputs,
+                    "all_token_length": len(prompt_token_ids) + len(output_tokens)
+                }
+            )
+            if "rollout_round" in input_data:
+                input_data["rollout_round"] += 1
+            data_output.append(input_data)
+
+        print("str_outputs", data_output[0]["str_outputs"])
+        print("data_sources", data_output[0]["data_source"])
+        print("ground_truth", data_output[0]["ground_truth"])
+        return data_output
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    def eval_forward(self, data, iteration=0, **kwargs):
+        return self._forward_step(data, iteration, True)
+
+    def _forward_step(
+        self, data, iteration, is_eval
+    ):
+        outputs = self.generate(data, is_eval)
+
+        if outputs is not None:
+            rets = self.postprocess_func(outputs, data)
+            return rets
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    def forward_step(
+        self, data: List[Dict[str, Any]], iteration=0, **kwargs
+    ) -> List[Dict[str, Any]]:
+
+        rets = self._forward_step(data, iteration, False)
+        # collect metric
+        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
+        return rets
+
+
+class AsyncSGLangModule(SGLangModule):
+    """AsyncSGLangModule"""
+
+    def __init__(self, name: str, args=None, replica_id: int = 0):
+        """The chatlearn wrapper for a async sglang model."""
+        super().__init__(name, args=args, replica_id=replica_id)
+
+    async def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
+        outputs = None
+        if self.is_engine():
+            prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
+            outputs = await self.llm.async_generate(
+                prompt=None,
+                sampling_params=sampling_params,
+                return_logprob=False, # sglang has memory leaky problem while return_logprob=True
+                input_ids=prompts_token_ids,
+            )
+        return outputs
+
+    async def generate_per_request(self, query: Dict, is_eval: bool) -> Dict:
+        outputs = None
+        if self.is_engine():
+            prompts_token_ids = query['input_ids']
+            sampling_param = self._get_sampling_params(is_eval)
+            sampling_param["max_new_tokens"] = self.module_args.max_response_tokens_length
+            outputs = await self.llm.async_generate(
+                prompt=None,
+                sampling_params=sampling_param,
+                return_logprob=False,
+                input_ids=prompts_token_ids,
+            )
+        return outputs
+
+    async def update_weights_from_ipc_handles(self, reduce_data):
+
+        gathered_data = None
+        if self.is_engine():
+            gathered_data = [None] * self._tp_size
+        dist.gather_object(
+            obj=reduce_data,
+            object_gather_list=gathered_data,
+            dst=self.cpu_mesh["tp"].mesh.tolist()[0],
+            group=self.cpu_mesh["tp"].get_group(),
+        )
+        if self.is_engine():
+            await self.llm.update_weights_from_tensor(
+                named_tensors=gathered_data,
+                load_format="flattened_bucket",
+            )
+        torch.cuda.synchronize()
+
+    @torch.no_grad()
+    async def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
         from sglang.srt.patch_torch import monkey_patch_torch_reductions
         monkey_patch_torch_reductions()
         param_id_to_update = set()
@@ -574,7 +755,7 @@ class SGLangModule(TorchModule):
                 serialized_bucket = MultiprocessingSerializer.serialize(
                     bucket_dict, output_str=True
                 )
-                self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+                await self.update_weights_from_ipc_handles(serialized_bucket)
                 buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
                 buffer_offset = 0
                 metadatas = []
@@ -604,65 +785,15 @@ class SGLangModule(TorchModule):
             serialized_bucket = MultiprocessingSerializer.serialize(
                 bucket_dict, output_str=True
             )
-            self.update_weights_from_ipc_handles(serialized_bucket, load_format="flattened_bucket")
+            await self.update_weights_from_ipc_handles(serialized_bucket)
 
         del buffer, weight, shard, bucket_dict
         torch.cuda.synchronize()
         torch.cuda.ipc_collect()
         torch.cuda.empty_cache()
 
-
-class AsyncSGLangModule(SGLangModule):
-    """AsyncSGLangModule"""
-
-    def __init__(self, name: str, args=None, replica_id: int = 0):
-        """The chatlearn wrapper for a async sglang model."""
-        super().__init__(name, args=args, replica_id=replica_id)
-
-    async def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
-        outputs = None
-        if self.is_engine:
-            prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
-            outputs = await self.llm.async_generate(
-                prompt=None,  # because we have already convert it to prompt token id
-                sampling_params=sampling_params,
-                return_logprob=True,
-                input_ids=prompts_token_ids,
-            )
-        await self.flush_cache()
-        return outputs
-
-    async def update_weights_from_ipc_handles(self, reduce_data, load_format=None):
-
-        # pylint: disable-next=import-outside-toplevel
-        for index, (name, serialized_tensor) in enumerate(reduce_data.items()):
-            if self.is_engine:
-                gathered_serialized_tensors = [None] * self._tp_size
-            else:
-                gathered_serialized_tensors = None
-
-            dist.gather_object(
-                obj=serialized_tensor,
-                object_gather_list=gathered_serialized_tensors,
-                dst=self.cpu_mesh["tp"].mesh.tolist()[0],
-                group=self.cpu_mesh["tp"].get_group(),
-            )
-
-            if self.is_engine:
-                await self.llm.update_weights_from_tensor(
-                    named_tensors=[
-                        (
-                            name,
-                            LocalSerializedTensor(values=gathered_serialized_tensors),
-                        )
-                    ],
-                    # load_format=load_format,
-                    flush_cache=index == len(reduce_data) - 1,
-                )
-        torch.cuda.synchronize()
-
     async def flush_cache(self):
-        if self.is_engine:
+        if self.is_engine():
             await self.llm.flush_cache()
         torch.cuda.synchronize()
 
@@ -670,7 +801,7 @@ class AsyncSGLangModule(SGLangModule):
     async def offload(self, tags: Optional[List[str]] = None):
         # Currently we only support `weights` and `kv_cache`
 
-        if self.is_engine:
+        if self.is_engine():
             # avoid offload offloaded param
             tags = self.preprocess_tags(tags, stage="offload")
             if not tags:
@@ -691,7 +822,7 @@ class AsyncSGLangModule(SGLangModule):
         if self.need_offload:
             await self.offload()
             self.need_offload = False
-        if self.is_engine:
+        if self.is_engine():
             # avoid onload onloaded param
             tags = self.preprocess_tags(tags, stage="onload")
             if not tags:
@@ -705,3 +836,35 @@ class AsyncSGLangModule(SGLangModule):
             )
             self.postprocess_tags(tags, stage="onload")
         torch.cuda.synchronize()
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    async def eval_forward(self, data, iteration=0, **kwargs):
+        return await self._forward_step(data, iteration, True)
+
+    async def _forward_step(
+        self, data, iteration, is_eval
+    ):  # pylint: disable=unused-argument
+        outputs = await self.generate(data, is_eval)
+
+        if outputs is not None:
+            rets = self.postprocess_func(outputs, data)
+            return rets
+
+    @compute_decorator(trainable=False, rollout=True)
+    @timeit()
+    async def forward_step(
+        self, data: List[Dict[str, Any]], iteration=0, **kwargs
+    ) -> List[Dict[str, Any]]:  # pylint: disable=unused-argument
+        rets = await self._forward_step(data, iteration, False)
+        # collect metric
+        self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
+        return rets
+
+    async def parameter_sync(self):
+        """Perform parameter synchronization on this worker."""
+        if self.synchronizer is None:
+            raise ValueError("Synchronizer is not initialized.")
+        self.param_id_to_metadata = self.get_parameter_metadata()
+        await self.synchronizer.async_parameter_sync()
+        self.param_id_to_metadata = None

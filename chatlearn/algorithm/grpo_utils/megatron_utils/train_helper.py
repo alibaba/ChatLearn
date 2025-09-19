@@ -215,10 +215,10 @@ def reduce_from_context_parallel_region(
     is_packing: bool = False,
     inputs: Dict[str, Any] = None
 ):
+    if mpu.get_context_parallel_world_size() > 1:
+        logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['seq_indices'])
 
     if is_packing:
-        if mpu.get_context_parallel_world_size() > 1:
-            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['seq_indices'])
         logprobs = pad_input(
             logprobs.permute(1, 0),
             inputs['indices'],
@@ -226,12 +226,7 @@ def reduce_from_context_parallel_region(
             inputs['ori_seq_len'],
         ).squeeze(-1)
 
-    else:
-        if mpu.get_context_parallel_world_size() > 1:
-            logprobs = _reduce_from_tensor_model_parallel_region(logprobs, inputs['all_token_position_ids'])
-
-        logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
-
+    logprobs = logprobs[:, :logprobs.shape[1] - inputs['pad_size']]
     return logprobs
 
 
@@ -323,11 +318,12 @@ def get_batch(
             "all_token_position_ids": None,
             "labels": labels_on_this_cp_rank.transpose(0, 1),
             'packed_seq_params': packed_seq_params,
-            "ori_seq_len": seqlen,
+            "ori_seq_len": seqlens_in_batch_padded.max(),
             "ori_batch_size": mbs,
             "seq_indices": seq_indices.unsqueeze(0), # [1, total_nnz_per_cp_rank]
             "indices": indices,
             "num_tokens_on_this_cp_rank": num_tokens_on_this_cp_rank,
+            'pad_size': seqlens_in_batch_padded.max() - seqlen
         }
 
     else:
@@ -387,40 +383,45 @@ def get_batch(
                 'packed_seq_params': None,
                 "ori_seq_len": None,
                 "ori_batch_size": None,
-                "seq_indices": None,
+                "seq_indices": chunked_dataset['position_ids'].clone(),
                 "indices": None,
                 "pad_size": pad_size,
                 "num_tokens_on_this_cp_rank": chunked_dataset['loss_mask'].sum(),
             }
     if 'pixel_values' in data_b.keys():
         # vl
-        input_data.update(
-            {
-                "pixel_values": data_b['pixel_values'], # [token_length, token_num]
-                "image_grid_thw": data_b['image_grid_thw'], # [batch_size, 3]
-                "rope_deltas": data_b['rope_deltas'], # [batch_size, 1]
-                "image_input_mask": tokens==get_tokenizer()._tokenizer.convert_tokens_to_ids("<|image_pad|>") # [batch_size, token_length]
-            }
-        )
+        try:
+            input_data.update(
+                {
+                    "pixel_values": data_b['pixel_values'], # [token_length, token_num]
+                    "image_grid_thw": data_b['image_grid_thw'], # [batch_size, 3]
+                    "rope_deltas": data_b['rope_deltas'], # [batch_size, 1]
+                    "image_input_mask": tokens==get_tokenizer()._tokenizer.convert_tokens_to_ids("<|image_pad|>") # [batch_size, token_length]
+                }
+            )
+            breakpoint()
+        except:
+            breakpoint()
 
     if is_training:
         ref_logprobs = data_b["ref_logprobs"].float()
         old_logprobs = data_b["old_logprobs"].float()
         advantages = data_b["advantages"]
-
-        for i, (prompt_length, response_length) in enumerate(
-            zip(prompt_token_length, response_token_length)
-        ):
-            loss_mask[i, prompt_length: prompt_length + response_length] = 1
+        if "loss_mask" in data_b:
+            loss_mask = data_b['loss_mask']
+        else:
+            loss_mask = torch.zeros_like(data_b["all_tokens"], dtype=torch.int32)
+            for i, (prompt_length, response_length) in enumerate(
+                zip(prompt_token_length, response_token_length)
+            ):
+                loss_mask[i, prompt_length: prompt_length + response_length] = 1
         loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
-        # breakpoint()
+
         input_data.update({
             "all_token_loss_mask": loss_mask,
             "advantages": advantages,
             "ref_logprobs": ref_logprobs,
-            "old_logprobs": old_logprobs,
-            "response_token_length": response_token_length,
-            "prompt_token_length": prompt_token_length
+            "old_logprobs": old_logprobs
         })
 
     for k, v in input_data.items():

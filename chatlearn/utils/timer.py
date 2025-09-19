@@ -15,9 +15,21 @@
 """Timer"""
 
 import time
+from contextlib import contextmanager
 
 import torch
 from .logger import logger
+from .constant import LOG_START
+
+@contextmanager
+def timing(operation_name: str):
+    start_time = time.time()
+    logger.info(f"{LOG_START} {operation_name} started")
+    try:
+        yield
+    finally:
+        duration = time.time() - start_time
+        logger.info(f"{LOG_START} {operation_name} completed. Duration: {duration:.8f}s")
 
 
 class _Timer:

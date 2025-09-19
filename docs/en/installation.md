@@ -14,7 +14,11 @@ dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2
 
 ### SGLang
 
-We will provide SGLang-related Docker images in the future.
+You can prepare the image by referring to [Dockerfile.torch2.8.0.sglang052](https://github.com/alibaba/ChatLearn/blob/main/docker/torch/Dockerfile.torch2.8.0.sglang052). Alternatively, you can directly pull and use the following image:
+
+```bash
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.8.0-sglang0.5.2-ubuntu24.04-cuda12.6-py312
+```
 
 ## 2. Code Preparation
 

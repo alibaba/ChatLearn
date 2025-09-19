@@ -1,0 +1,2 @@
+max_total_token_length: 32768
+max_ai_message_turn: 3

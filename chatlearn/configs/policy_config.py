@@ -20,10 +20,6 @@ class RolloutConfig(BaseConfig):
     expert_model_parallel_size: int = field(
         default=1, metadata={"help": "expert model parallel size for Rollout Engine"}
     )
-    max_new_tokens: int = field(
-        default=2048,
-        metadata={"help": "length of response"}
-    )
     temperature: float = field(
         default=1.0,
         metadata={"help": "temperature for sample train data"}
@@ -75,9 +71,6 @@ class RolloutConfig(BaseConfig):
 @dataclass
 class PolicyConfig(BaseModelConfig, RolloutConfig):
     """General Config Class for Policy/Rollout Model"""
-    num_inference_per_prompt: int = field(
-        default=32, metadata={"help": "number of response for per prompt"}
-    )
     seq_length: int = field(
         default=2048, metadata={"help": "length of prompt + response"}
     )
@@ -105,3 +98,6 @@ class PolicyConfig(BaseModelConfig, RolloutConfig):
             self.pipeline_model_parallel_size
         )
         self.replica_dp_size = 1
+        # Set seq_length and max_seq_len_to_capture as the possible maximum token length for single sample
+        self.seq_length = self.max_response_tokens_length + self.max_prompt_tokens_length
+        self.max_seq_len_to_capture = self.seq_length

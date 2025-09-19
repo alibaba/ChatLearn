@@ -51,7 +51,7 @@ bf16
 
 ```bash
 cd ${CHATLEARN_ROOT}
-bash scripts/train_mcore_vllm_qwen3_8b_grpo.sh
+bash scripts/mcore_vllm/train_mcore_vllm_qwen3_8b_grpo.sh
 ```
 
 ## 使用 Wandb 监控

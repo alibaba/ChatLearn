@@ -18,6 +18,7 @@ from collections import defaultdict
 import importlib
 import inspect
 from functools import partial
+import uuid
 
 import ray
 from ray.util.scheduling_strategies import PlacementGroupSchedulingStrategy
@@ -29,8 +30,6 @@ from chatlearn.utils.utils import parse_function_args
 vllm_exist = importlib.util.find_spec("vllm")
 if vllm_exist:
     from chatlearn.models.vllm_module import VLLMModule
-
-RAY_REMOTE = "remote"
 
 
 class DistActor:
@@ -96,7 +95,7 @@ class DistActor:
 
     def call_actor_remote_func(self, actor, func_name, *args, **kwargs):
         func = getattr(actor, func_name)
-        remote_func = getattr(func, RAY_REMOTE)
+        remote_func = getattr(func, "remote")
         res = remote_func(*args, **kwargs)
         return res
 
@@ -117,7 +116,7 @@ class DistActor:
         )
         # use max_concurrency=1 to make sure only one task execute at one time
         actor = ray.remote(num_gpus=num_gpus, num_cpus=0)(cls) \
-            .options(scheduling_strategy=scheduling_strategy) \
+            .options(scheduling_strategy=scheduling_strategy, namespace=self.name, name=f"{self.name}_replica{self.replica_id}_{uuid.uuid4().hex}") \
             .remote(self.model.name, self.model.global_args, self.replica_id, **kwargs)
         actor.set_error_signal.remote(self.error_signal)
         self.all_actors.append(actor)
@@ -252,7 +251,7 @@ class DistVLLMActor(DistTorchActor):
                 "eval_forward",
                 "forward_step",
                 "setup_engine",
-                "generate_vllm",
+                "generate",
                 "offload",
                 "onload",
                 "get_and_clear_metrics",
@@ -400,7 +399,6 @@ class DistModel:
         """
         refs = []
         for dist_actor in self.replicas:
-            # TODO: actually call basemodule.init() on all workers?
             refs.append(dist_actor.init())
         future.get(refs)
 

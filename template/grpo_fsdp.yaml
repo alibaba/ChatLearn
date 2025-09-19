@@ -2,7 +2,7 @@ runtime_args:
   # setup config
   train_backend: fsdp
   rollout_backend: vllm
-  partial_rollout: False
+  use_partial_rollout: False
   exp_name: grpo_fsdp
   colocation: [policy,policy_trainer,ref_policy]
   # path config
@@ -69,6 +69,7 @@ models:
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
     fsdp_size: ${models.policy_trainer.num_gpu}
+    ulysses_sequence_parallel_size: ${models.policy_trainer.ulysses_sequence_parallel_size}
     meta_init: ${models.policy_trainer.meta_init}
     groupgemm: ${models.policy_trainer.groupgemm}
     trainable: False
@@ -86,8 +87,8 @@ models:
     trainable: False
     load: ${models.policy_trainer.load}
     num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
-    seq_length: 2048
-    max_seq_len_to_capture: 2348
+    max_prompt_tokens_length: 1024
+    max_response_tokens_length: 2048
     temperature: 1.0
     top_p: 1.0
     eval_temperature: 0.6
@@ -102,13 +103,14 @@ models:
     num_cpu: 2
     cpu_per_process: 1
     generation_batch_size: 256
-  rollout_manager:
-    num_cpu: 64
-    cpu_per_process: 64
-    num_inference_per_prompt: ${runtime_args.num_inference_per_prompt}
+  partial_rollout_manager:
+    num_cpu: 1
+    cpu_per_process: 1
     mini_response_per_prompt: 16
-    enable_thinking: ${models.policy.enable_thinking}
     max_rollout_round: 2
-    max_gen_len: ${models.policy.seq_length}
     rollout_ratio: [0.5, 0.5]
     load: ${models.policy_trainer.load}
+  rollout_manager:
+    num_cpu: 1
+    cpu_per_process: 1
+    generation_batch_size: ${runtime_args.sample_per_episode}

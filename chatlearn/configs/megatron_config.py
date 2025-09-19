@@ -189,13 +189,14 @@ class MegatronModelArchitectureConfig(BaseConfig):
     rotary_scaling_factor: float = field(
         default=1.0, metadata={"help": "rotary_scaling_factor "}
     )
-
-    # vl
+    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
+        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
+    )
+     # vl
     patch_tokenizer_type: str = field(
         default='Qwen2VLTokenizer', metadata={"help": "patch_tokenizer_type"}
     )
-
-
+    
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'
@@ -261,9 +262,6 @@ class MegatronConfig(BaseConfig):
     )
     bf16: bool = field(default=True, metadata={"help": "Run model in bfloat16 mode."})
 
-    attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
-        default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
-    )
     variable_seq_lengths: bool = field(
         default=False, metadata={"help": "If dynamic batching is used, this option should be True"}
     )
@@ -312,6 +310,8 @@ class MegatronConfig(BaseConfig):
             self.variable_seq_lengths = self.packing
             if self.variable_seq_lengths and self.megatron_model_cfg.num_experts is None:
                 self.megatron_model_cfg.moe_token_dispatcher_type = 'alltoall'
+            # setup seqlen
+            self.seq_length = self.max_response_tokens_length + self.max_prompt_tokens_length
 
 
 @dataclass

@@ -47,8 +47,7 @@ from megatron.training.utils import (
 )
 from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
-
-from megatron_patch.tokenizer import build_tokenizer, get_tokenizer
+# from megatron_patch.tokenizer import build_tokenizer, get_tokenizer
 from megatron_patch.model.qwen2_5_vl.transformer_config import (
     Qwen2VLTransformerConfig,
     get_vision_model_config,
@@ -98,6 +97,7 @@ class MegatronPolicyTrainer(MegatronModule):
             get_args().padded_vocab_size = self.args.vocab_size
 
         if self.trainable:
+            self._metric_prefix = "megatron_policy_trainer"
             # TODO: move this hardcoded resumedir elsewhere
             resume_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}"
             if self.resume_training and os.path.exists(resume_dir):
@@ -125,6 +125,7 @@ class MegatronPolicyTrainer(MegatronModule):
             self.config.finalize_model_grads_func = finalize_model_grads
 
         else:
+            self._metric_prefix = "megatron_refernence_policy_trainer"
             if self.runtime_args.model_type == 'vlm':
                 self.model = get_model(self.model_provider_vl, wrap_with_ddp=False)
             else:

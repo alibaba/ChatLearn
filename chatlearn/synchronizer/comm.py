@@ -244,6 +244,37 @@ class GeneralCommunicator:
             self.release_ipc_resources()
 
     @torch.no_grad()
+    async def async_parameter_sync(self):
+        """Perform parameter synchronization on each actor. 
+        
+        We define all actors into 3 categories: sender, 
+        receiver and forwarder (not implemented yet):
+            Sender: actors own source parameters.
+            Receiver: actors require source parameters for updating.
+            Forwarder: In some cases, the global PG does not exist on 
+            sender/receiver, side forwarder actors are created on 
+            every GPU with a global PG for communication.
+
+        In case w/o forwarder, in the `parameter_sync`, receiver
+        will iterate through the plan in `all2all_sync_step` and fetch
+        parameter buckets from sender, then update its parameters with
+        the payloads in the buckets.
+        """
+        if self.type == SynchronizerType.FORWARD:
+            raise NotImplementedError("Forwarder is not supported yet")
+
+        if self.type != SynchronizerType.RECV:
+            return
+
+        for iter_idx in range(len(self.plan)):
+            recv_buckets = self.all2all_sync_step(iter_idx)
+            await self.model.update_weights_from_buckets(recv_buckets)
+            for bucket in recv_buckets:
+                if bucket is not None:
+                    bucket.buffer = None
+            self.release_ipc_resources()
+
+    @torch.no_grad()
     def release_ipc_resources(self):
         """Release the IPC handles in the reverse order"""
         if self.colocate_handle:

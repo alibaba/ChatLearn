@@ -73,10 +73,6 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
         training_inputs: dict = None,
     ) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
         # untransposed hidden_states or transposed logits with shape [b, s, h]
-        self.input_ids = input_ids
-        self.position_ids = position_ids
-        self.labels = labels
-
         hidden_states_or_logits = super().forward(
             input_ids=input_ids,
             position_ids=position_ids,
