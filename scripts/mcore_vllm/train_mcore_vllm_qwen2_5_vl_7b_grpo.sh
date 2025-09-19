@@ -4,7 +4,7 @@ set -x
 # Tested on 8xH20-3e with 140G VRAM
 export RAY_CGRAPH_get_timeout=200
 export CUDA_DEVICE_MAX_CONNECTIONS=1
-export RAY_DEDUP_LOGS=1
+export RAY_DEDUP_LOGS=0
 export VLLM_USE_RAY_SPMD_WORKER=1
 export VLLM_USE_RAY_COMPILED_DAG=1
 
@@ -17,10 +17,15 @@ source scripts/base_env.sh
 
 # hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B
 # mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B-to-mcore
-hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen3-8B
-mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore/
+hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen2.5-VL-7B-Instruct
+# mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen2.5-VL-7B-Instruct-to-mcore
+mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen2.5-VL-7B-Instruct-to-mcore-dist
 
-exp_name="test_qwen3_8b"
+export WANDB_BASE_URL=http://120.26.137.9:8080
+export WANDB_API_KEY=local-330098da54db392d6d188861d47e0028ec65b355
+RANDOM_STRING=$(cat /dev/urandom | tr -dc 'a-z0-9' | fold -w 6 | head -n 1)
+
+export exp_name=test_qwen2_5_vl_7b_megatron-${RANDOM_STRING}
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
@@ -31,8 +36,8 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.exp_name=${exp_name} \
         runtime_args.log_args_dict.enable_tensorboard=True \
         runtime_args.train_backend=megatron \
-        runtime_args.data_path=${CHATLEARN}/dataset/MATH-lighteval/train.json \
-        runtime_args.eval_data_path=${CHATLEARN}/dataset/MATH-lighteval/test.json \
+        runtime_args.data_path=${CHATLEARN}/dataset/geo3k/train.parquet \
+        runtime_args.eval_data_path=${CHATLEARN}/dataset/geo3k/test.parquet \
         runtime_args.output_dir=${CHATLEARN}/output/${exp_name} \
         runtime_args.num_episode=50 \
         runtime_args.sample_per_episode=2048 \
@@ -43,8 +48,9 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.log_args_dict.tensorboard_dir=${output_dir}/tensorboard \
         runtime_args.eval_episode_interval=1 \
         runtime_args.enable_eval_before_training=True \
+        runtime_args.model_type=vlm \
         models.policy_trainer.num_gpu=${num_device} \
-        models.policy_trainer.packing=True \
+        models.policy_trainer.packing=False \
         models.policy_trainer.max_token_in_packing=8192 \
         models.policy_trainer.bf16=True \
         models.policy_trainer.sequence_parallel=True \
@@ -67,4 +73,6 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         models.policy.num_inference_per_prompt=32 \
         models.policy.gpu_memory_utilization=0.75 \
         models.policy.enable_thinking=False \
+        runtime_args.log_args_dict.enable_wandb=True \
+        runtime_args.log_args_dict.wandb_project=zxy_qenvl_chatlearn \
         2>&1 | tee ${log_file} ; exit ${PIPESTATUS[0]}
