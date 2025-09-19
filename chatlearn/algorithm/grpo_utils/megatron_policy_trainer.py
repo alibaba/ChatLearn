@@ -30,7 +30,6 @@ from megatron.core.enums import ModelType
 from megatron.core.models.gpt.gpt_layer_specs import (
     get_gpt_decoder_block_spec, 
     get_gpt_layer_local_spec,
-    # get_gpt_layer_with_transformer_engine_spec, 
     get_gpt_mtp_block_spec
 )
 from megatron.core.num_microbatches_calculator import get_num_microbatches
@@ -47,7 +46,6 @@ from megatron.training.utils import (
 )
 from megatron.training.yaml_arguments import core_transformer_config_from_yaml
 
-# from megatron_patch.tokenizer import build_tokenizer, get_tokenizer
 from megatron_patch.model.qwen2_5_vl.transformer_config import (
     Qwen2VLTransformerConfig,
     get_vision_model_config,
@@ -55,7 +53,6 @@ from megatron_patch.model.qwen2_5_vl.transformer_config import (
 )
 
 from megatron_patch.model.qwen2_5_vl.layer_specs import (
-    get_gpt_layer_with_transformer_engine_spec,
     get_qwen2vl_vision_model_spec,
     get_mlp_module_spec
 
@@ -112,14 +109,12 @@ class MegatronPolicyTrainer(MegatronModule):
                         self.model_provider_vl, ModelType.encoder_or_decoder
                     )
                 )
-                # from megatron_patch.model.qwen2_vl.layer_specs import get_gpt_layer_with_transformer_engine_spec
             else:
                 self.model, self.optimizer, self.opt_param_scheduler = (
                     setup_model_and_optimizer(
                         self.model_provider, ModelType.encoder_or_decoder
                     )
                 )
-                # from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
             self.config = get_model_config(self.model[0])
             self.config.grad_scale_func = self.optimizer.scale_loss
             self.config.finalize_model_grads_func = finalize_model_grads
@@ -145,6 +140,8 @@ class MegatronPolicyTrainer(MegatronModule):
                 )
 
     def model_provider(self, pre_process=True, post_process=True) -> Union[GPTPolicyModel]:
+        from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
+
         args = get_args()
         use_te = args.transformer_impl == "transformer_engine"
 
@@ -260,8 +257,10 @@ class MegatronPolicyTrainer(MegatronModule):
     def model_provider_vl(
         self, pre_process=True, post_process=True, add_encoder=True, add_decoder=True, vp_stage: Optional[int] = None
     ) -> Union[Qwen2_5VLPolicyModel]:
+        from megatron_patch.model.qwen2_5_vl.layer_specs import get_gpt_layer_with_transformer_engine_spec
+
         args = get_args()
-        # build_tokenizer(args)
+        
         print_rank_0("start building qwen2-vl model ...")
 
         # Config of vit, llm and projector

@@ -8,7 +8,6 @@ export NCCL_DEBUG=WARN
 [ -z "$MASTER_ADDR" ] && export MASTER_ADDR=localhost
 [ -z "$WORLD_SIZE" ] && export WORLD_SIZE=1
 [ -z "$GPUS_PER_NODE" ] && export GPUS_PER_NODE=${KUBERNETES_CONTAINER_RESOURCE_GPU:-$(python -c "import torch; print(torch.cuda.device_count())")}
-# export GPUS_PER_NODE=2
 [ -z "$RANK" ] && export RANK=0
 [ -z "$MASTER_PORT" ] && export MASTER_PORT=12456
 [ -z "$NNODES" ] && export NNODES=${WORLD_SIZE:-1}

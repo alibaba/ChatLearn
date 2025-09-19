@@ -192,11 +192,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
         default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
     )
-     # vl
-    patch_tokenizer_type: str = field(
-        default='Qwen2VLTokenizer', metadata={"help": "patch_tokenizer_type"}
-    )
-    
+
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'

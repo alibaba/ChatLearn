@@ -92,7 +92,6 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
             return hidden_states_or_logits
 
         if training_inputs is None:
-            # breakpoint()
             return (
                 self.language_model.compute_language_model_loss(
                     labels,
@@ -124,7 +123,6 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
             training_inputs (Dict[str, Any]): All training inputs.
         
         """
-        # breakpoint()
         forward_logprob = (
             self.language_model.compute_language_model_loss(labels, all_token_logits) * -1
         )
@@ -170,12 +168,7 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
         kl = ref_logprobs - forward_logprob
         ratio = torch.exp(kl)
 
-        # print('ratio', ratio.shape)
-        # print('training_inputs all_token_loss_mask', training_inputs['all_token_loss_mask'].shape)
-        try:
-            ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
-        except:
-            breakpoint()
+        ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
         assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
         assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
         kld = (ratio - kl - 1).contiguous()

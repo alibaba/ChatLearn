@@ -30,6 +30,7 @@ from megatron.training.utils import unwrap_model
 from chatlearn.configs import PolicyConfig
 from chatlearn.configs.megatron_config import MegatronPolicyTrainerConfig
 from chatlearn.utils.mappings import ShardedTensorInfo
+from chatlearn.algorithm.grpo_utils.megatron_utils import  Qwen2_5VLPolicyModel
 
 from .mapping_helpers import (
     process_normal_tensor,
@@ -47,9 +48,7 @@ if TYPE_CHECKING:
     from megatron.core.transformer.mlp import MLP
     from megatron.core.transformer.multi_latent_attention import MLASelfAttention
     from megatron.core.transformer.attention import SelfAttention
-
     from chatlearn.models.megatron_module import MegatronModule
-from chatlearn.algorithm.grpo_utils.megatron_utils import  Qwen2_5VLPolicyModel
 
 
 class MegatronMapper:
@@ -129,10 +128,10 @@ class MegatronMapper:
                     mpu.set_virtual_pipeline_model_parallel_rank(None)
             if isinstance(model, Qwen2_5VLPolicyModel):
                 model.mtp_process = False
- 
+
             if model.mtp_process:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
-            
+
             if isinstance(model, Qwen2_5VLPolicyModel):
                 if model.pre_process:
                     self._update_mapping(self._map_preprocess_layer(
@@ -149,44 +148,36 @@ class MegatronMapper:
                             src_prefix=f"{vp_stage}-vision_model.decoder.layers.{layer_idx}.",
                             dst_prefix=f"visual.blocks.{global_layer_id}.",
                         ))
- 
+
                     # vision model projection
                     self._update_mapping(self._inner_map_for_full_shape(
                         f"{vp_stage}-vision_model.decoder.final_layernorm.weight",
-                        f"visual.merger.ln_q.weight"
+                        "visual.merger.ln_q.weight"
                     ))
 
                     self._update_mapping(self._inner_map_for_tensor_parallel(
                         f"{vp_stage}-vision_model.projection.encoder.linear_fc1.weight",
-                        f"visual.merger.mlp.0.weight",
+                        "visual.merger.mlp.0.weight",
                         mapping_type='column'
                     ))
 
                     self._update_mapping(self._inner_map_for_tensor_parallel(
                         f"{vp_stage}-vision_model.projection.encoder.linear_fc1.bias",
-                        f"visual.merger.mlp.0.bias",
+                        "visual.merger.mlp.0.bias",
                         mapping_type='column'
                     ))
 
                     self._update_mapping(self._inner_map_for_tensor_parallel(
                         f"{vp_stage}-vision_model.projection.encoder.linear_fc2.weight",
-                        f"visual.merger.mlp.2.weight",
+                        "visual.merger.mlp.2.weight",
                         mapping_type='row'
                     ))
 
                     # bias for row is not slice, so we need to map it to full shape
                     self._update_mapping(self._inner_map_for_full_shape(
                         f"{vp_stage}-vision_model.projection.encoder.linear_fc2.bias",
-                        f"visual.merger.mlp.2.bias"
+                        "visual.merger.mlp.2.bias"
                     ))
-
-                    # with open('/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/_src_name_to_metadata.txt', 'w') as file:
-                    #     for key in self._src_name_to_metadata.keys():
-                    #         file.write(f"{key}\n")
-
-                    # with open('/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/_dst_name_to_metadata.txt', 'w') as file:
-                    #     for key in self._dst_name_to_metadata.keys():
-                    #         file.write(f"{key}\n")
 
                 for layer_idx in range(model.language_model.decoder.num_layers_per_pipeline_rank):
                     global_layer_id = layer_offset + layer_idx
@@ -215,7 +206,7 @@ class MegatronMapper:
                             src_prefix=f"{vp_stage}-language_model.output_layer.",
                             dst_prefix="language_model.",
                         ))
-                    
+
             else:
                 # LLM
                 if model.pre_process:
@@ -317,7 +308,6 @@ class MegatronMapper:
 
         # module.self_attention
         # linear_proj
-        # breakpoint()
         self._update_mapping(self._inner_map_for_tensor_parallel(
             f"{src_prefix}self_attention.linear_proj.weight",
             f"{dst_prefix}attn.proj.weight",
@@ -350,9 +340,8 @@ class MegatronMapper:
         ))
 
         # module.mlp
-
         self._update_mapping(self._map_mlp(module.mlp, src_prefix=f"{src_prefix}mlp.", dst_prefix=f"{dst_prefix}mlp.", is_vision_block=True))
-        
+
         # mlp norm
         self._update_mapping(self._inner_map_for_full_shape(
             f"{src_prefix}mlp.linear_fc1.layer_norm_weight",

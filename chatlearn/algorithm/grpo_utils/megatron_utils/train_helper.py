@@ -37,7 +37,6 @@ from megatron.training import (
 from megatron.training.training import print_datetime
 from megatron.training.utils import (
     get_batch_on_this_cp_rank,
-    # get_ltor_masks_and_position_ids,
     report_memory,
     unwrap_model
 )
@@ -331,7 +330,6 @@ def get_batch(
         pad_token = get_tokenizer().eod
         if not args.variable_seq_lengths:
             pad_size = args.seq_length - tokens.shape[1]
-            
         else:
             divisor = mpu.get_tensor_model_parallel_world_size()
             total_nnz = tokens.shape[1]
@@ -390,19 +388,14 @@ def get_batch(
             }
     if 'pixel_values' in data_b.keys():
         # vl
-        # try:
-        if 1:
-            input_data.update(
-                {
-                    "pixel_values": data_b['pixel_values'], # [token_length, token_num]
-                    "image_grid_thw": data_b['image_grid_thw'], # [batch_size, 3]
-                    "rope_deltas": data_b['rope_deltas'], # [batch_size, 1]
-                    "image_input_mask": tokens==get_tokenizer()._tokenizer.convert_tokens_to_ids("<|image_pad|>") # [batch_size, token_length]
-                }
-            )
-        #     breakpoint()
-        # except:
-        #     breakpoint()
+        input_data.update(
+            {
+                "pixel_values": data_b['pixel_values'], # [token_length, token_num]
+                "image_grid_thw": data_b['image_grid_thw'], # [batch_size, 3]
+                "rope_deltas": data_b['rope_deltas'], # [batch_size, 1]
+                "image_input_mask": tokens==get_tokenizer()._tokenizer.convert_tokens_to_ids("<|image_pad|>") # [batch_size, token_length]
+            }
+        )
 
     if is_training:
         ref_logprobs = data_b["ref_logprobs"].float()
@@ -427,8 +420,6 @@ def get_batch(
 
     for k, v in input_data.items():
         input_data[k] = to_device("cuda", v)
-
-
     return input_data
 
 def loss_func(
@@ -467,8 +458,7 @@ def loss_func(
     num_tokens = inputs.get('num_tokens_on_this_cp_rank', loss_mask.sum().clone().detach()).to(torch.int)
     reporting_losses["num_tokens"] = num_tokens
     reporting_losses["num_samples"] = torch.ones_like(num_tokens)
-    # print(torch.distributed.get_rank(), total_loss_for_bp)
-    
+
     return total_loss_for_bp, num_tokens, reporting_losses
 
 
@@ -481,7 +471,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         is_packing=is_packing
     )
 
-    if 'pixel_values' in inputs.keys():
+    if 'pixel_values' in inputs:
         # vl
         output_tensor = model(
             input_ids=inputs["all_tokens"],
@@ -548,7 +538,6 @@ def entropy_from_tensor_parallel_logits(logits: torch.Tensor) -> torch.Tensor:
         logits: (*, vocab_size // tp_size)
     """
     return _VocabParallelEntropy.apply(logits)
-    
 
 def get_ltor_masks_and_position_ids(
     data, eod_token, reset_position_ids, reset_attention_mask, eod_mask_loss, prompt_position_ids
