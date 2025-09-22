@@ -18,22 +18,26 @@ import os
 import random
 import gc
 from typing import List, Dict
+import glob
+import math
 
 import numpy as np
 import torch
 from torch import Tensor
 import torch.distributed as dist
-from torch.distributed.tensor import DTensor
+from torch.distributed.tensor import DTensor, distribute_tensor
 from torch import optim, nn
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
-from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict, get_model_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 from torch.multiprocessing.reductions import reduce_tensor
 from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, AutoModelForImageTextToText
+from accelerate import init_on_device
+from safetensors.torch import load_file
 
 from chatlearn.utils.logger import debug_rank_0
-from chatlearn.utils.utils import dict_to_simplenamespace
+from chatlearn.utils.utils import dict_to_simplenamespace, even_slice
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from chatlearn.runtime.decorator import timeit, monitor_error
@@ -95,6 +99,91 @@ class FSDPModule(TorchModule):
         _clip_grads_with_norm_(parameters, max_norm, total_norm, foreach)
 
         return total_norm
+
+    def get_dtensor(self, model, hf_dir):
+        """
+        Accelerate loading huggingface checkpoints. 
+        Split safetensor files to difference ranks and load them into GPU.
+        Each rank owns a bucket, when tensor is on local_rank, copy into bucket.
+        When bucket is full, allreduce bucket and update sharded_sd.
+        """
+        world_size = dist.get_world_size()
+        local_rank = dist.get_rank()
+
+        # Split safetensor files to difference ranks and load them into GPU
+        safetensor_files = glob.glob(os.path.join(hf_dir, "*.safetensors"))
+        slice_index = even_slice(len(safetensor_files), world_size)
+        local_tensors = {}
+        for file_index in range(slice_index[local_rank], slice_index[local_rank + 1]):
+            local_tensors.update(load_file(safetensor_files[file_index], device="cuda"))
+
+        # Create bucket for all_reduce
+        meta_sharded_sd = model.state_dict()
+        bucket_size = 3 * 1024 ** 3
+        for _, meta_param in meta_sharded_sd.items():
+            bucket_size = max(bucket_size, math.prod(meta_param.shape))
+        bucket = torch.zeros(bucket_size, dtype=torch.bfloat16, device="cuda")
+
+        # Bucketizing synchronize params.
+        # Since all_reduce is used, bucket is zero initialized.
+        shard_sd = {}
+        buffer_offset = 0
+        param_to_sync = []
+
+        def update_sharded_sd(bucket, param_to_sync, meta_sharded_sd):
+            """
+            Create sharded_state_dict for params in bucket.
+            """
+            dist.all_reduce(bucket)
+            get_offset = 0
+            return_dict = {}
+            for param_to_update in param_to_sync:
+                # Update sharded_sd
+                meta_info = meta_sharded_sd[param_to_update]
+                num_params = math.prod(meta_info.shape)
+                return_dict[param_to_update] = distribute_tensor(
+                    bucket[get_offset:get_offset + num_params].view(meta_info.shape).clone(),
+                    meta_info.device_mesh,
+                    meta_info.placements,
+                )
+                get_offset += num_params
+            return return_dict
+
+        for param_name, meta_param in meta_sharded_sd.items():
+            if buffer_offset + math.prod(meta_param.shape) > bucket_size:
+                shard_sd.update(update_sharded_sd(bucket, param_to_sync, meta_sharded_sd))
+                param_to_sync = []
+                buffer_offset = 0
+                bucket.fill_(0.0)
+            # TODO: now weight is forced to bfloat16, try to fix mix-precision hf ckpt
+            if "group_mlp" in param_name:
+                # If groupgemm is enabled, weights of each expert will be load one by one
+                # Before all_reduce:
+                # rank0: [expert0, 0, expert2]; rank1: [0, expert1, 0]
+                # After all_reduce:
+                # rank0: [expert0, expert1, expert2]; rank1: [expert0, expert1, expert2]
+                num_experts = model.config.num_experts
+                local_offset = buffer_offset
+                num_param_per_expert = math.prod(meta_param.shape) // num_experts
+                for i in range(num_experts):
+                    local_name = param_name.replace('group_mlp', f"experts.{i}")
+                    if local_name in local_tensors:
+                        local_tensor = local_tensors.pop(local_name)
+                        bucket[local_offset: local_offset + num_param_per_expert].copy_(local_tensor.to(torch.bfloat16).view(-1))
+                    local_offset += num_param_per_expert
+            else:
+                if param_name in local_tensors:
+                    local_tensor = local_tensors.pop(param_name)
+                    tensor_numel = local_tensor.numel()
+                    bucket[buffer_offset: buffer_offset + tensor_numel].copy_(local_tensor.to(torch.bfloat16).view(-1))
+            buffer_offset += math.prod(meta_param.shape)
+            param_to_sync.append(param_name)
+            dist.barrier()
+        # Synchronize last bucket
+        shard_sd.update(update_sharded_sd(bucket, param_to_sync, meta_sharded_sd))
+        dist.barrier()
+        del bucket
+        return shard_sd
 
     def create_device_mesh(self, world_size, fsdp_size):
         if not self.device_mesh:
@@ -182,7 +271,7 @@ class FSDPModule(TorchModule):
         else:
             model_config = AutoConfig.from_pretrained(model_path)
             assert "Qwen2_5_VLForConditionalGeneration" not in model_config.architectures, "VL model not support meta init"
-            with torch.device('meta'):
+            with init_on_device('meta', include_buffers=False):
                 model = AutoModelForCausalLM.from_config(
                     model_config,
                     torch_dtype=torch_dtype,
@@ -233,9 +322,8 @@ class FSDPModule(TorchModule):
         args = dict_to_simplenamespace(self.module_args)
         self.args = args
 
-        local_rank = dist.get_rank()
-        # When meta_init is enabled, we only load checkpoint on rank 0
-        meta_init = self.module_args.meta_init and local_rank != 0
+        # When meta_init is enabled, we don't load ckpt here
+        meta_init = self.module_args.meta_init
         model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
         self.model_config = model.config
         if self.module_args.groupgemm:
@@ -252,12 +340,6 @@ class FSDPModule(TorchModule):
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
-        # get state_dict to init model for meta init
-        full_state = None
-        update_bucket = None
-        if self.module_args.meta_init:
-            full_state = model.state_dict()
-
         # fsdp2 warp
         mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
         fsdp_kwargs = {
@@ -270,7 +352,7 @@ class FSDPModule(TorchModule):
         if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
             fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
         modules = []
-        for name, module in model.named_modules():
+        for module in model.modules():
             if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
                 (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
                 modules.append(module)
@@ -278,36 +360,11 @@ class FSDPModule(TorchModule):
         for module in modules:
             fully_shard(module, **fsdp_kwargs)
         fully_shard(model, **fsdp_kwargs)
+
         if self.module_args.meta_init:
-            # save buffer data
-            buffer_dict = {}
-            for name, buf in model.named_buffers():
-                buffer_dict[name] = buf
-            model.to_empty(device="cuda")
-
-            # load real state dict
-            options = StateDictOptions(full_state_dict=True, cpu_offload=False, broadcast_from_rank0=True, strict=False)
-
-            # bucket-wise sync avoid OOM while run model like qwen3-moe-235B
-            update_bucket = {}
-            bucket_size = 3 * 1024 ** 3
-            numel_cnt = 0
-            for name, param in full_state.items():
-                numel_cnt += param.numel()
-                update_bucket[name] = full_state[name]
-                if numel_cnt >= bucket_size:
-                    set_model_state_dict(model, update_bucket, options=options)
-                    update_bucket = {}
-                    numel_cnt = 0
-            set_model_state_dict(model, update_bucket, options=options)
-
-            # load buffer data because persistent maybe False
-            if dist.get_rank()==0:
-                for name, buf in model.named_buffers():
-                    buf.data.copy_(buffer_dict[name])
-            torch.cuda.synchronize()
-            for name, buf in model.named_buffers():
-                dist.broadcast(buf, src=0)
+            shard_dict = self.get_dtensor(model, args.load)
+            model.load_state_dict(shard_dict, assign=True)
+            del shard_dict
 
         self.model = model
         self.model.to(torch.float32)
@@ -326,7 +383,6 @@ class FSDPModule(TorchModule):
         # resume model weights
         if self.resume_training:
             self.load_checkpoint(self._episode_id)
-        del full_state, update_bucket
         self.offload()
 
     def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
