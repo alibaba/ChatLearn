@@ -50,7 +50,6 @@ class Qwen2_5VLPolicyModel(Qwen2_5VLModel):
             module_args (Optional[BaseModelConfig], optional): Arguments for chatlearn modules.
             Defaults to None.
         """
-        breakpoint()
         super().__init__(*args, **kwargs)
         self.module_args = module_args
         self.vision_config = kwargs['vision_transformer_config']
