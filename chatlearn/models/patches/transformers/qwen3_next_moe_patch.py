@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 import torch
 from torch import nn
 import torch.nn.functional as F
+from transformers.activations import ACT2FN
 
 from chatlearn.models.patches.transformers.layers.groupgemm import MoeGroupMLP
 
