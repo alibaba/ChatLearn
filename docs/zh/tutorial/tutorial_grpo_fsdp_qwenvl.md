@@ -19,7 +19,7 @@ git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 
 ## 数据准备
 
-以[geo3k](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-lighteval)数据集作为示例.
+以[geo3k](https://hf-mirror.com/datasets/hiyouga/geometry3k)数据集作为示例.
 ```bash
 # 下载数据集
 mkdir -p dataset

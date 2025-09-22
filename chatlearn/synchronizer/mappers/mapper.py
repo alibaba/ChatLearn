@@ -120,6 +120,123 @@ class MegatronMapper:
         """
         raise NotImplementedError()
 
+    def _map_vlm_model(self, model: nn.Module, vp_stage: int, layer_offset: int):
+        if model.pre_process:
+            self._update_mapping(self._map_preprocess_layer(
+                model.language_model.embedding,
+                src_prefix=f"{vp_stage}-language_model.embedding.",
+                dst_prefix="language_model.model.",
+            ))
+
+            self._update_mapping(self._inner_map_for_full_shape(
+                f"{vp_stage}-vision_model.patch_embed.proj.weight",
+                "visual.patch_embed.proj.weight"
+            ))
+
+            # vision model decoder
+            for layer_idx in range(model.vision_config.num_layers):
+                global_layer_id = layer_offset + layer_idx
+                self._update_mapping(self._map_vision_layer(
+                    model.vision_model.decoder.layers[layer_idx],
+                    src_prefix=f"{vp_stage}-vision_model.decoder.layers.{layer_idx}.",
+                    dst_prefix=f"visual.blocks.{global_layer_id}.",
+                    num_attention_heads=model.vision_config.num_attention_heads,
+                    num_query_groups=model.vision_config.num_query_groups
+                ))
+
+            # vision model projection
+            self._update_mapping(self._inner_map_for_full_shape(
+                f"{vp_stage}-vision_model.decoder.final_layernorm.weight",
+                "visual.merger.ln_q.weight"
+            ))
+
+            self._update_mapping(self._inner_map_for_tensor_parallel(
+                f"{vp_stage}-vision_model.projection.encoder.linear_fc1.weight",
+                "visual.merger.mlp.0.weight",
+                mapping_type='column'
+            ))
+
+            self._update_mapping(self._inner_map_for_tensor_parallel(
+                f"{vp_stage}-vision_model.projection.encoder.linear_fc1.bias",
+                "visual.merger.mlp.0.bias",
+                mapping_type='column'
+            ))
+
+            self._update_mapping(self._inner_map_for_tensor_parallel(
+                f"{vp_stage}-vision_model.projection.encoder.linear_fc2.weight",
+                "visual.merger.mlp.2.weight",
+                mapping_type='row'
+            ))
+
+            # bias for row is not slice, so we need to map it to full shape
+            self._update_mapping(self._inner_map_for_full_shape(
+                f"{vp_stage}-vision_model.projection.encoder.linear_fc2.bias",
+                "visual.merger.mlp.2.bias"
+            ))
+
+        for layer_idx in range(model.language_model.decoder.num_layers_per_pipeline_rank):
+            global_layer_id = layer_offset + layer_idx
+            self._update_mapping(self._map_decoder_layer(
+                model.language_model.decoder.layers[layer_idx],
+                src_prefix=f"{vp_stage}-language_model.decoder.layers.{layer_idx}.",
+                dst_prefix=f"language_model.model.layers.{global_layer_id}.",
+            ))
+
+        if model.post_process:
+            self._update_mapping(self._map_norm_layer(
+                model.language_model.decoder.final_layernorm,
+                src_prefix=f"{vp_stage}-language_model.decoder.final_layernorm.",
+                dst_prefix="language_model.model.norm.",
+            ))
+
+            if model.share_embeddings_and_output_weights and model.pre_process:
+                self._update_mapping(self._map_postprocess_layer(
+                    model.language_model.embedding,
+                    src_prefix=f"{vp_stage}-language_model.embedding.word_embeddings.",
+                    dst_prefix="language_model.",
+                ))
+            else:
+                self._update_mapping(self._map_postprocess_layer(
+                    model.language_model.output_layer,
+                    src_prefix=f"{vp_stage}-language_model.output_layer.",
+                    dst_prefix="language_model.",
+                ))
+
+    def _map_llm_model(self, model: nn.Module, vp_stage: int, layer_offset: int):
+        if model.pre_process:
+            self._update_mapping(self._map_preprocess_layer(
+                model.embedding,
+                src_prefix=f"{vp_stage}-embedding.",
+                dst_prefix="model.",
+            ))
+
+        for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
+            global_layer_id = layer_offset + layer_idx
+            self._update_mapping(self._map_decoder_layer(
+                model.decoder.layers[layer_idx],
+                src_prefix=f"{vp_stage}-decoder.layers.{layer_idx}.",
+                dst_prefix=f"model.layers.{global_layer_id}.",
+            ))
+
+        if model.post_process:
+            self._update_mapping(self._map_norm_layer(
+                model.decoder.final_layernorm,
+                src_prefix=f"{vp_stage}-decoder.final_layernorm.",
+                dst_prefix="model.norm.",
+            ))
+
+            if model.share_embeddings_and_output_weights and model.pre_process:
+                self._update_mapping(self._map_postprocess_layer(
+                    model.embedding,
+                    src_prefix=f"{vp_stage}-embedding.word_embeddings.",
+                    dst_prefix="",
+                ))
+            else:
+                self._update_mapping(self._map_postprocess_layer(
+                    model.output_layer,
+                    src_prefix=f"{vp_stage}-output_layer.",
+                    dst_prefix="",
+                ))
     # NOTE: the following function implements the module-wise sync mapping
     def _map_model(self):
         """Mapping the local name of src model to global name of
@@ -141,122 +258,10 @@ class MegatronMapper:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
             if self.success_import_qwen2_5_vl and isinstance(model, self.Qwen2_5VLPolicyModel):
-                if model.pre_process:
-                    self._update_mapping(self._map_preprocess_layer(
-                        model.language_model.embedding,
-                        src_prefix=f"{vp_stage}-language_model.embedding.",
-                        dst_prefix="language_model.model.",
-                    ))
-
-                    self._update_mapping(self._inner_map_for_full_shape(
-                        f"{vp_stage}-vision_model.patch_embed.proj.weight",
-                        "visual.patch_embed.proj.weight"
-                    ))
-
-                    # vision model decoder
-                    for layer_idx in range(model.vision_config.num_layers):
-                        global_layer_id = layer_offset + layer_idx
-                        self._update_mapping(self._map_vision_layer(
-                            model.vision_model.decoder.layers[layer_idx],
-                            src_prefix=f"{vp_stage}-vision_model.decoder.layers.{layer_idx}.",
-                            dst_prefix=f"visual.blocks.{global_layer_id}.",
-                            num_attention_heads=model.vision_config.num_attention_heads,
-                            num_query_groups=model.vision_config.num_query_groups
-                        ))
-
-                    # vision model projection
-                    self._update_mapping(self._inner_map_for_full_shape(
-                        f"{vp_stage}-vision_model.decoder.final_layernorm.weight",
-                        "visual.merger.ln_q.weight"
-                    ))
-
-                    self._update_mapping(self._inner_map_for_tensor_parallel(
-                        f"{vp_stage}-vision_model.projection.encoder.linear_fc1.weight",
-                        "visual.merger.mlp.0.weight",
-                        mapping_type='column'
-                    ))
-
-                    self._update_mapping(self._inner_map_for_tensor_parallel(
-                        f"{vp_stage}-vision_model.projection.encoder.linear_fc1.bias",
-                        "visual.merger.mlp.0.bias",
-                        mapping_type='column'
-                    ))
-
-                    self._update_mapping(self._inner_map_for_tensor_parallel(
-                        f"{vp_stage}-vision_model.projection.encoder.linear_fc2.weight",
-                        "visual.merger.mlp.2.weight",
-                        mapping_type='row'
-                    ))
-
-                    # bias for row is not slice, so we need to map it to full shape
-                    self._update_mapping(self._inner_map_for_full_shape(
-                        f"{vp_stage}-vision_model.projection.encoder.linear_fc2.bias",
-                        "visual.merger.mlp.2.bias"
-                    ))
-
-                for layer_idx in range(model.language_model.decoder.num_layers_per_pipeline_rank):
-                    global_layer_id = layer_offset + layer_idx
-                    self._update_mapping(self._map_decoder_layer(
-                        model.language_model.decoder.layers[layer_idx],
-                        src_prefix=f"{vp_stage}-language_model.decoder.layers.{layer_idx}.",
-                        dst_prefix=f"language_model.model.layers.{global_layer_id}.",
-                    ))
-
-                if model.post_process:
-                    self._update_mapping(self._map_norm_layer(
-                        model.language_model.decoder.final_layernorm,
-                        src_prefix=f"{vp_stage}-language_model.decoder.final_layernorm.",
-                        dst_prefix="language_model.model.norm.",
-                    ))
-
-                    if model.share_embeddings_and_output_weights and model.pre_process:
-                        self._update_mapping(self._map_postprocess_layer(
-                            model.language_model.embedding,
-                            src_prefix=f"{vp_stage}-language_model.embedding.word_embeddings.",
-                            dst_prefix="language_model.",
-                        ))
-                    else:
-                        self._update_mapping(self._map_postprocess_layer(
-                            model.language_model.output_layer,
-                            src_prefix=f"{vp_stage}-language_model.output_layer.",
-                            dst_prefix="language_model.",
-                        ))
-
+                self._map_vlm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
             else:
-                # LLM
-                if model.pre_process:
-                    self._update_mapping(self._map_preprocess_layer(
-                        model.embedding,
-                        src_prefix=f"{vp_stage}-embedding.",
-                        dst_prefix="model.",
-                    ))
-
-                for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
-                    global_layer_id = layer_offset + layer_idx
-                    self._update_mapping(self._map_decoder_layer(
-                        model.decoder.layers[layer_idx],
-                        src_prefix=f"{vp_stage}-decoder.layers.{layer_idx}.",
-                        dst_prefix=f"model.layers.{global_layer_id}.",
-                    ))
-                if model.post_process:
-                    self._update_mapping(self._map_norm_layer(
-                        model.decoder.final_layernorm,
-                        src_prefix=f"{vp_stage}-decoder.final_layernorm.",
-                        dst_prefix="model.norm.",
-                    ))
-
-                    if model.share_embeddings_and_output_weights and model.pre_process:
-                        self._update_mapping(self._map_postprocess_layer(
-                            model.embedding,
-                            src_prefix=f"{vp_stage}-embedding.word_embeddings.",
-                            dst_prefix="",
-                        ))
-                    else:
-                        self._update_mapping(self._map_postprocess_layer(
-                            model.output_layer,
-                            src_prefix=f"{vp_stage}-output_layer.",
-                            dst_prefix="",
-                        ))
+                # llm model
+                self._map_llm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
 
         mapping = self._mapping
         self._mapping = None
@@ -430,7 +435,7 @@ class MegatronMapper:
                 proj_type=dst_name
             ))
 
-            if is_vision_block:
+            if module.config.add_bias_linear:
                 self._update_mapping(self._inner_map_for_gate_up_proj(
                     f"{src_prefix}linear_fc1.bias",
                     f"{dst_prefix}{dst_name}.bias",
@@ -443,7 +448,7 @@ class MegatronMapper:
             mapping_type='row'
         ))
 
-        if is_vision_block:
+        if module.config.add_bias_linear:
             self._update_mapping(self._inner_map_for_full_shape(
                 f"{src_prefix}linear_fc2.bias",
                 f"{dst_prefix}down_proj.bias"
@@ -558,13 +563,17 @@ class MegatronMapper:
             self._update_mapping(self._inner_map_for_qkv_proj(
                 f"{src_prefix}linear_qkv.weight",
                 f"{dst_prefix}{dst_name}.weight",
-                proj_type=dst_name
+                proj_type=dst_name,
+                num_attention_heads = self._src_arch.num_attention_heads,
+                num_query_groups = self._src_arch.num_query_groups
             ))
             if self._src_arch.add_qkv_bias:
                 self._update_mapping(self._inner_map_for_qkv_proj(
                     f"{src_prefix}linear_qkv.bias",
                     f"{dst_prefix}{dst_name}.bias",
-                    proj_type=dst_name
+                    proj_type=dst_name,
+                    num_attention_heads = self._src_arch.num_attention_heads,
+                    num_query_groups = self._src_arch.num_query_groups
                 ))
 
         self._update_mapping(self._inner_map_for_tensor_parallel(
@@ -657,13 +666,7 @@ class MegatronMapper:
             mapping[src_meta] = [dst_meta]
         return mapping
 
-    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str, num_attention_heads: int=None, num_query_groups: int=None):
-        if num_attention_heads is None:
-            num_attention_heads = self._src_arch.num_attention_heads
-
-        if num_query_groups is None:
-            num_query_groups = self._src_arch.num_query_groups
-
+    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str, num_attention_heads: int, num_query_groups: int):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = defaultdict(list)

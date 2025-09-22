@@ -19,7 +19,7 @@ git clone https://github.com/alibaba/ChatLearn.git && cd ChatLearn
 ```
 
 ## Data Preparation
-We take [geo3k](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-lighteval) as exmaple.
+We take [geo3k](https://hf-mirror.com/datasets/hiyouga/geometry3k) as exmaple.
 ```bash
 # download dataset
 mkdir -p dataset

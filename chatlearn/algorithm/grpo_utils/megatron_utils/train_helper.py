@@ -386,6 +386,7 @@ def get_batch(
                 "pad_size": pad_size,
                 "num_tokens_on_this_cp_rank": chunked_dataset['loss_mask'].sum(),
             }
+
     if 'pixel_values' in data_b.keys():
         # vl
         input_data.update(
@@ -471,29 +472,27 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         is_packing=is_packing
     )
 
+    kwargs = {
+        'input_ids': inputs["all_tokens"],
+        'position_ids': inputs["all_token_position_ids"],
+        'labels': inputs["labels"],
+        'training_inputs': inputs if is_training else None,
+        'packed_seq_params': inputs['packed_seq_params'] if is_packing else None
+    }
+
     if 'pixel_values' in inputs:
-        # vl
-        output_tensor = model(
-            input_ids=inputs["all_tokens"],
-            position_ids=inputs["all_token_position_ids"],
-            attention_mask=None,
-            labels=inputs["labels"],
-            pixel_values=inputs["pixel_values"],
-            image_grid_thw=inputs["image_grid_thw"],
-            rope_deltas=inputs["rope_deltas"],
-            image_input_mask=inputs["image_input_mask"],
-            training_inputs=inputs if is_training else None,
-            packed_seq_params=inputs['packed_seq_params'] if is_packing else None
-        )
+        kwargs.update({
+            'pixel_values': inputs["pixel_values"],
+            'image_grid_thw': inputs["image_grid_thw"],
+            'image_input_mask': inputs["image_input_mask"]
+        })
     else:
-        output_tensor = model(
-            input_ids=inputs["all_tokens"],
-            position_ids=inputs["all_token_position_ids"],
-            attention_mask=inputs["all_token_attention_mask"],
-            labels=inputs["labels"],
-            training_inputs=inputs if is_training else None,
-            packed_seq_params=inputs['packed_seq_params'] if is_packing else None
-        )
+        kwargs.update({
+            'attention_mask': inputs["all_token_attention_mask"]
+        })
+
+    output_tensor = model(**kwargs)
+
 
     if is_training:
         wrapped_loss_func = partial(loss_func, inputs)
