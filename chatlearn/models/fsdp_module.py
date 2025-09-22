@@ -19,11 +19,7 @@ import random
 import gc
 from typing import List, Dict
 import glob
-import json
 import math
-
-from safetensors import safe_open
-from safetensors.torch import load_file
 
 import numpy as np
 import torch
@@ -32,12 +28,13 @@ import torch.distributed as dist
 from torch.distributed.tensor import DTensor, distribute_tensor
 from torch import optim, nn
 from torch.distributed.fsdp import MixedPrecisionPolicy, fully_shard
-from torch.distributed.checkpoint.state_dict import StateDictOptions, set_model_state_dict, get_model_state_dict
+from torch.distributed.checkpoint.state_dict import StateDictOptions, get_model_state_dict
 from torch.multiprocessing.reductions import reduce_tensor
 from torch.nn.utils.clip_grad import _clip_grads_with_norm_, _get_total_norm
 
 from transformers import AutoModelForCausalLM, AutoTokenizer, AutoConfig, AutoModelForImageTextToText
 from accelerate import init_on_device
+from safetensors.torch import load_file
 
 from chatlearn.utils.logger import debug_rank_0
 from chatlearn.utils.utils import dict_to_simplenamespace
@@ -328,7 +325,6 @@ class FSDPModule(TorchModule):
         args = dict_to_simplenamespace(self.module_args)
         self.args = args
 
-        local_rank = dist.get_rank()
         # When meta_init is enabled, we don't load ckpt here
         meta_init = self.module_args.meta_init
         model = self.create_model(args.load, torch_dtype=torch.bfloat16, meta_init=meta_init)
@@ -347,12 +343,6 @@ class FSDPModule(TorchModule):
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
-        # get state_dict to init model for meta init
-        full_state = None
-        update_bucket = None
-        if self.module_args.meta_init:
-            full_state = model.state_dict()
-
         # fsdp2 warp
         mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
         fsdp_kwargs = {
@@ -365,7 +355,7 @@ class FSDPModule(TorchModule):
         if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
             fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
         modules = []
-        for name, module in model.named_modules():
+        for _, module in model.named_modules():
             if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
                 (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
                 modules.append(module)
