@@ -37,7 +37,7 @@ from accelerate import init_on_device
 from safetensors.torch import load_file
 
 from chatlearn.utils.logger import debug_rank_0
-from chatlearn.utils.utils import dict_to_simplenamespace
+from chatlearn.utils.utils import dict_to_simplenamespace, even_slice
 from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from chatlearn.runtime.decorator import timeit, monitor_error
@@ -100,12 +100,7 @@ class FSDPModule(TorchModule):
 
         return total_norm
 
-    def split_list(self, lst, n):
-        """Split list into n roughly equal chunks."""
-        k, m = divmod(len(lst), n)
-        return [lst[i*k+min(i, m):(i+1)*k+min(i+1, m)] for i in range(n)]
-
-    def get_dtensor(self, model, hf_dir, use_groupgemm):
+    def get_dtensor(self, model, hf_dir):
         """
         Accelerate loading huggingface checkpoints. 
         Split safetensor files to difference ranks and load them into GPU.
@@ -117,11 +112,10 @@ class FSDPModule(TorchModule):
 
         # Split safetensor files to difference ranks and load them into GPU
         safetensor_files = glob.glob(os.path.join(hf_dir, "*.safetensors"))
-        safetensor_files = self.split_list(safetensor_files, world_size)
-        local_safetensor_file = safetensor_files[local_rank]
+        slice_index = even_slice(len(safetensor_files), world_size)
         local_tensors = {}
-        for file in local_safetensor_file:
-            local_tensors.update(load_file(file, device="cuda"))
+        for file_index in range(slice_index[local_rank], slice_index[local_rank + 1]):
+            local_tensors.update(load_file(safetensor_files[file_index], device="cuda"))
 
         # Create bucket for all_reduce
         meta_sharded_sd = model.state_dict()
@@ -135,25 +129,39 @@ class FSDPModule(TorchModule):
         shard_sd = {}
         buffer_offset = 0
         param_to_sync = []
+
+        def update_sharded_sd(bucket, param_to_sync, meta_sharded_sd):
+            """
+            Create sharded_state_dict for params in bucket.
+            """
+            dist.all_reduce(bucket)
+            get_offset = 0
+            return_dict = {}
+            for param_to_update in param_to_sync:
+                # Update sharded_sd
+                meta_info = meta_sharded_sd[param_to_update]
+                num_params = math.prod(meta_info.shape)
+                return_dict[param_to_update] = distribute_tensor(
+                    bucket[get_offset:get_offset + num_params].view(meta_info.shape).clone(),
+                    meta_info.device_mesh,
+                    meta_info.placements,
+                )
+                get_offset += num_params
+            return return_dict
+
         for param_name, meta_param in meta_sharded_sd.items():
             if buffer_offset + math.prod(meta_param.shape) > bucket_size:
-                dist.all_reduce(bucket)
-                get_offset = 0
-                for param_to_update in param_to_sync:
-                    # Update sharded_sd
-                    meta_info = meta_sharded_sd[param_to_update]
-                    num_params = math.prod(meta_info.shape)
-                    shard_sd[param_to_update] = distribute_tensor(
-                        bucket[get_offset:get_offset + num_params].view(meta_info.shape).clone(),
-                        meta_info.device_mesh,
-                        meta_info.placements,
-                    )
-                    get_offset += num_params
+                shard_sd.update(update_sharded_sd(bucket, param_to_sync, meta_sharded_sd))
                 param_to_sync = []
                 buffer_offset = 0
                 bucket.fill_(0.0)
+            # TODO: now weight is forced to bfloat16, try to fix mix-precision hf ckpt
             if "group_mlp" in param_name:
                 # If groupgemm is enabled, weights of each expert will be load one by one
+                # Before all_reduce:
+                # rank0: [expert0, 0, expert2]; rank1: [0, expert1, 0]
+                # After all_reduce:
+                # rank0: [expert0, expert1, expert2]; rank1: [expert0, expert1, expert2]
                 num_experts = model.config.num_experts
                 local_offset = buffer_offset
                 num_param_per_expert = math.prod(meta_param.shape) // num_experts
@@ -172,18 +180,7 @@ class FSDPModule(TorchModule):
             param_to_sync.append(param_name)
             dist.barrier()
         # Synchronize last bucket
-        dist.all_reduce(bucket)
-        get_offset = 0
-        for param_to_update in param_to_sync:
-            meta_info = meta_sharded_sd[param_to_update]
-            num_params = math.prod(meta_info.shape)
-            # Update sharded_sd
-            shard_sd[param_to_update] = distribute_tensor(
-                bucket[get_offset:get_offset + num_params].view(meta_info.shape).clone(),
-                meta_info.device_mesh,
-                meta_info.placements,
-            )
-            get_offset += num_params
+        shard_sd.update(update_sharded_sd(bucket, param_to_sync, meta_sharded_sd))
         dist.barrier()
         del bucket
         return shard_sd
@@ -355,7 +352,7 @@ class FSDPModule(TorchModule):
         if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
             fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
         modules = []
-        for _, module in model.named_modules():
+        for module in model.modules():
             if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
                 (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
                 modules.append(module)
@@ -365,7 +362,7 @@ class FSDPModule(TorchModule):
         fully_shard(model, **fsdp_kwargs)
 
         if self.module_args.meta_init:
-            shard_dict = self.get_dtensor(model, args.load, self.module_args.groupgemm)
+            shard_dict = self.get_dtensor(model, args.load)
             model.load_state_dict(shard_dict, assign=True)
             del shard_dict
 
