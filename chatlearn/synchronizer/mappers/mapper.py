@@ -142,17 +142,18 @@ class MegatronMapper:
 
                     self._update_mapping(self._inner_map_for_full_shape(
                         f"{vp_stage}-vision_model.patch_embed.proj.weight",
-                        f"visual.patch_embed.proj.weight"
+                        "visual.patch_embed.proj.weight"
                     ))
-                    
+
                     # vision model decoder
-                    for layer_idx in range(model.vision_model.fullatt_block_indexes[-1]+1):
+                    for layer_idx in range(model.vision_config.num_layers):
                         global_layer_id = layer_offset + layer_idx
                         self._update_mapping(self._map_vision_layer(
                             model.vision_model.decoder.layers[layer_idx],
                             src_prefix=f"{vp_stage}-vision_model.decoder.layers.{layer_idx}.",
                             dst_prefix=f"visual.blocks.{global_layer_id}.",
-                            num_attention_heads=model.vision_model.fullatt_block_indexes[-1]+1
+                            num_attention_heads=model.vision_config.num_attention_heads,
+                            num_query_groups=model.vision_config.num_query_groups
                         ))
 
                     # vision model projection
@@ -309,7 +310,14 @@ class MegatronMapper:
         self._update_mapping(self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer))
         return mapping
 
-    def _map_vision_layer(self, module: 'TransformerLayer', src_prefix: str='', dst_prefix: str='', num_attention_heads: int=None):
+    def _map_vision_layer(
+        self,
+        module: 'TransformerLayer',
+        src_prefix: str = '',
+        dst_prefix: str = '',
+        num_attention_heads: int = None,
+        num_query_groups: int = None
+    ):
         mapping = {}
 
         # module.self_attention
@@ -332,7 +340,7 @@ class MegatronMapper:
             f"{dst_prefix}attn.qkv.weight",
             proj_type='qkv_proj',
             num_attention_heads=num_attention_heads,
-            num_query_groups=num_attention_heads
+            num_query_groups=num_query_groups
         ))
         if self._src_arch.add_qkv_bias:
             self._update_mapping(self._inner_map_for_qkv_proj(
@@ -340,32 +348,8 @@ class MegatronMapper:
                 f"{dst_prefix}attn.qkv.bias",
                 proj_type='qkv_proj',
                 num_attention_heads=num_attention_heads,
-                num_query_groups=num_attention_heads
+                num_query_groups=num_query_groups
             ))
-
-        # with open('/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/_src_name_to_metadata.txt', 'w') as file:
-        #     for key in self._src_name_to_metadata.keys():
-        #         file.write(f"{key}\n")
-
-        # with open('/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/_dst_name_to_metadata.txt', 'w') as file:
-        #     for key in self._dst_name_to_metadata.keys():
-        #         file.write(f"{key}\n")
-
-        # self._update_mapping(self._inner_map_for_full_shape(
-        #     f"{src_prefix}patch_embed.proj.weight",
-        #     f"{dst_prefix}patch_embed.proj.weight"
-        # ))
-        # self._update_mapping(self._inner_map_for_tensor_parallel(
-        #     f"{src_prefix}self_attention.linear_qkv.weight",
-        #     f"{dst_prefix}attn.qkv.weight",
-        #     mapping_type='column'
-        # ))
-
-        # self._update_mapping(self._inner_map_for_tensor_parallel(
-        #     f"{src_prefix}self_attention.linear_qkv.bias",
-        #     f"{dst_prefix}attn.qkv.bias",
-        #     mapping_type='column'
-        # ))
 
         # linear_qkv_norm
         self._update_mapping(self._inner_map_for_full_shape(
@@ -671,7 +655,7 @@ class MegatronMapper:
 
         if num_query_groups is None:
             num_query_groups = self._src_arch.num_query_groups
-        
+
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = defaultdict(list)

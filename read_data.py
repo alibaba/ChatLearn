@@ -45,7 +45,7 @@ def compare_directories(dir1, dir2):
         print("所有同名文件内容均相同。")
 
 # 定义目录路径
-megatron_params_dir = '/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/debug_sync_parameters-mcore-1/after_sync_parameter/0'
+megatron_params_dir = '/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/debug_sync_parameters-mcore-0922/after_sync_parameter/0'
 fsdp_params_dir = '/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/debug_sync_parameters_fsdp/after_sync_parameter/0'
 
 # 执行比较

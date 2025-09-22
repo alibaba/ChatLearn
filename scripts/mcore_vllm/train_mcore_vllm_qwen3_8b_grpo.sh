@@ -10,15 +10,11 @@ export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
 export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250624
-export MEGATRON_PATCH_PATH=${CHATLEARN}/../Pai-Megatron-Patch
-export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATCH_PATH}:${MEGATRON_PATH}:${PYTHONPATH}
-
+export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATH}:${PYTHONPATH}
 source scripts/base_env.sh
 
-# hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B
-# mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B-to-mcore
-hf_ckpt_path=/mnt/data/ckpts/huggingface/Qwen3-8B
-mcore_ckpt_path=/mnt/data/ckpts/mcore/Qwen3-8B-to-mcore/
+hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B
+mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen3-8B-to-mcore
 
 exp_name="test_qwen3_8b"
 export output_dir=${CHATLEARN}/output/${exp_name}
