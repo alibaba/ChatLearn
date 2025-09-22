@@ -67,8 +67,8 @@ def adjust_bins(bins_id, bins_num):
     for i in range(len(bins_id)):
         min_seq = bins_num[i][-1] if len(bins_num[i]) > 0 else 0
         sorted_list.add((
-            sum(bins_num[i]), 
-            -min_seq, 
+            sum(bins_num[i]),
+            -min_seq,
             SortedList([(num, id_) for id_, num in zip(bins_id[i], bins_num[i])])))
     # Balance sorted_list
     stop = False
@@ -148,7 +148,7 @@ def regroup_data_packing(
     for pg in process_group_list:
         torch.distributed.all_reduce(bin_size, op=torch.distributed.ReduceOp.MAX, group=pg)
     max_bin_size = bin_size.cpu().item()
-    for i in range(max_bin_size - local_bin_size):
+    for _ in range(max_bin_size - local_bin_size):
         bins_id.append([])
         bins_seq.append([])
     bins_id, bins_seq = adjust_bins(bins_id, bins_seq)
