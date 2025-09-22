@@ -32,6 +32,8 @@ export log_dir=${output_dir}/logs
 mkdir -p $log_dir
 log_file=$log_dir/${exp_name}_rank${RANK}.log
 
+# export DEBUG_SYNC_PARAMETERS_PATH='/mnt/data/xinyi.zxy/chatlearn_dev/zxy_dev/ChatLearn/output/debug_sync_parameters-mcore-1'
+
 python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.exp_name=${exp_name} \
         runtime_args.log_args_dict.enable_tensorboard=True \
