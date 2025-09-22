@@ -388,7 +388,7 @@ class FSDPModule(TorchModule):
             self.load_checkpoint(self._episode_id)
         self.offload()
 
-    def get_fsdp_param_name(self, block_size=300_000_000) -> List[List]:
+    def get_fsdp_param_name(self, block_size=3_000_000_000) -> List[List]:
         name_list = []
         param_cnt = 0
         current_group = []
