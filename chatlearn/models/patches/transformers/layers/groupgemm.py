@@ -169,10 +169,10 @@ class MoeGroupMLP(nn.Module):
         flat_seqlen = hidden_states.shape[0]
         topk = router_weights.shape[1]
         if is_te_min_version("2.1.0"):
-            grouped_input, row_id_map = moe_permute(hidden_states, selected_experts, map_type='index')
+            grouped_input, row_id_map = moe_permute(hidden_states, selected_experts.to(torch.int32), map_type='index')
         else:
-            grouped_input, row_id_map = moe_permute(hidden_states, selected_experts)
-        probs = router_weights.T.contiguous().view(-1, 1)
+            grouped_input, row_id_map = moe_permute(hidden_states, selected_experts.to(torch.int32))
+        probs = router_weights.T.contiguous().view(-1, 1).to(torch.float32)
 
         token_per_expert = token_per_expert.tolist()
         gate_output = self.act_fn(grouped_linear(
