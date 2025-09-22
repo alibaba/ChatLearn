@@ -347,6 +347,12 @@ class FSDPModule(TorchModule):
         )
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
+        # get state_dict to init model for meta init
+        full_state = None
+        update_bucket = None
+        if self.module_args.meta_init:
+            full_state = model.state_dict()
+
         # fsdp2 warp
         mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
         fsdp_kwargs = {
