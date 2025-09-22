@@ -100,6 +100,18 @@ if IS_MEGATRON_SUPPORTED:
                             raise ValueError(f"Attempt to pass {key} to Megatron twice")
                         used_names.add(key)
                         setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
+
+            assert not (self.module_args.packing and self.runtime_args.model_type == 'vlm'), \
+                "We do not support megatron for vl training with packing. Please set packing to False or use fsdp to train vl model."
+
+            try:
+                # pylint: disable=import-outside-toplevel, unused-import
+                from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
+            except ImportError:
+                assert self.runtime_args.model_type != 'vlm', (
+                    "Failed to import Qwen2_5VLPolicyModel for 'vlm' model type. "
+                    "Please ensure MEGATRON_PATCH_PATH is set to include megatron_patch."
+                )
             set_megatron_cfg(self.module_args)
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
             args.micro_batch_size = self.runtime_args.train_micro_batch_size

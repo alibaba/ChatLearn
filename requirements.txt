@@ -17,6 +17,9 @@ latex2sympy2==1.9.0
 mathruler
 pylatexenc
 qwen_vl_utils
+
+# qwenvl megatron
+megatron-energon==4.0.0
 # install apex if you needed
 #   git clone https://github.com/NVIDIA/apex
 #   cd apex

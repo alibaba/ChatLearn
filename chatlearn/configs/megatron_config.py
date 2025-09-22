@@ -192,7 +192,15 @@ class MegatronModelArchitectureConfig(BaseConfig):
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
         default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
     )
-
+    freeze_LM: bool = field(
+        default=False, metadata={"help": "Freeze language model layers"}
+    )
+    freeze_ViT: bool = field(
+        default=False, metadata={"help": "Freeze ViT layers"}
+    )
+    freeze_VP: bool = field(
+        default=False, metadata={"help": "Freeze vision projection layers"}
+    )
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'

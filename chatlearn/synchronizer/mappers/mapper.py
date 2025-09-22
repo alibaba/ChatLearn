@@ -30,7 +30,6 @@ from megatron.training.utils import unwrap_model
 from chatlearn.configs import PolicyConfig
 from chatlearn.configs.megatron_config import MegatronPolicyTrainerConfig
 from chatlearn.utils.mappings import ShardedTensorInfo
-from chatlearn.algorithm.grpo_utils.megatron_utils import  Qwen2_5VLPolicyModel
 
 from .mapping_helpers import (
     process_normal_tensor,
@@ -82,6 +81,15 @@ class MegatronMapper:
         self._src_name_to_metadata = model.get_parameter_metadata(key_type='local_name')
         self._mapping = None
 
+        try:
+            # pylint: disable=import-outside-toplevel
+            from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
+            self.Qwen2_5VLPolicyModel = Qwen2_5VLPolicyModel
+            self.success_import_qwen2_5_vl = True
+        except ImportError:
+            self.Qwen2_5VLPolicyModel = None
+            self.success_import_qwen2_5_vl = False
+
     def generate_sync_mapping(
         self,
         dst_name_to_metadata: Dict[str, Tuple[int, torch.dtype]]
@@ -126,13 +134,13 @@ class MegatronMapper:
                 layer_offset = get_transformer_layer_offset(model.config)
                 if len(self.model) > 1:
                     mpu.set_virtual_pipeline_model_parallel_rank(None)
-            if isinstance(model, Qwen2_5VLPolicyModel):
+            if self.success_import_qwen2_5_vl and isinstance(model, self.Qwen2_5VLPolicyModel):
                 model.mtp_process = False
 
             if model.mtp_process:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
-            if isinstance(model, Qwen2_5VLPolicyModel):
+            if self.success_import_qwen2_5_vl and isinstance(model, self.Qwen2_5VLPolicyModel):
                 if model.pre_process:
                     self._update_mapping(self._map_preprocess_layer(
                         model.language_model.embedding,
