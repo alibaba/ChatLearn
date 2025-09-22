@@ -565,7 +565,7 @@ def get_ltor_masks_and_position_ids(
     if eod_mask_loss:
         loss_mask[data == eod_token] = 0.0
 
-    # Position ids.
+    # ==================== VL Model Patch ====================
     if prompt_position_ids is not None:
         # for vl model we compute position ids in data_iter
         position_ids = torch.zeros((3, micro_batch_size, seq_length), dtype=torch.long, device=data.device)
@@ -580,6 +580,7 @@ def get_ltor_masks_and_position_ids(
                 position_ids[list_idx, batch_idx, len(sublist):] = torch.arange(
                     start_value, start_value + (seq_length - len(sublist))
                 )
+    # ==================== VL Model Patch ====================
     else:
         position_ids = torch.arange(seq_length, dtype=torch.long, device=data.device)
         position_ids = position_ids.unsqueeze(0).expand_as(data)
