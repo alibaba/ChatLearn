@@ -177,6 +177,10 @@ def _prepare_metadata(prefix: str, module: nn.Module):
             global_offset=(tp_rank, 0),
             global_shape=(w * tp_size, h)
         )
+    elif isinstance(module, nn.Conv3d):
+        results['weight'] = ShardedTensorInfo.from_global_shape(
+            tuple(module.weight.shape), dtype=module.weight.dtype
+        )
     return results
 
 def build_sharded_info_for_mcore_model(

@@ -37,7 +37,7 @@ from .sharded_tensor_info import ShardedTensorInfo
 
 def _prepare_metadata(module: nn.Module):
     results = {}
-    if isinstance(module, RMSNorm):
+    if isinstance(module, (RMSNorm, nn.Conv3d)):
         results['weight'] = ShardedTensorInfo.from_global_shape(
             tuple(module.weight.shape), dtype=module.weight.dtype
         )
@@ -133,6 +133,7 @@ def _prepare_metadata(module: nn.Module):
                 axis_fragmentations=(1, 1, tp_size),
                 global_offset=(0, 0, tp_rank),
             )
+
     return results
 
 def build_sharded_info_for_vllm_model(

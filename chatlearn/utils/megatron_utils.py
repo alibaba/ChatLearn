@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """megatron_utils"""
-
+import warnings
 from megatron.core.transformer.enums import AttnBackend
 from transformers import AutoConfig
 
@@ -28,14 +28,25 @@ def update_cfg(cfg):
     cfg.models.policy_trainer.megatron_model_cfg.num_attention_heads = hf_transformer_config.num_attention_heads
     cfg.models.policy_trainer.megatron_model_cfg.ffn_hidden_size = hf_transformer_config.intermediate_size
     cfg.models.policy_trainer.megatron_model_cfg.max_position_embeddings = hf_transformer_config.max_position_embeddings
-    cfg.models.policy_trainer.megatron_model_cfg.add_qkv_bias = False
     cfg.models.policy_trainer.megatron_model_cfg.add_bias_linear = False
     cfg.models.policy_trainer.megatron_model_cfg.rotary_base = hf_transformer_config.rope_theta
     cfg.models.policy_trainer.megatron_model_cfg.norm_epsilon = hf_transformer_config.rms_norm_eps
     cfg.models.policy_trainer.megatron_model_cfg.untie_embeddings_and_output_weights = not hf_transformer_config.tie_word_embeddings
     cfg.models.policy_trainer.megatron_model_cfg.vocab_size = hf_transformer_config.vocab_size
     cfg.models.policy_trainer.megatron_model_cfg.qk_layernorm = True
-    cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
+
+    if hf_transformer_config.architectures[0] == 'Qwen2_5_VLForConditionalGeneration':
+        cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.hidden_size // hf_transformer_config.num_attention_heads
+        cfg.models.policy_trainer.megatron_model_cfg.add_qkv_bias = True
+        cfg.models.policy_trainer.megatron_model_cfg.qk_layernorm = False
+        cfg.models.policy_trainer.megatron_model_cfg.mrope_section = [16,24,24]
+        cfg.models.policy_trainer.megatron_model_cfg.position_embedding_type = 'mrope'
+        cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.flash
+        warnings.warn("Megatron attention_backend must be set to flash for vl, or we will get unexpexted error.")
+    else:
+        cfg.models.policy_trainer.megatron_model_cfg.kv_channels = hf_transformer_config.head_dim
+        cfg.models.policy_trainer.megatron_model_cfg.add_qkv_bias = False
+        cfg.models.policy_trainer.megatron_model_cfg.qk_layernorm = True
 
     if "Qwen" in hf_transformer_config.architectures[0]:
         cfg.models.policy_trainer.megatron_model_cfg.group_query_attention = True

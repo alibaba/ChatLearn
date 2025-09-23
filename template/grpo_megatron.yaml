@@ -100,6 +100,7 @@ models:
     load: ${models.policy_trainer.load}
     packing: ${models.policy_trainer.packing}
     max_token_in_packing: ${models.policy_trainer.max_token_in_packing}
+    tokenizer_type: 'HuggingFaceTokenizer'
   policy:
     free_gpu_memory:
       offload_weights: True
