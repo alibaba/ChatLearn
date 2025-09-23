@@ -35,7 +35,7 @@ def calculate_grpo_loss(
 def calculate_gspo_loss(
     log_probs: torch.Tensor,
     old_log_probs: torch.Tensor,
-    advantages: torch.Tensor,
+    advantages: List[float],
     diff_clip_ratio: float = 10,
     pos_clip_ratio: float = 1e-3,
     neg_clip_ratio: float = 1e-3,
@@ -50,6 +50,7 @@ def calculate_gspo_loss(
     logprobs_diff = torch.clamp(seq_logprobs_diff, max=diff_clip_ratio)
 
     ratio = torch.exp(logprobs_diff)
+    advantages = torch.tensor(advantages).to(logprobs_diff.device)
     advantages.unsqueeze_(-1)
 
     pg_loss = -advantages * ratio

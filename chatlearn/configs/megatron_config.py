@@ -288,6 +288,13 @@ class MegatronConfig(BaseConfig):
     )
     # NOTE: deprecate these 5 options
 
+    rerun_mode: str = field(
+        default='disabled', metadata={
+            "help": "Use re-run engine to validate results (default) or to emit stats on variability of "
+            "computations due to non-deterministic algorithms. Currently set disabled to avoid potential failure."
+        }
+    )
+
     def _validate_impl(self):
         assert self.num_gpu > 0, "Megatron-Core requires at least one GPU"
         assert self.num_gpu % self.num_replica == 0, \
@@ -391,6 +398,15 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
         metadata={
             "help": "Load model for finetuning. Do not load optimizer or rng state from checkpoint and set iteration to 0."
         },
+    )
+
+    moe_router_bias_update_rate: float = field(
+        default=0.,
+        metadata={
+            "help": "The expert bias is updated based on the number of assigned tokens to each expert"
+            "in a global batch, where the bias is increased for the experts with less assigned tokens"
+            "and decreased for the experts with more assigned tokens. Recommend to be 0 for numerical stability."
+        }
     )
 
     def _validate_impl(self):

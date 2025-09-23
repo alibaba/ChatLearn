@@ -310,10 +310,7 @@ if IS_MEGATRON_SUPPORTED:
                         raise ValueError(f"Unsupport key_type: {key_type}")
             return infos
 
-        def parameter_sync(self):
-            """Perform parameter synchronization on this worker."""
-            if self.synchronizer is None:
-                raise ValueError("Synchronizer is not initialized.")
+        def pre_parameter_sync(self):
             param_id_to_parameters = {}
             for vp_stage, model_chunk in enumerate(self.model):
                 for name, weight in (
@@ -327,7 +324,6 @@ if IS_MEGATRON_SUPPORTED:
                     param_id_to_parameters[self.local_name_to_param_id[local_name]] = weight
 
             self.param_id_to_parameters = param_id_to_parameters
-            self.synchronizer.parameter_sync()
 
         def post_parameter_sync(self):
             self.param_id_to_parameters = None

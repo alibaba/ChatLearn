@@ -34,7 +34,7 @@ python chatlearn/entrypoint.py grpo \
         models.policy_trainer.optimizer.lr=2e-6 \
         models.policy_trainer.pos_clip_ratio=0.2 \
         models.policy_trainer.neg_clip_ratio=0.2 \
-        models.ref_policy.generation_batch_size=2564 \
+        models.ref_policy.generation_batch_size=256 \
         models.policy.generation_batch_size=256 \
         models.policy.enforce_eager=False \
         models.policy.tensor_model_parallel_size=1 \
