@@ -1,6 +1,6 @@
-# End-to-End GRPO Training Tutorial with Mcore
+# End-to-End Qwen2.5-VL GRPO Training Tutorial with Mcore
 
-This document provides instructions for end-to-end training using the ChatLearn, Mcore and vLLM framework, and the qwen3 model.
+This document provides instructions for end-to-end training using the ChatLearn, Mcore and vLLM framework, and the qwen2.5-vl 7B model.
 
 ## Environment Setup
 1. Docker Image Preparation
@@ -16,35 +16,39 @@ You can use a VPC address to accelerate image pulling. The image address should 
 
 ```bash
 git clone https://github.com/alibaba/ChatLearn.git
-wget https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/Pai-Megatron-Patch.tar
+wget http://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/megatron-patch-release/0922/Pai-Megatron-Patch.tar.gz
 tar -xvf Pai-Megatron-Patch.tar
 ```
 
 ## Data & Model Preparation
-We take [MATH-lighteval](https://www.modelscope.cn/datasets/AI-ModelScope/MATH-lighteval) as exmaple.
+## Data Preparation
+We take [geo3k](https://hf-mirror.com/datasets/hiyouga/geometry3k) as exmaple.
 ```bash
-cd ChatLearn
 # download dataset
 mkdir -p dataset
-modelscope download --dataset AI-ModelScope/MATH-lighteval --local_dir dataset/MATH-lighteval
-# preprocess dataset
-python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH-lighteval --local_dir dataset/MATH-lighteval
-# download model weight
-modelscope download --model Qwen/Qwen3-8B --local_dir pretrained_models/Qwen3-8B
+export HF_ENDPOINT=https://hf-mirror.com
+
+# data process
+python chatlearn/data/data_preprocess/geo3k.py
+
+# model preparation
+modelscope download --model Qwen/Qwen2.5-VL-7B-Instruct --local_dir pretrained_models/Qwen2.5-VL-7B-Instruct
 ```
+
+
 
 ## CKPT Conversion
 
 Please check [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch) for detailed ckpt conversion
 
-Below codes show how to convert qwen3 8B model ckpt.
+Below codes show how to convert qwen2.5-vl 7B model ckpt.
 ```bash
 CHATLEARN_ROOT=$(pwd)
 cd ../Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
-bash scripts/qwen3/run_8xH20.sh \
-8B \
-${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B  \
-${CHATLEARN_ROOT}/pretrained_models/Qwen3-8B-to-mcore \
+bash scripts/qwen2_5_vl/run_8xH20.sh \
+7B \
+${CHATLEARN_ROOT}/pretrained_models/Qwen2.5-VL-7B-Instruct  \
+${CHATLEARN_ROOT}/pretrained_models//Qwen2.5-VL-7B-Instruct-to-mcore \
 false  \
 true  \
 bf16
@@ -55,11 +59,11 @@ You can run the following command to start training:
 
 ```bash
 cd ${CHATLEARN_ROOT}
-bash scripts/mcore_vllm/train_mcore_vllm_qwen3_8b_grpo.sh
+bash scripts/mcore_vllm/train_mcore_vllm_qwen2_5_vl_7b_grpo.sh
 ```
 
 ## Using Wandb
-If you want to use Wandb to log the training process, you need to modify the following configuration in [train_mcore_vllm_qwen3_8b_grpo.sh](../../../scripts/train_mcore_vllm_qwen3_8b_grpo.sh):
+If you want to use Wandb to log the training process, you need to modify the following configuration in [train_mcore_vllm_qwen2_5_vl_7b_grpo.sh](../../../scripts/mcore_vllm/train_mcore_vllm_qwen2_5_vl_7b_grpo.sh):
 
 ```bash
 export WANDB_API_KEY="Your-Wandb-api-key"

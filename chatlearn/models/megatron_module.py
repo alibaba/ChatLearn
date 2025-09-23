@@ -11,6 +11,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+
 """Megatron module"""
 import re
 from dataclasses import fields
@@ -32,7 +33,6 @@ except ImportError:
 from chatlearn.configs import BaseConfig
 
 from .torch_module import TorchModule
-
 
 if IS_MEGATRON_SUPPORTED:
     try:
@@ -100,8 +100,11 @@ if IS_MEGATRON_SUPPORTED:
                             raise ValueError(f"Attempt to pass {key} to Megatron twice")
                         used_names.add(key)
                         setattr(args, key, try_convert_to_default_type(getattr(args, key, None), value))
-            set_megatron_cfg(self.module_args)
 
+            assert not (self.module_args.packing and self.runtime_args.model_type == 'vlm'), \
+                "We do not support megatron for vl training with packing. Please set packing to False or use fsdp to train vl model."
+
+            set_megatron_cfg(self.module_args)
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
             args.micro_batch_size = self.runtime_args.train_micro_batch_size
             args.global_batch_size = self.runtime_args.train_global_batch_size

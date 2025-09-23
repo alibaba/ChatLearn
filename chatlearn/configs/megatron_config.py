@@ -57,6 +57,9 @@ class MegatronModelArchitectureConfig(BaseConfig):
     position_embedding_type: str = field(
         default="rope", metadata={"help": "Position embedding type."}
     )
+    mrope_section: str = field(
+        default=None, metadata={"help": "mrope_section when using mrope"}
+    )
     add_qkv_bias: bool = field(
         default=False, metadata={"help": "Enable bias only in the QKV linear layers"}
     )
@@ -188,6 +191,15 @@ class MegatronModelArchitectureConfig(BaseConfig):
     )
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
         default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
+    )
+    freeze_LM: bool = field(
+        default=False, metadata={"help": "Freeze language model layers"}
+    )
+    freeze_ViT: bool = field(
+        default=False, metadata={"help": "Freeze ViT layers"}
+    )
+    freeze_VP: bool = field(
+        default=False, metadata={"help": "Freeze vision projection layers"}
     )
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:

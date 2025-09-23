@@ -50,8 +50,7 @@ from chatlearn.runtime.trainer import Trainer
 
 try:
     from chatlearn.utils.megatron_utils import update_cfg
-    from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import \
-        MegatronPolicyTrainer
+    from chatlearn.algorithm.grpo_utils.megatron_policy_trainer import MegatronPolicyTrainer
     from chatlearn.configs.megatron_config import (
         MegatronPolicyTrainerConfig,
         MegatronRefPolicyConfig
