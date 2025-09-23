@@ -685,6 +685,9 @@ class BaseModule:
             for k, v in self.global_name_to_local_name.items()
         }
 
+    def pre_parameter_sync(self):
+        """Allocate resources before parameter synchronization."""
+
     def parameter_sync(self):
         """Perform parameter synchronization on this worker."""
         if self.synchronizer is None:

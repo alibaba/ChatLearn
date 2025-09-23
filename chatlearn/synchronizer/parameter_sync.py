@@ -221,6 +221,11 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
             return
         self.timers("communication").start()
         refs = (
+            self.src_model.call_func_on_all_workers('pre_parameter_sync') +
+            self.dst_model.call_func_on_all_workers('pre_parameter_sync')
+        )
+        future.wait(refs, return_output=True)
+        refs = (
             self.src_model.call_func_on_all_workers('parameter_sync') +
             self.dst_model.call_func_on_all_workers('parameter_sync')
         )

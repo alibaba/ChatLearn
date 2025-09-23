@@ -82,6 +82,7 @@ models:
     generation_batch_size: ${models.policy_trainer.generation_batch_size}
     max_prompt_tokens_length: ${models.policy.max_prompt_tokens_length}
     max_response_tokens_length: ${models.policy.max_response_tokens_length}
+    tokenizer_type: ${models.policy_trainer.tokenizer_type}
     trust_remote_code: ${models.policy_trainer.trust_remote_code}
     tokenizer_model: ${models.policy.load}
     bf16: True
