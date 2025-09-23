@@ -85,7 +85,6 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (
 
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
-
     @monitor_error()
     def setup(self):
         self.stats = {}
@@ -96,7 +95,6 @@ class MegatronPolicyTrainer(MegatronModule):
         self.iteration_for_log = 0
         if getattr(self.global_args, "padded_vocab_size", None) is None:
             get_args().padded_vocab_size = self.args.vocab_size
-
 
         if self.trainable:
             self._metric_prefix = "megatron_policy_trainer"
@@ -334,7 +332,6 @@ class MegatronPolicyTrainer(MegatronModule):
 
         return model
         
-
     @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
     @timeit()
@@ -542,7 +539,6 @@ class MegatronPolicyTrainer(MegatronModule):
         # trainable is True --> policy trainer; False --> PolicyReference
 
         # update data for each sample in list
-        
         for logprobs, data_b in zip(forward_data_store, data_list):
             attn_mask, *_ = generate_loss_mask_position_ids(data_b["all_tokens"].long(), data_b["prompt_token_length"], data_b["response_token_length"])
             logprobs_tensor_list = split_and_unpadding(-logprobs, attn_mask)

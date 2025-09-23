@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
+
 """Mapper for Megatron to vLLM"""
 from collections import defaultdict
 from typing import List, Dict, Tuple, TYPE_CHECKING, Union
@@ -49,6 +50,11 @@ if TYPE_CHECKING:
     from megatron.core.transformer.attention import SelfAttention
     from chatlearn.models.megatron_module import MegatronModule
 
+try:
+    from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
+    HAVE_MEGATRON_PATCH=True
+except ImportError:
+    HAVE_MEGATRON_PATCH=False
 
 class MegatronMapper:
     """MegatronMapper"""
@@ -80,15 +86,6 @@ class MegatronMapper:
         self._dst_tp_size = 1 if mapper_config.force_full_model else self._dst_model_config.tensor_model_parallel_size
         self._src_name_to_metadata = model.get_parameter_metadata(key_type='local_name')
         self._mapping = None
-
-        try:
-            # pylint: disable=import-outside-toplevel
-            from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
-            self.Qwen2_5VLPolicyModel = Qwen2_5VLPolicyModel
-            self.success_import_qwen2_5_vl = True
-        except ImportError:
-            self.Qwen2_5VLPolicyModel = None
-            self.success_import_qwen2_5_vl = False
 
     def generate_sync_mapping(
         self,
@@ -251,13 +248,14 @@ class MegatronMapper:
                 layer_offset = get_transformer_layer_offset(model.config)
                 if len(self.model) > 1:
                     mpu.set_virtual_pipeline_model_parallel_rank(None)
-            if self.success_import_qwen2_5_vl and isinstance(model, self.Qwen2_5VLPolicyModel):
+
+            if HAVE_MEGATRON_PATCH and isinstance(model, Qwen2_5VLPolicyModel):
                 model.mtp_process = False
 
             if model.mtp_process:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
-            if self.success_import_qwen2_5_vl and isinstance(model, self.Qwen2_5VLPolicyModel):
+            if HAVE_MEGATRON_PATCH and isinstance(model, Qwen2_5VLPolicyModel):
                 self._map_vlm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
             else:
                 # llm model
