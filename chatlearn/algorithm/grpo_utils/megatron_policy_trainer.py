@@ -18,7 +18,7 @@ import os
 from contextlib import nullcontext
 from functools import partial
 import itertools
-from typing import List, Union, Dict, Any, Sequence, Optional
+from typing import List, Dict, Any, Sequence, Optional
 from collections import defaultdict
 import numpy as np
 from copy import deepcopy
@@ -59,9 +59,11 @@ try:
 
     )
     from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
-    HAVE_MEGATRON_PATCH=True
+    HAVE_MEGATRON_PATCH = True
 except ImportError:
-    HAVE_MEGATRON_PATCH=False
+    from unittest.mock import MagicMock
+    Qwen2_5VLPolicyModel = MagicMock()
+    HAVE_MEGATRON_PATCH = False
 
 import chatlearn
 from chatlearn import MegatronModule
@@ -96,8 +98,9 @@ class MegatronPolicyTrainer(MegatronModule):
         if getattr(self.global_args, "padded_vocab_size", None) is None:
             get_args().padded_vocab_size = self.args.vocab_size
 
+        self._metric_prefix = "policy_trainer"
+
         if self.trainable:
-            self._metric_prefix = "megatron_policy_trainer"
             # TODO: move this hardcoded resumedir elsewhere
             resume_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}"
             if self.resume_training and os.path.exists(resume_dir):
@@ -124,7 +127,6 @@ class MegatronPolicyTrainer(MegatronModule):
             self.config.finalize_model_grads_func = finalize_model_grads
 
         else:
-            self._metric_prefix = "megatron_refernence_policy_trainer"
             if self.runtime_args.model_type == 'vlm':
                 assert HAVE_MEGATRON_PATCH, "megatron_patch is nessary for vl. Please set env var MEGATRON_PATCH_PATH to include megatron_patch"
                 self.model = get_model(self.model_provider_vl, wrap_with_ddp=False)
@@ -144,7 +146,7 @@ class MegatronPolicyTrainer(MegatronModule):
                     device_ids=[int(os.environ.get("LOCAL_RANK", 0))]
                 )
 
-    def model_provider(self, pre_process=True, post_process=True) -> Union[GPTPolicyModel]:
+    def model_provider(self, pre_process=True, post_process=True) -> GPTPolicyModel:
         from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
 
         args = get_args()
@@ -261,7 +263,7 @@ class MegatronPolicyTrainer(MegatronModule):
 
     def model_provider_vl(
             self, pre_process=True, post_process=True, add_encoder=True, add_decoder=True, vp_stage: Optional[int] = None
-        ) -> Union["Qwen2_5VLPolicyModel"]:
+        ) -> Qwen2_5VLPolicyModel:
         from megatron_patch.model.qwen2_5_vl.layer_specs import get_gpt_layer_with_transformer_engine_spec
 
         args = get_args()

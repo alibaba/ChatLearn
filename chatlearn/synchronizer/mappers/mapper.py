@@ -50,12 +50,6 @@ if TYPE_CHECKING:
     from megatron.core.transformer.attention import SelfAttention
     from chatlearn.models.megatron_module import MegatronModule
 
-try:
-    from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
-    HAVE_MEGATRON_PATCH=True
-except ImportError:
-    HAVE_MEGATRON_PATCH=False
-
 class MegatronMapper:
     """MegatronMapper"""
     def __init__(
@@ -249,13 +243,13 @@ class MegatronMapper:
                 if len(self.model) > 1:
                     mpu.set_virtual_pipeline_model_parallel_rank(None)
 
-            if HAVE_MEGATRON_PATCH and isinstance(model, Qwen2_5VLPolicyModel):
+            if hasattr(model, 'vision_model'):
                 model.mtp_process = False
 
             if model.mtp_process:
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
-            if HAVE_MEGATRON_PATCH and isinstance(model, Qwen2_5VLPolicyModel):
+            if hasattr(model, 'vision_model'):
                 self._map_vlm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
             else:
                 # llm model
