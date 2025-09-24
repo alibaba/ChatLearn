@@ -21,6 +21,7 @@ from typing import Optional, Dict, List, TYPE_CHECKING, Any
 import copy
 
 import torch
+import transformers
 from transformers import AutoTokenizer, AutoConfig, AutoProcessor
 
 try:
@@ -45,6 +46,7 @@ from .sglang_module import metric_collect
 if TYPE_CHECKING:
     from chatlearn.synchronizer.structs import BucketInfo
 
+TRANSFORMERS_VERSION = transformers.__version__
 
 if HAVE_VLLM:
     # pylint: disable=unexpected-keyword-arg
@@ -338,7 +340,15 @@ if HAVE_VLLM:
             for name, reduced in reduce_data.items():
                 rebuild_func, rebuild_args = reduced
                 reconstructed_tensor = rebuild_func(*rebuild_args)
-                self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
+                if TRANSFORMERS_VERSION=='4.51.3':
+                    self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
+                elif TRANSFORMERS_VERSION=='4.56.1':
+                    if 'visual' in name:
+                        self.model.load_weights([(name.replace('model.', ''), reconstructed_tensor)])
+                    else:
+                        self.model.load_weights([(name.replace('model.language_model.', 'language_model.model.'), reconstructed_tensor)])
+                else:
+                    raise ValueError(f"Unsupported transformers version: {TRANSFORMERS_VERSION}. We only support transformers==4.51.3 or 4.56.1")
 
         def update_weights_from_ipc_handles_naive(self, reduce_data):
             for name, reduced in reduce_data.items():

@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, AutoProcessor
 
 from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.utils.utils import get_full_proc_memory_info
@@ -254,6 +254,12 @@ class SGLangModule(TorchModule):
             self.module_args.load, trust_remote_code=self.module_args.trust_remote_code
         )
 
+        if self.runtime_args.model_type == 'vlm':
+            # processor is needed for qwenvl
+            self.processor = AutoProcessor.from_pretrained(self.module_args.load, trust_remote_code=self.module_args.trust_remote_code)
+        else:
+            self.processor = None
+
         if self.llm is not None:  # for evaluator not setup twice
             dist.barrier()
             return
@@ -371,8 +377,15 @@ class SGLangModule(TorchModule):
         generate sampling parameter query-wise
         """
         max_response_tokens_length = self.module_args.max_response_tokens_length
-
         prompts_token_ids = [q["input_ids"] for q in query]
+
+        if self.runtime_args.model_type == 'vlm':
+            # vlm
+            image_data = [q["multi_modal_data"]["image"] for q in query]
+        else:
+            # llm
+            image_data = None
+
         sampling_param = self._get_sampling_params(is_eval)
         sampling_params = []
 
@@ -384,14 +397,17 @@ class SGLangModule(TorchModule):
             sampling_param_item = copy.deepcopy(sampling_param)
             sampling_param_item["max_new_tokens"] = max_tokens
             sampling_params.append(sampling_param_item)
-        return prompts_token_ids, sampling_params
+
+        return prompts_token_ids, sampling_params, image_data
 
     def generate(self, query: List[Dict], is_eval: bool) -> List[Dict]:
         outputs = None
         if self.is_engine():
-            prompts_token_ids, sampling_params = self.preprocess_data(query, is_eval)
+            prompts_token_ids, sampling_params, image_data = self.preprocess_data(query, is_eval)
             outputs = self.llm.generate(
-                input_ids=prompts_token_ids, sampling_params=sampling_params
+                input_ids=prompts_token_ids,
+                sampling_params=sampling_params,
+                image_data=image_data
             )
         self.flush_cache()
         return outputs
