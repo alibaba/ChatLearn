@@ -340,15 +340,13 @@ if HAVE_VLLM:
             for name, reduced in reduce_data.items():
                 rebuild_func, rebuild_args = reduced
                 reconstructed_tensor = rebuild_func(*rebuild_args)
-                if TRANSFORMERS_VERSION=='4.51.3':
-                    self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
-                elif TRANSFORMERS_VERSION=='4.56.1':
+                if TRANSFORMERS_VERSION >= '4.52.0':
                     if 'visual' in name:
                         self.model.load_weights([(name.replace('model.', ''), reconstructed_tensor)])
                     else:
                         self.model.load_weights([(name.replace('model.language_model.', 'language_model.model.'), reconstructed_tensor)])
                 else:
-                    raise ValueError(f"Unsupported transformers version: {TRANSFORMERS_VERSION}. We only support transformers==4.51.3 or 4.56.1")
+                    self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
 
         def update_weights_from_ipc_handles_naive(self, reduce_data):
             for name, reduced in reduce_data.items():
