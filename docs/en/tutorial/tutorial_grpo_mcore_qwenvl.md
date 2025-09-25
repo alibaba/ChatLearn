@@ -35,8 +35,6 @@ python chatlearn/data/data_preprocess/geo3k.py
 modelscope download --model Qwen/Qwen2.5-VL-7B-Instruct --local_dir pretrained_models/Qwen2.5-VL-7B-Instruct
 ```
 
-
-
 ## CKPT Conversion
 
 Please check [Pai-Megatron-Patch](https://github.com/alibaba/Pai-Megatron-Patch) for detailed ckpt conversion
@@ -59,6 +57,8 @@ You can run the following command to start training:
 
 ```bash
 cd ${CHATLEARN_ROOT}
+
+# vllm
 bash scripts/mcore_vllm/train_mcore_vllm_qwen2_5_vl_7b_grpo.sh
 ```
 

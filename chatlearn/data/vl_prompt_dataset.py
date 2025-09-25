@@ -34,6 +34,8 @@ class PromptPipeline(Dataset):
     Output self.data: List[Dict])
     {
         "raw_input_ids": List, # only text input_ids for vllm inference
+        "input_ids": List, # input_ids with image pad for model forward/sglang inference
+        "prompt_token_length": int, # len(input_ids)
         "prompt": String,
         "position_ids": List[List], # [3, token_length]
         "rope_deltas": Tensor, # [1,1]
@@ -105,19 +107,24 @@ class PromptPipeline(Dataset):
             raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
             position_ids, rope_deltas = get_rope_index(
-                    self.processor,
-                    input_ids=input_ids,
-                    image_grid_thw=model_inputs.get("image_grid_thw"),
-                    video_grid_thw=model_inputs.get("video_grid_thw"),
-                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                    attention_mask=attention_mask,
+                self.processor,
+                input_ids=input_ids,
+                image_grid_thw=model_inputs.get("image_grid_thw"),
+                video_grid_thw=model_inputs.get("video_grid_thw"),
+                second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
+                attention_mask=attention_mask,
             )
 
             data_source = data_item.get("data_source", "")
             ground_truth = data_item["reward_model"]["ground_truth"]
 
+            # for vl model, raw_input_ids is only text input_ids for vllm inference
+            # input_ids is used for model forward_step and sglang inference (with image pad)
+            # sglang support both input_ids and raw_input_ids but to merge in all_tokens, input_ids is used
             processed_data = {
                 "raw_input_ids": raw_input_ids,
+                "input_ids": input_ids[0].tolist(),
+                "prompt_token_length": len(input_ids[0].tolist()),
                 "prompt": raw_prompt,
                 "position_ids": position_ids.squeeze().tolist(),
                 "rope_deltas": rope_deltas,

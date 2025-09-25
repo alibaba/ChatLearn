@@ -14,13 +14,14 @@
 # limitations under the License.
 # ==============================================================================
 """VLLM module"""
-
 import inspect
 import os
 from typing import Optional, Dict, List, TYPE_CHECKING, Any
 import copy
 
 import torch
+import transformers
+from packaging.version import Version as PkgVersion
 from transformers import AutoTokenizer, AutoConfig, AutoProcessor
 
 try:
@@ -44,7 +45,6 @@ from .sglang_module import metric_collect
 
 if TYPE_CHECKING:
     from chatlearn.synchronizer.structs import BucketInfo
-
 
 if HAVE_VLLM:
     # pylint: disable=unexpected-keyword-arg
@@ -338,7 +338,15 @@ if HAVE_VLLM:
             for name, reduced in reduce_data.items():
                 rebuild_func, rebuild_args = reduced
                 reconstructed_tensor = rebuild_func(*rebuild_args)
-                self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
+                if PkgVersion(transformers.__version__) >= PkgVersion('4.52.0'):
+                    if 'visual' in name:
+                        self.model.load_weights([(name.replace('model.', ''), reconstructed_tensor)])
+                    elif 'lm_head' in name:
+                        self.model.load_weights([(name.replace('lm_head.', 'language_model.lm_head.'), reconstructed_tensor)])
+                    else:
+                        self.model.load_weights([(name.replace('model.language_model.', 'language_model.model.'), reconstructed_tensor)])
+                else:
+                    self.model.load_weights([(name.replace('model.', 'language_model.model.'), reconstructed_tensor)])
 
         def update_weights_from_ipc_handles_naive(self, reduce_data):
             for name, reduced in reduce_data.items():
