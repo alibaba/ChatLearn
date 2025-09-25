@@ -1,3 +1,4 @@
+# pylint: disable=unspecified-encoding
 # Copyright 2024 Alibaba Group Holding Limited. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -44,7 +45,8 @@ def check_groupgemm_param(key):
     return 'group_mlp' in key
 
 arch_mapping = {
-    'Qwen3MoeForCausalLM': (check_groupgemm_param, qwen3_key_mapping)
+    'Qwen3MoeForCausalLM': (check_groupgemm_param, qwen3_key_mapping),
+    'Qwen3NextForCausalLM': (check_groupgemm_param, qwen3_key_mapping)
 }
 
 def convert_checkpoint_cpu(args_input):
@@ -63,10 +65,10 @@ def convert_checkpoint_cpu(args_input):
         else:
             other_file.append(file)
 
-    with open(os.path.join(hf_dir, "model.safetensors.index.json")) as f: # pylint: disable=unspecified-encoding
+    with open(os.path.join(hf_dir, "model.safetensors.index.json")) as f:
         safetensor_config = json.load(f)
     weight_map = safetensor_config['weight_map']
-    with open(os.path.join(hf_dir, "config.json")) as f: # pylint: disable=unspecified-encoding
+    with open(os.path.join(hf_dir, "config.json")) as f:
         model_config = json.load(f)
     arch = model_config['architectures'][0]
 
@@ -77,6 +79,7 @@ def convert_checkpoint_cpu(args_input):
         num_expert = model_config['num_experts']
 
     dist_model_files = glob.glob(os.path.join(dist_model_dir, "model_world_size_*.pt"))
+    dist_model_files = sorted(dist_model_files, key=lambda x: int(x.split('_rank_')[-1].split('.')[0]))
     dist_model_state_dict = []
     for file in tqdm(dist_model_files, "Read Distributed Checkpoints"):
         dist_model_state_dict.append(torch.load(file, map_location="cpu"))
@@ -84,15 +87,15 @@ def convert_checkpoint_cpu(args_input):
     safetensor_dict = {key: {} for key in safetensor_file}
 
     for param in tqdm(param_list, desc="Merge Weights"):
-        global_tensor = torch.cat([state_dict.pop(param).to_local() for state_dict in dist_model_state_dict], dim=0)
+        global_tensor = torch.cat([state_dict.pop(param).to_local() for state_dict in dist_model_state_dict], dim=0).to(torch.bfloat16)
         if group_gemm:
             if check_param_fn(param):
                 # Split param for groupgemm mlp weights
                 local_names = key_convert_fn(param, model_config)
                 num_expert = len(local_names)
                 global_tensor = torch.chunk(global_tensor, num_expert, dim=0)
-                safetensor_name = weight_map[local_names[0]]
                 for i in range(num_expert):
+                    safetensor_name = weight_map[local_names[i]]
                     safetensor_dict[safetensor_name][local_names[i]] = global_tensor[i]
             else:
                 safetensor_name = weight_map[param]
