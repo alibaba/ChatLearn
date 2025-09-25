@@ -20,7 +20,7 @@ from typing import Dict, List
 
 import ray
 from ray import ObjectRef
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoProcessor
 
 from chatlearn import BaseModule
 from chatlearn.models.sglang_module import metric_collect
@@ -46,6 +46,10 @@ class RolloutManager(BaseModule):
         self.tokenizer = AutoTokenizer.from_pretrained(
             self.global_args.models.policy.load, trust_remote_code=True
         )
+        if self.runtime_args.model_type == "vlm":
+            self.processor = AutoProcessor.from_pretrained(
+                self.global_args.models.policy.load, trust_remote_code=True
+            )
 
     def get_rollout(self, namespace="policy"):
         all_actors = ray.util.list_named_actors(all_namespaces=True)

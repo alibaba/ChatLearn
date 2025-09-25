@@ -729,6 +729,12 @@ class AsyncSGLangModule(SGLangModule):
         outputs = None
         if self.is_engine():
             prompts_token_ids = query['input_ids']
+            if self.runtime_args.model_type == 'vlm':
+                # vlm
+                image_data = query["multi_modal_data"]["image"]
+            else:
+                # llm
+                image_data = None
             sampling_param = self._get_sampling_params(is_eval)
             sampling_param["max_new_tokens"] = self.module_args.max_response_tokens_length
             outputs = await self.llm.async_generate(
@@ -736,6 +742,7 @@ class AsyncSGLangModule(SGLangModule):
                 sampling_params=sampling_param,
                 return_logprob=False,
                 input_ids=prompts_token_ids,
+                image_data=image_data
             )
         return outputs
 
@@ -783,6 +790,13 @@ class AsyncSGLangModule(SGLangModule):
         for param_id in param_id_to_update:
             param_name = self.param_id_to_local_name[param_id]
             shard_info = self.param_id_to_metadata[param_id]
+
+            if self.runtime_args.model_type == 'vlm':
+                if 'visual' in param_name:
+                    param_name = param_name.replace("model.", "")
+                else:
+                    param_name = param_name.replace("model.language_model.", "model.")
+
             if buffer is None:
                 buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
                 buffer_offset = 0
