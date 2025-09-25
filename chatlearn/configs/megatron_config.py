@@ -1,6 +1,6 @@
 """Config classes from Megatron Model"""
 import math
-from typing import Optional
+from typing import Optional, List
 from dataclasses import dataclass, field
 
 from omegaconf import MISSING
