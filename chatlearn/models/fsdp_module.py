@@ -22,6 +22,8 @@ import glob
 import math
 
 import numpy as np
+from packaging.version import Version as PkgVersion
+import transformers
 import torch
 from torch import Tensor
 import torch.distributed as dist
@@ -42,7 +44,6 @@ from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
-
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -257,9 +258,11 @@ class FSDPModule(TorchModule):
                     attn_implementation="flash_attention_2",
                     trust_remote_code=self.module_args.trust_remote_code
                 )
+                if PkgVersion(transformers.__version__)==PkgVersion('4.51.3'):
+                    # vl patch needed for transformers 4.51.3
+                    from chatlearn.models.patches.monkey_patch import apply_qwenvl
+                    apply_qwenvl(model)
 
-                from chatlearn.models.patches.monkey_patch import apply_qwenvl
-                apply_qwenvl(model)
                 assert self.sp_size == 1, "VL model only support sp_size=1"
             else:
                 model = AutoModelForCausalLM.from_pretrained(
@@ -418,6 +421,7 @@ class FSDPModule(TorchModule):
             buffer_offset=0,
             is_experts=False,
             num_block=1,
+            is_vlm=False
             ):
             """
             convert a param tensor(single or group mlp) to flatten_tensor_list
@@ -434,6 +438,13 @@ class FSDPModule(TorchModule):
                 end_idx = buffer_offset + interval
                 buffer_offset = end_idx
                 local_name = name.replace("group_mlp", f"experts.{i}") if is_experts else name
+
+                if is_vlm:
+                    if 'visual' in name:
+                        local_name = name.replace("model.", "")
+                    else:
+                        local_name = name.replace("model.language_model.", "model.")
+
                 metadata = FlattenedTensorMetadata(
                     name=local_name,
                     shape=shape,
@@ -454,21 +465,23 @@ class FSDPModule(TorchModule):
                 if isinstance(param, DTensor)
                 else param.detach()
             )
+
+            kwargs = {
+                "name": name,
+                "param": param,
+                "flatten_tensor_list": flatten_tensor_list,
+                "metadatas": metadatas,
+                "buffer_offset": buffer_offset,
+            }
+
             if self.module_args.groupgemm and "group_mlp" in name:
-                num_experts = self.model_config.num_experts
-                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
-                    name=name,
-                    param=param,
-                    flatten_tensor_list=flatten_tensor_list,
-                    metadatas=metadatas,
-                    buffer_offset=buffer_offset,
-                    is_experts=True,
-                    num_block=num_experts,
-                )
-            else:
-                flatten_tensor_list, metadatas, buffer_offset = convert_tensor(
-                    name, param, flatten_tensor_list, metadatas, buffer_offset
-                )
+                kwargs["is_experts"] = True
+                kwargs["num_block"] = self.model_config.num_experts
+            elif self.runtime_args.model_type == 'vlm':
+                kwargs["is_vlm"] = True
+
+            flatten_tensor_list, metadatas, buffer_offset = convert_tensor(**kwargs)
+
         flattened_tensor = torch.cat(flatten_tensor_list)
         return flattened_tensor, metadatas
 

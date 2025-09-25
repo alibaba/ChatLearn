@@ -248,6 +248,9 @@ class VLLM_HELPERS:
     merge_qkv = True
     merge_expert = True
     force_full_model = False
+    dst_vision_prefix = 'visual.'
+    dst_language_prefix = 'language_model.model.'
+    dst_lm_head_prefix = 'language_model.'
 
 
 @dataclass(frozen=True)
@@ -257,3 +260,6 @@ class HF_HELPERS:
     merge_qkv = False
     merge_expert = False
     force_full_model = True
+    dst_vision_prefix = 'model.visual.'
+    dst_language_prefix = 'model.language_model.'
+    dst_lm_head_prefix = ''

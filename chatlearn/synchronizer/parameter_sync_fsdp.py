@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""fsdp to vllm parameter sync group"""
+"""fsdp to vllm or sglang parameter sync group"""
 from itertools import chain
 
 import ray

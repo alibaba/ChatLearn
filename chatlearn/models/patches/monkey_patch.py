@@ -46,4 +46,4 @@ def apply_qwenvl(model):
         # pylint: disable=import-outside-toplevel
         apply_qwenvl_patch()
     else:
-        raise ValueError(f"Unsupported model architecture: {model.config.architectures} for groupgemm patch")
+        raise ValueError(f"Unsupported model architecture: {model.config.architectures} for qwenvl patch")
