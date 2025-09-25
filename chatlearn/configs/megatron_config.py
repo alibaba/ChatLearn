@@ -194,7 +194,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     )
     rope_type: str = field(
         default=None,
-        metadata={"help": "Type of rope to use. Note that MLA takes yarn by default and common attention takes rope by default."},
+        metadata={"help": "Type of rope to use. Note that MLA takes yarn by default and common attention takes rope by default."}
     )
     freeze_LM: bool = field(
         default=False, metadata={"help": "Freeze language model layers"}

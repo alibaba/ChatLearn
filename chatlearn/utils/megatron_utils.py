@@ -92,6 +92,10 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.auto
             cfg.models.policy_trainer.megatron_model_cfg.attention_softmax_in_fp32 = True
             cfg.models.policy_trainer.megatron_model_cfg.rotary_scaling_factor = 40
+            if hf_transformer_config.rope_scaling:
+                cfg.models.policy_trainer.megatron_model_cfg.rotary_type = "yarn"
+            else:
+                cfg.models.policy_trainer.megatron_model_cfg.rotary_type = "rope"
     if cfg.models.policy_trainer.context_parallel_size > 1:
         cfg.models.policy_trainer.megatron_model_cfg.apply_rope_fusion = False
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg
