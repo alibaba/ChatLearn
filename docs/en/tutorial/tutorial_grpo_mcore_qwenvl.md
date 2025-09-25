@@ -60,9 +60,6 @@ cd ${CHATLEARN_ROOT}
 
 # vllm
 bash scripts/mcore_vllm/train_mcore_vllm_qwen2_5_vl_7b_grpo.sh
-
-# sglang
-bash scripts/mcore_sglang/train_mcore_sglang_qwen2_5_vl_7b_grpo.sh
 ```
 
 ## Using Wandb

@@ -22,6 +22,7 @@ import glob
 import math
 
 import numpy as np
+from packaging.version import Version as PkgVersion
 import transformers
 import torch
 from torch import Tensor
@@ -43,8 +44,6 @@ from chatlearn.utils.communication_op import set_sp_parallel_group
 from chatlearn.models.patches.monkey_patch import apply_sp_monkey_patch, apply_group_gemm
 from chatlearn.runtime.decorator import timeit, monitor_error
 from .torch_module import TorchModule
-
-TRANSFORMERS_VERSION=transformers.__version__
 
 class FSDPModule(TorchModule):
     """TorchModule is the class for Alignment Torch models.
@@ -259,7 +258,7 @@ class FSDPModule(TorchModule):
                     attn_implementation="flash_attention_2",
                     trust_remote_code=self.module_args.trust_remote_code
                 )
-                if TRANSFORMERS_VERSION=='4.51.3':
+                if PkgVersion(transformers.__version__)==PkgVersion('4.51.3'):
                     # vl patch needed for transformers 4.51.3
                     from chatlearn.models.patches.monkey_patch import apply_qwenvl
                     apply_qwenvl(model)

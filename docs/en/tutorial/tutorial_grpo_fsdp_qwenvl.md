@@ -40,9 +40,6 @@ modelscope download --model Qwen/Qwen2.5-VL-7B-Instruct --local_dir pretrained_m
 
 # vllm
 bash scripts/fsdp_vllm/train_fsdp_vllm_qwen2_5_vl_7b_grpo.sh
-
-# sglang
-bash scripts/fsdp_sglang/train_fsdp_sglang_qwen2_5_vl_7b_grpo.sh
 ```
 
 ## Using Wandb
