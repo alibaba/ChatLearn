@@ -192,6 +192,10 @@ class MegatronModelArchitectureConfig(BaseConfig):
     attention_backend: lambda attn_backend: AttnBackend[attn_backend] = field(
         default=AttnBackend.auto, metadata={"help": "Attention backend to use (flash,fused,unfused,local,auto). Defaults to auto"}
     )
+    rope_type: str = field(
+        default=None,
+        metadata={"help": "Type of rope to use. Note that MLA takes yarn by default and common attention takes rope by default."},
+    )
     freeze_LM: bool = field(
         default=False, metadata={"help": "Freeze language model layers"}
     )
@@ -234,6 +238,9 @@ class MegatronConfig(BaseConfig):
         metadata={
             "help": "virtual pipeline model parallel size for Megatron-Core"
         },
+    )
+    pipeline_model_parallel_layout: Optional[str] = field(
+        default=None, metadata={"help": "A string that describes a custom pipeline model parallel layout. "}
     )
     sequence_parallel: bool = field(
         default=True,
@@ -354,6 +361,12 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
         metadata={
             "help": "1) uniform: the number of Transformer layers in each uniformly divided recompute unit, \
             2) block: the number of individual Transformer layers to recompute within each pipeline stage."
+        },
+    )
+    recompute_modules: List[str] = field(
+        default=None,
+        metadata={
+            "help": "The submodules to recompute. choices: core_attn, moe_act, layernorm, mla_up_proj, mlp, moe, shared_experts"
         },
     )
     use_distributed_optimizer: bool = field(
