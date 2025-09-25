@@ -343,6 +343,8 @@ if HAVE_VLLM:
                 if TRANSFORMERS_VERSION >= '4.52.0':
                     if 'visual' in name:
                         self.model.load_weights([(name.replace('model.', ''), reconstructed_tensor)])
+                    elif 'lm_head' in name:
+                        self.model.load_weights([(name.replace('lm_head.', 'language_model.lm_head.'), reconstructed_tensor)])
                     else:
                         self.model.load_weights([(name.replace('model.language_model.', 'language_model.model.'), reconstructed_tensor)])
                 else:

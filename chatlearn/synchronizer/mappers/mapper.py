@@ -116,12 +116,12 @@ class MegatronMapper:
             self._update_mapping(self._map_preprocess_layer(
                 model.language_model.embedding,
                 src_prefix=f"{vp_stage}-language_model.embedding.",
-                dst_prefix="language_model.model.",
+                dst_prefix=f"{self._mapper_config.dst_language_prefix}",
             ))
 
             self._update_mapping(self._inner_map_for_full_shape(
                 f"{vp_stage}-vision_model.patch_embed.proj.weight",
-                "visual.patch_embed.proj.weight"
+                f"{self._mapper_config.dst_vision_prefix}patch_embed.proj.weight"
             ))
 
             # vision model decoder
@@ -130,7 +130,7 @@ class MegatronMapper:
                 self._update_mapping(self._map_vision_layer(
                     model.vision_model.decoder.layers[layer_idx],
                     src_prefix=f"{vp_stage}-vision_model.decoder.layers.{layer_idx}.",
-                    dst_prefix=f"visual.blocks.{global_layer_id}.",
+                    dst_prefix=f"{self._mapper_config.dst_vision_prefix}blocks.{global_layer_id}.",
                     num_attention_heads=model.vision_config.num_attention_heads,
                     num_query_groups=model.vision_config.num_query_groups
                 ))
@@ -138,31 +138,31 @@ class MegatronMapper:
             # vision model projection
             self._update_mapping(self._inner_map_for_full_shape(
                 f"{vp_stage}-vision_model.decoder.final_layernorm.weight",
-                "visual.merger.ln_q.weight"
+                f"{self._mapper_config.dst_vision_prefix}merger.ln_q.weight"
             ))
 
             self._update_mapping(self._inner_map_for_tensor_parallel(
                 f"{vp_stage}-vision_model.projection.encoder.linear_fc1.weight",
-                "visual.merger.mlp.0.weight",
+                f"{self._mapper_config.dst_vision_prefix}merger.mlp.0.weight",
                 mapping_type='column'
             ))
 
             self._update_mapping(self._inner_map_for_tensor_parallel(
                 f"{vp_stage}-vision_model.projection.encoder.linear_fc1.bias",
-                "visual.merger.mlp.0.bias",
+                f"{self._mapper_config.dst_vision_prefix}merger.mlp.0.bias",
                 mapping_type='column'
             ))
 
             self._update_mapping(self._inner_map_for_tensor_parallel(
                 f"{vp_stage}-vision_model.projection.encoder.linear_fc2.weight",
-                "visual.merger.mlp.2.weight",
+                f"{self._mapper_config.dst_vision_prefix}merger.mlp.2.weight",
                 mapping_type='row'
             ))
 
             # bias for row is not slice, so we need to map it to full shape
             self._update_mapping(self._inner_map_for_full_shape(
                 f"{vp_stage}-vision_model.projection.encoder.linear_fc2.bias",
-                "visual.merger.mlp.2.bias"
+                f"{self._mapper_config.dst_vision_prefix}merger.mlp.2.bias"
             ))
 
         for layer_idx in range(model.language_model.decoder.num_layers_per_pipeline_rank):
@@ -170,27 +170,27 @@ class MegatronMapper:
             self._update_mapping(self._map_decoder_layer(
                 model.language_model.decoder.layers[layer_idx],
                 src_prefix=f"{vp_stage}-language_model.decoder.layers.{layer_idx}.",
-                dst_prefix=f"language_model.model.layers.{global_layer_id}.",
+                dst_prefix=f"{self._mapper_config.dst_language_prefix}layers.{global_layer_id}.",
             ))
 
         if model.post_process:
             self._update_mapping(self._map_norm_layer(
                 model.language_model.decoder.final_layernorm,
                 src_prefix=f"{vp_stage}-language_model.decoder.final_layernorm.",
-                dst_prefix="language_model.model.norm.",
+                dst_prefix=f"{self._mapper_config.dst_language_prefix}norm.",
             ))
 
             if model.share_embeddings_and_output_weights and model.pre_process:
                 self._update_mapping(self._map_postprocess_layer(
                     model.language_model.embedding,
                     src_prefix=f"{vp_stage}-language_model.embedding.word_embeddings.",
-                    dst_prefix="language_model.",
+                    dst_prefix=f"{self._mapper_config.dst_lm_head_prefix}",
                 ))
             else:
                 self._update_mapping(self._map_postprocess_layer(
                     model.language_model.output_layer,
                     src_prefix=f"{vp_stage}-language_model.output_layer.",
-                    dst_prefix="language_model.",
+                    dst_prefix=f"{self._mapper_config.dst_lm_head_prefix}",
                 ))
 
     def _map_llm_model(self, model: nn.Module, vp_stage: int, layer_offset: int):
@@ -257,6 +257,7 @@ class MegatronMapper:
 
         mapping = self._mapping
         self._mapping = None
+
         return mapping
 
     def _map_norm_layer(self, module: nn.Module, src_prefix: str='', dst_prefix: str='', *, is_norm_layer: bool=True):
@@ -416,6 +417,7 @@ class MegatronMapper:
         mapping = {}
         if not module.config.gated_linear_unit:
             raise NotImplementedError("Parameter Sync w/o GatedLinear is not supported")
+
         dst_names = ['gate_proj', 'up_proj']
         if self._mapper_config.merge_gate_up and not is_vision_block:
             dst_names = ['gate_up_proj']

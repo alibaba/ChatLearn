@@ -30,7 +30,7 @@ import numpy as np
 import torch
 import torch.distributed as dist
 from torch.distributed.device_mesh import init_device_mesh
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, AutoProcessor
+from transformers import AutoTokenizer, AutoModelForImageTextToText, AutoModelForCausalLM, AutoConfig, AutoProcessor
 
 from chatlearn.runtime.decorator import timeit, compute_decorator
 from chatlearn.utils.utils import get_full_proc_memory_info
@@ -515,11 +515,18 @@ class SGLangModule(TorchModule):
         on this rank.
         """
         model_config = AutoConfig.from_pretrained(self.module_args['load'])
+
         with torch.device('meta'):
-            meta_model = AutoModelForCausalLM.from_config(
-                model_config,
-                trust_remote_code=self.module_args.trust_remote_code
-            )
+            if self.runtime_args.model_type == 'vlm':
+                meta_model = AutoModelForImageTextToText.from_config(
+                    model_config,
+                    trust_remote_code=self.module_args.trust_remote_code
+                )
+            else:
+                meta_model = AutoModelForCausalLM.from_config(
+                    model_config,
+                    trust_remote_code=self.module_args.trust_remote_code
+                )
         names = list(meta_model.state_dict().keys())
         self.global_name_to_local_name = {n: n for n in names}
         return names
@@ -532,11 +539,18 @@ class SGLangModule(TorchModule):
             raise ValueError("Call set_param_id before call this function")
 
         model_config = AutoConfig.from_pretrained(self.module_args['load'])
+
         with torch.device('meta'):
-            meta_model = AutoModelForCausalLM.from_config(
-                model_config,
-                trust_remote_code=self.module_args.trust_remote_code
-            )
+            if self.runtime_args.model_type == 'vlm':
+                meta_model = AutoModelForImageTextToText.from_config(
+                    model_config,
+                    trust_remote_code=self.module_args.trust_remote_code
+                )
+            else:
+                meta_model = AutoModelForCausalLM.from_config(
+                    model_config,
+                    trust_remote_code=self.module_args.trust_remote_code
+                )
         infos = {}
         for name, sharded_info in build_sharded_info_for_huggingface_model(meta_model).items():
             param_id = self.local_name_to_param_id[name]
@@ -582,6 +596,13 @@ class SGLangModule(TorchModule):
         for param_id in param_id_to_update:
             param_name = self.param_id_to_local_name[param_id]
             shard_info = self.param_id_to_metadata[param_id]
+
+            if self.runtime_args.model_type == 'vlm':
+                if 'visual' in param_name:
+                    param_name = param_name.replace("model.", "")
+                else:
+                    param_name = param_name.replace("model.language_model.", "model.")
+
             if buffer is None:
                 buffer = torch.empty(buffer_size, dtype=shard_info.dtype, device='cuda')
                 buffer_offset = 0

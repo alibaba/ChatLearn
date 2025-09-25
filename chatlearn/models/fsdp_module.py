@@ -480,8 +480,6 @@ class FSDPModule(TorchModule):
                 kwargs["num_block"] = self.model_config.num_experts
             elif self.runtime_args.model_type == 'vlm':
                 kwargs["is_vlm"] = True
-            else:
-                pass
 
             flatten_tensor_list, metadatas, buffer_offset = convert_tensor(**kwargs)
 
