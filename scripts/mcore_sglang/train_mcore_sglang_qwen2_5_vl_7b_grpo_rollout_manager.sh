@@ -18,7 +18,7 @@ source scripts/base_env.sh
 hf_ckpt_path=${CHATLEARN}/pretrained_models/Qwen2.5-VL-7B-Instruct
 mcore_ckpt_path=${CHATLEARN}/pretrained_models/Qwen2.5-VL-7B-Instruct-to-mcore
 
-exp_name="test_qwen25_vl_7b_mcore_sglang"
+exp_name="test_qwen25_vl_7b_mcore_sglang_rollout_manager"
 export output_dir=${CHATLEARN}/output/${exp_name}
 mkdir -p $output_dir/
 export log_dir=${output_dir}/logs
