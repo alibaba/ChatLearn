@@ -82,6 +82,8 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_overlap = True
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
             cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0.001
+            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
+            #cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
             cfg.models.policy_trainer.megatron_model_cfg.bias_swiglu_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.bias_dropout_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.gradient_accumulation_fusion = False
@@ -93,9 +95,9 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.attention_softmax_in_fp32 = True
             cfg.models.policy_trainer.megatron_model_cfg.rotary_scaling_factor = 40
             if hf_transformer_config.rope_scaling:
-                cfg.models.policy_trainer.megatron_model_cfg.rotary_type = "yarn"
+                cfg.models.policy_trainer.megatron_model_cfg.rope_type = "yarn"
             else:
-                cfg.models.policy_trainer.megatron_model_cfg.rotary_type = "rope"
+                cfg.models.policy_trainer.megatron_model_cfg.rope_type = "rope"
     if cfg.models.policy_trainer.context_parallel_size > 1:
         cfg.models.policy_trainer.megatron_model_cfg.apply_rope_fusion = False
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg
