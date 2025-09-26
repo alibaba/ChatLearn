@@ -41,6 +41,7 @@ class Executor:
         Executor
         """
         self._set_flow(model_flow)
+        self.global_args = get_args()
         self.args = get_args().runtime_args
         self.model_flow = None
         self.local_models: List[BaseModule] = self.models

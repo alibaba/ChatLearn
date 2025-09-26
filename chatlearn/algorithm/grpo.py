@@ -185,9 +185,16 @@ class GRPOEvaluator(Evaluator):
         for batch in results["reward"]:
             for result in batch:
                 key = result["eval_source"]
-                eval_reward_stats["eval_"+key].append(result["rule_reward"])
+                is_clip = result["response_token_length"] >= self.global_args.models.policy.max_response_tokens_length
+                eval_reward_stats["eval_" + key + "_response_clip_ratio"].append(is_clip)
+                eval_reward_stats["eval_" + key].append(result["rule_reward"])
+                eval_reward_stats["eval_" + key + "_response_length"].append(
+                    result["response_token_length"]
+                )
         for key in eval_reward_stats:
-            eval_reward_stats[key] = sum(eval_reward_stats[key]) / len(eval_reward_stats[key])
+            eval_reward_stats[key] = sum(eval_reward_stats[key]) / len(
+                eval_reward_stats[key]
+            )
         self._metric_list.append(eval_reward_stats)
 
         return results
