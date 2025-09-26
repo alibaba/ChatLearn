@@ -58,8 +58,8 @@ ChatLearn基于LangGraph来搭建Agent流程，需要实现以下三部分来构
 
 相比于Chat任务数据集，需要在字典中存放`agent_name`和`agent_cfg_path`两个信息。
 
-agent_name：用于构建自定义AgentGraph以及在Rollout采样过程中将对应的数据路由到对应的图。
-agent_cfg_path：AgentGraph参数文件路径，用于配置AgentGraph的任何自定义参数，在训练过程中可通过 cfg.xxx来获取该yaml文件中任意参数
+- agent_name：用于构建自定义AgentGraph以及在Rollout采样过程中将对应的数据路由到对应的图。
+- agent_cfg_path：AgentGraph参数文件路径，用于配置AgentGraph的任何自定义参数，在训练过程中可通过 cfg.xxx来获取该yaml文件中任意参数
 
 2. 自定义AgentGraph
 
