@@ -10,7 +10,7 @@ from chatlearn.utils.utils import map_reduce_metrics
 class AdvantageComputer:
     """advantage computer"""
     def __init__(self, num_inference_per_prompt):
-        self._metric_prefix = 'advantage compute'
+        self._metric_prefix = 'advantage_compute'
         self._metric_list = []
         self.rule_reward_buffer = defaultdict(list)
         self.num_inference_per_prompt = num_inference_per_prompt
