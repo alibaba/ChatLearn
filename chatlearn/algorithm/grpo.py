@@ -192,7 +192,7 @@ class GRPOEvaluator(Evaluator):
                     else 0
                 )
                 eval_reward_stats["eval_" + key + "_response_clip_ratio"].append(
-                    clip_cnt
+                    is_clip
                 )
                 eval_reward_stats["eval_" + key].append(result["rule_reward"])
                 eval_reward_stats["eval_" + key + "_response_length"].append(
