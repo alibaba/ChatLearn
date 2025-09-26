@@ -32,8 +32,8 @@ class AdvantageComputer:
             avg = np.mean(self.rule_reward_buffer[sample_id])
             std = np.std(self.rule_reward_buffer[sample_id])
             s['advantages'] = (s["rule_reward"] - avg) / (std + 1e-5)
-            all_correct_list.append(1 if is_all_ones else 0)
-            all_wrong_list.append(1 if is_all_zeros else 0)
+            all_correct_list.append(is_all_ones)
+            all_wrong_list.append(is_all_zeros)
 
         # clean buffer
         self.rule_reward_buffer = {k: v for k, v in self.rule_reward_buffer.items() if len(v) < self.num_inference_per_prompt}
