@@ -50,10 +50,10 @@ python chatlearn/data/data_preprocess/math_lighteval.py --input_dir dataset/MATH
 modelscope download --model moonshotai/Moonlight-16B-A3B-Instruct --local_dir Moonlight-16B-A3B-Instruct
 modelscope download --model deepseek-ai/DeepSeek-V3-0324 --local_dir DeepSeek-V3-0324
 
-#Moonlight模型的config.json需要做如下的改进，将"AutoModel"和"AutoModelForCausalLM"的值分别修改为modeling_deepseek_pai.DeepseekV3Model，modeling_deepseek_pai.DeepseekV3ForCausalLM
+#Moonlight模型的config.json需要做如下的改进: 将"AutoModel"和"AutoModelForCausalLM"的值分别修改为modeling_deepseek_pai.DeepseekV3Model，modeling_deepseek_pai.DeepseekV3ForCausalLM
 cp ~/Pai-Megatron-Patch/examples/moonlight/modeling_deepseek_pai.py /mnt/data/ckpts/huggingface/Moonlight-16B-A3B-Instruct
-vim /mnt/data/ckpts/huggingface/Moonlight-16B-A3B-Instruct/config.json
 
+#DeepSeek-V3模型的config.json需要做如下的改进: 删除DeepSeek-V3的config.json中的quantization_config相关配置
 
 ```
 
@@ -85,26 +85,44 @@ false \
 true \
 bf16
 
-#删除DeepSeek-V3的config.json中的quantization_config相关配置
-
 ```
 
-## 训练
-运行以下命令开始训练：
+## 强化学习训练以及训练稳定性指引
+运行以下命令可以对Moonlight和DeepSeek-V3进行GRPO训练：
 
 ```bash
 cd ${CHATLEARN_ROOT}
-bash scripts/mcore_vllm/train_mcore_vllm_qwen3_8b_grpo.sh
+bash scripts/mcore_vllm/train_mcore_vllm_moonlight_16b_grpo.sh
+bash scripts/mcore_vllm/train_mcore_vllm_deepseek_v3_671b_grpo.sh
 ```
+
+以下是我们在Moonlight模型训练中发现的关键问题
+
+1. 在backends/megatrion/Megatron-LM-250908/megatron/core/transformer/moe/文件夹的`moe_utils.py` 中的 `unpermute()` 操作可能使用 `bfloat16` 精度执行 scatter-add 运算。这种低精度累加具有数值不稳定性，会导致同一数据批次在两次前向传播中产生不同的输出，这在 RL 中会影响策略的一致性，导致梯度估计偏差。为缓解该问题：
+   + 确保日志文件中包含 `moe_permute_fusion=False`，表示已禁用Fused Kernel。
+   + 将该操作的计算精度提升至 `fp32` 或 `fp64` 以增强数值稳定性（会增加显存占用）。
+建议进行以下调整：
+```bash
+output_tokens = torch.zeros(
+    restore_shape, dtype=torch.double, device=permuted_tokens.device
+)
+output_tokens.scatter_add_(0, sorted_indices.unsqueeze(1).expand(-1, hidden), permuted_tokens.double())
+```
+
+2. MoE路由器的参数可能显著影响模型的logits 输出，尤其是在离线策略（off-policy）训练场景下。路由行为的微小变化可能引发较大的分布偏移。建议进行以下调整：
+   + 降低路由器负载均衡损失（router load balance loss）的权重系数，或直接关闭该损失项，以防其干扰策略稳定性。
+   + 如果模型中启用了router bias（如 `DeepSeek-V3` 或 `Moonlight`），应降低 `moe_router_bias_update_rate`，避免在 RL 微调阶段因路由更新而导致的崩溃。
+备注：我们已经在Chatlearn中将 `moe_router_bias_update_rate` 默认值从 `1e-3` 改为 `0`，以缓解该问题。
+
+3. MoE模型中控制负载均衡相关的参数 `moe_router_load_balancing_type` 和 `moe_aux_loss_coeff` 可能对模型训练稳定性有较大影响。
+在chatlearn/utils/megatron_utils.py中建议进行以下调整： 
+```bash
+cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
+cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0.001
+#cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
+#cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
+```
+
 
 ## 使用 Wandb 监控
-如需使用 Wandb 记录训练过程，请修改[train_mcore_vllm_qwen3_8b_grpo.sh](../../../scripts/train_mcore_vllm_qwen3_8b_grpo.sh)中的配置：
-
-```bash
-export WANDB_API_KEY="Your-Wandb-api-key"
-```
-将配置项改为：
-```bash
-runtime_args.log_args_dict.enable_wandb=True
-runtime_args.log_args_dict.wandb_project="Your-Wandb-Project-Name"
-```
+如需使用 Wandb 记录训练过程，请参考其他最佳实践进行修改。
