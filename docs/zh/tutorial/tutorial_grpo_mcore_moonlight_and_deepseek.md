@@ -98,10 +98,24 @@ bash scripts/mcore_vllm/train_mcore_vllm_deepseek_v3_671b_grpo.sh
 
 以下是我们在Moonlight模型训练中发现的关键问题
 
-1. 在backends/megatrion/Megatron-LM-250908/megatron/core/transformer/moe/文件夹的`moe_utils.py` 中的 `unpermute()` 操作可能使用 `bfloat16` 精度执行 scatter-add 运算。这种低精度累加具有数值不稳定性，会导致同一数据批次在两次前向传播中产生不同的输出，这在 RL 中会影响策略的一致性，导致梯度估计偏差。为缓解该问题：
+1. 将chatlearn/utils/megatron_utils.py中的`moe_router_bias_update_rate`从1e-3修改为0，避免在RL微调阶段因路由更新而导致的崩溃。
+```bash 
+#cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate =1e-3
+cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
+```
+
+2. 在chatlearn/utils/megatron_utils.py中调整降低路由器负载均衡损失（router load balance loss）的权重系数，或直接关闭该损失项，以防其干扰策略稳定性。MoE模型中控制负载均衡相关的参数 `moe_router_load_balancing_type` 和 `moe_aux_loss_coeff` 可能对模型训练稳定性有较大影响。
+```bash
+#cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
+#cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0.001
+cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
+cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
+```
+
+3. 将Pai-Megatron-Patch/backends/megatrion/Megatron-LM-250908/megatron/core/transformer/moe/moe_utils.py中的 `unpermute()` 操作可能使用 `bfloat16` 精度执行 scatter-add 运算。这种低精度累加具有数值不稳定性，会导致同一数据批次在两次前向传播中产生不同的输出，这在 RL 中会影响策略的一致性，导致梯度估计偏差。为缓解该问题：
    + 确保日志文件中包含 `moe_permute_fusion=False`，表示已禁用Fused Kernel。
    + 将该操作的计算精度提升至 `fp32` 或 `fp64` 以增强数值稳定性（会增加显存占用）。
-建议进行以下调整：
+
 ```bash
 output_tokens = torch.zeros(
     restore_shape, dtype=torch.double, device=permuted_tokens.device
@@ -109,20 +123,18 @@ output_tokens = torch.zeros(
 output_tokens.scatter_add_(0, sorted_indices.unsqueeze(1).expand(-1, hidden), permuted_tokens.double())
 ```
 
-2. MoE路由器的参数可能显著影响模型的logits 输出，尤其是在离线策略（off-policy）训练场景下。路由行为的微小变化可能引发较大的分布偏移。建议进行以下调整：
-   + 降低路由器负载均衡损失（router load balance loss）的权重系数，或直接关闭该损失项，以防其干扰策略稳定性。
-   + 如果模型中启用了router bias（如 `DeepSeek-V3` 或 `Moonlight`），应降低 `moe_router_bias_update_rate`，避免在 RL 微调阶段因路由更新而导致的崩溃。
-备注：我们已经在Chatlearn中将 `moe_router_bias_update_rate` 默认值从 `1e-3` 改为 `0`，以缓解该问题。
-
-3. MoE模型中控制负载均衡相关的参数 `moe_router_load_balancing_type` 和 `moe_aux_loss_coeff` 可能对模型训练稳定性有较大影响。
-在chatlearn/utils/megatron_utils.py中建议进行以下调整： 
+4. Pai-Megatron-Patch/
 ```bash
-cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
-cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0.001
-#cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
-#cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
+将backends/megatrion/Megatron-LM-250908/megatron/core/transformer/moe/moe_utils.py中的
+group_scores = (
+   scores.view(num_tokens, num_groups, -1).topk(topk // group_topk, dim=-1)[0].sum(dim=-1)
+)
+修改为如下：
+group_scores = (
+   scores.view(num_tokens, num_groups, -1).topk(2, dim=-1)[0].sum(dim=-1)
+)
+"""
 ```
-
 
 ## 使用 Wandb 监控
 如需使用 Wandb 记录训练过程，请参考其他最佳实践进行修改。
