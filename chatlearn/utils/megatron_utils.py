@@ -60,7 +60,6 @@ def update_cfg(cfg):
         cfg.models.policy_trainer.megatron_model_cfg.moe_ffn_hidden_size = hf_transformer_config.moe_intermediate_size
         cfg.models.policy_trainer.megatron_model_cfg.moe_router_dtype= 'fp32'
 
-
         if "Qwen3MoeForCausalLM" == hf_transformer_config.architectures[0]:
             cfg.models.policy_trainer.megatron_model_cfg.num_experts = hf_transformer_config.num_experts
             cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [1] * hf_transformer_config.num_hidden_layers
@@ -82,17 +81,13 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_topk_scaling_factor = hf_transformer_config.routed_scaling_factor
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_pre_softmax = True
             cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_overlap = False
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 1e-4
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
             cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
             cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.auto
             cfg.models.policy_trainer.megatron_model_cfg.moe_permute_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_fusion = True
-            #cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_fusion_impl = "te"
             cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_loss_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.create_attention_mask_in_dataloader = False
-            #cfg.models.policy_trainer.megatron_model_cfg.overlap_moe_expert_parallel_comm = True
 
             if hf_transformer_config.rope_scaling:
                 cfg.models.policy_trainer.megatron_model_cfg.rope_type = "yarn"

@@ -98,8 +98,10 @@ bash scripts/mcore_vllm/train_mcore_vllm_deepseek_v3_671b_grpo.sh
 
 以下是我们在Moonlight模型训练中发现的关键问题
 
-1. 将chatlearn/utils/megatron_utils.py中的`moe_router_bias_update_rate`从1e-3修改为0，避免在RL微调阶段因路由更新而导致的崩溃。
+1. 将chatlearn/utils/megatron_utils.py中的`moe_router_enable_expert_bias`关闭以及`moe_router_bias_update_rate`从1e-3修改为0，避免在RL微调阶段因路由更新而导致的崩溃。
 ```bash 
+#cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = True
+cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = False
 #cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate =1e-3
 cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
 ```
@@ -112,29 +114,8 @@ cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "n
 cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
 ```
 
-3. 将Pai-Megatron-Patch/backends/megatrion/Megatron-LM-250908/megatron/core/transformer/moe/moe_utils.py中的 `unpermute()` 操作可能使用 `bfloat16` 精度执行 scatter-add 运算。这种低精度累加具有数值不稳定性，会导致同一数据批次在两次前向传播中产生不同的输出，这在 RL 中会影响策略的一致性，导致梯度估计偏差。为缓解该问题：
-   + 确保日志文件中包含 `moe_permute_fusion=False`，表示已禁用Fused Kernel。
-   + 将该操作的计算精度提升至 `fp32` 或 `fp64` 以增强数值稳定性（会增加显存占用）。
-
-```bash
-output_tokens = torch.zeros(
-    restore_shape, dtype=torch.double, device=permuted_tokens.device
-)
-output_tokens.scatter_add_(0, sorted_indices.unsqueeze(1).expand(-1, hidden), permuted_tokens.double())
-```
-
-4. Pai-Megatron-Patch/
-```bash
-将backends/megatrion/Megatron-LM-250908/megatron/core/transformer/moe/moe_utils.py中的
-group_scores = (
-   scores.view(num_tokens, num_groups, -1).topk(topk // group_topk, dim=-1)[0].sum(dim=-1)
-)
-修改为如下：
-group_scores = (
-   scores.view(num_tokens, num_groups, -1).topk(2, dim=-1)[0].sum(dim=-1)
-)
-"""
-```
+在解决了一些训练不稳定的问题后，验证集升的评估指标仍然有提升，而不会出现如下图灰色曲线所示的坍塌的现象。
+<img width="1192" height="1020" alt="image" src="https://github.com/user-attachments/assets/ac2ec9aa-0901-4d52-804f-98d6ef8eaf47" />
 
 ## 使用 Wandb 监控
 如需使用 Wandb 记录训练过程，请参考其他最佳实践进行修改。
