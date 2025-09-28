@@ -92,6 +92,7 @@ def update_cfg(cfg):
             if hf_transformer_config.rope_scaling:
                 cfg.models.policy_trainer.megatron_model_cfg.rope_type = "yarn"
                 cfg.models.policy_trainer.megatron_model_cfg.rotary_scaling_factor = 40
+                cfg.models.policy_trainer.megatron_model_cfg.max_position_embeddings = 4096
             else:
                 cfg.models.policy_trainer.megatron_model_cfg.rope_type = "rope"
                 # apply_rope_fusion for MLA only works with YARN RoPE.

@@ -53,7 +53,10 @@ modelscope download --model deepseek-ai/DeepSeek-V3-0324 --local_dir DeepSeek-V3
 #Moonlight模型的config.json需要做如下的改进: 将"AutoModel"和"AutoModelForCausalLM"的值分别修改为modeling_deepseek_pai.DeepseekV3Model，modeling_deepseek_pai.DeepseekV3ForCausalLM
 cp ~/Pai-Megatron-Patch/examples/moonlight/modeling_deepseek_pai.py /mnt/data/ckpts/huggingface/Moonlight-16B-A3B-Instruct
 
-#DeepSeek-V3模型的config.json需要做如下的改进: 删除DeepSeek-V3的config.json中的quantization_config相关配置
+#DeepSeek-V3模型的config.json需要做如下的改进: 
+1. 删除DeepSeek-V3的config.json中的quantization_config相关配置
+2. 将"num_nextn_predict_layers"修改为0
+
 
 ```
 
@@ -87,7 +90,7 @@ bf16
 
 ```
 
-## 强化学习训练以及训练稳定性指引
+## Moonlight强化学习训练以及训练稳定性指引
 运行以下命令可以对Moonlight和DeepSeek-V3进行GRPO训练：
 
 ```bash
@@ -96,17 +99,11 @@ bash scripts/mcore_vllm/train_mcore_vllm_moonlight_16b_grpo.sh
 bash scripts/mcore_vllm/train_mcore_vllm_deepseek_v3_671b_grpo.sh
 ```
 
-以下是我们在Moonlight模型训练中发现的关键问题
+MoE 路由器的参数可能显著影响模型的 logits 输出，尤其是在离线策略（off-policy）训练场景下。路由行为的微小变化可能引发较大的分布偏移。建议进行以下调整：
+   + 降低路由器负载均衡损失（router load balance loss）的权重系数，或直接关闭该损失项，以防其干扰策略稳定性。
+   + 如果模型中启用了router bias（如 `DeepSeek-V3` 或 `Moonlight`），应降低 `moe_router_bias_update_rate`，避免在 RL 微调阶段因路由更新而导致的崩溃。
 
-1. 将chatlearn/utils/megatron_utils.py中的`moe_router_enable_expert_bias`关闭以及`moe_router_bias_update_rate`从1e-3修改为0，避免在RL微调阶段因路由更新而导致的崩溃。
-```bash 
-#cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = True
-cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = False
-#cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate =1e-3
-cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
-```
-
-2. 在chatlearn/utils/megatron_utils.py中调整降低路由器负载均衡损失（router load balance loss）的权重系数，或直接关闭该损失项，以防其干扰策略稳定性。MoE模型中控制负载均衡相关的参数 `moe_router_load_balancing_type` 和 `moe_aux_loss_coeff` 可能对模型训练稳定性有较大影响。
+具体来讲，在chatlearn/utils/megatron_utils.py中调整降低路由器负载均衡损失（router load balance loss）的权重系数，或直接关闭该损失项，以防其干扰策略稳定性。MoE模型中控制负载均衡相关的参数 `moe_router_load_balancing_type` 和 `moe_aux_loss_coeff` 可能对模型训练稳定性有较大影响。
 ```bash
 #cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
 #cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0.001
@@ -114,8 +111,22 @@ cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "n
 cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
 ```
 
+将chatlearn/utils/megatron_utils.py中的`moe_router_enable_expert_bias`关闭以及`moe_router_bias_update_rate`从1e-3修改为0，避免在RL微调阶段因路由更新而导致的崩溃。
+```bash 
+#cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = True
+cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = False
+#cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate =1e-3
+cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
+```
+
 在解决了一些训练不稳定的问题后，验证集升的评估指标仍然有提升，而不会出现如下图灰色曲线所示的坍塌的现象。
 <img width="1192" height="1020" alt="image" src="https://github.com/user-attachments/assets/ac2ec9aa-0901-4d52-804f-98d6ef8eaf47" />
+
+另外context parallel size 大于 1和context parallel size 等于1的等价性测试也通过，如下图所示
+<img width="1170" height="1018" alt="image" src="https://github.com/user-attachments/assets/f92418dc-acf2-4fcc-a16a-d171c8479370" />
+
+## DeepSeek-R1强化学习训练以及训练稳定性指引
+
 
 ## 使用 Wandb 监控
 如需使用 Wandb 记录训练过程，请参考其他最佳实践进行修改。
