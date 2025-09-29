@@ -33,7 +33,9 @@ if __name__ == '__main__':
     test_dataset = dataset['test']
 
     # instruction_following = "Let's think step by step and output the final answer after \"####\"."
-    instruction_following = "Let's think step by step and output the final answer within \\boxed{}."
+    instruction_following = (
+        "Let's think step by step and output the final answer within \\boxed{}."
+    )
 
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
@@ -45,12 +47,18 @@ if __name__ == '__main__':
 
             answer_raw = example.pop('answer')
             solution = extract_solution(answer_raw)
+            system_prompt = (
+                            "You are a math expert. You are given a question and you need to solve it step by step. "
+                            "You can write and execute Python code to perform calculation or verify your answer."
+                            "You shold print the result at the end of Python code."
+                            "You should use the `execute_python` tool to execute Python code."
+                            "Put your final answer within \\boxed{}."
+                        )
             data = {
+                "agent_name": "mathcode_agent",
+                "agent_cfg_path": "template/agent/math_eval.yaml",
                 "data_source": data_source,
-                "prompt": [{
-                    "role": "user",
-                    "content": question,
-                }],
+                "prompt": [{"role": "system", "content": system_prompt}, {"role": "user", "content": question}],
                 "ability": "math",
                 "reward_model": {
                     "style": "rule",
@@ -72,5 +80,5 @@ if __name__ == '__main__':
 
     local_dir = args.local_dir
 
-    train_dataset.to_json(os.path.join(local_dir, 'train.json'))
-    test_dataset.to_json(os.path.join(local_dir, 'test.json'))
+    train_dataset.to_json(os.path.join(local_dir, 'train_agent.json'))
+    test_dataset.to_json(os.path.join(local_dir, 'test_agent.json'))
