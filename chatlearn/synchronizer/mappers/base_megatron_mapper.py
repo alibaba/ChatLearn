@@ -192,10 +192,6 @@ class BaseMegatronMapper:
         self._update_mapping(results)
         return results
 
-    @property
-    def _src_arch(self):
-        return self._src_model_config.megatron_model_cfg
-
     def _update_mapping(self, results: Dict[ShardedTensorInfo, List[ShardedTensorInfo]]) -> None:
         if self._mapping is None:
             self._mapping = defaultdict(list)

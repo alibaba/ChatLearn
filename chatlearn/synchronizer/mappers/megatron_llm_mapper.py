@@ -145,7 +145,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
             )
 
     def _map_decoder_layer(self, module: 'TransformerLayer', src_prefix: str='', dst_prefix: str=''):
-        if self._src_arch.multi_latent_attention:
+        if module.config.multi_latent_attention:
             map_attn_func = self._map_mla_selfattn
             norm_layer = module.input_layernorm
             norm_src_key = f"{src_prefix}input_layernorm."
@@ -251,7 +251,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
         # pylint: disable=unused-argument
         src_ep_rank = mpu.get_expert_model_parallel_rank()
         src_ep_size = mpu.get_expert_model_parallel_world_size()
-        num_experts = self._src_arch.num_experts
+        num_experts = module.config.num_moe_experts
         global_expert_id_start = num_experts // src_ep_size * src_ep_rank
         global_expert_id_end = num_experts // src_ep_size * (src_ep_rank + 1)
         for local_expert_id, global_expert_id in enumerate(range(global_expert_id_start, global_expert_id_end)):
@@ -288,7 +288,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
                 )
 
     def _map_mla_selfattn(self, module: 'MLASelfAttention', src_prefix: str='', dst_prefix: str=''):
-        if self._src_arch.q_lora_rank is None:
+        if module.config.q_lora_rank is None:
             self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_proj.weight",
                 f"{dst_prefix}q_proj.weight",
@@ -304,7 +304,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
                 f"{dst_prefix}q_b_proj.weight",
                 mapping_type='column'
             )
-            if self._src_arch.qk_layernorm:
+            if module.config.qk_layernorm:
                 self._map_norm_layer(
                     module.linear_q_up_proj,
                     f"{src_prefix}linear_q_up_proj.",
@@ -320,7 +320,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
             f"{dst_prefix}kv_b_proj.weight",
             mapping_type='column'
         )
-        if self._src_arch.qk_layernorm:
+        if module.config.qk_layernorm:
             self._map_norm_layer(
                 module.linear_kv_up_proj,
                 f"{src_prefix}linear_kv_up_proj.",
@@ -334,7 +334,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
         )
 
     def _map_selfattn(self, module: 'SelfAttention', src_prefix: str='', dst_prefix: str=''):
-        if self._src_arch.qk_layernorm:
+        if module.config.qk_layernorm:
             self._map_norm_layer(module.q_layernorm, f"{src_prefix}q_layernorm.", f"{dst_prefix}q_norm.")
             self._map_norm_layer(module.k_layernorm, f"{src_prefix}k_layernorm.", f"{dst_prefix}k_norm.")
 
@@ -347,16 +347,16 @@ class MegatronLLMMapper(BaseMegatronMapper):
                 f"{src_prefix}linear_qkv.weight",
                 f"{dst_prefix}{dst_name}.weight",
                 proj_type=dst_name,
-                num_attention_heads = self._src_arch.num_attention_heads,
-                num_query_groups = self._src_arch.num_query_groups
+                num_attention_heads = module.config.num_attention_heads,
+                num_query_groups = module.config.num_query_groups
             )
-            if self._src_arch.add_qkv_bias:
+            if module.config.add_qkv_bias:
                 self._inner_map_for_qkv_proj(
                     f"{src_prefix}linear_qkv.bias",
                     f"{dst_prefix}{dst_name}.bias",
                     proj_type=dst_name,
-                    num_attention_heads = self._src_arch.num_attention_heads,
-                    num_query_groups = self._src_arch.num_query_groups
+                    num_attention_heads = module.config.num_attention_heads,
+                    num_query_groups = module.config.num_query_groups
                 )
 
         self._inner_map_for_tensor_parallel(
@@ -377,7 +377,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
     def _map_postprocess_layer(self, module: 'ColumnParallelLinear', src_prefix='', dst_prefix=''):
         # pylint: disable=unused-argument
         if (
-            not self._src_arch.untie_embeddings_and_output_weights and
+            not self._src_model_config.megatron_model_cfg.untie_embeddings_and_output_weights and
             f"{dst_prefix}lm_head.weight" not in self._dst_name_to_metadata
         ):
             return

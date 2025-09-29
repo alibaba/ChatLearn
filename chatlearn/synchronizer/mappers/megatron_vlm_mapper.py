@@ -199,7 +199,7 @@ class MegatronVLMMapper(MegatronLLMMapper):
             num_attention_heads=num_attention_heads,
             num_query_groups=num_query_groups
         )
-        if self._src_arch.add_qkv_bias:
+        if module.config.add_qkv_bias:
             self._inner_map_for_qkv_proj(
                 f"{src_prefix}self_attention.linear_qkv.bias",
                 f"{dst_prefix}attn.qkv.bias",
