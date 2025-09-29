@@ -13,7 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 
-"""Mapper for Megatron to vLLM"""
+"""Basic Mapper for Megatron to rollout framework"""
 from collections import defaultdict
 from typing import List, Dict, TYPE_CHECKING, Union
 
@@ -46,11 +46,7 @@ class BaseMegatronMapper:
     ):
         """The Base Mapper for Megatron sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
-        between src and dst. Currently, the mapper supports mapping
-        MCore Model to vLLM or HF Model.
-
-        WARNING: The mapper assumes that the weights name of same
-        submodules in different vLLM models are still same.
+        between src and dst.
 
         Args:
             dst_model_config (PolicyConfig): The config of target model to
@@ -83,7 +79,7 @@ class BaseMegatronMapper:
             mapper will ensure that the key of mapping for each mapping type is
             non-overlapping and can merge into the full state dict of this rank.
             For most cases, the length of dst shards list is 1, except for GQA with
-            large vLLM TP.
+            large TP.
         """
         self._dst_name_to_metadata = dst_name_to_metadata
         return self._map_model()

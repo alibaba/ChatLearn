@@ -43,13 +43,7 @@ class MegatronVLMMapper(MegatronLLMMapper):
         *,
         mapper_config: Union[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
     ):
-        """The VLM Mapper for Megatron sync. In each remote Megatron Actor,
-        the method of this class is called to generate the parameter mapping
-        between src and dst. Currently, the mapper supports mapping
-        MCore Model to vLLM or HF Model.
-
-        WARNING: The mapper assumes that the weights name of same
-        submodules in different vLLM models are still same.
+        """The Mapper for Megatron VLM sync.
 
         Args:
             dst_model_config (PolicyConfig): The config of target model to
@@ -58,6 +52,35 @@ class MegatronVLMMapper(MegatronLLMMapper):
             mapper_config (Union[VLLM_HELPERS, HF_HELPERS]): The mapping mode.
         """
         super().__init__(dst_model_config=dst_model_config, model=model, mapper_config=mapper_config)
+
+    # NOTE: the following function implements the module-wise sync mapping
+    def _map_model(self):
+        """Mapping the local name of src model to global name of
+        dst model
+        """
+        for vp_stage, model in enumerate(self.model):
+            if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
+                layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
+            else:
+                if len(self.model) > 1:
+                    mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
+                layer_offset = get_transformer_layer_offset(model.config)
+                if len(self.model) > 1:
+                    mpu.set_virtual_pipeline_model_parallel_rank(None)
+
+            # TODO: VLM model does not have mtp_process, fix it in Pai-Megatron-Patch
+            if getattr(model, 'mtp_process', None):
+                raise NotImplementedError("Currently, the mapper does not support MTP")
+
+            if hasattr(model, 'vision_model'):
+                self._map_vlm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
+            else:
+                # llm model
+                self._map_llm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
+
+        mapping = self._mapping
+        self._mapping = None
+        return mapping
 
     def _map_vlm_model(self, model: nn.Module, vp_stage: int, layer_offset: int):
         dst_language_prefix = self._mapper_config.dst_language_prefix
@@ -144,35 +167,6 @@ class MegatronVLMMapper(MegatronLLMMapper):
                     src_prefix=f"{vp_stage}-language_model.output_layer.",
                     dst_prefix=f"{dst_lm_head_prefix}",
                 )
-
-    # NOTE: the following function implements the module-wise sync mapping
-    def _map_model(self):
-        """Mapping the local name of src model to global name of
-        dst model
-        """
-        for vp_stage, model in enumerate(self.model):
-            if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
-                layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
-            else:
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
-                layer_offset = get_transformer_layer_offset(model.config)
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(None)
-
-            # TODO: VLM model does not have mtp_process, fix it in Pai-Megatron-Patch
-            if getattr(model, 'mtp_process', None):
-                raise NotImplementedError("Currently, the mapper does not support MTP")
-
-            if hasattr(model, 'vision_model'):
-                self._map_vlm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
-            else:
-                # llm model
-                self._map_llm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
-
-        mapping = self._mapping
-        self._mapping = None
-        return mapping
 
     def _map_vision_layer(
         self,
