@@ -1,4 +1,4 @@
-# pylint: disable=arguments-differ,cell-var-from-loop,unnecessary-lambda,bare-except,missing-module-docstring,missing-class-docstring
+# pylint: disable=arguments-differ,cell-var-from-loop,unnecessary-lambda,bare-except,missing-module-docstring,missing-class-docstring,import-outside-toplevel,unused-argument
 import asyncio
 import copy
 from typing import Annotated, Any, Sequence, TypedDict
@@ -15,7 +15,6 @@ from chatlearn.models.agent.agent_module import register
 from chatlearn.models.agent.base_agent_graph import (AgentGraphOutput,
                                                      BaseAgentGraph)
 from chatlearn.models.agent.chat_model import CustomChatModel
-from chatlearn.utils.rule_reward_score.math import is_equiv
 
 
 class AgentState(TypedDict):
@@ -37,14 +36,13 @@ class MathCodeAgentGraph(BaseAgentGraph):
         tokenizer: AutoTokenizer,
         **kwargs
     ):
-        # lazy import
-        # pip install agentscope==1.0.4 && pip install wandb==0.19.3
-        from agentscope.tool import execute_python_code
         super().__init__(agent_name, cfg, llm, tokenizer, **kwargs)
         self.build_graph()
 
     def build_graph(self) -> StateGraph:
-
+        # lazy import
+        # pip install agentscope==1.0.4 && pip install wandb==0.19.3
+        from agentscope.tool import execute_python_code
         self.chatmodel = CustomChatModel(
             model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer
         )
@@ -60,11 +58,12 @@ class MathCodeAgentGraph(BaseAgentGraph):
                 state["messages"], sampling_params=sampling_params
             )
             return {"messages": [message]}
-            
+
         @tool
         async def execute_python(code: str):
             """execute python code and return execute result
-            Return the result in the following format: <returncode>0</returncode><stdout>the print result in code</stdout><stderr>error message</stderr>
+            Return the result in the following format:
+            <returncode>0</returncode><stdout>the print result in code</stdout><stderr>error message</stderr>
 
             Args:
                 code (str): python code string, must include print to get result
