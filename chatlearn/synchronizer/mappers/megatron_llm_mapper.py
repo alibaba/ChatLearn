@@ -31,7 +31,14 @@ from .mapping_helpers import (
     VLLM_HELPERS,
     HF_HELPERS
 )
-
+from .metadata import (
+    SelfAttnKeyMapping,
+    MLPKeyMapping,
+    DecoderLayerKeyMapping,
+    LanguageModelKeyMapping,
+    MoELayerKeyMapping,
+    MLASelfAttnKeyMapping
+)
 from .base_megatron_mapper import BaseMegatronMapper
 
 if TYPE_CHECKING:
@@ -52,7 +59,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
         *,
         mapper_config: Union[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
     ):
-        """The Mapper for Megatron LLM sync. 
+        """The Mapper for Megatron LLM sync.
 
         Args:
             dst_model_config (PolicyConfig): The config of target model to
@@ -67,6 +74,12 @@ class MegatronLLMMapper(BaseMegatronMapper):
         """Mapping the local name of src model to global name of
         dst model
         """
+        cfg = LanguageModelKeyMapping(
+            decoder_layer_cfg=DecoderLayerKeyMapping(
+                self_attn_cfg=SelfAttnKeyMapping(use_merged_qkv=self._mapper_config.merge_qkv),
+                mlp_cfg=MLPKeyMapping(use_merged_gate_up=self._mapper_config.merge_gate_up)
+            )
+        )
         for vp_stage, model in enumerate(self.model):
             if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
                 layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
@@ -78,49 +91,63 @@ class MegatronLLMMapper(BaseMegatronMapper):
                     mpu.set_virtual_pipeline_model_parallel_rank(None)
 
             # TODO: VLM model does not have mtp_process, fix it in Pai-Megatron-Patch
-            if getattr(model, 'mtp_process', None):
+            if getattr(model, 'mtp_process', False):
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
-            self._map_llm_model(model, vp_stage=vp_stage, layer_offset=layer_offset)
+            self._map_llm_model(
+                model,
+                cfg,
+                layer_offset=layer_offset,
+                src_prefix=f"{vp_stage}-",
+                dst_prefix=""
+            )
 
         mapping = self._mapping
         self._mapping = None
         return mapping
 
-    def _map_llm_model(self, model: nn.Module, vp_stage: int, layer_offset: int):
+    def _map_llm_model(
+        self,
+        model: nn.Module,
+        cfg: LanguageModelKeyMapping,
+        layer_offset: int,
+        src_prefix: str='',
+        dst_prefix: str=''
+    ):
         if model.pre_process:
             self._map_preprocess_layer(
                 model.embedding,
-                src_prefix=f"{vp_stage}-embedding.",
-                dst_prefix="model.",
+                src_prefix=f"{src_prefix}embedding.",
+                dst_prefix=f"{dst_prefix}{cfg.word_embeddings}",
             )
 
         for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
             global_layer_id = layer_offset + layer_idx
             self._map_decoder_layer(
                 model.decoder.layers[layer_idx],
-                src_prefix=f"{vp_stage}-decoder.layers.{layer_idx}.",
-                dst_prefix=f"model.layers.{global_layer_id}.",
+                cfg=cfg.decoder_layer_cfg,
+                src_prefix=f"{src_prefix}decoder.layers.{layer_idx}.",
+                dst_prefix=f"{dst_prefix}{cfg.decoder_layer}{global_layer_id}.",
             )
 
         if model.post_process:
             self._map_norm_layer(
                 model.decoder.final_layernorm,
-                src_prefix=f"{vp_stage}-decoder.final_layernorm.",
-                dst_prefix="model.norm.",
+                src_prefix=f"{src_prefix}decoder.final_layernorm.",
+                dst_prefix=f"{dst_prefix}{cfg.final_layernorm}",
             )
 
             if model.share_embeddings_and_output_weights and model.pre_process:
                 self._map_postprocess_layer(
                     model.embedding,
-                    src_prefix=f"{vp_stage}-embedding.word_embeddings.",
-                    dst_prefix="",
+                    src_prefix=f"{src_prefix}embedding.word_embeddings.",
+                    dst_prefix=f"{dst_prefix}{cfg.output_layer}",
                 )
             else:
                 self._map_postprocess_layer(
                     model.output_layer,
-                    src_prefix=f"{vp_stage}-output_layer.",
-                    dst_prefix="",
+                    src_prefix=f"{src_prefix}output_layer.",
+                    dst_prefix=f"{dst_prefix}{cfg.output_layer}",
                 )
 
     def _map_norm_layer(self, module: nn.Module, src_prefix: str='', dst_prefix: str='', *, is_norm_layer: bool=True):
@@ -144,38 +171,55 @@ class MegatronLLMMapper(BaseMegatronMapper):
                 f"{dst_prefix}{_keynames[item]}"
             )
 
-    def _map_decoder_layer(self, module: 'TransformerLayer', src_prefix: str='', dst_prefix: str=''):
+    def _map_decoder_layer(self, module: 'TransformerLayer', cfg: DecoderLayerKeyMapping, src_prefix: str='', dst_prefix: str=''):
         if module.config.multi_latent_attention:
             map_attn_func = self._map_mla_selfattn
             norm_layer = module.input_layernorm
             norm_src_key = f"{src_prefix}input_layernorm."
-            norm_dst_key = f"{dst_prefix}input_layernorm."
             is_norm_layer = True
         else:
             map_attn_func = self._map_selfattn
             norm_layer = module.self_attention.linear_qkv
             norm_src_key = f"{src_prefix}self_attention.linear_qkv."
-            norm_dst_key = f"{dst_prefix}input_layernorm."
             is_norm_layer = False
-        map_attn_func(module.self_attention, src_prefix=f"{src_prefix}self_attention.", dst_prefix=f"{dst_prefix}self_attn.")
-        self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer)
+        map_attn_func(
+            module.self_attention,
+            cfg=cfg.self_attn_cfg,
+            src_prefix=f"{src_prefix}self_attention.",
+            dst_prefix=f"{dst_prefix}{cfg.self_attn}",
+        )
+        self._map_norm_layer(
+            norm_layer,
+            norm_src_key,
+            dst_prefix=f"{dst_prefix}{cfg.input_layernorm}",
+            is_norm_layer=is_norm_layer
+        )
 
         if isinstance(module.mlp, MoELayer):
             map_mlp_func = self._map_moe_layer
             norm_layer = module.pre_mlp_layernorm
             norm_src_key = f"{src_prefix}pre_mlp_layernorm."
-            norm_dst_key = f"{dst_prefix}post_attention_layernorm."
             is_norm_layer = True
         else:
             map_mlp_func = self._map_mlp
             norm_layer = module.mlp.linear_fc1
             norm_src_key = f"{src_prefix}mlp.linear_fc1."
-            norm_dst_key = f"{dst_prefix}post_attention_layernorm."
             is_norm_layer = False
-        map_mlp_func(module.mlp, src_prefix=f"{src_prefix}mlp.", dst_prefix=f"{dst_prefix}mlp.")
-        self._map_norm_layer(norm_layer, norm_src_key, norm_dst_key, is_norm_layer=is_norm_layer)
+        map_mlp_func(
+            module.mlp,
+            cfg=cfg.mlp_cfg,
+            src_prefix=f"{src_prefix}mlp.",
+            dst_prefix=f"{dst_prefix}{cfg.mlp}",
+        )
+        self._map_norm_layer(
+            norm_layer,
+            norm_src_key,
+            dst_prefix=f"{dst_prefix}{cfg.pre_mlp_layernorm}",
+            is_norm_layer=is_norm_layer
+        )
 
-    def _map_moe_layer(self, module: 'MoELayer', src_prefix='', dst_prefix=''):
+    def _map_moe_layer(self, module: 'MoELayer', cfg: MoELayerKeyMapping, src_prefix='', dst_prefix=''):
+        # pylint: disable=unused-argument
         mapping = {}
         # router
         self._inner_map_for_full_shape(f"{src_prefix}router.weight", f"{dst_prefix}gate.weight")
@@ -208,43 +252,45 @@ class MegatronLLMMapper(BaseMegatronMapper):
             shared_expert_key = 'shared_experts' if hasattr(hf_config, 'n_shared_experts') else 'shared_expert'
             self._map_mlp(
                 module.shared_experts,
+                cfg=MLPKeyMapping(use_merged_gate_up=self._mapper_config.merge_gate_up),
                 src_prefix=f"{src_prefix}shared_experts.",
                 dst_prefix=f"{dst_prefix}{shared_expert_key}."
             )
         return mapping
 
-    def _map_mlp(self, module: 'MLP', src_prefix: str='', dst_prefix: str='', is_vision_block=False):
-        if not module.config.gated_linear_unit:
-            raise NotImplementedError("Parameter Sync w/o GatedLinear is not supported")
-
-        dst_names = ['gate_proj', 'up_proj']
-        if self._mapper_config.merge_gate_up and not is_vision_block:
-            dst_names = ['gate_up_proj']
-
-        for dst_name in dst_names:
-            self._inner_map_for_gate_up_proj(
-                f"{src_prefix}linear_fc1.weight",
-                f"{dst_prefix}{dst_name}.weight",
-                proj_type=dst_name
-            )
-
-            if module.config.add_bias_linear:
-                self._inner_map_for_gate_up_proj(
-                    f"{src_prefix}linear_fc1.bias",
-                    f"{dst_prefix}{dst_name}.bias",
-                    proj_type=dst_name
-                )
-
-        self._inner_map_for_tensor_parallel(
-            f"{src_prefix}linear_fc2.weight",
-            f"{dst_prefix}down_proj.weight",
-            mapping_type='row'
-        )
-
+    def _map_mlp(
+        self,
+        module: 'MLP',
+        cfg: MLPKeyMapping,
+        src_prefix: str='',
+        dst_prefix: str='',
+    ):
+        param_types = ['weight']
         if module.config.add_bias_linear:
-            self._inner_map_for_full_shape(
-                f"{src_prefix}linear_fc2.bias",
-                f"{dst_prefix}down_proj.bias"
+            param_types = ['weight', 'bias']
+
+        for param_type in param_types:
+            if not module.config.gated_linear_unit:
+                self._inner_map_for_tensor_parallel(
+                    f"{src_prefix}linear_fc1.{param_type}",
+                    f"{dst_prefix}{cfg.up_proj}{param_type}",
+                    mapping_type='column'
+                )
+            else:
+                dst_names = {'gate_proj': cfg.gate_proj, 'up_proj': cfg.up_proj}
+                if cfg.use_merged_gate_up:
+                    dst_names = {'gate_up_proj': cfg.gate_up_proj}
+
+                for dst_type, dst_name in dst_names.items():
+                    self._inner_map_for_gate_up_proj(
+                        f"{src_prefix}linear_fc1.{param_type}",
+                        f"{dst_prefix}{dst_name}{param_type}",
+                        proj_type=dst_type
+                    )
+            self._inner_map_for_tensor_parallel(
+                f"{src_prefix}linear_fc2.{param_type}",
+                f"{dst_prefix}{cfg.down_proj}{param_type}",
+                mapping_type='row'
             )
 
     def _map_group_mlp(self, module: 'TEGroupedMLP', src_prefix: str='', dst_prefix: str=''):
@@ -287,7 +333,8 @@ class MegatronLLMMapper(BaseMegatronMapper):
                     mapping_type='row'
                 )
 
-    def _map_mla_selfattn(self, module: 'MLASelfAttention', src_prefix: str='', dst_prefix: str=''):
+    def _map_mla_selfattn(self, module: 'MLASelfAttention', cfg: MLASelfAttnKeyMapping, src_prefix: str='', dst_prefix: str=''):
+        # pylint: disable=unused-argument
         if module.config.q_lora_rank is None:
             self._inner_map_for_tensor_parallel(
                 f"{src_prefix}linear_q_proj.weight",
@@ -333,37 +380,44 @@ class MegatronLLMMapper(BaseMegatronMapper):
             mapping_type='row'
         )
 
-    def _map_selfattn(self, module: 'SelfAttention', src_prefix: str='', dst_prefix: str=''):
+    def _map_selfattn(
+        self,
+        module: 'SelfAttention',
+        cfg: SelfAttnKeyMapping,
+        src_prefix: str='',
+        dst_prefix: str=''
+    ):
         if module.config.qk_layernorm:
-            self._map_norm_layer(module.q_layernorm, f"{src_prefix}q_layernorm.", f"{dst_prefix}q_norm.")
-            self._map_norm_layer(module.k_layernorm, f"{src_prefix}k_layernorm.", f"{dst_prefix}k_norm.")
+            self._map_norm_layer(module.q_layernorm, f"{src_prefix}q_layernorm.", f"{dst_prefix}{cfg.q_layernorm}")
+            self._map_norm_layer(module.k_layernorm, f"{src_prefix}k_layernorm.", f"{dst_prefix}{cfg.k_layernorm}")
 
-        dst_names = ['q_proj', 'k_proj', 'v_proj']
-        if self._mapper_config.merge_qkv:
-            dst_names = ['qkv_proj']
+        qkv_dst_names = {'qkv_proj': cfg.qkv_proj}
+        if not cfg.use_merged_qkv:
+            qkv_dst_names = {'q_proj': cfg.q_proj, 'k_proj': cfg.k_proj, 'v_proj': cfg.v_proj}
 
-        for dst_name in dst_names:
-            self._inner_map_for_qkv_proj(
-                f"{src_prefix}linear_qkv.weight",
-                f"{dst_prefix}{dst_name}.weight",
-                proj_type=dst_name,
-                num_attention_heads = module.config.num_attention_heads,
-                num_query_groups = module.config.num_query_groups
-            )
-            if module.config.add_qkv_bias:
+        param_types = ['weight']
+        if module.config.add_qkv_bias:
+            param_types = ['weight', 'bias']
+
+        for param_type in param_types:
+            for dst_type, dst_name in qkv_dst_names.items():
                 self._inner_map_for_qkv_proj(
-                    f"{src_prefix}linear_qkv.bias",
-                    f"{dst_prefix}{dst_name}.bias",
-                    proj_type=dst_name,
+                    f"{src_prefix}linear_qkv.{param_type}",
+                    f"{dst_prefix}{dst_name}{param_type}",
+                    proj_type=dst_type,
                     num_attention_heads = module.config.num_attention_heads,
                     num_query_groups = module.config.num_query_groups
                 )
 
-        self._inner_map_for_tensor_parallel(
-            f"{src_prefix}linear_proj.weight",
-            f"{dst_prefix}o_proj.weight",
-            mapping_type='row'
-        )
+        param_types = ['weight']
+        if module.config.add_bias_linear:
+            param_types = ['weight', 'bias']
+        for param_type in param_types:
+            self._inner_map_for_tensor_parallel(
+                f"{src_prefix}linear_proj.{param_type}",
+                f"{dst_prefix}{cfg.out_proj}{param_type}",
+                mapping_type='row'
+            )
 
     def _map_preprocess_layer(self, module: 'LanguageModelEmbedding', src_prefix='', dst_prefix=''):
         if module.add_position_embedding:
