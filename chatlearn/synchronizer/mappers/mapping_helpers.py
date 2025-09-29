@@ -241,6 +241,7 @@ def __maybe_merge(mappings: List[Tuple[ShardedTensorInfo, ShardedTensorInfo]], a
     ))
     return results
 
+# TODO: deprecate these config classes
 @dataclass(frozen=True)
 class VLLM_HELPERS:
     """The mapper configs for vllm"""
