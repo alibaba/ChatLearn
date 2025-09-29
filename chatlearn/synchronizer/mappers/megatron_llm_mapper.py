@@ -43,8 +43,8 @@ if TYPE_CHECKING:
     from megatron.core.transformer.attention import SelfAttention
     from chatlearn.models.megatron_module import MegatronModule
 
-class MegatronMapper(BaseMegatronMapper):
-    """MegatronMapper"""
+class MegatronLLMMapper(BaseMegatronMapper):
+    """MegatronLLMMapper"""
     def __init__(
         self,
         dst_model_config: PolicyConfig,

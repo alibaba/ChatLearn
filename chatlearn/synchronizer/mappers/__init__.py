@@ -34,8 +34,8 @@ def name_to_mapper_cls(mapper_name: str):
     # pylint: disable=import-outside-toplevel
     from .mapping_helpers import VLLM_HELPERS, HF_HELPERS
     if mapper_name in ["MegatronVLLMMapper", "MegatronSGLangMapper"]:
-        from .mapper import MegatronMapper
+        from .megatron_llm_mapper import MegatronLLMMapper
         helper_mappings = {"MegatronVLLMMapper": VLLM_HELPERS, "MegatronSGLangMapper": HF_HELPERS}
-        return partial(MegatronMapper, mapper_config=helper_mappings[mapper_name])
+        return partial(MegatronLLMMapper, mapper_config=helper_mappings[mapper_name])
     else:
         raise ValueError(f"Unrecognized Mapper {mapper_name}")
