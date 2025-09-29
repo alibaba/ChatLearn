@@ -32,11 +32,11 @@ from .mapping_helpers import (
 )
 
 if TYPE_CHECKING:
-    from megatron.core.models.gpt import GPTModel
+    from megatron.core.transformer.module import MegatronModule as MCoreModule
     from chatlearn.models.megatron_module import MegatronModule
 
 class BaseMegatronMapper:
-    """MegatronMapper"""
+    """BaseMegatronMapper"""
     def __init__(
         self,
         dst_model_config: PolicyConfig,
@@ -44,7 +44,7 @@ class BaseMegatronMapper:
         *,
         mapper_config: Union[VLLM_HELPERS, HF_HELPERS] = VLLM_HELPERS,
     ):
-        """The Mapper for Megatron sync. In each remote Megatron Actor,
+        """The Base Mapper for Megatron sync. In each remote Megatron Actor,
         the method of this class is called to generate the parameter mapping
         between src and dst. Currently, the mapper supports mapping
         MCore Model to vLLM or HF Model.
@@ -58,7 +58,7 @@ class BaseMegatronMapper:
             model (MegatronModule): The source Megatron Module
             mapper_config (Union[VLLM_HELPERS, HF_HELPERS]): The mapping mode.
         """
-        self.model: List['GPTModel'] = unwrap_model(model.model)
+        self.model: List['MCoreModule'] = unwrap_model(model.model)
         self._src_model_config: MegatronPolicyTrainerConfig = model.module_args
         self._dst_model_config = dst_model_config
         self._mapper_config = mapper_config
@@ -97,13 +97,11 @@ class BaseMegatronMapper:
         """
         raise NotImplementedError()
 
-    # NOTE: the following function implements the module-wise sync mapping
     def _map_model(self):
-        """Mapping the local name of src model to global name of
-        dst model
+        """Mapping the local name of src model to global name of dst model
         """
         raise NotImplementedError()
-
+    
     # NOTE: the following function implements the tensor-wise sync mapping
     def _inner_map_for_tensor_parallel(
         self,
@@ -116,6 +114,10 @@ class BaseMegatronMapper:
     ):
         AXES = {'column': 0, 'row': 1}
         src_info = self._src_name_to_metadata[src_key]
+        # NOTE: we should do nothing to bias of RowParallel, call full shape mapping.
+        if src_info.ndim == 1 and mapping_type == 'row':
+            return self._inner_map_for_full_shape(src_key, dst_key)
+
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = {}
         for src_meta, dst_meta in process_normal_tensor(
@@ -132,6 +134,7 @@ class BaseMegatronMapper:
                     .refragment(1, axis=0) # 1 is dst EP
                 )
             mapping[src_meta] = [dst_meta]
+        self._update_mapping(mapping)
         return mapping
 
     def _inner_map_for_full_shape(
@@ -141,9 +144,9 @@ class BaseMegatronMapper:
     ):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
-        return {
-            src_info.copy(): [dst_info.copy()]
-        }
+        results = {src_info.copy(): [dst_info.copy()]}
+        self._update_mapping(results)
+        return results
 
     def _inner_map_for_gate_up_proj(self, src_key: str, dst_key: str, proj_type: str, *, global_expert_id: int=None, num_experts: int=None):
         src_info = self._src_name_to_metadata[src_key]
@@ -163,6 +166,7 @@ class BaseMegatronMapper:
                     .refragment(1, axis=0) # 1 is dst EP
                 )
             mapping[src_meta] = [dst_meta]
+        self._update_mapping(mapping)
         return mapping
 
     def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str, num_attention_heads: int, num_query_groups: int):
@@ -179,6 +183,7 @@ class BaseMegatronMapper:
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
             mapping[src_meta].append(dst_meta)
+        self._update_mapping(mapping)
         return mapping
 
     def _inner_map_for_mla_down_proj(self, src_key: str, dst_key: str):
@@ -187,17 +192,16 @@ class BaseMegatronMapper:
         dst_meta = src_info.refragment(1)
         dst_meta.param_id = dst_info.param_id
         dst_meta.dtype = dst_info.dtype
-        return {
-            src_info.copy(): [dst_meta]
-        }
+        results = {src_info.copy(): [dst_meta]}
+        self._update_mapping(results)
+        return results
 
     @property
     def _src_arch(self):
         return self._src_model_config.megatron_model_cfg
 
-    def _update_mapping(self, results: Dict[ShardedTensorInfo, List[ShardedTensorInfo]]):
+    def _update_mapping(self, results: Dict[ShardedTensorInfo, List[ShardedTensorInfo]]) -> None:
         if self._mapping is None:
             self._mapping = defaultdict(list)
         for src_meta, dst_metas in results.items():
             self._mapping[src_meta] += dst_metas
-        return self._mapping
