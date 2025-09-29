@@ -33,6 +33,7 @@ from .megatron_llm_mapper import MegatronLLMMapper
 
 if TYPE_CHECKING:
     from chatlearn.models.megatron_module import MegatronModule
+    from megatron.core.transformer.transformer_layer import TransformerLayer
 
 class MegatronVLMMapper(MegatronLLMMapper):
     """MegatronVLMMapper"""
@@ -221,4 +222,3 @@ class MegatronVLMMapper(MegatronLLMMapper):
             f"{src_prefix}mlp.linear_fc1.layer_norm_weight",
             f"{dst_prefix}norm2.weight"
         )
-

@@ -91,13 +91,14 @@ class BaseMegatronMapper:
             folder_path (str): The folder path to dump the sync mapping.
             sync_mapping (Dict): The sync mapping to be saved.
         """
+        # pylint: disable=abstract-method
         raise NotImplementedError()
 
     def _map_model(self):
         """Mapping the local name of src model to global name of dst model
         """
         raise NotImplementedError()
-    
+
     # NOTE: the following function implements the tensor-wise sync mapping
     def _inner_map_for_tensor_parallel(
         self,

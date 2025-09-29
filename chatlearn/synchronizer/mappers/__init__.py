@@ -23,7 +23,7 @@ def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
     src_type = src_model.runtime_args.train_backend
     dst_type = dst_model.runtime_args.rollout_backend
     model_type = src_model.runtime_args.model_type # llm or vlm
-    
+
     mapping = {
         'llm-megatron-vllm': "MegatronVLLMMapper-LLM",
         'llm-megatron-sglang': "MegatronSGLangMapper-LLM",
@@ -34,7 +34,7 @@ def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
     if key not in mapping:
         raise NotImplementedError(f"Unsupported src/dst model combination: {key}")
     return mapping[key]
-        
+
 
 def name_to_mapper_cls(mapper_name: str):
     # pylint: disable=import-outside-toplevel
