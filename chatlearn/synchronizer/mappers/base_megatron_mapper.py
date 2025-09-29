@@ -86,13 +86,12 @@ class BaseMegatronMapper:
 
     def dump_sync_mapping(self, folder_path: str, sync_mapping: Dict):
         """dump the generayed sync mapping to the given folder path in JSON format.
+        Currently do nothing.
 
         Args:
             folder_path (str): The folder path to dump the sync mapping.
             sync_mapping (Dict): The sync mapping to be saved.
         """
-        # pylint: disable=abstract-method
-        raise NotImplementedError()
 
     def _map_model(self):
         """Mapping the local name of src model to global name of dst model
