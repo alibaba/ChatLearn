@@ -18,8 +18,17 @@ import ast
 import textwrap
 import inspect
 from collections import defaultdict
+from typing import Dict, List, Union, Any
 
-def encode_data(mb, data):
+def encode_data(mb, data) -> Dict[str, Union[int, List[Any]]]:
+    """
+        return a dict: 
+        {
+            'iter': int,
+            'data': List[ObjectRef]
+        }
+    
+    """
     return {"iter": mb, "data": data}
 
 
