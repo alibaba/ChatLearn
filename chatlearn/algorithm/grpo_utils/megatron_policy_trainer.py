@@ -13,77 +13,42 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-import inspect
 import os
-from contextlib import nullcontext
 from functools import partial
 import itertools
-from typing import List, Dict, Any, Sequence, Optional
+from typing import List, Dict, Any
 from collections import defaultdict
-import numpy as np
-from copy import deepcopy
+from importlib import import_module
 
 import torch
 from megatron.core import mpu
 from megatron.core.distributed import finalize_model_grads
 from megatron.core.enums import ModelType
-from megatron.core.models.gpt.gpt_layer_specs import (
-    get_gpt_decoder_block_spec, 
-    get_gpt_layer_local_spec,
-    get_gpt_mtp_block_spec
-)
-from megatron.core.num_microbatches_calculator import get_num_microbatches
 from megatron.core.pipeline_parallel import get_forward_backward_func
 from megatron.core.transformer.spec_utils import import_module
 from megatron.core.utils import get_model_config
-from megatron.training import get_args, get_model, get_timers, print_rank_0, get_tokenizer
-from megatron.training.arguments import core_transformer_config_from_args
+from megatron.training import get_args, get_model, get_timers
 from megatron.training.checkpointing import load_checkpoint
 from megatron.training.training import setup_model_and_optimizer
 from megatron.training.utils import (
     calc_params_l2_norm,
     logical_and_across_model_parallel_group
 )
-from megatron.training.yaml_arguments import core_transformer_config_from_yaml
-import warnings
-try:
-    from megatron_patch.model.qwen2_5_vl.transformer_config import (
-        Qwen2VLTransformerConfig,
-        get_vision_model_config,
-        get_vision_projection_config
-    )
 
-    from megatron_patch.model.qwen2_5_vl.layer_specs import (
-        get_qwen2vl_vision_model_spec,
-        get_mlp_module_spec
-
-    )
-    from chatlearn.algorithm.grpo_utils.megatron_utils import Qwen2_5VLPolicyModel
-    HAVE_MEGATRON_PATCH = True
-except ImportError:
-    from unittest.mock import MagicMock
-    Qwen2_5VLPolicyModel = MagicMock()
-    HAVE_MEGATRON_PATCH = False
-
-import chatlearn
 from chatlearn import MegatronModule
 from chatlearn.utils.utils import even_slice
 from chatlearn.runtime.decorator import timeit, compute_decorator, monitor_error
 from chatlearn.algorithm.grpo_utils.megatron_utils import (
-    GPTPolicyModel,
     forward_step, 
     training_log
 )
-
 from chatlearn.algorithm.grpo_utils.trainer_utils import (
-    logprobs_from_logits,
-    entropy_from_logits_with_chunking,
-    sp_split,
     generate_loss_mask_position_ids,
     split_microbatch,
     batching,
     split_and_unpadding
 )
+
 
 class MegatronPolicyTrainer(MegatronModule):
     """MegatronPolicyTrainer"""
@@ -100,6 +65,15 @@ class MegatronPolicyTrainer(MegatronModule):
 
         self._metric_prefix = "policy_trainer"
 
+        try:
+            module = import_module(self.module_args.model_provider_module)
+        except ImportError as e:
+            raise ImportError(f"Failed to import {self.module_args.model_provider_module} in current PYTHONPATH, get error: {e.msg}")
+
+        # module should has attr model_provider
+        if not hasattr(module, 'model_provider'):
+            raise ValueError(f"Cannot find model_provider() in the given module {self.module_args.model_provider_module}, location: {module.__file__}")
+
         if self.trainable:
             # TODO: move this hardcoded resumedir elsewhere
             resume_dir = f"{self.runtime_args.output_dir}/save_model/{self.name}"
@@ -109,29 +83,19 @@ class MegatronPolicyTrainer(MegatronModule):
                 get_args().no_load_rng = False
                 get_args().no_load_scheduler = False
                 self._logger.info(f"Overwrite load path for resuming training.")
-            if self.runtime_args.model_type == 'vlm':
-                assert HAVE_MEGATRON_PATCH, "megatron_patch is nessary for vl. Please set env var MEGATRON_PATCH_PATH to include megatron_patch"
-                self.model, self.optimizer, self.opt_param_scheduler = (
-                    setup_model_and_optimizer(
-                        self.model_provider_vl, ModelType.encoder_or_decoder
-                    )
+            
+            self.model, self.optimizer, self.opt_param_scheduler = (
+                setup_model_and_optimizer(
+                    # TODO: currently we only support ModelType.encoder_or_decoder
+                    module.model_provider, ModelType.encoder_or_decoder
                 )
-            else:
-                self.model, self.optimizer, self.opt_param_scheduler = (
-                    setup_model_and_optimizer(
-                        self.model_provider, ModelType.encoder_or_decoder
-                    )
-                )
+            )
             self.config = get_model_config(self.model[0])
             self.config.grad_scale_func = self.optimizer.scale_loss
             self.config.finalize_model_grads_func = finalize_model_grads
 
         else:
-            if self.runtime_args.model_type == 'vlm':
-                assert HAVE_MEGATRON_PATCH, "megatron_patch is nessary for vl. Please set env var MEGATRON_PATCH_PATH to include megatron_patch"
-                self.model = get_model(self.model_provider_vl, wrap_with_ddp=False)
-            else:
-                self.model = get_model(self.model_provider, wrap_with_ddp=False)
+            self.model = get_model(module.model_provider, wrap_with_ddp=False)
             if self.args.load is not None:
                 print(f"reference loading : {self.args.load}")
                 _, _ = load_checkpoint(
@@ -146,194 +110,6 @@ class MegatronPolicyTrainer(MegatronModule):
                     device_ids=[int(os.environ.get("LOCAL_RANK", 0))]
                 )
 
-    def model_provider(self, pre_process=True, post_process=True) -> GPTPolicyModel:
-        from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
-
-        args = get_args()
-        use_te = args.transformer_impl == "transformer_engine"
-
-        if args.record_memory_history:
-            torch.cuda.memory._record_memory_history(
-                True,
-                # keep 100,000 alloc/free events from before the snapshot
-                trace_alloc_max_entries=100000,
-                # record stack information for the trace events
-                trace_alloc_record_context=True,
-            )
-
-            def oom_observer(device, alloc, device_alloc, device_free):
-                # snapshot right after an OOM happened
-                print("saving allocated state during OOM")
-                snapshot = torch.cuda.memory._snapshot()
-                from pickle import dump
-
-                dump(
-                    snapshot,
-                    open(
-                        f"oom_rank-{torch.distributed.get_rank()}_{args.memory_snapshot_path}",
-                        "wb",
-                    ),
-                )
-
-            torch._C._cuda_attach_out_of_memory_observer(oom_observer)
-
-        print_rank_0("building GPT model ...")
-        # Experimental loading arguments from yaml
-
-        if args.yaml_cfg is not None:
-            config = core_transformer_config_from_yaml(args, "language_model")
-        else:
-            config = core_transformer_config_from_args(args)
-
-        if args.spec is not None:
-            transformer_layer_spec = import_module(args.spec)
-        else:
-            if args.num_experts:
-                # Define the decoder block spec
-                transformer_layer_spec = get_gpt_decoder_block_spec(
-                    config,
-                    use_transformer_engine=use_te,
-                    normalization=args.normalization,
-                )
-            else:
-                # Define the decoder layer spec
-                if use_te:
-                    transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(
-                        args.num_experts,
-                        args.moe_grouped_gemm,
-                        args.qk_layernorm,
-                        args.multi_latent_attention,
-                        args.moe_use_legacy_grouped_gemm,
-                    )
-                else:
-                    transformer_layer_spec = get_gpt_layer_local_spec(
-                        args.num_experts,
-                        args.moe_grouped_gemm,
-                        args.qk_layernorm,
-                        args.multi_latent_attention,
-                        args.moe_use_legacy_grouped_gemm,
-                        normalization=args.normalization,
-                    )
-        mtp_block_spec = None
-        if args.mtp_num_layers is not None:
-            mtp_block_spec = get_gpt_mtp_block_spec(
-                config, transformer_layer_spec, use_transformer_engine=use_te
-            )
-
-        build_model_context = nullcontext
-        build_model_context_args = {}
-        if args.fp8_param_gather:
-            try:
-                from transformer_engine.pytorch import fp8_model_init
-
-                build_model_context = fp8_model_init
-                build_model_context_args["enabled"] = True
-
-                # Check if fp8_model_init supports preserve_high_precision_init_val
-                if (
-                    "preserve_high_precision_init_val"
-                    in inspect.signature(fp8_model_init).parameters
-                ):
-                    build_model_context_args["preserve_high_precision_init_val"] = True
-            except:
-                raise RuntimeError(
-                    "--fp8-param-gather requires `fp8_model_init` from TransformerEngine, but not found."
-                )
-
-        with build_model_context(**build_model_context_args):
-            model = GPTPolicyModel(
-                config=config,
-                transformer_layer_spec=transformer_layer_spec,
-                vocab_size=args.padded_vocab_size,
-                max_sequence_length=args.max_position_embeddings,
-                pre_process=pre_process,
-                post_process=post_process,
-                fp16_lm_cross_entropy=args.fp16_lm_cross_entropy,
-                parallel_output=True,
-                share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
-                position_embedding_type=args.position_embedding_type,
-                rotary_percent=args.rotary_percent,
-                rotary_base=args.rotary_base,
-                rope_scaling=args.use_rope_scaling,
-                mtp_block_spec=mtp_block_spec,
-                module_args=self.module_args
-            )
-
-        return model
-
-    def model_provider_vl(
-            self, pre_process=True, post_process=True, add_encoder=True, add_decoder=True, vp_stage: Optional[int] = None
-        ) -> Qwen2_5VLPolicyModel:
-        from megatron_patch.model.qwen2_5_vl.layer_specs import get_gpt_layer_with_transformer_engine_spec
-
-        args = get_args()
-        
-        print_rank_0("start building qwen2-vl model ...")
-
-        # Config of vit, llm and projector
-        config = core_transformer_config_from_args(args, Qwen2VLTransformerConfig)
-        use_te = args.transformer_impl == "transformer_engine"
-        if not use_te:
-            raise NotImplementedError("The Qwen2-VL model is only implemented with TransformerEngine!")
-        
-        if args.rotary_seq_len_interpolation_factor is not None or args.rotary_seq_len_interpolation_factor != 1:
-            print_rank_0('Multimodal RoPE currently not support RoPE interpolation, set to None...')
-            args.rotary_seq_len_interpolation_factor = None
-
-        vision_config = get_vision_model_config(args, deepcopy(config))
-        vision_config.pipeline_model_parallel_size = 1
-        vision_config.num_layers_in_first_pipeline_stage = None
-        vision_projector_config = get_vision_projection_config(deepcopy(config), vision_config.hidden_size, vision_config.spatial_merge_size)
-        
-        print_rank_0("building Qwen2-5-VL model in TE...")
-        # Layer Specs of vit, llm and projector
-        transformer_layer_spec = get_gpt_layer_with_transformer_engine_spec(args.qk_layernorm)
-        vision_model_spec = get_qwen2vl_vision_model_spec()
-        vision_projector_spec = get_mlp_module_spec(add_norm=False).submodules
-
-        model = Qwen2_5VLPolicyModel(
-            language_transformer_config=config,
-            language_transformer_layer_spec=transformer_layer_spec,
-            language_vocab_size=args.padded_vocab_size,
-            language_max_sequence_length=args.max_position_embeddings,
-
-            vision_transformer_config=vision_config,
-            vision_transformer_layer_spec=vision_model_spec,
-            drop_vision_class_token=False, # NOTE: no class token to drop?
-
-            vision_projection_config=vision_projector_config,
-            vision_projection_layer_spec=vision_projector_spec, 
-            vision_projection_type='mlp',
-            allow_missing_vision_projection_checkpoint= False, # TODO: may parameterized
-
-            language_position_embedding_type=args.position_embedding_type,
-            language_rotary_percent=args.rotary_percent,
-            language_rotary_base=args.rotary_base,
-            
-            pre_process=pre_process,
-            post_process=post_process,
-            add_decoder=add_decoder,
-            add_encoder=add_encoder,
-
-            fp16_lm_cross_entropy=args.fp16_lm_cross_entropy,
-            parallel_output=True,
-            language_share_embeddings_and_output_weights=not args.untie_embeddings_and_output_weights,
-            vp_stage=vp_stage,
-
-            module_args=self.module_args
-        )
-
-        # TODO: support model freeze for vl model
-        assert not (self.module_args.megatron_model_cfg.freeze_LM or self.module_args.megatron_model_cfg.freeze_ViT or self.module_args.megatron_model_cfg.freeze_VP), \
-            "VL models do not support model freeze currently. Please set freeze_LM, freeze_ViT, and freeze_VP to False."
-        model.freeze(
-            freeze_language_model=self.module_args.megatron_model_cfg.freeze_LM, 
-            freeze_vision_model=self.module_args.megatron_model_cfg.freeze_ViT, 
-            freeze_vision_projection=self.module_args.megatron_model_cfg.freeze_VP,
-        )
-
-        return model
-        
     @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
     @timeit()
@@ -373,7 +149,8 @@ class MegatronPolicyTrainer(MegatronModule):
             forward_step_func=partial(
                 forward_step, 
                 is_training=True, 
-                is_packing=self.module_args.packing
+                is_packing=self.module_args.packing,
+                module_args=self.module_args
             ),
             data_iterator=data_iterator,
             model=self.model,
