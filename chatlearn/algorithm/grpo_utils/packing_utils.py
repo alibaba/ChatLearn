@@ -63,6 +63,8 @@ def adjust_bins(bins_id, bins_num):
     For each round, pop the smallest bin from tail and add the smallest sample to head.
     The loop will stop if moving sample will no longer increase balance.
     """
+    if len(bins_id) == 1:
+        return bins_id, bins_num
     sorted_list = SortedList()
     for i in range(len(bins_id)):
         min_seq = bins_num[i][-1] if len(bins_num[i]) > 0 else 0
