@@ -58,9 +58,9 @@ def update_cfg(cfg):
         cfg.models.policy_trainer.megatron_model_cfg.moe_token_dispatcher_type = "alltoall"
         cfg.models.policy_trainer.megatron_model_cfg.moe_router_topk = hf_transformer_config.num_experts_per_tok
         cfg.models.policy_trainer.megatron_model_cfg.moe_ffn_hidden_size = hf_transformer_config.moe_intermediate_size
-        cfg.models.policy_trainer.megatron_model_cfg.moe_router_dtype= 'fp32'
 
         if "Qwen3MoeForCausalLM" == hf_transformer_config.architectures[0]:
+            cfg.models.policy_trainer.megatron_model_cfg.moe_router_dtype= 'fp32'
             cfg.models.policy_trainer.megatron_model_cfg.num_experts = hf_transformer_config.num_experts
             cfg.models.policy_trainer.megatron_model_cfg.moe_layer_freq = [1] * hf_transformer_config.num_hidden_layers
         elif "DeepseekV3ForCausalLM" == hf_transformer_config.architectures[0]:
@@ -76,6 +76,8 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_score_function = "sigmoid"
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = False
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.
+            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = True
+            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.
             cfg.models.policy_trainer.megatron_model_cfg.multi_latent_attention = True
             cfg.models.policy_trainer.megatron_model_cfg.v_head_dim = hf_transformer_config.v_head_dim
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_topk_scaling_factor = hf_transformer_config.routed_scaling_factor
@@ -83,17 +85,28 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_overlap = False
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
             cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
+            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
+            #cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 1e-3
             cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.auto
             cfg.models.policy_trainer.megatron_model_cfg.moe_permute_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_loss_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.create_attention_mask_in_dataloader = False
 
+            #if False:
             if hf_transformer_config.rope_scaling:
+                #cfg.models.policy_trainer.megatron_model_cfg.moe_router_dtype= 'fp32'
                 cfg.models.policy_trainer.megatron_model_cfg.rope_type = "yarn"
                 cfg.models.policy_trainer.megatron_model_cfg.rotary_scaling_factor = 40
-                cfg.models.policy_trainer.megatron_model_cfg.max_position_embeddings = 4096
+                cfg.models.policy_trainer.megatron_model_cfg.max_position_embeddings = 163840
+                cfg.models.policy_trainer.megatron_model_cfg.apply_rope_fusion = False
+                cfg.models.policy_trainer.megatron_model_cfg.enable_experimental = True
+                #cfg.models.policy_trainer.megatron_model_cfg.overlap_p2p_comm = True
+                #cfg.models.policy_trainer.megatron_model_cfg.batch_p2p_comm = False
+                cfg.models.policy_trainer.megatron_model_cfg.deallocate_pipeline_outputs = False
+                cfg.models.policy_trainer.megatron_model_cfg.async_tensor_model_parallel_allreduce = False
             else:
+                cfg.models.policy_trainer.megatron_model_cfg.moe_router_dtype= 'fp32'
                 cfg.models.policy_trainer.megatron_model_cfg.rope_type = "rope"
                 # apply_rope_fusion for MLA only works with YARN RoPE.
                 cfg.models.policy_trainer.megatron_model_cfg.apply_rope_fusion = False

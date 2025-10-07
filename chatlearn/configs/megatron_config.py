@@ -218,11 +218,23 @@ class MegatronModelArchitectureConfig(BaseConfig):
     create_attention_mask_in_dataloader: bool = field(
         default=True, metadata={"help": "If set, do not create attention_masks in dataloader."}
     )
+    async_tensor_model_parallel_allreduce: bool = field(
+        default=False, metadata={"help": "async_tensor_model_parallel_allreduce."}
+    )
     overlap_p2p_comm: bool = field(
         default=True, metadata={"help": "When True some of the peer to peer communication for pipeline parallelism will overlap with computation."}
     )
+    batch_p2p_comm: bool = field(
+        default=False, metadata={"help": "Use batch_isend_irecv instead of individual isend/irecv calls."}
+    )
+    deallocate_pipeline_outputs: bool = field(
+        default=False, metadata={"help": "If True, output data is deallocated after the tensor is sent to the next pipeline stage."}
+    )
     overlap_moe_expert_parallel_comm: bool = field(
         default=False, metadata={"help": "Overlap the EP A2A communication by batch-level overlapping in 1f1b stage."}
+    )
+    enable_experimental: bool = field(
+        default=False, metadata={"help": "Enable experimental features."}
     )
     freeze_LM: bool = field(
         default=False, metadata={"help": "Freeze language model layers"}
@@ -397,6 +409,10 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
     gradient_accumulation_fusion: bool = field(
         default=False, metadata={"help": "If true, fuses weight gradient accumulation to GEMMs. Requires the custom CUDA extension \
             fused_weight_gradient_mlp_cuda module.."}
+    )
+    empty_unused_memory_level: Optional[int] = field(
+        default=0,
+        metadata={"help": "Call torch.cuda.empty_cache() each iteration."},
     )
     use_checkpoint_opt_param_scheduler: bool = field(
         default=True,

@@ -72,6 +72,7 @@ models:
     recompute_method: null
     recompute_num_layers: null
     recompute_modules: null
+    empty_unused_memory_level: 0
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
