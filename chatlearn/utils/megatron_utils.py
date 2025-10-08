@@ -76,8 +76,6 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_score_function = "sigmoid"
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = False
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_enable_expert_bias = True
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.
             cfg.models.policy_trainer.megatron_model_cfg.multi_latent_attention = True
             cfg.models.policy_trainer.megatron_model_cfg.v_head_dim = hf_transformer_config.v_head_dim
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_topk_scaling_factor = hf_transformer_config.routed_scaling_factor
@@ -85,8 +83,6 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_overlap = False
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
             cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "seq_aux_loss"
-            #cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 1e-3
             cfg.models.policy_trainer.megatron_model_cfg.attention_backend = AttnBackend.auto
             cfg.models.policy_trainer.megatron_model_cfg.moe_permute_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.moe_router_fusion = True
