@@ -93,7 +93,6 @@ def update_cfg(cfg):
             cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_loss_fusion = True
             cfg.models.policy_trainer.megatron_model_cfg.create_attention_mask_in_dataloader = False
 
-            #if False:
             if hf_transformer_config.rope_scaling:
                 #cfg.models.policy_trainer.megatron_model_cfg.moe_router_dtype= 'fp32'
                 cfg.models.policy_trainer.megatron_model_cfg.rope_type = "yarn"
@@ -101,8 +100,6 @@ def update_cfg(cfg):
                 cfg.models.policy_trainer.megatron_model_cfg.max_position_embeddings = 163840
                 cfg.models.policy_trainer.megatron_model_cfg.apply_rope_fusion = False
                 cfg.models.policy_trainer.megatron_model_cfg.enable_experimental = True
-                #cfg.models.policy_trainer.megatron_model_cfg.overlap_p2p_comm = True
-                #cfg.models.policy_trainer.megatron_model_cfg.batch_p2p_comm = False
                 cfg.models.policy_trainer.megatron_model_cfg.deallocate_pipeline_outputs = False
                 cfg.models.policy_trainer.megatron_model_cfg.async_tensor_model_parallel_allreduce = False
             else:
