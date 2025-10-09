@@ -479,7 +479,7 @@ def _compute_all_losses(
     
     """
     forward_logprob = (
-        unwrap_model(model).compute_language_model_loss(labels, all_token_logits) * -1
+        unwrap_model(model).compute_language_model_loss(labels, all_token_logits.clone()) * -1
     )
 
     forward_logprob = reduce_from_context_parallel_region(forward_logprob, module_args.packing, training_inputs)
@@ -576,7 +576,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
             'attention_mask': inputs["all_token_attention_mask"]
         })
 
-    # NOTE: 
+    # NOTE:
     # 1) when post_process is False, model returns hidden states
     # 2) when post_process is True:
     #   1) if is_training is False, model returns logprobs
