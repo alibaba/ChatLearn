@@ -583,7 +583,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
     #   2) otherwise, model returns logits and loss should be computed by `_compute_all_losses`
     output_tensor = model(**kwargs)
 
-    if model.post_process:
+    if unwrap_model(model).post_process:
         if is_training:
             output_tensor = _compute_all_losses(
                 module_args=module_args,
