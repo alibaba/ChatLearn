@@ -6,6 +6,7 @@ export CHATLEARN=$(pwd)
 export PYTHONPATH=${CHATLEARN}:${PYTHONPATH}
 source scripts/base_env.sh
 export RAY_DEDUP_LOGS=1
+export TOKENIZERS_PARALLELISM=true
 
 export exp_name=qwen3-grpo-8b-sglang-agent-math-task
 python chatlearn/entrypoint.py grpo \

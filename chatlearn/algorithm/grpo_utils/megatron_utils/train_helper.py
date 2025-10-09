@@ -43,6 +43,7 @@ from megatron.training.utils import (
 
 from chatlearn.utils import to_device
 
+from ..loss_gallery import calculate_grpo_loss, calculate_gspo_loss
 
 # TODO: simplify this function
 def training_log(
@@ -462,8 +463,92 @@ def loss_func(
 
     return total_loss_for_bp, num_tokens, reporting_losses
 
+def _compute_all_losses(
+    module_args,
+    model,
+    all_token_logits: torch.Tensor,
+    labels: torch.Tensor,
+    training_inputs: Dict[str, Any],
+) -> Dict[str, torch.Tensor]:
+    """Compute all required losses.
+    
+    Args:
+        all_token_logits (torch.Tensor): logits of input tokens. shape: [s, b, h] or [total_nnz, 1, h]
+        labels (torch.Tensor): labels of input tokens. shape: [s, b] or [total_nnz, 1]
+        training_inputs (Dict[str, Any]): All training inputs.
+    
+    """
+    forward_logprob = (
+        unwrap_model(model).compute_language_model_loss(labels, all_token_logits) * -1
+    )
 
-def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: bool=False):
+    forward_logprob = reduce_from_context_parallel_region(forward_logprob, module_args.packing, training_inputs)
+
+    old_logprobs = training_inputs["old_logprobs"]
+    ref_logprobs = training_inputs["ref_logprobs"]
+    advantages = training_inputs["advantages"]
+
+
+    if module_args.use_group_sequence_policy:
+        (
+            pg_loss,
+            is_positive_clipped,
+            is_negative_clipped,
+            is_clipped,
+        ) = calculate_gspo_loss(
+            log_probs=forward_logprob,
+            old_log_probs=old_logprobs,
+            advantages=advantages,
+            diff_clip_ratio=module_args.diff_clip_ratio,
+            pos_clip_ratio=module_args.pos_clip_ratio,
+            neg_clip_ratio=module_args.neg_clip_ratio,
+            final_clip_ratio=module_args.final_clip_ratio,
+            loss_mask = training_inputs['all_token_loss_mask']
+        )
+    else:
+        pg_loss = calculate_grpo_loss(
+            log_probs=forward_logprob,
+            old_log_probs=old_logprobs,
+            advantages=advantages,
+            diff_clip_ratio=module_args.diff_clip_ratio,
+            pos_clip_ratio=module_args.pos_clip_ratio,
+            neg_clip_ratio=module_args.neg_clip_ratio,
+            final_clip_ratio=module_args.final_clip_ratio
+        )
+
+    entropy_loss = entropy_from_tensor_parallel_logits(all_token_logits).permute(1, 0)
+
+    entropy_loss = reduce_from_context_parallel_region(entropy_loss, module_args.packing, training_inputs)
+
+    kl = ref_logprobs - forward_logprob
+    ratio = torch.exp(kl)
+    ratio[~training_inputs['all_token_loss_mask'].bool()] = 1
+    assert not torch.isinf(ratio).any(), "kl loss ratio has inf values"
+    assert not torch.isnan(ratio).any(), "kl loss ratio has nan values"
+    kld = (ratio - kl - 1).contiguous()
+    kl_loss = torch.clamp(kld, min=-10, max=10)
+
+    if module_args.use_group_sequence_policy:
+        return {
+            'pg_loss': pg_loss,
+            'entropy_loss': entropy_loss,
+            'kl_loss': kl_loss,
+            'is_positive_clipped': is_positive_clipped,
+            'is_negative_clipped': is_negative_clipped,
+            'is_clipped': is_clipped,
+            'is_positive_clipped_sample_average': is_positive_clipped,
+            'is_negative_clipped_sample_average': is_negative_clipped,
+            'is_clipped_sample_average': is_clipped,
+        }
+    else:
+        return {
+            'pg_loss': pg_loss,
+            'entropy_loss': entropy_loss,
+            'kl_loss': kl_loss
+        }
+
+
+def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: bool=False, module_args = None):
     """Forward step."""
 
     inputs = get_batch(
@@ -475,16 +560,16 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
     kwargs = {
         'input_ids': inputs["all_tokens"],
         'position_ids': inputs["all_token_position_ids"],
-        'labels': inputs["labels"],
-        'training_inputs': inputs if is_training else None,
+        'labels': None,
         'packed_seq_params': inputs['packed_seq_params'] if is_packing else None
     }
 
     if 'pixel_values' in inputs:
         kwargs.update({
-            'pixel_values': inputs["pixel_values"],
-            'image_grid_thw': inputs["image_grid_thw"],
-            'image_input_mask': inputs["image_input_mask"]
+            'vision_data': inputs["pixel_values"],
+            'vision_grid_thw': inputs["image_grid_thw"],
+            'image_input_mask': inputs["image_input_mask"],
+            'video_start_index': inputs["image_input_mask"].sum().cpu().item()
         })
     else:
         kwargs.update({
@@ -493,6 +578,21 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
 
     output_tensor = model(**kwargs)
 
+    if is_training:
+        output_tensor = _compute_all_losses(
+            module_args=module_args,
+            model=model,
+            all_token_logits=output_tensor.transpose(0, 1).contiguous(),
+            labels=inputs['labels'],
+            training_inputs=inputs
+        )
+    else:
+        output_tensor = unwrap_model(model).compute_language_model_loss(
+            inputs["labels"],
+            output_tensor.transpose(
+                0, 1
+            ).contiguous(),  # [b s h] => [s b h]
+        )
 
     if is_training:
         wrapped_loss_func = partial(loss_func, inputs)
