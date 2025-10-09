@@ -560,7 +560,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
     kwargs = {
         'input_ids': inputs["all_tokens"],
         'position_ids': inputs["all_token_position_ids"],
-        'labels': None,
+        'labels': inputs["labels"] if not is_training else None,
         'packed_seq_params': inputs['packed_seq_params'] if is_packing else None
     }
 
@@ -576,34 +576,29 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
             'attention_mask': inputs["all_token_attention_mask"]
         })
 
+    # NOTE: 
+    # 1) when post_process is False, model returns hidden states
+    # 2) when post_process is True:
+    #   1) if is_training is False, model returns logprobs
+    #   2) otherwise, model returns logits and loss should be computed by `_compute_all_losses`
     output_tensor = model(**kwargs)
 
-    if is_training:
-        output_tensor = _compute_all_losses(
-            module_args=module_args,
-            model=model,
-            all_token_logits=output_tensor.transpose(0, 1).contiguous(),
-            labels=inputs['labels'],
-            training_inputs=inputs
-        )
-    else:
-        output_tensor = unwrap_model(model).compute_language_model_loss(
-            inputs["labels"],
-            output_tensor.transpose(
-                0, 1
-            ).contiguous(),  # [b s h] => [s b h]
-        )
-
-    if is_training:
-        wrapped_loss_func = partial(loss_func, inputs)
-
-    else:
-        if unwrap_model(model).post_process:
+    if unwrap_model(model).post_process:
+        if is_training:
+            output_tensor = _compute_all_losses(
+                module_args=module_args,
+                model=model,
+                all_token_logits=output_tensor.transpose(0, 1).contiguous(),
+                labels=inputs['labels'],
+                training_inputs=inputs
+            )
+        else:
             output_tensor = reduce_from_context_parallel_region(output_tensor, is_packing, inputs)
 
-        # NOTE: just returns the output tensor (the first argument).
-        wrapped_loss_func = lambda x, **_: x # pylint: disable=unnecessary-lambda-assignment
-
+    # NOTE: just returns the output tensor (the first argument).
+    wrapped_loss_func = lambda x, **_: x # pylint: disable=unnecessary-lambda-assignment
+    if is_training:
+        wrapped_loss_func = partial(loss_func, inputs)
     return output_tensor, wrapped_loss_func
 
 class _VocabParallelEntropy(torch.autograd.Function):
