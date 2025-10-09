@@ -10,7 +10,7 @@ export VLLM_USE_RAY_COMPILED_DAG=1
 
 export CHATLEARN=$(pwd)
 export MEGATRON_PATH=${CHATLEARN}/../Pai-Megatron-Patch/backends/megatron/Megatron-LM-250624
-export MEGATRON_PATCH_PATH=${CHATLEARN}/../Pai-Megatron-Patch
+export MEGATRON_PATCH_PATH=${CHATLEARN}/../Pai-Megatron-Patch:${CHATLEARN}/../Pai-Megatron-Patch/examples
 export PYTHONPATH=${CHATLEARN}:${MEGATRON_PATCH_PATH}:${MEGATRON_PATH}:${PYTHONPATH}
 
 source scripts/base_env.sh
@@ -43,6 +43,7 @@ python chatlearn/entrypoint.py grpo --config-file template/grpo_megatron.yaml \
         runtime_args.eval_episode_interval=1 \
         runtime_args.enable_eval_before_training=True \
         runtime_args.model_type=vlm \
+        models.policy_trainer.model_provider_module=qwen2_5_vl.pretrain_qwen \
         models.policy_trainer.num_gpu=${num_device} \
         models.policy_trainer.packing=False \
         models.policy_trainer.max_token_in_packing=8192 \

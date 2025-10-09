@@ -18,7 +18,7 @@ from functools import partial
 import itertools
 from typing import List, Dict, Any
 from collections import defaultdict
-from importlib import import_module
+import importlib
 
 import torch
 from megatron.core import mpu
@@ -66,9 +66,9 @@ class MegatronPolicyTrainer(MegatronModule):
         self._metric_prefix = "policy_trainer"
 
         try:
-            module = import_module(self.module_args.model_provider_module)
+            module = importlib.import_module(self.module_args.model_provider_module)
         except ImportError as e:
-            raise ImportError(f"Failed to import {self.module_args.model_provider_module} in current PYTHONPATH, get error: {e.msg}")
+            raise ImportError(f"Failed to import {self.module_args.model_provider_module} in current PYTHONPATH, get error: {e.msg} {importlib.import_module('examples').__file__}")
 
         # module should has attr model_provider
         if not hasattr(module, 'model_provider'):

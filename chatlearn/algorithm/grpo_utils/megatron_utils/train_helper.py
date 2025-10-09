@@ -479,7 +479,7 @@ def _compute_all_losses(
         
         """
         forward_logprob = (
-            model.compute_language_model_loss(labels, all_token_logits) * -1
+            unwrap_model(model).compute_language_model_loss(labels, all_token_logits) * -1
         )
 
         forward_logprob = reduce_from_context_parallel_region(forward_logprob, module_args.packing, training_inputs)
@@ -560,17 +560,16 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
     kwargs = {
         'input_ids': inputs["all_tokens"],
         'position_ids': inputs["all_token_position_ids"],
-        # 'labels': inputs["labels"],
         'labels': None,
-        'training_inputs': inputs if is_training else None,
         'packed_seq_params': inputs['packed_seq_params'] if is_packing else None
     }
 
     if 'pixel_values' in inputs:
         kwargs.update({
-            'pixel_values': inputs["pixel_values"],
-            'image_grid_thw': inputs["image_grid_thw"],
-            'image_input_mask': inputs["image_input_mask"]
+            'vision_data': inputs["pixel_values"],
+            'vision_grid_thw': inputs["image_grid_thw"],
+            'image_input_mask': inputs["image_input_mask"],
+            'video_start_index': inputs["image_input_mask"].sum().cpu().item()
         })
     else:
         kwargs.update({
@@ -588,7 +587,7 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
             training_inputs=inputs
         )
     else:
-        output_tensor = model.compute_language_model_loss(
+        output_tensor = unwrap_model(model).compute_language_model_loss(
             inputs["labels"],
             output_tensor.transpose(
                 0, 1
