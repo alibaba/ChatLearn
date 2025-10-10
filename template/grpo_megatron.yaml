@@ -62,6 +62,7 @@ models:
     virtual_pipeline_model_parallel_size: null
     decoder_first_pipeline_num_layers: null
     decoder_last_pipeline_num_layers: null
+    pipeline_model_parallel_layout: null
     moe_router_force_load_balancing: False
     # train config
     load: your_megatron_model_path
@@ -70,6 +71,8 @@ models:
     recompute_granularity: null
     recompute_method: null
     recompute_num_layers: null
+    recompute_modules: null
+    empty_unused_memory_level: 0
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
@@ -95,6 +98,7 @@ models:
     context_parallel_size: ${models.policy_trainer.context_parallel_size}
     decoder_first_pipeline_num_layers: ${models.policy_trainer.decoder_first_pipeline_num_layers}
     decoder_last_pipeline_num_layers: ${models.policy_trainer.decoder_last_pipeline_num_layers}
+    pipeline_model_parallel_layout: ${models.policy_trainer.pipeline_model_parallel_layout}
     moe_router_force_load_balancing: ${models.policy_trainer.moe_router_force_load_balancing}
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}

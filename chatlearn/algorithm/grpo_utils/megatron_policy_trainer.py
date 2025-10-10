@@ -186,6 +186,7 @@ class MegatronPolicyTrainer(MegatronModule):
 
         # Empty unused memory.
         if args.empty_unused_memory_level >= 2:
+            print(f"empty unused memory level is 2 in train step")
             torch.cuda.empty_cache()
 
         # NOTE: per-token-average metrics, besides loss_per_microbatch,
@@ -288,7 +289,6 @@ class MegatronPolicyTrainer(MegatronModule):
             microbatch_list = split_microbatch(data_list=data, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)
 
         data_list = [batching(data_b) for data_b in microbatch_list]
-
         num_microbatches = len(data_list)
         data_iter = iter(data_list)
         # NOTE: internal computation
