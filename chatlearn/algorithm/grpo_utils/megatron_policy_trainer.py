@@ -540,9 +540,6 @@ class MegatronPolicyTrainer(MegatronModule):
             collect_non_loss_data=True,  # set True to hack the forward_step_func
         )  # shape: [num_microbatches, *]
 
-        if args.empty_unused_memory_level >= 2:
-            print(f"empty unused memory level is 2 in forward step")
-            torch.cuda.empty_cache()
         for model_chunk in self.model:
             model_chunk.train()
         if not mpu.is_pipeline_last_stage():

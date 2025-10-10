@@ -29,6 +29,8 @@ pip install transformer_engine-2.7.0-cp312-cp312-linux_x86_64.whl --no-cache-dir
 #升级CUDNN，用以解决MLA模型训练时出现的问题
 pip install -U nvidia-cudnn-cu12==9.8.0.87 -i http://mirrors.cloud.aliyuncs.com/pypi/simple --trusted-host mirrors.cloud.aliyuncs.com
 
+#我们也提供了预先构建好的镜像协助您快速测试
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.6.0-vllm0.8.5-te2.7-ubuntu24.04-cuda12.6-py312
 ```
 ## 代码准备
 
