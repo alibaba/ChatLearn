@@ -146,7 +146,7 @@ class MegatronPolicyTrainer(MegatronModule):
                     device_ids=[int(os.environ.get("LOCAL_RANK", 0))]
                 )
 
-    def model_provider(self, pre_process=True, post_process=True) -> GPTPolicyModel:
+    def model_provider(self, pre_process=True, post_process=True, vp_stage: Optional[int] = None) -> GPTPolicyModel:
         from megatron.core.models.gpt.gpt_layer_specs import get_gpt_layer_with_transformer_engine_spec
 
         args = get_args()
@@ -194,6 +194,8 @@ class MegatronPolicyTrainer(MegatronModule):
                     config,
                     use_transformer_engine=use_te,
                     normalization=args.normalization,
+                    qk_l2_norm=args.qk_l2_norm,
+                    vp_stage=vp_stage
                 )
             else:
                 # Define the decoder layer spec
@@ -217,7 +219,7 @@ class MegatronPolicyTrainer(MegatronModule):
         mtp_block_spec = None
         if args.mtp_num_layers is not None:
             mtp_block_spec = get_gpt_mtp_block_spec(
-                config, transformer_layer_spec, use_transformer_engine=use_te
+                config, transformer_layer_spec, use_transformer_engine=use_te, vp_stage=vp_stage
             )
 
         build_model_context = nullcontext
@@ -256,6 +258,7 @@ class MegatronPolicyTrainer(MegatronModule):
                 rotary_base=args.rotary_base,
                 rope_scaling=args.use_rope_scaling,
                 mtp_block_spec=mtp_block_spec,
+                vp_stage=vp_stage,
                 module_args=self.module_args
             )
 
@@ -409,6 +412,7 @@ class MegatronPolicyTrainer(MegatronModule):
 
         # Empty unused memory.
         if args.empty_unused_memory_level >= 2:
+            print(f"empty unused memory level is 2 in train step")
             torch.cuda.empty_cache()
 
         # NOTE: per-token-average metrics, besides loss_per_microbatch,
@@ -511,7 +515,6 @@ class MegatronPolicyTrainer(MegatronModule):
             microbatch_list = split_microbatch(data_list=data, micro_batch_size=args.micro_batch_size, packing=self.module_args.packing)
 
         data_list = [batching(data_b) for data_b in microbatch_list]
-
         num_microbatches = len(data_list)
         data_iter = iter(data_list)
         # NOTE: internal computation

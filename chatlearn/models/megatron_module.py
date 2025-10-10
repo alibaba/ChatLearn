@@ -103,7 +103,6 @@ if IS_MEGATRON_SUPPORTED:
 
             assert not (self.module_args.packing and self.runtime_args.model_type == 'vlm'), \
                 "We do not support megatron for vl training with packing. Please set packing to False or use fsdp to train vl model."
-
             set_megatron_cfg(self.module_args)
             # settings for mcore parameters micro_batch_size and global_batch_size by chatlearn args
             args.micro_batch_size = self.runtime_args.train_micro_batch_size

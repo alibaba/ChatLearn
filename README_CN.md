@@ -24,6 +24,7 @@
 ---
 
 *最新进展* 🔥
+- [2025/10] 通过上下文并行(Context Parallel)与序列打包(Sequence Packing)提升Moonlight/DeepSeek-V3等MLA模型的强化学习训练稳定性和效率[文档](https://github.com/alibaba/ChatLearn/blob/main/docs/zh/tutorial/tutorial_grpo_mcore_moonlight_and_deepseek.md)🔥
 - [2025/9] 支持Agentic任务强化学习训练[文档](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_sglang_agent.md)🔥
 - [2025/9] 支持VL任务强化学习训练[文档](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_qwenvl.md)🔥
 - [2025/8] 支持基于[Mcore](scripts/mcore_vllm/train_mcore_vllm_qwen3_30b_gspo.sh)的GSPO强化学习训练!🔥
