@@ -122,7 +122,7 @@ cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
 After addressing training instability issues, validation metrics continue to improve without collapse (as shown in gray curve below):
 <p align="center">
   <picture>
-    <img alt="ChatLearn" src="docs/images/moonlight.png" width=30%>
+    <img alt="ChatLearn" src="../../images/moonlight.png" width=30%>
   </picture>
 </p>
 
@@ -130,7 +130,7 @@ After addressing training instability issues, validation metrics continue to imp
 Equivalence testing between context_parallel_size >1 and context_parallel_size=1 passes verification:
 <p align="center">
   <picture>
-    <img alt="ChatLearn" src="docs/images/cp1cp2.png" width=30%>
+    <img alt="ChatLearn" src="../../images/cp1cp2.png" width=30%>
   </picture>
 </p>
 
@@ -138,7 +138,7 @@ Equivalence testing between context_parallel_size >1 and context_parallel_size=1
 Validation metrics for DeepSeek-V3-671B are shown below:
 <p align="center">
   <picture>
-    <img alt="ChatLearn" src="docs/images/dsv3.png" width=30%>
+    <img alt="ChatLearn" src="../../images/dsv3.png" width=30%>
   </picture>
 </p>
 
