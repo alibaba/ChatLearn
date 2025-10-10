@@ -146,4 +146,3 @@ def regroup_data_packing(
             packed_sample.update({'id_in_list': sample_id + offset})
             regroup_data_list[-1].append(packed_sample)
     return regroup_data_list
-    

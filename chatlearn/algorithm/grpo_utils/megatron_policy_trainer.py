@@ -365,8 +365,6 @@ class MegatronPolicyTrainer(MegatronModule):
         data_list = [batching(data_b) for data_b in microbatch_list]
 
         num_microbatches = len(data_list)
-        #single_iter = iter(data_list)
-        #data_iterator = [single_iter for _ in range(len(self.model)) ]
         data_iterator = iter(data_list)
 
         self.optimizer.zero_grad()
@@ -518,8 +516,6 @@ class MegatronPolicyTrainer(MegatronModule):
 
         data_list = [batching(data_b) for data_b in microbatch_list]
         num_microbatches = len(data_list)
-        #single_iter = iter(data_list)
-        #data_iter = [single_iter for _ in range(len(self.model)) ]
         data_iter = iter(data_list)
         # NOTE: internal computation
         args = get_args()
