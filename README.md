@@ -25,6 +25,7 @@ A flexible and efficient reinforcement learning framework for large language mod
 ---
 
 *Latest News* 🔥
+- [2025/10] Improve MLA models such as Moonlight/DeepSeek-V3 RL Training Stability and Efficiency with Context Parallel and Sequence Packing. [documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_mcore_moonlight_and_deepseek.md) 🔥
 - [2025/9] Support for Agentic RL tasks. [documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_sglang_agent.md) 🔥
 - [2025/9] Support for Vision-Language model RL tasks. [documentation](https://github.com/alibaba/ChatLearn/blob/main/docs/en/tutorial/tutorial_grpo_fsdp_qwenvl.md) 🔥
 - [2025/8] We support GSPO on [Mcore](scripts/mcore_vllm/train_mcore_vllm_qwen3_30b_gspo.sh)! 🔥
