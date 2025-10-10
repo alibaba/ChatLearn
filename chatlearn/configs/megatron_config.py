@@ -256,6 +256,11 @@ class MegatronModelArchitectureConfig(BaseConfig):
 @dataclass
 class MegatronConfig(BaseConfig):
     """configs for megatron model"""
+    model_provider_module: str = field(
+        default='pretrain_gpt', metadata={
+            "help": "A module with a model_provider() that could be imported in the current PYTHONPATH to build mcore model"
+        }
+    )
     # NOTE: model parallel config
     tensor_model_parallel_size: int = field(
         default=1, metadata={"help": "tensor model parallel size"}
