@@ -25,6 +25,8 @@ import copy
 from contextlib import closing
 from types import SimpleNamespace
 from typing import Dict, List, Union, Any
+import itertools
+
 
 import pynvml
 import numpy as np
@@ -317,7 +319,7 @@ def slice_by_index_along_batch(batched_input: Dict[str, Union[torch.Tensor, List
             batched[key] = batched_input[key][start::offset]
     return batched
 
-def even_slice(total_sample:int, total_slice:int):
+def even_slice(total_sample:int, total_slice:int, mode='even'):
     slice_size = total_sample // total_slice
     reminder = total_sample % total_slice
     slice_index = []
@@ -325,6 +327,11 @@ def even_slice(total_sample:int, total_slice:int):
         slice_index.append(i * slice_size + min(i, reminder))
     slice_index.append(total_sample)
     return slice_index
+
+def rearrange_zigzag(data, chunk_size):
+    chunks = [data[i::chunk_size] for i in range(chunk_size)]
+    merged = list(itertools.chain.from_iterable(chunks))
+    return merged
 
 def slice_data_list_by_index(batched_input: List[Dict[str, Any]], index):
     """

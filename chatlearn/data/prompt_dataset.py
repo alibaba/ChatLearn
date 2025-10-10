@@ -1,6 +1,6 @@
 """prompt dataset"""
 
-from typing import List, Dict
+from typing import List, Dict, Union
 
 from torch.utils.data import Dataset
 from transformers import AutoTokenizer
@@ -35,13 +35,15 @@ class PromptPipeline(Dataset):
         self,
         data_list: List[Dict],
         max_prompt_tokens_length: int,
-        tokenizer: AutoTokenizer = None,
+        tokenizer: Union[AutoTokenizer, str] = None,
         enable_thinking=False,
         raw_chat=True,
     ):  # pylint: disable=super-init-not-called
         super().__init__()
-
-        self.tokenizer = tokenizer
+        if isinstance(tokenizer, str):
+            self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+        else:
+            self.tokenizer = tokenizer
         self.data = []
         self.max_prompt = 0
         for data_item in data_list:

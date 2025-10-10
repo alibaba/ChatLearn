@@ -32,6 +32,7 @@ from chatlearn.algorithm.base_algo import BaseAlgorithm
 #  "engine_name": ("module_path", "algo_class_name", "config_class")
 ALGO_REGISTRY: Dict[str, Tuple[str, str, str]] = {
     "grpo": ("algorithm.grpo", "GrpoAlgorithm", "GrpoConfig"),
+    "new_grpo": ("algorithm.new_grpo", "GrpoAlgorithm", "GrpoConfig"),
 }
 
 class ChatlearnLauncher:

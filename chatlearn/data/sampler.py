@@ -361,3 +361,144 @@ class MultiDatasetSampler:
                     batch_idxes = self.repeat(batch_idxes, interleave=not self.data_rerank)
                     batch_idxes = batch_idxes[start : end]
                 yield batch_idxes
+
+
+class RLHFSingleSampler_Simple:
+    """RLHF sampler for a dataset.
+    """
+
+    def __init__(
+        self,
+        total_samples,
+        consumed_samples,
+        shuffle=True,
+        seed=0):
+        
+        self.shuffle = shuffle
+        self.seed = seed
+        self.total_samples = total_samples
+        self.consumed_samples = consumed_samples
+
+        self.offset = consumed_samples % self.total_samples
+        self.curr_epoch = consumed_samples // self.total_samples
+        self.update_random_idxs()
+
+    def update_random_idxs(self):
+        if self.shuffle:
+            g = torch.Generator()
+            g.manual_seed(self.curr_epoch + self.seed)
+            self.random_idx = torch.randperm(self.total_samples, generator=g).tolist()
+        else:
+            self.random_idx = list(range(self.total_samples))
+
+    def get_next(self, num):
+        batch = []
+        while num >= self.total_samples - self.offset:
+            batch.extend(self.random_idx[self.offset : self.total_samples])
+            num -= (self.total_samples - self.offset)
+            self.offset = 0
+            self.curr_epoch += 1
+            self.update_random_idxs()
+
+        batch.extend(self.random_idx[self.offset : self.offset + num])
+        self.offset = self.offset + num
+        return batch
+
+class MultiDatasetSampler_Simple:
+    """RLHF sampler for multiple datasets.
+    """
+    def __init__(
+        self,
+        dataset_sizes,
+        sample_per_episode,
+        consumed_samples=0,
+        num_inference_per_prompt=1,
+        shuffle=True,
+        seed=None,
+        is_eval=False,
+        data_rerank=False
+    ):
+        """
+        drop_last:
+            "drop": drop last
+            "retain": return remaining samples
+            "cycle": loop back to the beginning
+        """
+        self.dataset_sizes = dataset_sizes
+        self.dataset_num = len(dataset_sizes)
+        self.sample_per_episode = sample_per_episode
+        self.consumed_samples = consumed_samples
+        self.is_eval = is_eval
+        self.num_inference_per_prompt = num_inference_per_prompt
+        self.shuffle = shuffle
+        self.seeds = [0] * self.dataset_num if seed is None else [seed] * self.dataset_num
+        self.drop_last = "cycle"
+        self.data_rerank = data_rerank
+        self.dataset_remains = dataset_sizes[:]
+
+        assert self.consumed_samples % self.num_inference_per_prompt == 0, "consumed samples must be integer multiple of num_inference_per_prompt"
+
+        # need list[int] in length self.dataset_num
+        if not self.is_eval:
+            # [] or None
+            # rewrite data_ratio
+            consumed_each = 0
+            #consumed_each, self.dataset_remains = self.cal_consumed_each(self.consumed_samples // self.num_inference_per_prompt, self.data_ratio)
+            self.samplers = [
+                RLHFSingleSampler_Simple(
+                    self.dataset_sizes[i],
+                    consumed_each,
+                    shuffle=self.shuffle,
+                    seed=self.seeds[i],
+                )
+                for i in range(self.dataset_num)
+            ]
+
+    # TODO: rewrite this part
+    # def cal_consumed_each(self, consumed_samples, data_ratio):
+    #     multiples = consumed_samples // sum(data_ratio)
+    #     consumed_each = [r * multiples for r in data_ratio]
+    #     remains = consumed_samples % sum(data_ratio)
+    #     i = 0
+    #     dataset_remains = data_ratio[:]
+    #     while remains != 0:
+    #         if i == 0:
+    #             dataset_remains = data_ratio[:]
+    #         dataset_remains[i] -= min(remains, data_ratio[i])
+    #         consumed_each[i] += min(remains, data_ratio[i])
+    #         remains -= min(remains, data_ratio[i])
+    #         i = (i + 1) % self.dataset_num
+
+    #     return consumed_each, dataset_remains
+
+    def repeat(self, data, interleave=False):
+        if interleave:
+            res = []
+            for d in data:
+                res.extend([d] * self.num_inference_per_prompt)
+            return res
+        else:
+            return data * self.num_inference_per_prompt
+
+    def __iter__(self):
+        if self.is_eval:
+            idxes = []
+            datasize = sum(self.dataset_sizes)
+            for dataset_idx, dataset_size in enumerate(self.dataset_sizes):
+                idxes.extend([(dataset_idx, j, (len(idxes) + j)) for j in range(dataset_size)])
+            yield idxes
+        else:
+            num_samples = self.sample_per_episode // self.num_inference_per_prompt
+            while True:
+                batch_idxes = []
+                dataset_id = 0
+                while len(batch_idxes) != num_samples:
+                    data_num = min(self.dataset_remains[dataset_id], num_samples - len(batch_idxes))
+                    self.dataset_remains[dataset_id] -= data_num
+                    batch = self.samplers[dataset_id].get_next(data_num)
+                    batch_idxes.extend([(dataset_id, batch[i], (len(batch_idxes) + i)) for i in range(data_num)])
+                    dataset_id = (dataset_id + 1) % self.dataset_num
+                    if self.dataset_remains == [0] * self.dataset_num:
+                        self.dataset_remains = self.data_ratio[:]
+                batch_idxes = self.repeat(batch_idxes, interleave=not self.data_rerank)
+                yield batch_idxes

@@ -146,3 +146,43 @@ def regroup_data_packing(
             packed_sample.update({'id_in_list': sample_id + offset})
             regroup_data_list[-1].append(packed_sample)
     return regroup_data_list
+
+def regroup_data_packing_simple(
+    data_list: List[Dict[str, Union[torch.Tensor, List[Any]]]],
+    dividor: int,
+    max_train_token: int,
+    offset: int
+) -> List[Dict[str, Union[torch.Tensor, List[Any]]]]:
+    """Automatically split a list of data into serveral micro-batches according to
+    `max_train_token`, used for dynamic-batching. Note that the data in each batch
+    is still not merged into one packed sample.
+
+    Args:
+        data_list (List[Dict[str, Union[torch.Tensor, List[Any]]]]): A list of 
+        PRE-BATCHED data to be regrouped.
+        max_train_token (int): The maximum token num in each batch.
+    
+    Returns:
+        a list of micro-batches. Each micro-batch is a list of samples without batching.
+    """
+    # data_b should contain all data in one microbatch
+    regroup_data_list = []
+    # Get train tokens for whole minibatch
+    total_token_length = [
+        data_b["prompt_token_length"] + data_b["response_token_length"]
+        for data_b in data_list
+    ]
+    # Get bin_packing result
+    bins_id, _ = bin_packing(seq_len_list=total_token_length, max_train_token=max_train_token)
+    bin_size = len(bins_id)
+    bin_size = (bin_size // dividor + 1) * dividor
+
+    bins_id, _ = bin_packing_fix_bin(seq_len_list=total_token_length, bin_size=bin_size)
+    # Prepare train data for each micro batch
+    for micro_batch_id in bins_id:
+        regroup_data_list.append([])
+        for sample_id in micro_batch_id:
+            packed_sample = data_list[sample_id]
+            packed_sample.update({'id_in_list': sample_id + offset})
+            regroup_data_list[-1].append(packed_sample)
+    return regroup_data_list

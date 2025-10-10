@@ -170,6 +170,84 @@ class PolicyTrainer(FSDPModule):
             data_after_process.append(data_obj)
         return response_token_length_total, data_after_process
 
+
+    def preprocess_data_list_simple(self, data_b: List[Dict[str, Any]], training: bool):
+        # Batching
+        data_b = batching(data_b)
+
+        data_obj = {}
+        tokens_ = data_b["all_tokens"].long()
+        prompt_token_length = data_b["prompt_token_length"]
+        response_token_length = data_b["response_token_length"]
+
+        # for vl
+        position_ids = data_b.get("position_ids", None)
+        rope_deltas = data_b.get("rope_deltas", None)
+        pixel_values = data_b.get("pixel_values", None)
+        image_grid_thw = data_b.get("image_grid_thw", None)
+
+        ori_batch_size, ori_seq_len = tokens_.size()
+        attn_mask, loss_mask, position_ids = generate_loss_mask_position_ids(tokens_, prompt_token_length, response_token_length, position_ids)
+        if 'loss_mask' in data_b:
+            loss_mask = data_b['loss_mask']
+
+        indices = None
+        if self.packing:
+            # Packing data into one batch
+            tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
+            tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
+            position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
+            if self.runtime_args.model_type == 'vlm':
+                # vl
+                position_ids = position_ids.permute(0, 2, 1).cpu()
+            else:
+                position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
+
+        if self.sp_size > 1:
+            # Pad inputs to ensure seq_len is divisible by sp_size
+            tokens, labels, position_ids, pad_size = self.split_and_padding(tokens_, position_ids)
+        else:
+            pad_size = 0
+            tokens = tokens_
+            labels = torch.roll(tokens, shifts=-1, dims=1)
+
+        data_obj.update(
+            {
+                "all_tokens": tokens,
+                "position_ids": position_ids,
+                "labels": labels,
+                "ori_seq_len": ori_seq_len,
+                "indices": indices,
+                "ori_batch_size": ori_batch_size,
+                "sample_ids": data_b["id_in_list"],
+                "attention_mask": attn_mask,
+                "pad_size": pad_size,
+            }
+        )
+
+        if self.runtime_args.model_type == 'vlm':
+            data_obj.update(
+                {
+                    "pixel_values": pixel_values, # [token_length, token_num]
+                    "image_grid_thw": image_grid_thw, # [batch_size, 3]
+                    "rope_deltas": rope_deltas # [batch_size, 1]
+                }
+            )
+
+        if training:
+            loss_mask = torch.roll(loss_mask, shifts=-1, dims=1)
+            # The last token should always be masket out
+            loss_mask[:, -1] = 0
+            data_obj.update(
+                {
+                    "loss_mask": loss_mask,
+                    "old_logprobs": data_b["old_logprobs"],
+                    "ref_logprobs": data_b["ref_logprobs"],
+                    "advantages": data_b["advantages"]
+                }
+            )
+        return data_obj
+
     @monitor_error()
     @compute_decorator(trainable=True, rollout=False)
     @timeit()
@@ -183,10 +261,11 @@ class PolicyTrainer(FSDPModule):
         entropy_loss_list = []
         kl_loss_list = []
         sp_group = get_sp_parallel_group()
+        response_token_length_total = torch.tensor(sum(data["response_token_length"] for microbatch in data_list for data in microbatch)).cuda() / self.sp_size
+        dist.all_reduce(response_token_length_total, op=dist.ReduceOp.SUM)
 
-        response_token_length_total, data_list = self.preprocess_data_list(data_list=data_list, training=True)
-
-        for inputs in data_list:
+        for microbsz in data_list:
+            inputs = self.preprocess_data_list_simple(microbsz, True)
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             if self.runtime_args.model_type == 'vlm':
@@ -296,15 +375,17 @@ class PolicyTrainer(FSDPModule):
             "grad_norm": grad_norm,
         }
         self._metric_list.append(train_stats)
+        return True
 
     @monitor_error()
     @compute_decorator(trainable=False, rollout=False)
     @timeit()
     def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument,arguments-differ
-        _, data_list = self.preprocess_data_list(data_list=data, training=False)
+        # _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = "old_logprobs" if self.trainable else "ref_logprobs"
         # Logprobs holder
-        for inputs in data_list:
+        for micro_idx, microbsz in enumerate(data):
+            inputs = self.preprocess_data_list_simple(microbsz, False)
             for k, v in inputs.items():
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
@@ -344,7 +425,7 @@ class PolicyTrainer(FSDPModule):
                     logprobs = F.pad(logprobs, (0, inputs['ori_seq_len'] - logprobs_len), mode='constant', value=0)
             # Turn logprobs tensor into list of tensors
             logprobs_tensor_list = split_and_unpadding(logprobs, inputs['attention_mask'])
-            for sample_id, logprob in zip(inputs['sample_ids'], logprobs_tensor_list):
-                data[sample_id].update({tag: logprob})
+            for sample_id, logprob in zip(range(len(microbsz)), logprobs_tensor_list):
+                data[micro_idx][sample_id].update({tag: logprob})
 
         return data

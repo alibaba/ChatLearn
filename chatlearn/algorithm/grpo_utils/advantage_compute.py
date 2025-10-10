@@ -12,7 +12,7 @@ class AdvantageComputer:
         self.num_inference_per_prompt = num_inference_per_prompt
 
     def __call__(self, episode_replay_buffers: List[Dict[str, Any]]):
-        buffers = episode_replay_buffers[-1].buffer
+        buffers = episode_replay_buffers
         # Update buffer first
         for s in buffers:
             sample_id = s['prompt_uid']
