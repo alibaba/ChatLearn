@@ -122,15 +122,26 @@ cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
 ```
 
 在解决了一些训练不稳定的问题后，验证集升的评估指标仍然有提升，而不会出现如下图灰色曲线所示的坍塌的现象。
-<img width="1192" height="1020" alt="image" src="https://github.com/user-attachments/assets/ac2ec9aa-0901-4d52-804f-98d6ef8eaf47" />
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="docs/images/moonlight.png" width=30%>
+  </picture>
+</p>
 
 另外context parallel size 大于 1和context parallel size 等于1的等价性测试也通过，如下图所示
-<img width="1170" height="1018" alt="image" src="https://github.com/user-attachments/assets/f92418dc-acf2-4fcc-a16a-d171c8479370" />
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="docs/images/cp1cp2.png" width=30%>
+  </picture>
+</p>
 
 ## DeepSeek-R1强化学习训练以及训练稳定性指引
 与此同时，我们也测试了DeepSeek-V3-671B在验证集上的评估指标情况，如下图所示：
-<img width="1152" height="950" alt="image" src="https://github.com/user-attachments/assets/39bcba33-216e-4e0e-91af-0ae317db089f" />
-
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="docs/images/dsv3.png" width=30%>
+  </picture>
+</p>
 
 ## 使用 Wandb 监控
 如需使用 Wandb 记录训练过程，请参考其他最佳实践进行修改。

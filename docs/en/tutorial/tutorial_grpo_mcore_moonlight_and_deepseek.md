@@ -120,14 +120,27 @@ cfg.models.policy_trainer.megatron_model_cfg.moe_router_bias_update_rate = 0.0
 ```
 
 After addressing training instability issues, validation metrics continue to improve without collapse (as shown in gray curve below):
-<img width="1192" height="1020" alt="image" src="https://github.com/user-attachments/assets/ac2ec9aa-0901-4d52-804f-98d6ef8eaf47" />
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="docs/images/moonlight.png" width=30%>
+  </picture>
+</p>
+
 
 Equivalence testing between context_parallel_size >1 and context_parallel_size=1 passes verification:
-<img width="1170" height="1018" alt="image" src="https://github.com/user-attachments/assets/f92418dc-acf2-4fcc-a16a-d171c8479370" />
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="docs/images/cp1cp2.png" width=30%>
+  </picture>
+</p>
 
 ## DeepSeek-R1 RL Training & Stability Guidelines
 Validation metrics for DeepSeek-V3-671B are shown below:
-<img width="1152" height="950" alt="image" src="https://github.com/user-attachments/assets/39bcba33-216e-4e0e-91af-0ae317db089f" />
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="docs/images/dsv3.png" width=30%>
+  </picture>
+</p>
 
 
 ## Training Monitoring with Wandb
