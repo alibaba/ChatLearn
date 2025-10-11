@@ -15,31 +15,16 @@
 """Model FLow"""
 
 from collections import defaultdict, deque
-from typing import List, Callable, Dict
+from typing import List, Callable, Dict, Optional
 
 from chatlearn.utils import future
 from chatlearn.utils.global_vars import unwrap_func
-from chatlearn.utils.global_vars import reset_dependencies, set_dependencies, get_dependencies
 from chatlearn.utils.utils import flatten
 from chatlearn.runtime.dist_actor import DistModel
 from chatlearn.models.base_module import BaseModule
 from .decorator import decorate_class_func
 
-
-class ControlDependencies:
-    """ControlDependencies"""
-
-    def __init__(self, dependencies):
-        if not isinstance(dependencies, list):
-            dependencies = [dependencies]
-        self.dependencies = dependencies
-
-    def __enter__(self):
-        set_dependencies(self.dependencies)
-        return self
-
-    def __exit__(self, exc_type, exc_value, traceback):
-        reset_dependencies()
+from ray.util.queue import Queue
 
 
 class DummyData:
@@ -60,9 +45,9 @@ class ModelNode:
         self.input_nodes = []
         self.output_nodes = []
         self.out_queues = None
-        self._input_queue = None
+        self._input_queue: Queue = None
         # next colocate model node to execute
-        self.next_colocate_node = None
+        self.next_colocate_node: Optional[ModelNode] = None
         # model to wait before the execution of current model
         self.models_to_wait = []
         # remote objects to wait before the execution of current model
@@ -85,15 +70,17 @@ class ModelNode:
     def set_input_queue(self, queue):
         self._input_queue = queue
 
-    def get_input_queues(self):
+    def get_input_queues(self) -> List[Queue]:
+        """
+        Get all input queues of this model node. len(self.input_nodes) + 1 or 
+        len(self.input_nodes) queues in total.
+        """
         input_queues = []
         if self._input_queue is not None:
             input_queues.append(self._input_queue)
         for input_model_node in self.input_nodes:
             out_index = input_model_node.output_nodes.index(self)
             input_queues.append(input_model_node.out_queues[out_index])
-        if len(input_queues) == 1:
-            return input_queues[0]
         return input_queues
 
     def _find_all_parents(self, model, prev_models_results):
@@ -152,11 +139,11 @@ class ModelFlow:
         self.input_consumers = []
 
     def fake_compute(self, fn):
-        def inner(*args):
+        def inner(*args): #! self, *args
             assert len(args) > 0
             original_fn = unwrap_func(fn)
             func_name = original_fn.__name__
-            model_node = ModelNode(args[0], func_name)
+            model_node = ModelNode(args[0], func_name) # args[0] == self
             dist_model = self.name2remote_model[model_node.name]
             model_node.model = dist_model
             dist_model.model_node = model_node
@@ -166,10 +153,6 @@ class ModelFlow:
                     data.to_nodes.append(model_node)
                     if data.from_node:
                         model_node.add_input_node(data.from_node)
-            dependencies = get_dependencies()
-            if dependencies is not None:
-                for dep in dependencies:
-                    dep.from_node.dependent_output_nodes.append(model_node)
             res = DummyData(model_node)
             return res
 
@@ -194,7 +177,7 @@ class ModelFlow:
 
         dummy_data = DummyData()
         assert compute_flow is not None
-        dummy_output = compute_flow(dummy_data)
+        dummy_output = compute_flow(dummy_data) # TODO: remove it? *args
         # convert decorator back
         for model in local_models:
             for func_name in self.cls.model_to_call_funcs[model]:
