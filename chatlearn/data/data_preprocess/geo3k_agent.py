@@ -49,9 +49,17 @@ if __name__ == "__main__":
     instruction_following = (
         r"You FIRST think about the reasoning process as an internal monologue and then provide the final answer. "
         r"The reasoning process MUST BE enclosed within <think> </think> tags. "
+        r"You must use the `calc_geo3k_reward` tool after step by step solving the question"
         r"The final answer MUST BE put in \boxed{}."
     )
 
+    system_prompt = (
+                    "You are a math expert. You are given a question and you need to solve it step by step. "
+                    "Reasoning step by step before any tool call. "
+                    "You should use the `calc_geo3k_reward` tool after step by step solving the question, "
+                    "before generate final answer at least once and refine your answer if necessary. "
+                    "Put your final answer within \\boxed{}."
+                )
     # add a row to each data item that represents a unique id
     def make_map_fn(split):
         def process_fn(example, idx):
@@ -62,6 +70,7 @@ if __name__ == "__main__":
             images = example.pop("images")
             # format openai style messages
             messages = [
+                {"role": "system", "content": [{"type": "text", "text": system_prompt}]},
                 {
                     "role": "user",
                     "content": [
@@ -69,11 +78,11 @@ if __name__ == "__main__":
                     ]
                 }
             ]
-            messages[0]["content"] = prepare_image_content(images)+ \
-                messages[0]["content"]
-            from qwen_vl_utils import process_vision_info
-            process_vision_info(messages)
+            messages[-1]["content"] = prepare_image_content(images)+ \
+                messages[-1]["content"]
             data = {
+                "agent_name": "geo3k_agent",
+                "agent_cfg_path": "template/agent/geo3k_eval.yaml",
                 "data_source": data_source,
                 "messages": messages,
                 "ability": "math",
@@ -96,5 +105,5 @@ if __name__ == "__main__":
     hdfs_dir = args.hdfs_dir
 
     # to_parquet may produce key: None in dict
-    train_dataset.to_parquet(os.path.join(local_dir, "train.parquet"))
-    test_dataset.to_parquet(os.path.join(local_dir, "test.parquet"))
+    train_dataset.to_parquet(os.path.join(local_dir, "train_agent.parquet"))
+    test_dataset.to_parquet(os.path.join(local_dir, "test_agent.parquet"))

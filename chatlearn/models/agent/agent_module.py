@@ -49,7 +49,13 @@ class AgentModule(AsyncSGLangModule):
 
         cfg = OmegaConf.load(agent_cfg_path) if agent_cfg_path else None
         graph_instance = _graph_registry[agent_name](
-            agent_name=agent_name, cfg=cfg, llm=self.llm, tokenizer=self.tokenizer
+            agent_name=agent_name,
+            cfg=cfg,
+            llm=self.llm,
+            tokenizer = self.tokenizer,
+            # vlm model pass self.processor, llm model pass self.tokenizer
+            processor=self.processor,
+            model_type=self.runtime_args.model_type
         )
         self.agent_factory[agent_name] = graph_instance
         return graph_instance
@@ -82,11 +88,16 @@ class AgentModule(AsyncSGLangModule):
         data_output = []
         for output, input_data in zip(batched_outputs, input_data_list):
             prompt_token_ids = output.prompt_ids
+            pixel_values = output.pixel_values
+            image_grid_thw = output.image_grid_thw
+            rope_deltas = output.rope_deltas
+            position_ids = output.position_ids
             response_token_length = len(output.all_token_ids) - len(output.prompt_ids)
             prompt_token_length = len(output.prompt_ids)
             str_outputs = output.str_output
             all_tokens = torch.tensor(output.all_token_ids)
             loss_mask = torch.tensor(output.loss_mask)
+
             input_data.update(
                 {
                     "loss_mask": loss_mask,
@@ -96,6 +107,11 @@ class AgentModule(AsyncSGLangModule):
                     "prompt_token_length": prompt_token_length,
                     "all_token_length": response_token_length + prompt_token_length,
                     "str_outputs": str_outputs,
+                    # multimodel related
+                    "pixel_values": pixel_values,
+                    "image_grid_thw": image_grid_thw,
+                    "rope_deltas": rope_deltas,
+                    "position_ids": position_ids
                 }
             )
             data_output.append(input_data)

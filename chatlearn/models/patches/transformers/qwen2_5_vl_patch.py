@@ -137,7 +137,6 @@ def get_rope_index(
 
         return position_ids, mrope_position_deltas
 
-
 def prepare_fa2_from_position_ids(query, key, value, position_ids):
     """
     change vl position ids to fa2 format
@@ -161,6 +160,7 @@ def prepare_fa2_from_position_ids(query, key, value, position_ids):
     # =========================================================================
 
     return (query, key, value, indices_q, (cu_seq_lens, cu_seq_lens), (max_length, max_length))
+
 def Qwen2_5_VLFlashAttention2_patched_forward(
     self,
     hidden_states: torch.Tensor,

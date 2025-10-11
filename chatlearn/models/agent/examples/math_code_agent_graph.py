@@ -9,7 +9,7 @@ from langchain_core.tools import tool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from omegaconf import DictConfig
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoProcessor
 
 from chatlearn.models.agent.agent_module import register
 from chatlearn.models.agent.base_agent_graph import (AgentGraphOutput,
@@ -34,9 +34,10 @@ class MathCodeAgentGraph(BaseAgentGraph):
         cfg: DictConfig,
         llm: Any,
         tokenizer: AutoTokenizer,
+        processor: AutoProcessor,
         **kwargs
     ):
-        super().__init__(agent_name, cfg, llm, tokenizer, **kwargs)
+        super().__init__(agent_name, cfg, llm, tokenizer, processor, **kwargs)
         self.build_graph()
 
     def build_graph(self) -> StateGraph:
@@ -44,7 +45,7 @@ class MathCodeAgentGraph(BaseAgentGraph):
         # pip install agentscope==1.0.4 && pip install wandb==0.19.3
         from agentscope.tool import execute_python_code
         self.chatmodel = CustomChatModel(
-            model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer
+            model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer, processor=self.processor
         )
 
         # define node function
