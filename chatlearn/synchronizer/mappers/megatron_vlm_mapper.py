@@ -77,17 +77,7 @@ class MegatronVLMMapper(MegatronLLMMapper):
         )
 
         for vp_stage, model in enumerate(self.model):
-            if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
-                layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
-            else:
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
-                layer_offset = get_transformer_layer_offset(model.config)
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(None)
-
-            # TODO: VLM model does not have mtp_process, fix it in Pai-Megatron-Patch
-            if getattr(model, 'mtp_process', None):
+            if getattr(model, 'mtp_process', False):
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
             if hasattr(model, 'vision_model'):
@@ -102,7 +92,10 @@ class MegatronVLMMapper(MegatronLLMMapper):
             self._map_llm_model(
                 model.language_model,
                 cfg=cfg,
-                layer_offset=layer_offset,
+                index_mapping=self._build_layer_index_mapping(
+                    model.language_model.decoder,
+                    vp_stage
+                ),
                 src_prefix=f"{vp_stage}-language_model.",
                 dst_prefix=""
             )
@@ -133,7 +126,7 @@ class MegatronVLMMapper(MegatronLLMMapper):
             pre_mlp_layernorm='norm2.'
         )
         for layer_idx in range(model.config.num_layers):
-            self._map_decoder_layer(
+            self._map_transformer_layer(
                 model.decoder.layers[layer_idx],
                 decoder_layer_cfg,
                 src_prefix=f"{src_prefix}decoder.layers.{layer_idx}.",

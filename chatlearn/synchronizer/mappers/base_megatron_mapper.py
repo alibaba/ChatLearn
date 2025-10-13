@@ -15,7 +15,7 @@
 
 """Basic Mapper for Megatron to rollout framework"""
 from collections import defaultdict
-from typing import List, Dict, TYPE_CHECKING, Union
+from typing import List, Dict, TYPE_CHECKING, Union, Tuple
 
 from megatron.training.utils import unwrap_model
 
@@ -27,6 +27,7 @@ from .mapping_helpers import (
     process_normal_tensor,
     process_gate_up_tensor,
     process_qkv_tensor,
+    process_merged_linear_tensor,
     VLLM_HELPERS,
     HF_HELPERS
 )
@@ -165,7 +166,7 @@ class BaseMegatronMapper:
         self._update_mapping(mapping)
         return mapping
 
-    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str, num_attention_heads: int, num_query_groups: int):
+    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str, num_attention_heads: int, num_query_groups: int, is_gated_attention: bool=False):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = defaultdict(list)
@@ -174,7 +175,8 @@ class BaseMegatronMapper:
             num_attention_heads,
             num_query_groups,
             self._dst_tp_size,
-            proj_type=proj_type
+            proj_type=proj_type,
+            is_gated_attention=is_gated_attention
         ):
             src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
             src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
@@ -191,6 +193,39 @@ class BaseMegatronMapper:
         results = {src_info.copy(): [dst_meta]}
         self._update_mapping(results)
         return results
+
+    def _inner_map_for_merged_linear(
+        self, 
+        src_key: str, 
+        dst_key: str, 
+        src_layout: List[Tuple[str, int]],
+        required_layout: List[str],
+        *, 
+        global_expert_id: int=None, 
+        num_experts: int=None,
+        axis: int = 0
+    ):
+        src_info = self._src_name_to_metadata[src_key]
+        dst_info = self._dst_name_to_metadata[dst_key]
+        mapping = {}
+        for src_meta, dst_meta in process_merged_linear_tensor(
+            src_info,
+            self._dst_tp_size,
+            src_layout=src_layout,
+            required_layout=required_layout,
+            axis=axis
+        ):
+            src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
+            src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
+            if global_expert_id is not None:
+                dst_meta = (
+                    dst_meta
+                    .unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
+                    .refragment(1, axis=0) # 1 is dst EP
+                )
+            mapping[src_meta] = [dst_meta]
+        self._update_mapping(mapping)
+        return mapping
 
     def _update_mapping(self, results: Dict[ShardedTensorInfo, List[ShardedTensorInfo]]) -> None:
         if self._mapping is None:

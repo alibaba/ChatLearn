@@ -561,8 +561,10 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         'input_ids': inputs["all_tokens"],
         'position_ids': inputs["all_token_position_ids"],
         'labels': inputs["labels"] if not is_training else None,
-        'packed_seq_params': inputs['packed_seq_params'] if is_packing else None
     }
+
+    if is_packing:
+        kwargs.update({'packed_seq_params': inputs['packed_seq_params']})
 
     if 'pixel_values' in inputs:
         kwargs.update({

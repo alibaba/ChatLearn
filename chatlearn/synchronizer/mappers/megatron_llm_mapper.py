@@ -14,7 +14,7 @@
 # ==============================================================================
 
 """Mapper for Megatron to vLLM"""
-from typing import TYPE_CHECKING, Union
+from typing import TYPE_CHECKING, Union, Dict
 
 import inspect
 from torch import nn
@@ -24,6 +24,10 @@ from megatron.core import mpu
 from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 from megatron.core.transformer.moe.moe_layer import MoELayer
 from megatron.core.transformer.moe.experts import TEGroupedMLP
+from megatron.core.transformer.identity_op import IdentityOp
+from megatron.core.transformer.transformer_block import TransformerBlock
+from megatron.core.ssm.mamba_block import MambaStack
+from megatron.core.ssm.mamba_layer import MambaLayer
 
 from chatlearn.configs import PolicyConfig
 
@@ -40,6 +44,8 @@ from .metadata import (
     MLASelfAttnKeyMapping
 )
 from .base_megatron_mapper import BaseMegatronMapper
+
+from chatlearn.utils.logger import logger
 
 if TYPE_CHECKING:
     from megatron.core.models.common.embeddings.language_model_embedding import LanguageModelEmbedding
@@ -70,6 +76,25 @@ class MegatronLLMMapper(BaseMegatronMapper):
         super().__init__(dst_model_config=dst_model_config, model=model, mapper_config=mapper_config)
 
     # NOTE: the following function implements the module-wise sync mapping
+    def _build_layer_index_mapping(self, decoder, vp_stage):
+        """
+            Map the local layer index (ranged from 0 to model.decoder.num_layers_per_pipeline_rank)
+            to the global huggingface layer index
+        """
+        if isinstance(decoder, TransformerBlock):
+            layer_offset = get_transformer_layer_offset(decoder.config, vp_stage=vp_stage)
+            num_layers_per_pipeline_rank = decoder.num_layers_per_pipeline_rank
+            return {n: layer_offset + n for n in range(num_layers_per_pipeline_rank)}
+        elif isinstance(decoder, MambaStack):
+            assert vp_stage == 0, "Mamba do not support VPP"
+            # NOTE: currently we assume MambaLayer just replaces some of Attention
+            # layout should be: ((mamba | attn) mlp) x n
+            num_layers_per_pipeline_rank = decoder.num_layers_per_pipeline_rank
+            layer_offset = num_layers_per_pipeline_rank * mpu.get_pipeline_model_parallel_rank()
+            return {n: (n + layer_offset) // 2 for n in range(num_layers_per_pipeline_rank)}
+        else:
+            raise ValueError(f"Unexpected decoder type: {type(decoder)}")
+
     def _map_model(self):
         """Mapping the local name of src model to global name of
         dst model
@@ -81,23 +106,16 @@ class MegatronLLMMapper(BaseMegatronMapper):
             )
         )
         for vp_stage, model in enumerate(self.model):
-            if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
-                layer_offset = get_transformer_layer_offset(model.config, vp_stage=vp_stage)
-            else:
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
-                layer_offset = get_transformer_layer_offset(model.config)
-                if len(self.model) > 1:
-                    mpu.set_virtual_pipeline_model_parallel_rank(None)
-
-            # TODO: VLM model does not have mtp_process, fix it in Pai-Megatron-Patch
             if getattr(model, 'mtp_process', False):
                 raise NotImplementedError("Currently, the mapper does not support MTP")
 
             self._map_llm_model(
                 model,
                 cfg,
-                layer_offset=layer_offset,
+                index_mapping=self._build_layer_index_mapping(
+                    model.decoder,
+                    vp_stage
+                ),
                 src_prefix=f"{vp_stage}-",
                 dst_prefix=""
             )
@@ -110,7 +128,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
         self,
         model: nn.Module,
         cfg: LanguageModelKeyMapping,
-        layer_offset: int,
+        index_mapping: Dict[int, int],
         src_prefix: str='',
         dst_prefix: str=''
     ):
@@ -122,20 +140,34 @@ class MegatronLLMMapper(BaseMegatronMapper):
             )
 
         for layer_idx in range(model.decoder.num_layers_per_pipeline_rank):
-            global_layer_id = layer_offset + layer_idx
-            self._map_decoder_layer(
-                model.decoder.layers[layer_idx],
-                cfg=cfg.decoder_layer_cfg,
-                src_prefix=f"{src_prefix}decoder.layers.{layer_idx}.",
-                dst_prefix=f"{dst_prefix}{cfg.decoder_layer}{global_layer_id}.",
-            )
+            global_layer_id = index_mapping[layer_idx]
+            if isinstance(model.decoder.layers[layer_idx], MambaLayer):
+                self._map_mamba_layer(
+                    model.decoder.layers[layer_idx],
+                    src_prefix=f"{src_prefix}decoder.layers.{layer_idx}.",
+                    dst_prefix=f"{dst_prefix}{cfg.decoder_layer}{global_layer_id}.",
+                )
+            else:
+                self._map_transformer_layer(
+                    model.decoder.layers[layer_idx],
+                    cfg=cfg.decoder_layer_cfg,
+                    src_prefix=f"{src_prefix}decoder.layers.{layer_idx}.",
+                    dst_prefix=f"{dst_prefix}{cfg.decoder_layer}{global_layer_id}.",
+                )
 
         if model.post_process:
-            self._map_norm_layer(
-                model.decoder.final_layernorm,
-                src_prefix=f"{src_prefix}decoder.final_layernorm.",
-                dst_prefix=f"{dst_prefix}{cfg.final_layernorm}",
-            )
+            if isinstance(model.decoder, MambaStack):
+                self._map_norm_layer(
+                    model.decoder.final_norm,
+                    src_prefix=f"{src_prefix}decoder.final_norm.",
+                    dst_prefix=f"{dst_prefix}{cfg.final_layernorm}",
+                )
+            else:
+                self._map_norm_layer(
+                    model.decoder.final_layernorm,
+                    src_prefix=f"{src_prefix}decoder.final_layernorm.",
+                    dst_prefix=f"{dst_prefix}{cfg.final_layernorm}",
+                )
 
             if model.share_embeddings_and_output_weights and model.pre_process:
                 self._map_postprocess_layer(
@@ -171,51 +203,145 @@ class MegatronLLMMapper(BaseMegatronMapper):
                 f"{dst_prefix}{_keynames[item]}"
             )
 
-    def _map_decoder_layer(self, module: 'TransformerLayer', cfg: DecoderLayerKeyMapping, src_prefix: str='', dst_prefix: str=''):
-        if module.config.multi_latent_attention:
-            map_attn_func = self._map_mla_selfattn
-            norm_layer = module.input_layernorm
-            norm_src_key = f"{src_prefix}input_layernorm."
-            is_norm_layer = True
-        else:
-            map_attn_func = self._map_selfattn
-            norm_layer = module.self_attention.linear_qkv
-            norm_src_key = f"{src_prefix}self_attention.linear_qkv."
-            is_norm_layer = False
-        map_attn_func(
-            module.self_attention,
-            cfg=cfg.self_attn_cfg,
-            src_prefix=f"{src_prefix}self_attention.",
-            dst_prefix=f"{dst_prefix}{cfg.self_attn}",
-        )
+    def _map_transformer_layer(self, module: 'TransformerLayer', cfg: DecoderLayerKeyMapping, src_prefix: str='', dst_prefix: str=''):
+        submodule_config = module.submodules_config
+        has_self_attention = submodule_config.self_attention is not IdentityOp
+        has_mlp = submodule_config.mlp is not IdentityOp
+        assert has_self_attention or has_mlp, f"The TransformerLayer should at least contains one of self_attn or mlp!"
+
+        if has_self_attention:
+            if module.config.multi_latent_attention:
+                map_attn_func = self._map_mla_selfattn
+                norm_layer = module.input_layernorm
+                norm_src_key = f"{src_prefix}input_layernorm."
+                is_norm_layer = True
+            else:
+                map_attn_func = self._map_selfattn
+                is_gated_attention = hasattr(module.self_attention, 'linear_qgkv')
+                if is_gated_attention:
+                    norm_layer = module.self_attention.linear_qgkv
+                    norm_src_key = f"{src_prefix}self_attention.linear_qgkv."
+                else:
+                    norm_layer = module.self_attention.linear_qkv
+                    norm_src_key = f"{src_prefix}self_attention.linear_qkv."
+                is_norm_layer = False
+            map_attn_func(
+                module.self_attention,
+                cfg=cfg.self_attn_cfg,
+                src_prefix=f"{src_prefix}self_attention.",
+                dst_prefix=f"{dst_prefix}{cfg.self_attn}",
+            )
+            self._map_norm_layer(
+                norm_layer,
+                norm_src_key,
+                dst_prefix=f"{dst_prefix}{cfg.input_layernorm}",
+                is_norm_layer=is_norm_layer
+            )
+
+        if has_mlp:
+            if isinstance(module.mlp, MoELayer):
+                map_mlp_func = self._map_moe_layer
+                norm_layer = module.pre_mlp_layernorm
+                norm_src_key = f"{src_prefix}pre_mlp_layernorm."
+                is_norm_layer = True
+            else:
+                map_mlp_func = self._map_mlp
+                norm_layer = module.mlp.linear_fc1
+                norm_src_key = f"{src_prefix}mlp.linear_fc1."
+                is_norm_layer = False
+            map_mlp_func(
+                module.mlp,
+                cfg=cfg.mlp_cfg,
+                src_prefix=f"{src_prefix}mlp.",
+                dst_prefix=f"{dst_prefix}{cfg.mlp}",
+            )
+            self._map_norm_layer(
+                norm_layer,
+                norm_src_key,
+                dst_prefix=f"{dst_prefix}{cfg.pre_mlp_layernorm}",
+                is_norm_layer=is_norm_layer
+            )
+
+    def _map_mamba_layer(self, module, src_prefix='', dst_prefix=''):
+        # NOTE: the API is experimental as MambaLayer is not general enough currently
         self._map_norm_layer(
-            norm_layer,
-            norm_src_key,
-            dst_prefix=f"{dst_prefix}{cfg.input_layernorm}",
-            is_norm_layer=is_norm_layer
+            module.mixer.in_proj,
+            f"{src_prefix}mixer.in_proj.",
+            dst_prefix=f"{dst_prefix}input_layernorm.",
+            is_norm_layer=False
+        )
+        self._map_mamba_mixer(
+            module.mixer,
+            src_prefix=f"{src_prefix}mixer.",
+            dst_prefix=f"{dst_prefix}linear_attn.",
         )
 
-        if isinstance(module.mlp, MoELayer):
-            map_mlp_func = self._map_moe_layer
-            norm_layer = module.pre_mlp_layernorm
-            norm_src_key = f"{src_prefix}pre_mlp_layernorm."
-            is_norm_layer = True
-        else:
-            map_mlp_func = self._map_mlp
-            norm_layer = module.mlp.linear_fc1
-            norm_src_key = f"{src_prefix}mlp.linear_fc1."
-            is_norm_layer = False
-        map_mlp_func(
-            module.mlp,
-            cfg=cfg.mlp_cfg,
-            src_prefix=f"{src_prefix}mlp.",
-            dst_prefix=f"{dst_prefix}{cfg.mlp}",
+    def _map_mamba_mixer(self, module,  src_prefix='', dst_prefix=''):
+        Nk, Nv, Dk, Dv = (
+            module.ngroups,
+            module.nheads,
+            module.d_state,
+            module.headdim
         )
+
+        # in_proj
+        src_layout = [
+            ('z', Dv * Nv), 
+            ('v', Dv * Nv), 
+            ('q', Dk * Nk), 
+            ('k', Dk * Nk), 
+            ('b', Nv), 
+            ('a', Nv)
+        ]
+        self._inner_map_for_merged_linear(
+            f"{src_prefix}in_proj.weight",
+            f"{dst_prefix}in_proj_qkvz.weight",
+            src_layout=src_layout,
+            required_layout=['q', 'k', 'v', 'z']
+        )
+        self._inner_map_for_merged_linear(
+            f"{src_prefix}in_proj.weight",
+            f"{dst_prefix}in_proj_ba.weight",
+            src_layout=src_layout,
+            required_layout=['b', 'a']
+        )
+        # conv1d
+        src_layout = [
+            ('conv_v', Dv * Nv), 
+            ('conv_q', Dk * Nk), 
+            ('conv_k', Dk * Nk), 
+        ]
+        self._inner_map_for_merged_linear(
+            f"{src_prefix}conv1d.weight",
+            f"{dst_prefix}conv1d.weight",
+            src_layout=src_layout,
+            required_layout=['conv_q', 'conv_k', 'conv_v']
+        )
+        self._inner_map_for_tensor_parallel(
+            f"{src_prefix}dt_bias",
+            f"{dst_prefix}dt_bias",
+            mapping_type='column'
+        )
+
+        logger.info(f"RANK {mpu.get_pipeline_model_parallel_rank()}: mapping {src_prefix}A_log to {dst_prefix}A_log, data: {module.A_log}")
+        self._inner_map_for_tensor_parallel(
+            f"{src_prefix}A_log",
+            f"{dst_prefix}A_log",
+            mapping_type='column'
+        )
+        if module.D is not None:
+            raise NotImplementedError()
+
         self._map_norm_layer(
-            norm_layer,
-            norm_src_key,
-            dst_prefix=f"{dst_prefix}{cfg.pre_mlp_layernorm}",
-            is_norm_layer=is_norm_layer
+            module.norm,
+            f"{src_prefix}norm.",
+            dst_prefix=f"{dst_prefix}norm.",
+            is_norm_layer=True
+        )
+        self._inner_map_for_tensor_parallel(
+            f"{src_prefix}out_proj.weight",
+            f"{dst_prefix}out_proj.weight",
+            mapping_type='row'
         )
 
     def _map_moe_layer(self, module: 'MoELayer', cfg: MoELayerKeyMapping, src_prefix='', dst_prefix=''):
@@ -399,14 +525,21 @@ class MegatronLLMMapper(BaseMegatronMapper):
         if module.config.add_qkv_bias:
             param_types = ['weight', 'bias']
 
+        # TODO: make better condition
+        is_gated_attention = hasattr(module, 'linear_qgkv')
         for param_type in param_types:
             for dst_type, dst_name in qkv_dst_names.items():
+                if is_gated_attention:
+                    src_key = f"{src_prefix}linear_qgkv.{param_type}"
+                else:
+                    src_key = f"{src_prefix}linear_qkv.{param_type}"
                 self._inner_map_for_qkv_proj(
-                    f"{src_prefix}linear_qkv.{param_type}",
+                    src_key,
                     f"{dst_prefix}{dst_name}{param_type}",
                     proj_type=dst_type,
                     num_attention_heads = module.config.num_attention_heads,
-                    num_query_groups = module.config.num_query_groups
+                    num_query_groups = module.config.num_query_groups,
+                    is_gated_attention = is_gated_attention
                 )
 
         param_types = ['weight']

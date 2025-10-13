@@ -326,7 +326,7 @@ def even_slice(total_sample:int, total_slice:int):
     slice_index.append(total_sample)
     return slice_index
 
-def slice_data_list_by_index(batched_input: List[Dict[str, Any]], index):
+def slice_data_list_by_index(batched_input: List[Any], index):
     """
     Slice input data_list by slice index
     """
