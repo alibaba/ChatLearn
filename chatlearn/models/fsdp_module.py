@@ -344,7 +344,7 @@ class FSDPModule(TorchModule):
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
         # fsdp2 warp
-        mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.float32, reduce_dtype=torch.float32, cast_forward_inputs=True)
         fsdp_kwargs = {
             "mesh": self.device_mesh,
             "mp_policy": mix_precision_config,
@@ -371,6 +371,7 @@ class FSDPModule(TorchModule):
 
         self.model = model
         self.model.to(torch.float32)
+        # breakpoint()
 
         if not self.trainable:
             self.optimizer = None
@@ -507,9 +508,10 @@ class FSDPModule(TorchModule):
         if rollout_engine == "sglang":
             # lazy import sglang
             from sglang.srt.utils import MultiprocessingSerializer
-            from sglang.srt.patch_torch import monkey_patch_torch_reductions
+            # from sglang.srt.patch_torch import monkey_patch_torch_reductions
 
-            monkey_patch_torch_reductions()
+            # monkey_patch_torch_reductions()
+            
             flattened_tensor, metadatas = self.convert_block2flattened_bucket(
                 block_parameter
             )

@@ -270,6 +270,8 @@ class PolicyTrainer(FSDPModule):
                 total_loss = total_loss - self.module_args.entropy_coef * entropy_loss_mean
             if self.module_args.kl_coef > 0:
                 total_loss = total_loss + self.module_args.kl_coef * kl_loss_mean
+            # breakpoint()
+            # total_loss = total_loss.bfloat16()
             total_loss.backward()
 
             pg_loss_list.append(pg_loss.detach())

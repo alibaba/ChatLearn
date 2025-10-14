@@ -570,8 +570,8 @@ class SGLangModule(TorchModule):
     def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
         """Used for Mcore2SGLang Parameter Sync
         """
-        from sglang.srt.patch_torch import monkey_patch_torch_reductions
-        monkey_patch_torch_reductions()
+        # from sglang.srt.patch_torch import monkey_patch_torch_reductions
+        # monkey_patch_torch_reductions()
         param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:
@@ -766,8 +766,8 @@ class AsyncSGLangModule(SGLangModule):
 
     @torch.no_grad()
     async def update_weights_from_buckets(self, buckets: List[Optional['BucketInfo']]):
-        from sglang.srt.patch_torch import monkey_patch_torch_reductions
-        monkey_patch_torch_reductions()
+        # from sglang.srt.patch_torch import monkey_patch_torch_reductions
+        # monkey_patch_torch_reductions()
         param_id_to_update = set()
         for bucket in buckets:
             if bucket is None:
