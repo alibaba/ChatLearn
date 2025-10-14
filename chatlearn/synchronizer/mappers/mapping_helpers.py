@@ -151,6 +151,26 @@ def process_merged_linear_tensor(
         ))
     return __maybe_merge(results)
 
+def process_linear_attn_tensor(
+    sharded_info: ShardedTensorInfo,
+    dst_tp_size: int,
+    n_groups: int,
+    src_layout: List[Tuple[str, int]],
+    required_layout: List[str],
+    axis: int = 0
+) -> List[Tuple[ShardedTensorInfo, ...]]:
+    if n_groups % dst_tp_size != 0:
+        raise ValueError("n_groups of linear attn should be divided by tp!")
+    results = process_merged_linear_tensor(
+        sharded_info=sharded_info,
+        dst_tp_size=n_groups,
+        src_layout=src_layout,
+        required_layout=required_layout,
+        axis=axis
+    )
+    return [(item[0], item[1].refragment(dst_tp_size, axis=axis)) for item in results]
+
+
 def _build_qkv_layout(
     num_heads: int,
     num_query_group: int,
@@ -240,7 +260,7 @@ def process_qkv_tensor(
     src_tp_size = sharded_info.axis_fragmentations[0]
     src_global_shape = sharded_info.global_shape
 
-    mcore_layout, vllm_layout = _build_qkv_layout(num_heads, num_query_groups, dst_tp_size)
+    mcore_layout, vllm_layout = _build_qkv_layout(num_heads, num_query_groups, dst_tp_size, is_gated_attention=is_gated_attention)
     mcore_id_to_frags = {
         part.global_offset[0]: part.refragment(src_tp_size)
         for part in sharded_info.fragment(num_query_groups * (2 + num_heads // num_query_groups))
@@ -250,16 +270,14 @@ def process_qkv_tensor(
         n_heads = num_heads + 2 * num_query_groups * max(1, dst_tp_size // num_query_groups)
     elif proj_type == 'q_proj':
         n_heads = num_heads
+        vllm_layout = [item for item in vllm_layout if 'q' in item or 'g' in item]
     else:
         n_heads = num_query_groups * max(1, dst_tp_size // num_query_groups)
+        vllm_layout = [item for item in vllm_layout if proj_type[:1] in item]
     full_dst_info = ShardedTensorInfo.from_global_shape((n_heads * head_dim, ) + src_global_shape[1:])
 
     results = []
-    for head_idx, dst_part in enumerate(full_dst_info.fragment(n_heads)):
-        if proj_type == 'qkv_proj':
-            head_name = vllm_layout[head_idx]
-        else:
-            head_name = f"{proj_type[:1]}{head_idx}" # q0 / k1 / v2, etc.
+    for head_name, dst_part in zip(vllm_layout, full_dst_info.fragment(n_heads)):
         mcore_idx = mcore_layout.index(head_name)
         if mcore_idx not in mcore_id_to_frags:
             continue

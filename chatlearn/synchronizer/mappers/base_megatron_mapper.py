@@ -28,6 +28,7 @@ from .mapping_helpers import (
     process_gate_up_tensor,
     process_qkv_tensor,
     process_merged_linear_tensor,
+    process_linear_attn_tensor,
     VLLM_HELPERS,
     HF_HELPERS
 )
@@ -211,6 +212,41 @@ class BaseMegatronMapper:
         for src_meta, dst_meta in process_merged_linear_tensor(
             src_info,
             self._dst_tp_size,
+            src_layout=src_layout,
+            required_layout=required_layout,
+            axis=axis
+        ):
+            src_meta.param_id, dst_meta.param_id = src_info.param_id, dst_info.param_id
+            src_meta.dtype, dst_meta.dtype = src_info.dtype, dst_info.dtype
+            if global_expert_id is not None:
+                dst_meta = (
+                    dst_meta
+                    .unsqueeze(offset=global_expert_id, length=num_experts, axis=0)
+                    .refragment(1, axis=0) # 1 is dst EP
+                )
+            mapping[src_meta] = [dst_meta]
+        self._update_mapping(mapping)
+        return mapping
+
+    def _inner_map_for_linear_attn(
+        self, 
+        src_key: str, 
+        dst_key: str, 
+        src_layout: List[Tuple[str, int]],
+        required_layout: List[str],
+        *, 
+        global_expert_id: int=None, 
+        num_experts: int=None,
+        axis: int = 0,
+        n_groups: int = 1
+    ):
+        src_info = self._src_name_to_metadata[src_key]
+        dst_info = self._dst_name_to_metadata[dst_key]
+        mapping = {}
+        for src_meta, dst_meta in process_linear_attn_tensor(
+            src_info,
+            self._dst_tp_size,
+            n_groups=n_groups,
             src_layout=src_layout,
             required_layout=required_layout,
             axis=axis

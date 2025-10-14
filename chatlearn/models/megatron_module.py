@@ -255,17 +255,10 @@ if IS_MEGATRON_SUPPORTED:
             self.global_name_to_local_name = {}
             # NOTE: this regex is for model with TEGroupedGEMM
             # SequentialMLP or GroupedMLP is not supported
-            regex = re.compile(r"(.*)decoder.layers\.(\d+)\.([a-z0-9_.]+)([\._])([a-z]+)([0-9]*)")
+            regex = re.compile(r"(.*)decoder.layers\.(\d+)\.([a-zA-Z0-9_.]+)([\._])([a-zA-Z]+)([0-9]*)")
             for vp_stage, model_chunk in enumerate(self.model):
                 model_config = unwrap_model(model_chunk).config
-                if 'vp_stage' in inspect.signature(get_transformer_layer_offset).parameters:
-                    offset = get_transformer_layer_offset(model_config, vp_stage=vp_stage)
-                else:
-                    if len(self.model) > 1:
-                        mpu.set_virtual_pipeline_model_parallel_rank(vp_stage)
-                    offset = get_transformer_layer_offset(model_config)
-                    if len(self.model) > 1:
-                        mpu.set_virtual_pipeline_model_parallel_rank(None)
+                offset = get_transformer_layer_offset(model_config, vp_stage=vp_stage)
                 if model_config.num_moe_experts is not None:
                     ep_rank = mpu.get_expert_model_parallel_rank()
                     ep_size = mpu.get_expert_model_parallel_world_size()

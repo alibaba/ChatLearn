@@ -293,17 +293,19 @@ class MegatronLLMMapper(BaseMegatronMapper):
             ('b', Nv), 
             ('a', Nv)
         ]
-        self._inner_map_for_merged_linear(
+        self._inner_map_for_linear_attn(
             f"{src_prefix}in_proj.weight",
             f"{dst_prefix}in_proj_qkvz.weight",
             src_layout=src_layout,
-            required_layout=['q', 'k', 'v', 'z']
+            required_layout=['q', 'k', 'v', 'z'],
+            n_groups=Nk
         )
-        self._inner_map_for_merged_linear(
+        self._inner_map_for_linear_attn(
             f"{src_prefix}in_proj.weight",
             f"{dst_prefix}in_proj_ba.weight",
             src_layout=src_layout,
-            required_layout=['b', 'a']
+            required_layout=['b', 'a'],
+            n_groups=Nk
         )
         # conv1d
         src_layout = [
@@ -323,7 +325,6 @@ class MegatronLLMMapper(BaseMegatronMapper):
             mapping_type='column'
         )
 
-        logger.info(f"RANK {mpu.get_pipeline_model_parallel_rank()}: mapping {src_prefix}A_log to {dst_prefix}A_log, data: {module.A_log}")
         self._inner_map_for_tensor_parallel(
             f"{src_prefix}A_log",
             f"{dst_prefix}A_log",
