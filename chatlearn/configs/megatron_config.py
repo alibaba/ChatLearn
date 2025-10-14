@@ -299,6 +299,7 @@ class MegatronConfig(BaseConfig):
                 self.context_parallel_size *
                 self.pipeline_model_parallel_size
             )
+            self.global_dp_size = self.num_replica * self.replica_dp_size
             self.variable_seq_lengths = self.packing
             if self.variable_seq_lengths and self.megatron_model_cfg.num_experts is None:
                 self.megatron_model_cfg.moe_token_dispatcher_type = 'alltoall'

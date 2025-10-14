@@ -247,6 +247,14 @@ class SGLangModule(TorchModule):
         )
         dist.barrier(group=self.cpu_mesh.get_group())
 
+    @property
+    def data_parallel_size(self):
+        return self.num_replica
+
+    @property
+    def data_parallel_rank(self):
+        return self.replica_id
+
     @timeit()
     def setup_engine(self):
 
@@ -660,10 +668,10 @@ class SGLangModule(TorchModule):
     @compute_decorator(trainable=False, rollout=True)
     @timeit()
     def forward_step(
-        self, data: List[Dict[str, Any]], iteration=0, **kwargs
+        self, data: List[Dict[str, Any]], iteration=0, is_eval=False, **kwargs
     ) -> List[Dict[str, Any]]:
 
-        rets = self._forward_step(data, iteration, False)
+        rets = self._forward_step(data, iteration, is_eval)
         # collect metric
         self._metric_list.append(metric_collect(rets, self.module_args.max_response_tokens_length))
         return rets

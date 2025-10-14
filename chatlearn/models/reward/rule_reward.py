@@ -42,6 +42,14 @@ class RuleReward(BaseModule):
         self.stats = {}
         self._metric_prefix = "rule_reward"
 
+    @property
+    def data_parallel_size(self):
+        return self.num_replica
+
+    @property
+    def data_parallel_rank(self):
+        return self.replica_id
+
     def _forward_step(self, data: List) -> torch.Tensor:
         # str_prompts_list = data["str_prompts"]
         self._logger.info(f"RuleReward _forward_step Num of request: {len(data)}")

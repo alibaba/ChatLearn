@@ -25,7 +25,7 @@ from hydra.core.global_hydra import GlobalHydra
 from hydra.core.config_store import ConfigStore
 
 from chatlearn.algorithm.base_algo import BaseAlgorithm
-
+import chatlearn.algorithm.grpo_config as config_factory
 # e.g. python chatlearn/chatlearn.py grpo --config-file grpo.yaml runtime.data_path=/tmp/data runtime.eval_data_path=/tmp/eval_data
 
 # Registry format:
@@ -80,7 +80,7 @@ class ChatlearnLauncher:
         module_path, algo_cls_name, config_cls_name = ALGO_REGISTRY[algo_name]
         module = import_module(module_path)
         algo_cls = getattr(module, algo_cls_name)
-        config_cls = getattr(module, config_cls_name)
+        config_cls = getattr(config_factory, config_cls_name)
         return algo_cls, config_cls
 
 

@@ -360,6 +360,10 @@ class DistModel:
         return sum(len(dist_actor.all_actors) for dist_actor in self.replicas)
 
     @property
+    def data_parallel_size(self):
+        return sum([len(replica.dp_rank_to_actors) for replica in self.replicas])
+
+    @property
     def num_replica(self):
         return len(self.replicas)
 
@@ -427,7 +431,10 @@ class DistModel:
                           "train",
                           "set_colocate",
                           "setup_engine",
-                          "timer_summary"]:
+                          "timer_summary",
+                          "forward_step",
+                          "train_step"
+                        ]:
             dist_call = partial(self.call_replica_func, func_name)
             setattr(self, func_name, dist_call)
 
@@ -450,8 +457,11 @@ class DistModel:
         for dist_actor in self.replicas:
             ref = getattr(dist_actor, func)(*args, **kwargs)
             if ref is not None:
-                refs.append(ref)
-        return refs
+                if isinstance(ref, list):
+                    refs.extend(ref)
+                else:
+                    refs.append(ref)
+        return ray.get(refs)
 
     def call_replica_serial_func(self, func, *args, **kwargs):
         results = []

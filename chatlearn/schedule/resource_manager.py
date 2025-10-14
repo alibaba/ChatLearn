@@ -23,7 +23,6 @@ import ray.experimental.state.api
 from ray.util.placement_group import placement_group
 
 from chatlearn.utils.logger import logger
-from chatlearn.models.base_module import BaseModule
 
 
 class ResourceManager:
@@ -32,9 +31,7 @@ class ResourceManager:
     Used for managing ray placement_group
     """
 
-    def __init__(self, models: Tuple[BaseModule]):
-        self.models = models
-        self.name2models = {model.name: model for model in self.models}
+    def __init__(self):
         self.model_to_placegroup = {}
         self.placement_groups = []
         resource = ray.nodes()[0]['Resources']

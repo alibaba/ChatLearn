@@ -105,7 +105,7 @@ def compute_decorator(trainable, rollout):
         """
         @functools.wraps(func)
         def wrapper(self, *args, **kwargs):
-            data_list = self.data_fetch(args, train_func=trainable)
+            data_list = self.data_fetch(args[0], train_func=trainable)
             # Get kwargs for function
             to_empty_cache = kwargs.pop('to_empty_cache', False)
             to_onload = kwargs.pop('to_onload', False)

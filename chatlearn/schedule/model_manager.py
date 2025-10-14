@@ -44,8 +44,7 @@ from ..utils import future
 class ModelManager:
     """ModelManager"""
 
-    def __init__(self, models: Tuple[BaseModule], resouce_manager: ResourceManager, global_args: BaseConfig):
-        self.local_models = models
+    def __init__(self, resouce_manager: ResourceManager, global_args: BaseConfig):
         self.resouce_manager = resouce_manager
         self.dist_models: List[DistModel] = []
         self.env_args = global_args.env_args
@@ -78,13 +77,14 @@ class ModelManager:
                 total_gpu += max_gpu
         return total_gpu
 
-    def create_dist_models(self) -> List[DistModel]:
+    def create_dist_models(self, model_list) -> List[DistModel]:
         """
         convert model to remote
         1. create DistModel and DistActor object for every BaseModule
         2. place every DistActor to specific device
         3. set environment variables for every DistActor
         """
+        self.local_models = model_list
         if self.converted:
             return self.dist_models
 
@@ -110,11 +110,11 @@ class ModelManager:
             # it seems very cost time
             self.place_models_to_remote_devices(colocate_models, env_list)
             if len(colocate_models) > 1:
-                set_colocate = []
+                #set_colocate = []
                 for model in colocate_models:
                     model.is_colocate = True
-                    set_colocate.extend(model.set_colocate(True))
-                future.wait(set_colocate)
+                    model.set_colocate(True)
+                #future.wait(set_colocate)
             for name in group:
                 remote_states.add(name)
 
@@ -178,21 +178,21 @@ class ModelManager:
             if episode_id % sync_group.frequency == 0:
                 src_model, dst_model = sync_group.src_model, sync_group.dst_model
                 # onload policy trainer
-                future.wait(src_model.onload(
+                src_model.onload(
                     to_build_grad_buffers=False,
                     to_onload_main_weights=False,
                     to_onload_optimizer_states=False
-                ))
+                )
 
                 # onload policy weights
-                future.wait(dst_model.onload(tags=['weights']), return_output=True)
+                dst_model.onload(tags=['weights'])
 
                 # sync param
                 sync_group.sync(dryrun=dryrun)
-                future.wait(src_model.offload())
+                src_model.offload()
 
                 # onload policy kv cache
-                future.wait(dst_model.onload(tags=['kv_cache']), return_output=True)
+                dst_model.onload(tags=['kv_cache'])
 
     def _to_dist_model(self, model):
         """
@@ -326,6 +326,7 @@ class ModelManager:
                     # we do not want to add engine actor to all_actors
                     replica.all_actors.pop()
                 replica.create_actor(num_gpus, placement_group, group)
+
         for model in gpu_models:
             reverse_gpu_placement = False
             if env_list is None:

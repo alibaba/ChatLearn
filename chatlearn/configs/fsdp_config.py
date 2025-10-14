@@ -38,6 +38,7 @@ class FSDPConfig(BaseConfig):
             # NOTE: currently fsdp_size hard-coded
             self.fsdp_size, self.num_replica = self.num_gpu, 1
             self.replica_dp_size = self.num_gpu // (self.ulysses_sequence_parallel_size * self.num_replica)
+        self.global_dp_size = self.num_gpu // self.fsdp_size
 
 @dataclass
 class FSDPRefPolicyConfig(RefPolicyConfig, FSDPConfig):
