@@ -129,14 +129,14 @@ class MegatronMapper:
             ))
 
             # vision model decoder
-            for layer_idx in range(model.vision_config.num_layers):
+            for layer_idx in range(model.vision_model.config.num_layers):
                 global_layer_id = layer_offset + layer_idx
                 self._update_mapping(self._map_vision_layer(
                     model.vision_model.decoder.layers[layer_idx],
                     src_prefix=f"{vp_stage}-vision_model.decoder.layers.{layer_idx}.",
                     dst_prefix=f"{dst_vision_prefix}blocks.{global_layer_id}.",
-                    num_attention_heads=model.vision_config.num_attention_heads,
-                    num_query_groups=model.vision_config.num_query_groups
+                    num_attention_heads=model.vision_model.config.num_attention_heads,
+                    num_query_groups=model.vision_model.config.num_query_groups
                 ))
 
             # vision model projection

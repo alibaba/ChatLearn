@@ -62,6 +62,7 @@ models:
     virtual_pipeline_model_parallel_size: null
     decoder_first_pipeline_num_layers: null
     decoder_last_pipeline_num_layers: null
+    pipeline_model_parallel_layout: null
     moe_router_force_load_balancing: False
     # train config
     load: your_megatron_model_path
@@ -70,12 +71,15 @@ models:
     recompute_granularity: null
     recompute_method: null
     recompute_num_layers: null
+    recompute_modules: null
+    empty_unused_memory_level: 0
     # other 
     pos_clip_ratio: 0.2
     neg_clip_ratio: 0.2
     use_group_sequence_policy: False
     packing: true
     max_token_in_packing: ${models.policy_trainer.seq_length}
+    model_provider_module: pretrain_gpt
   ref_policy:
     free_gpu_memory:
       offload_weights: True
@@ -94,6 +98,7 @@ models:
     context_parallel_size: ${models.policy_trainer.context_parallel_size}
     decoder_first_pipeline_num_layers: ${models.policy_trainer.decoder_first_pipeline_num_layers}
     decoder_last_pipeline_num_layers: ${models.policy_trainer.decoder_last_pipeline_num_layers}
+    pipeline_model_parallel_layout: ${models.policy_trainer.pipeline_model_parallel_layout}
     moe_router_force_load_balancing: ${models.policy_trainer.moe_router_force_load_balancing}
     gpu_per_process: 1
     num_gpu: ${models.policy_trainer.num_gpu}
@@ -101,6 +106,7 @@ models:
     load: ${models.policy_trainer.load}
     packing: ${models.policy_trainer.packing}
     max_token_in_packing: ${models.policy_trainer.max_token_in_packing}
+    model_provider_module: ${models.policy_trainer.model_provider_module}
   policy:
     free_gpu_memory:
       offload_weights: True
