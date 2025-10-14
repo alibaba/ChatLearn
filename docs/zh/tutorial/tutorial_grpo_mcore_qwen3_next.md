@@ -6,8 +6,12 @@
 建议在PAI平台DSW环境中基于nvcr.io/nvidia/pytorch:24.12-py3来构建镜像。
 ```bash
 
-#安装SGLAN，注意这将移除NGC自带的Pytorch，而自动重新安装pytorch==2.8.0
+#安装SGLANG，注意这将移除NGC自带的Pytorch，而自动重新安装pytorch==2.8.0
 pip install --no-cache-dir "sglang[all]==0.5.2"  -i https://mirrors.aliyun.com/pypi/simple/ 
+
+#添加SGLANG PATCH
+wget https://gist.github.com/lostkevin/9b668c24de6f0e9974c9ad069ef03ed9
+cp memory_pool.py /usr/local/lib/python3.12/dist-packages/sglang/srt/mem_cache/
 
 #安装最新版的Transformers，这将包含最新的qwen3-next的transfomrers实现
 pip install git+https://github.com/huggingface/transformers.git@5f6e278a5177d8b85945a2cdb6b776dacee34914  -i https://mirrors.aliyun.com/pypi/simple/
