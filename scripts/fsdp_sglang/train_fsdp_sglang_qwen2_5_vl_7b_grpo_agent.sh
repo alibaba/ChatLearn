@@ -25,7 +25,7 @@ python chatlearn/entrypoint.py grpo \
         runtime_args.sample_per_episode=2560 \
         runtime_args.train_global_batch_size=640 \
         runtime_args.train_micro_batch_size=80 \
-        runtime_args.save_episode_interval=200 \
+        runtime_args.save_episode_interval=15 \
         runtime_args.eval_episode_interval=5 \
         runtime_args.enable_eval_before_training=False \
         runtime_args.log_args_dict.enable_wandb=False \
