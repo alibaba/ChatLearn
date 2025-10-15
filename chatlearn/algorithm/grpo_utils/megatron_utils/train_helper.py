@@ -394,7 +394,6 @@ def get_batch(
             {
                 "pixel_values": data_b['pixel_values'], # [token_length, token_num]
                 "image_grid_thw": data_b['image_grid_thw'], # [batch_size, 3]
-                "rope_deltas": data_b['rope_deltas'], # [batch_size, 1]
                 "image_input_mask": tokens==get_tokenizer().vocab['<|image_pad|>'] # [batch_size, token_length]
             }
         )

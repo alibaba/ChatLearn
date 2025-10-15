@@ -297,7 +297,8 @@ class BaseModule:
                 max_prompt_tokens_length,
                 self.tokenizer,
                 self.processor,
-                enable_thinking=enable_thinking
+                enable_thinking=enable_thinking,
+                raw_chat=self.runtime_args.raw_chat
             )
         else:
             from chatlearn.data.prompt_dataset import PromptPipeline

@@ -9,13 +9,13 @@ from langchain_core.tools import tool
 from langgraph.graph import END, StateGraph
 from langgraph.graph.message import add_messages
 from omegaconf import DictConfig
-from transformers import AutoTokenizer, AutoProcessor
+from transformers import AutoProcessor, AutoTokenizer
 
 from chatlearn.models.agent.agent_module import register
 from chatlearn.models.agent.base_agent_graph import (AgentGraphOutput,
                                                      BaseAgentGraph)
 from chatlearn.models.agent.chat_model import CustomChatModel
-from chatlearn.utils.rule_reward_score.math import is_equiv
+from chatlearn.utils.rule_reward_score.geo3k import acc_reward
 
 
 class AgentState(TypedDict):
@@ -26,8 +26,8 @@ class AgentState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], add_messages]
 
 
-@register("matheval_agent")
-class MathEvalAgentGraph(BaseAgentGraph):
+@register("geo3k_agent")
+class Geo3kAgentGraph(BaseAgentGraph):
 
     def __init__(
         self,
@@ -39,11 +39,15 @@ class MathEvalAgentGraph(BaseAgentGraph):
         **kwargs
     ):
         super().__init__(agent_name, cfg, llm, tokenizer, processor, **kwargs)
+        # inject customed chat_template
+        self.processor.chat_template = cfg.chat_template
+        self.tokenizer.chat_template = cfg.chat_template
         self.build_graph()
 
     def build_graph(self) -> StateGraph:
+
         self.chatmodel = CustomChatModel(
-            model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer, processor=self.processor
+            model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer, processor=self.processor, model_type=self.model_type
         )
 
         # define node function
@@ -59,9 +63,9 @@ class MathEvalAgentGraph(BaseAgentGraph):
             return {"messages": [message]}
 
         @tool
-        def mathlighteval_reward(answer: str, **kwargs):
-            """A tool for calculating the reward of mathlighteval."""
-            if is_equiv(answer, kwargs["ground_truth"]):
+        def calc_geo3k_reward(answer: str, **kwargs):
+            """A tool used to verify whether the current result is correct"""
+            if acc_reward(answer, kwargs["ground_truth"], use_boxed=False):
                 return "The answer is correct."
             else:
                 return "The answer is wrong."
@@ -120,7 +124,7 @@ class MathEvalAgentGraph(BaseAgentGraph):
         workflow = StateGraph(AgentState)
 
         # bind tool
-        tools = [mathlighteval_reward]
+        tools = [calc_geo3k_reward]
         tools_by_name = {tool.name: tool for tool in tools}
         self.chatmodel = self.chatmodel.bind_tools(tools)
 

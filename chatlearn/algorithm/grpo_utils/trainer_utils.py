@@ -139,7 +139,7 @@ def batching(data_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     batched_data = defaultdict(list)
     for key in data_list[0]:
         batched_data[key] = [data[key] for data in data_list]
-        if key in ['pixel_values', 'image_grid_thw', 'rope_deltas']:
+        if key in ['pixel_values', 'image_grid_thw']:
             batched_data[key] = torch.cat(batched_data[key], dim=0)
         elif isinstance(batched_data[key][0], torch.Tensor):
             batched_data[key] = padding_tensor(batched_data[key])
