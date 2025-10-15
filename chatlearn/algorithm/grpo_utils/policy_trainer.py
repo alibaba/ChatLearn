@@ -270,7 +270,6 @@ class PolicyTrainer(FSDPModule):
                 total_loss = total_loss - self.module_args.entropy_coef * entropy_loss_mean
             if self.module_args.kl_coef > 0:
                 total_loss = total_loss + self.module_args.kl_coef * kl_loss_mean
-
             total_loss.backward()
 
             pg_loss_list.append(pg_loss.detach())
@@ -310,8 +309,6 @@ class PolicyTrainer(FSDPModule):
                 inputs[k] = to_device(torch.cuda.current_device(), v)
             with torch.no_grad():
                 if self.runtime_args.model_type == 'vlm':
-                    # a = self.model.visual.state_dict()['blocks.4.attn.proj.bias'].full_tensor()
-
                     output = self.model(
                         input_ids=inputs['all_tokens'],
                         pixel_values=inputs['pixel_values'],

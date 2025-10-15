@@ -13,6 +13,9 @@
 # limitations under the License.
 # ==============================================================================
 """Apply patches for different model architectures"""
+from packaging.version import Version as PkgVersion
+import transformers
+
 def apply_sp_monkey_patch(model_config):
     print(f"applying sequence parallel patches for {model_config.architectures}")
     if model_config.architectures[0] == "Qwen2ForCausalLM":
@@ -42,8 +45,15 @@ def apply_group_gemm(model):
 def apply_qwenvl(model):
     print(f"applying qwenvl patches for {model.config.architectures[0]}")
     if model.config.architectures[0] == "Qwen2_5_VLForConditionalGeneration":
-        from chatlearn.models.patches.transformers.qwen2_5_vl_patch import apply_qwenvl_patch \
+        if PkgVersion(transformers.__version__)==PkgVersion('4.51.3'):
+            # vl2.5 patch needed for transformers 4.51.3
+            from chatlearn.models.patches.transformers.qwen2_5_vl_patch import apply_qwenvl_patch \
+            # pylint: disable=import-outside-toplevel
+            apply_qwenvl_patch()
+    elif model.config.architectures[0] in ["Qwen3VLForConditionalGeneration", "Qwen3VLMoeForConditionalGeneration"]:
+        assert PkgVersion(transformers.__version__)>=PkgVersion('4.57.0'), "qwen3vl needed transformers >= 4.57.0"
+        from chatlearn.models.patches.transformers.qwen3_vl_patch import apply_qwen3vl_patch \
         # pylint: disable=import-outside-toplevel
-        apply_qwenvl_patch()
+        apply_qwen3vl_patch()
     else:
         raise ValueError(f"Unsupported model architecture: {model.config.architectures} for qwenvl patch")
