@@ -94,7 +94,6 @@ class CustomChatModel(BaseChatModel):
         Returns:
             ChatResult: Chat result.
         """
-        # token_ids, loss_mask = await self._preprocess(messages, **kwargs)
         processed_data = await self._preprocess(messages, **kwargs)
         image_data = processed_data.get("image_data", None)
 
@@ -133,16 +132,7 @@ class CustomChatModel(BaseChatModel):
         last_ai_message_idx = find_last_ai_index(messages)
         # not find ai message, means first input
         if last_ai_message_idx == -1:
-            # token_ids = await loop.run_in_executor(
-            #     None,
-            #     lambda: self.processor.apply_chat_template(
-            #         convert_to_openai_messages(messages),
-            #         tools=kwargs.get("tools"),
-            #         add_generation_prompt=True,
-            #         enable_thinking=False,
-            #         tokenize=True,
-            #     ),
-            # )
+
             openai_messages = convert_to_openai_messages(messages)
             text = await loop.run_in_executor(
                 None,
@@ -167,20 +157,18 @@ class CustomChatModel(BaseChatModel):
                     lambda: process_vision_info(openai_messages)
                 )
                 # process multimodel data
-                multimodel_batchfeature: BatchFeature = await loop.run_in_executor(
+                multimodel_batch_feature: BatchFeature = await loop.run_in_executor(
                     None,
                     lambda: self.processor(text=text, images=image_inputs, videos=video_inputs, return_tensors="pt")
                 )
-                token_ids = multimodel_batchfeature.get("input_ids")[0].tolist()
+                token_ids = multimodel_batch_feature.get("input_ids")[0].tolist()
                 loss_mask = [0] * len(token_ids)
                 return {"token_ids": token_ids,
                         "loss_mask": [0] * len(token_ids),
-                        "multimodel_batchfeature": multimodel_batchfeature,
+                        "multimodel_batch_feature": multimodel_batch_feature,
                         "image_data": image_inputs,
                         "video_data": video_inputs
                         }
-
-
         # find ai message, only encode messages after last ai message
         else:
             remaining_messages = messages[last_ai_message_idx + 1 :]
@@ -258,7 +246,7 @@ class CustomChatModel(BaseChatModel):
             response_metadata={
                 "token_ids": token_ids,
                 "loss_mask": loss_mask,
-                "multimodel_batchfeature": processed_data.get("multimodel_batchfeature", None),
+                "multimodel_batch_feature": processed_data.get("multimodel_batch_feature", None),
                 "image_data": processed_data.get("image_data", None),
                 "video_data": processed_data.get("video_data", None)
             },

@@ -51,7 +51,7 @@ class PromptPipeline(Dataset):
         tokenizer: AutoTokenizer = None,
         processor: AutoProcessor = None,
         enable_thinking=False,
-        raw_chat=True
+        raw_chat=False
     ):  # pylint: disable=super-init-not-called
         super().__init__()
 

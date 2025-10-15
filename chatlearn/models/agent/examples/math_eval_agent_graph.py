@@ -158,60 +158,6 @@ class MathEvalAgentGraph(BaseAgentGraph):
                 "ground_truth": kwargs["ground_truth"],
             }
         }
-        # messages =[
-        #         {
-        #             "role": "user",
-        #             "content": [
-        #                 {
-        #                     "type": "text",
-        #                     "text": "hello",
-        #                 },
-        #                 {
-        #                     "type": "image_url",
-        #                     "image_url": {
-        #                         "url": f"data:image/jpeg;base64,'/9j/4AAQSk'",
-        #                     },
-        #                 },
-        #             ],
-        #         }
-        #     ]
-
-        # messages =[
-        #         {
-        #             "role": "user",
-        #             "content": [
-        #                 {
-        #                     "type": "text",
-        #                     "text": "hello",
-        #                 },
-        #                 {
-        #                     "type": "image_url",
-        #                     "image_url": {
-        #                         "url": "https://github.com/sgl-project/sglang/blob/main/test/lang/example_image.png?raw=true",
-        #                     },
-        #                 },
-        #             ],
-        #         }
-        #     ]
-        # messages =[
-        #         {
-        #             "role": "user",
-        #             "content": [
-        #                 {
-        #                     "type": "image_url",
-        #                     "image_url": "https://github.com/sgl-project/sglang/blob/main/test/lang/example_image.png?raw=true",
-        #                 },
-        #                 {
-        #                     "type": "text",
-        #                     "text": "hello",
-        #                 },
-        #                 {
-        #                     "type": "image_url",
-        #                     "image_url": "https://github.com/sgl-project/sglang/blob/main/test/lang/example_image.png?raw=true",
-        #                 },
-        #             ],
-        #         }
-        #     ]
     
         output = await self.graph.ainvoke(input={"messages": messages}, config=config)
         loop = asyncio.get_running_loop()

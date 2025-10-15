@@ -110,18 +110,18 @@ class BaseAgentGraph:
         str_output = self.tokenizer.decode(all_token_ids[prompt_end_idx + 1 :])
 
         pixel_values, image_grid_thw, position_ids = None, None, None
-        multimodel_batchfeature = messages[first_ai_message_idx].response_metadata.get("multimodel_batchfeature", None)
-        if multimodel_batchfeature:
-            pixel_values = multimodel_batchfeature.get("pixel_values")
-            image_grid_thw = multimodel_batchfeature.get("image_grid_thw")
+        multimodel_batch_feature = messages[first_ai_message_idx].response_metadata.get("multimodel_batch_feature", None)
+        if multimodel_batch_feature:
+            pixel_values = multimodel_batch_feature.get("pixel_values")
+            image_grid_thw = multimodel_batch_feature.get("image_grid_thw")
             # need to get position ids used in sequence packing
             position_ids, _ = get_rope_index(
                 self.processor,
-                input_ids=multimodel_batchfeature.get("input_ids"),
-                image_grid_thw=multimodel_batchfeature.get("image_grid_thw"),
-                video_grid_thw=multimodel_batchfeature.get("video_grid_thw"),
-                second_per_grid_ts=multimodel_batchfeature.get("second_per_grid_ts"),
-                attention_mask=multimodel_batchfeature.get("attention_mask"),
+                input_ids=multimodel_batch_feature.get("input_ids"),
+                image_grid_thw=multimodel_batch_feature.get("image_grid_thw"),
+                video_grid_thw=multimodel_batch_feature.get("video_grid_thw"),
+                second_per_grid_ts=multimodel_batch_feature.get("second_per_grid_ts"),
+                attention_mask=multimodel_batch_feature.get("attention_mask"),
             )
             position_ids = position_ids.squeeze().tolist()
 

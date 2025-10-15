@@ -53,7 +53,6 @@ class AgentModule(AsyncSGLangModule):
             cfg=cfg,
             llm=self.llm,
             tokenizer = self.tokenizer,
-            # vlm model pass self.processor, llm model pass self.tokenizer
             processor=self.processor,
             model_type=self.runtime_args.model_type
         )

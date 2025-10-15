@@ -107,11 +107,3 @@ if __name__ == "__main__":
     # to_parquet may produce key: None in dict
     train_dataset.to_parquet(os.path.join(local_dir, "train_agent.parquet"))
     test_dataset.to_parquet(os.path.join(local_dir, "test_agent.parquet"))
-
-    # 复制 test_dataset 30 遍
-    num_repeats = 26
-    repeated_test_datasets = [test_dataset] * num_repeats
-    test_dataset_repeated = datasets.concatenate_datasets(repeated_test_datasets)
-
-    # 然后保存到 parquet
-    test_dataset_repeated.to_parquet(os.path.join(local_dir, "test_agent_26.parquet"))
