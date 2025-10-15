@@ -31,7 +31,7 @@ def find_first_ai_index(messages):
     for idx, message in enumerate(messages):
         if getattr(message, "type", None) == "ai":
             return idx
-    return -1  
+    return -1
 
 class CustomChatModel(BaseChatModel):
     """CustomChatModel for async sglang"""
