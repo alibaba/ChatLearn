@@ -40,27 +40,25 @@ def find_first_zero_group_end(lst):
 # modified from https://github.com/volcengine/verl/blob/main/verl/experimental/agent_loop/agent_loop.py#L121
 class AgentGraphOutput(BaseModel):
     """AgentGraphOutput"""
+    # total rollout string
     str_output: str
-    """total rollout str"""
+    # Prompt token ids
     prompt_ids: list[int]
-    """Prompt token ids."""
+    # all token ids including prompt, LLM generated token, tool response token.
     all_token_ids: list[int]
-    """all token ids including prompt, LLM generated token, tool response token."""
+    # loss mask, 1 for LLM generated token, 0 for tool response token, input prompt.
     loss_mask: list[int]
-    """loss mask, 1 for LLM generated token, 0 for tool response token, input prompt."""
     response_logprobs: Optional[list[float]] = None
+    # Reward score for the trajectory
     reward_score: Optional[float] = None
-    """Reward score for the trajectory."""
+    # Number of chat turns, including user, assistant, tool
     num_turns: int = 0
-    """Number of chat turns, including user, assistant, tool."""
-    # multimodel data
+    # multimodel related item
     pixel_values: Any = None
     image_grid_thw: Any = None
-    rope_deltas: Any = None
     position_ids: Any = None
-    """processed multimodel batchfeature"""
+    # Extra fields for dynamic addition.
     extra_fields: dict[str, Any] = {}
-    """Extra fields for dynamic addition."""
 
 
 class BaseAgentGraph:
@@ -111,15 +109,13 @@ class BaseAgentGraph:
         num_turns = last_ai_message_idx + 1
         str_output = self.tokenizer.decode(all_token_ids[prompt_end_idx + 1 :])
 
-        pixel_values = None
-        image_grid_thw = None
-        rope_deltas = None
-        position_ids = None
+        pixel_values, image_grid_thw, position_ids = None, None, None
         multimodel_batchfeature = messages[first_ai_message_idx].response_metadata.get("multimodel_batchfeature", None)
         if multimodel_batchfeature:
             pixel_values = multimodel_batchfeature.get("pixel_values")
             image_grid_thw = multimodel_batchfeature.get("image_grid_thw")
-            position_ids, rope_deltas = get_rope_index(
+            # need to get position ids used in sequence packing
+            position_ids, _ = get_rope_index(
                 self.processor,
                 input_ids=multimodel_batchfeature.get("input_ids"),
                 image_grid_thw=multimodel_batchfeature.get("image_grid_thw"),
@@ -128,8 +124,7 @@ class BaseAgentGraph:
                 attention_mask=multimodel_batchfeature.get("attention_mask"),
             )
             position_ids = position_ids.squeeze().tolist()
-            # rope_deltas = multimodel_batchfeature.get("rope_deltas")
-            # position_ids = multimodel_batchfeature.get("position_ids").squeeze().tolist()
+
         return AgentGraphOutput(
             str_output=str_output,
             prompt_ids=prompt_ids,
@@ -138,6 +133,5 @@ class BaseAgentGraph:
             num_turns=num_turns,
             pixel_values=pixel_values,
             image_grid_thw=image_grid_thw,
-            rope_deltas=rope_deltas,
             position_ids=position_ids
         )

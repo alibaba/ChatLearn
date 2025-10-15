@@ -17,7 +17,7 @@ You can use a VPC address to accelerate image pulling. The image address should 
 ```bash
 git clone https://github.com/alibaba/ChatLearn.git
 wget http://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/megatron-patch-release/0922/Pai-Megatron-Patch.tar.gz
-tar -xvf Pai-Megatron-Patch.tar
+tar -xvf Pai-Megatron-Patch.tar.gz
 ```
 
 ## Data & Model Preparation
@@ -46,7 +46,7 @@ cd ../Pai-Megatron-Patch/toolkits/distributed_checkpoints_convertor
 bash scripts/qwen2_5_vl/run_8xH20.sh \
 7B \
 ${CHATLEARN_ROOT}/pretrained_models/Qwen2.5-VL-7B-Instruct  \
-${CHATLEARN_ROOT}/pretrained_models//Qwen2.5-VL-7B-Instruct-to-mcore \
+${CHATLEARN_ROOT}/pretrained_models/Qwen2.5-VL-7B-Instruct-to-mcore \
 false  \
 true  \
 bf16

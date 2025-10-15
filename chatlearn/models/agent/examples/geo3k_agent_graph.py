@@ -40,6 +40,9 @@ class Geo3kAgentGraph(BaseAgentGraph):
         **kwargs
     ):
         super().__init__(agent_name, cfg, llm, tokenizer, processor, **kwargs)
+        # inject customed chat_template
+        self.processor.chat_template = cfg.chat_template
+        self.tokenizer.chat_template = cfg.chat_template
         self.build_graph()
 
     def build_graph(self) -> StateGraph:
@@ -62,8 +65,8 @@ class Geo3kAgentGraph(BaseAgentGraph):
 
         @tool
         def calc_geo3k_reward(answer: str, **kwargs):
-            """A tool for calculating the reward of geo3k."""
-            if acc_reward(answer, kwargs["ground_truth"]):
+            """A tool used to verify whether the current result is correct"""
+            if acc_reward(answer, kwargs["ground_truth"], use_boxed=False):
                 return "The answer is correct."
             else:
                 return "The answer is wrong."

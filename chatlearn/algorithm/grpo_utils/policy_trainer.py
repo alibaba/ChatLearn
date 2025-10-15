@@ -103,7 +103,6 @@ class PolicyTrainer(FSDPModule):
 
             # for vl
             position_ids = data_b.get("position_ids", None)
-            rope_deltas = data_b.get("rope_deltas", None)
             pixel_values = data_b.get("pixel_values", None)
             image_grid_thw = data_b.get("image_grid_thw", None)
 
@@ -151,7 +150,6 @@ class PolicyTrainer(FSDPModule):
                     {
                         "pixel_values": pixel_values, # [token_length, token_num]
                         "image_grid_thw": image_grid_thw, # [batch_size, 3]
-                        "rope_deltas": rope_deltas # [batch_size, 1]
                     }
                 )
 
@@ -196,8 +194,7 @@ class PolicyTrainer(FSDPModule):
                     image_grid_thw=inputs['image_grid_thw'],
                     attention_mask=None,
                     position_ids=inputs['position_ids'],
-                    use_cache=False,
-                    rope_deltas=inputs['rope_deltas']
+                    use_cache=False
                 )
             else:
                 output = self.model(
@@ -315,8 +312,7 @@ class PolicyTrainer(FSDPModule):
                         image_grid_thw=inputs['image_grid_thw'],
                         attention_mask=None,
                         position_ids=inputs['position_ids'],
-                        use_cache=False,
-                        rope_deltas=inputs['rope_deltas']
+                        use_cache=False
                     )
                 else:
                     output = self.model(

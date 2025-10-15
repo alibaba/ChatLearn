@@ -36,7 +36,6 @@ class PromptPipeline(Dataset):
         "prompt_token_length": int, # len(input_ids)
         "prompt": String,
         "position_ids": List[List], # [3, token_length]
-        "rope_deltas": Tensor, # [1,1]
         "data_source": String,
         "ground_truth": String,
         "multi_modal_data": {'image':[PIL.Image]}, # for vllm inference
@@ -101,7 +100,7 @@ class PromptPipeline(Dataset):
                 # text only input_ids for vllm
                 raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
                 # get position_ids used for sequence packing
-                position_ids, rope_deltas = get_rope_index(
+                position_ids, _ = get_rope_index(
                     self.processor,
                     input_ids=input_ids,
                     image_grid_thw=model_inputs.get("image_grid_thw"),
@@ -119,7 +118,6 @@ class PromptPipeline(Dataset):
                     "prompt_token_length": len(input_ids[0].tolist()),
                     "prompt": raw_prompt,
                     "position_ids": position_ids.squeeze().tolist(),
-                    "rope_deltas": rope_deltas,
                     "multi_modal_data": multi_modal_data,
                     "mm_processor_kwargs": mm_processor_kwargs,
                     "pixel_values": pixel_values,

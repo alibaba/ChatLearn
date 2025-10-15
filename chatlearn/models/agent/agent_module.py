@@ -90,7 +90,6 @@ class AgentModule(AsyncSGLangModule):
             prompt_token_ids = output.prompt_ids
             pixel_values = output.pixel_values
             image_grid_thw = output.image_grid_thw
-            rope_deltas = output.rope_deltas
             position_ids = output.position_ids
             response_token_length = len(output.all_token_ids) - len(output.prompt_ids)
             prompt_token_length = len(output.prompt_ids)
@@ -110,7 +109,6 @@ class AgentModule(AsyncSGLangModule):
                     # multimodel related
                     "pixel_values": pixel_values,
                     "image_grid_thw": image_grid_thw,
-                    "rope_deltas": rope_deltas,
                     "position_ids": position_ids
                 }
             )

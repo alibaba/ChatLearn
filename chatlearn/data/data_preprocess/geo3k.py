@@ -71,8 +71,7 @@ if __name__ == "__main__":
             ]
             messages[0]["content"] = prepare_image_content(images)+ \
                 messages[0]["content"]
-            from qwen_vl_utils import process_vision_info
-            process_vision_info(messages)
+
             data = {
                 "data_source": data_source,
                 "messages": messages,
