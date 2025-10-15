@@ -1,6 +1,5 @@
 #!/bin/bash
 
-# Tested on 8xH20-3e with 140G VRAM
 set -x
 
 export CHATLEARN=$(pwd)
