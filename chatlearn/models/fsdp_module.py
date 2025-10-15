@@ -344,7 +344,7 @@ class FSDPModule(TorchModule):
         model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
 
         # fsdp2 warp
-        mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.float32, reduce_dtype=torch.float32, cast_forward_inputs=True)
+        mix_precision_config = MixedPrecisionPolicy(param_dtype=torch.bfloat16, reduce_dtype=torch.float32, cast_forward_inputs=True)
         fsdp_kwargs = {
             "mesh": self.device_mesh,
             "mp_policy": mix_precision_config,
@@ -355,6 +355,7 @@ class FSDPModule(TorchModule):
         if isinstance(fsdp_transformer_layer_cls_to_wrap, str):
             fsdp_transformer_layer_cls_to_wrap = [fsdp_transformer_layer_cls_to_wrap]
         modules = []
+
         for module in model.modules():
             if module.__class__.__name__ in fsdp_transformer_layer_cls_to_wrap or \
                 (isinstance(module, nn.Embedding) and not model.config.tie_word_embeddings):
@@ -363,7 +364,7 @@ class FSDPModule(TorchModule):
         for module in modules:
             fully_shard(module, **fsdp_kwargs)
         fully_shard(model, **fsdp_kwargs)
-
+   
         if self.module_args.meta_init:
             shard_dict = self.get_dtensor(model, args.load)
             model.load_state_dict(shard_dict, assign=True)
@@ -371,8 +372,7 @@ class FSDPModule(TorchModule):
 
         self.model = model
         self.model.to(torch.float32)
-        # breakpoint()
-
+      
         if not self.trainable:
             self.optimizer = None
             self.model.eval()
