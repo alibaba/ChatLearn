@@ -15,7 +15,6 @@ from chatlearn.models.agent.agent_module import register
 from chatlearn.models.agent.base_agent_graph import (AgentGraphOutput,
                                                      BaseAgentGraph)
 from chatlearn.models.agent.chat_model import CustomChatModel
-from chatlearn.utils.rule_reward_score.math import is_equiv
 from chatlearn.utils.rule_reward_score.geo3k import acc_reward
 
 
@@ -46,7 +45,7 @@ class Geo3kAgentGraph(BaseAgentGraph):
         self.build_graph()
 
     def build_graph(self) -> StateGraph:
-        
+
         self.chatmodel = CustomChatModel(
             model=self.agent_name, llm=self.llm, tokenizer=self.tokenizer, processor=self.processor, model_type=self.model_type
         )
@@ -163,7 +162,7 @@ class Geo3kAgentGraph(BaseAgentGraph):
                 "ground_truth": kwargs["ground_truth"],
             }
         }
-    
+
         output = await self.graph.ainvoke(input={"messages": messages}, config=config)
         loop = asyncio.get_running_loop()
         output = await loop.run_in_executor(

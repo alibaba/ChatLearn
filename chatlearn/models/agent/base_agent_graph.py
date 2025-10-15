@@ -21,7 +21,6 @@ from langgraph.graph import StateGraph
 from omegaconf import DictConfig
 from pydantic import BaseModel
 from transformers import AutoTokenizer, AutoProcessor
-from torch import Tensor
 
 from chatlearn.models.agent.chat_model import (CustomChatModel,
                                                find_last_ai_index,

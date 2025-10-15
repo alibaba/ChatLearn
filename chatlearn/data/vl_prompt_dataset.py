@@ -6,7 +6,6 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
 
-from chatlearn.data.vision_utils import process_image, process_video
 from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_index
 
 

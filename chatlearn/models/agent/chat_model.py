@@ -3,7 +3,7 @@
 import asyncio
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from langchain_core.language_models import BaseChatModel
 from langchain_core.language_models.base import LanguageModelInput
@@ -28,10 +28,10 @@ def find_last_ai_index(messages):
     return -1
 
 def find_first_ai_index(messages):
-    for i in range(len(messages)):
-        if getattr(messages[i], "type", None) == "ai":
-            return i
-    return -1
+    for idx, message in enumerate(messages):
+        if getattr(message, "type", None) == "ai":
+            return idx
+    return -1  
 
 class CustomChatModel(BaseChatModel):
     """CustomChatModel for async sglang"""
@@ -97,7 +97,7 @@ class CustomChatModel(BaseChatModel):
         processed_data = await self._preprocess(messages, **kwargs)
         image_data = processed_data.get("image_data", None)
 
-        first_ai_message_idx = find_first_ai_index(messages) 
+        first_ai_message_idx = find_first_ai_index(messages)
         if first_ai_message_idx != -1:
             image_data = messages[first_ai_message_idx].response_metadata.get("image_data", None)
 

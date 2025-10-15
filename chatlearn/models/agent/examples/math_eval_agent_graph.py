@@ -158,7 +158,7 @@ class MathEvalAgentGraph(BaseAgentGraph):
                 "ground_truth": kwargs["ground_truth"],
             }
         }
-    
+
         output = await self.graph.ainvoke(input={"messages": messages}, config=config)
         loop = asyncio.get_running_loop()
         output = await loop.run_in_executor(
