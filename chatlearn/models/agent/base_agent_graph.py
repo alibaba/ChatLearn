@@ -54,6 +54,7 @@ class AgentGraphOutput(BaseModel):
     pixel_values: Any = None
     image_grid_thw: Any = None
     attention_mask: Any = None
+    # position_ids: Any = None
     # Extra fields for dynamic addition.
     extra_fields: dict[str, Any] = {}
 
@@ -130,5 +131,6 @@ class BaseAgentGraph:
             num_turns=num_turns,
             pixel_values=pixel_values,
             image_grid_thw=image_grid_thw,
-            attention_mask=multimodel_batch_feature.get("attention_mask")[0].tolist()
+            attention_mask=multimodel_batch_feature.get("attention_mask")[0].tolist(),
+            # position_ids=position_ids
         )

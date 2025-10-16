@@ -110,7 +110,7 @@ class AgentModule(AsyncSGLangModule):
                     # multimodel related
                     "pixel_values": pixel_values,
                     "image_grid_thw": image_grid_thw,
-                    "attention_mask": attentiion_mask
+                    "attention_mask": attentiion_mask,
                     # "position_ids": position_ids
                 }
             )
