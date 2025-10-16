@@ -91,7 +91,6 @@ class AgentModule(AsyncSGLangModule):
             image_grid_thw = output.image_grid_thw
             attentiion_mask = output.attention_mask
 
-            # position_ids = output.position_ids
             response_token_length = len(output.all_token_ids) - len(output.prompt_ids)
             prompt_token_length = len(output.prompt_ids)
             str_outputs = output.str_output
@@ -110,8 +109,7 @@ class AgentModule(AsyncSGLangModule):
                     # multimodel related
                     "pixel_values": pixel_values,
                     "image_grid_thw": image_grid_thw,
-                    "attention_mask": attentiion_mask,
-                    # "position_ids": position_ids
+                    "attention_mask": attentiion_mask
                 }
             )
             data_output.append(input_data)

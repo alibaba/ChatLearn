@@ -6,9 +6,6 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
 
-# from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_index
-
-
 class PromptPipeline(Dataset):
     """
     Input data_list: List[Dict])
@@ -98,16 +95,7 @@ class PromptPipeline(Dataset):
 
                 # text only input_ids for vllm
                 raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-                # get position_ids used for sequence packing
-                # position_ids, _ = get_rope_index(
-                #     self.processor,
-                #     input_ids=input_ids,
-                #     image_grid_thw=model_inputs.get("image_grid_thw"),
-                #     video_grid_thw=model_inputs.get("video_grid_thw"),
-                #     second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                #     attention_mask=attention_mask,
-                # )
-
+                
                 # for vl model, raw_input_ids is only text input_ids for vllm inference
                 # input_ids is used for model forward_step and sglang inference (with image pad)
                 # sglang support both input_ids and raw_input_ids but to merge in all_tokens, input_ids is used
@@ -116,7 +104,6 @@ class PromptPipeline(Dataset):
                     "input_ids": input_ids[0].tolist(),
                     "prompt_token_length": len(input_ids[0].tolist()),
                     "prompt": raw_prompt,
-                    # "position_ids": position_ids.squeeze().tolist(),
                     "multi_modal_data": multi_modal_data,
                     "mm_processor_kwargs": mm_processor_kwargs,
                     "pixel_values": pixel_values,

@@ -117,7 +117,6 @@ class PolicyTrainer(FSDPModule):
                 tokens_, indices, *_ = unpad_input(tokens_.unsqueeze(-1).cuda(), attn_mask.cuda())
                 tokens_ = tokens_.permute(1,0).cpu() # For compatible with transformers
                 position_ids, *_ = unpad_input(position_ids.unsqueeze(-1).cuda(), attn_mask.cuda())
-
                 if self.runtime_args.model_type == 'vlm':
                     # vl
                     position_ids = position_ids.permute(0, 2, 1).cpu()
@@ -317,7 +316,6 @@ class PolicyTrainer(FSDPModule):
      
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = "old_logprobs" if self.trainable else "ref_logprobs"
-
         # Logprobs holder
         for inputs in data_list:
             for k, v in inputs.items():
