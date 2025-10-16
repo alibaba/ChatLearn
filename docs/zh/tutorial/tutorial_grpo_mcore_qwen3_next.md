@@ -9,8 +9,9 @@
 #安装SGLANG，注意这将移除NGC自带的Pytorch，而自动重新安装pytorch==2.8.0
 pip install --no-cache-dir "sglang[all]==0.5.2"  -i https://mirrors.aliyun.com/pypi/simple/ 
 
-#添加SGLANG PATCH
-wget https://gist.github.com/lostkevin/9b668c24de6f0e9974c9ad069ef03ed9
+#添加SGLANG PATCH。 从https://gist.github.com/lostkevin/9b668c24de6f0e9974c9ad069ef03ed9下载修改后的memory_pool.py文件 
+cd /usr/local/lib/python3.12/dist-packages/sglang/srt/mem_cache/
+mv memory_pool.py memory_pool.py.bak
 cp memory_pool.py /usr/local/lib/python3.12/dist-packages/sglang/srt/mem_cache/
 
 #安装最新版的Transformers，这将包含最新的qwen3-next的transfomrers实现
