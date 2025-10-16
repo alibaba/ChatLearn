@@ -245,6 +245,11 @@ class MegatronModelArchitectureConfig(BaseConfig):
     freeze_VP: bool = field(
         default=False, metadata={"help": "Freeze vision projection layers"}
     )
+
+    hybrid_override_pattern: Optional[str] = None
+    is_hybrid_model: bool = False
+    apply_layernorm_1p: bool = False
+    
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'

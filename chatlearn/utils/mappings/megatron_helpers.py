@@ -36,6 +36,8 @@ try:
         VocabParallelEmbedding,
         ColumnParallelLinear
     )
+    from megatron.core.transformer.moe.shared_experts import SharedExpertMLP
+    from megatron.core.ssm.mamba_mixer import MambaMixer
     HAVE_MEGATRON = True
 except ImportError:
     HAVE_MEGATRON = False
@@ -181,6 +183,47 @@ def _prepare_metadata(prefix: str, module: nn.Module):
         results['weight'] = ShardedTensorInfo.from_global_shape(
             tuple(module.weight.shape), dtype=module.weight.dtype
         )
+    elif isinstance(module, MambaMixer):
+        tp_rank = mpu.get_tensor_model_parallel_rank()
+        tp_size = mpu.get_tensor_model_parallel_world_size()
+        L = module.dt_bias.shape[0]
+        results['dt_bias'] = ShardedTensorInfo(
+            dtype=module.dt_bias.dtype,
+            global_shape=(L * tp_size, ),
+            axis_fragmentations=(tp_size, ),
+            global_offset=(tp_rank,)
+        )
+        results['A_log'] = ShardedTensorInfo(
+            dtype=module.A_log.dtype,
+            global_shape=(L * tp_size, ),
+            axis_fragmentations=(tp_size, ),
+            global_offset=(tp_rank,)
+        )
+        if module.D is not None:
+            raise NotImplementedError()
+        if module.rmsnorm:
+            results['norm.weight'] = ShardedTensorInfo(
+                dtype=module.norm.weight.dtype,
+                global_shape=(module.norm.weight.shape[0] * tp_size, ),
+                axis_fragmentations=(tp_size, ),
+                global_offset=(tp_rank,)
+            )
+        conv_dim, _, d_conv = module.conv1d.weight.shape
+        results['conv1d.weight'] = ShardedTensorInfo(
+            dtype=module.conv1d.weight.dtype,
+            global_shape=(conv_dim * tp_size, 1, d_conv),
+            axis_fragmentations=(tp_size, 1, 1),
+            global_offset=(tp_rank, 0, 0)
+        )
+    elif isinstance(module, SharedExpertMLP):
+        if module.use_shared_expert_gate:
+            results['gate_weight'] = ShardedTensorInfo(
+                dtype=module.gate_weight.dtype,
+                global_shape=(1, module.gate_weight.shape[1]),
+                axis_fragmentations=(1, 1),
+                global_offset=(0, 0)
+            )
+
     return results
 
 def build_sharded_info_for_mcore_model(

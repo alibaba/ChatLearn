@@ -329,3 +329,35 @@ class ShardedTensorInfo:
             if si > oi or si + sj < oi + oj:
                 return False
         return True
+
+    def chunk(self, sections: List[int], axis: int=0) -> List['ShardedTensorInfo']:
+        """
+        Chunk the sharded info on the given axis.
+
+        Args:
+            sections (List[int]): a list of length for chunking, the total length of this
+            list should be equal to local_shape on the given axis.
+            axis (int, optional): The axis to be chunked. Defaults to 0.
+        """
+        local_size = self.local_shape[axis]
+        assert local_size == sum(sections), f"Failed to chunk {self} on axis {axis}, given sections {sections}"
+        offset = self.local_offset[axis]
+
+        chunks = []
+        for section in sections:
+            result = self.copy()
+            result.local_shape = result.local_shape[:axis] + (section, ) + result.local_shape[axis + 1:]
+            result.local_offset = result.local_offset[:axis] + (offset, ) + result.local_offset[axis + 1:]
+            offset += section
+            chunks.append(result)
+        return chunks
+    
+    @property
+    def offset(self):
+        """Return the offset of this shard in the global tensor"""
+        return tuple(l + g * s // a for l, g, s, a in zip(
+            self.local_offset, 
+            self.global_offset, 
+            self.global_shape, 
+            self.axis_fragmentations
+        ))

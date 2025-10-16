@@ -129,7 +129,8 @@ def test_process_gate_up_tensor():
     # Case 1: src tp == dst tp
     assert process_gate_up_tensor(
         ShardedTensorInfo(axis_fragmentations=(4, 1), global_shape=(16, 8), global_offset=(0, 0)),
-        4
+        4,
+        proj_type='gate_up_proj'
     ) == [
         (
             ShardedTensorInfo(axis_fragmentations=(4, 1), global_shape=(16, 8), global_offset=(0, 0)), 
@@ -140,7 +141,8 @@ def test_process_gate_up_tensor():
     # Case 2: src tp < dst tp
     assert sorted(process_gate_up_tensor(
         ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, )),
-        4
+        4,
+        proj_type='gate_up_proj'
     ), key=lambda x: x[0].local_offset[0]) == [
         (
             ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(16, ), global_offset=(1, ), local_shape=(2, ), local_offset=(0, )), 
@@ -164,6 +166,7 @@ def test_process_gate_up_tensor():
     assert sorted(process_gate_up_tensor(
         ShardedTensorInfo(axis_fragmentations=(8, ), global_shape=(16, ), global_offset=(3, )),
         2, 
+        proj_type='gate_up_proj'
     ), key=lambda x: x[0].local_offset[0]) == [
         (
             ShardedTensorInfo(axis_fragmentations=(8, ), global_shape=(16, ), global_offset=(3, ), local_shape=(1, ), local_offset=(0, )), 
@@ -179,6 +182,7 @@ def test_process_gate_up_tensor():
     assert sorted(process_gate_up_tensor(
         ShardedTensorInfo(axis_fragmentations=(3, 1), global_shape=(24, 7), global_offset=(1, 0)),
         2, 
+        proj_type='gate_up_proj'
     ), key=lambda x: x[0].local_offset[0]) == [
         (
             ShardedTensorInfo(axis_fragmentations=(3, 1), global_shape=(24, 7), global_offset=(1, 0), local_shape=(2, 7), local_offset=(0, 0)),
@@ -202,6 +206,7 @@ def test_process_gate_up_tensor():
     assert sorted(process_gate_up_tensor(
         ShardedTensorInfo(axis_fragmentations=(3, ), global_shape=(48, ), global_offset=(1, )),
         8, 
+        proj_type='gate_up_proj'
     ), key=lambda x: x[0].local_offset[0]) == [
         (
             ShardedTensorInfo(axis_fragmentations=(3, ), global_shape=(48, ), global_offset=(1, ), local_offset=(0, ), local_shape=(1, )),
@@ -242,7 +247,8 @@ def test_process_qkv_tensor_no_gqa():
         ShardedTensorInfo(axis_fragmentations=(4, 1), global_shape=(96, 8), global_offset=(0, 0)),
         8,
         None,
-        4
+        4,
+        proj_type='qkv_proj'
     ) == [
         (
             ShardedTensorInfo(axis_fragmentations=(4, 1), global_shape=(96, 8), global_offset=(0, 0), local_shape=(4, 8), local_offset=(0, 0)), 
@@ -275,7 +281,8 @@ def test_process_qkv_tensor_no_gqa():
         ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(96, ), global_offset=(1, )),
         8,
         None,
-        4
+        4,
+        proj_type='qkv_proj'
     ), key=lambda x: x[0].local_offset[0]) == [
         (
             ShardedTensorInfo(axis_fragmentations=(2, ), global_shape=(96, ), global_offset=(1, ), local_shape=(4, ), local_offset=(0, )), 
@@ -333,6 +340,7 @@ def test_process_qkv_tensor_no_gqa():
         8,
         None,
         2, 
+        proj_type='qkv_proj'
     ), key=lambda x: x[0].local_offset[0]) == [
         (
             ShardedTensorInfo(axis_fragmentations=(8, ), global_shape=(48, ), global_offset=(3, ), local_shape=(2, ), local_offset=(0, )), 
@@ -355,6 +363,7 @@ def test_process_qkv_tensor_no_gqa():
             12,
             None,
             2, 
+            proj_type='qkv_proj'
         ),
         key=lambda x: x[0].local_offset[0]
     )
@@ -382,6 +391,7 @@ def test_process_qkv_tensor_no_gqa():
             12,
             None,
             4, 
+            proj_type='qkv_proj'
         ), 
         key=lambda x: x[0].local_offset[0]
     )

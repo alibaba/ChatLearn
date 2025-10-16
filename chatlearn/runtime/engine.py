@@ -556,7 +556,7 @@ class Engine(BaseEngine):
     def dump_parameters(self, dump_path):
         for _, model in enumerate(self.models):
             replic_0 = model.replicas[0]
-            if isinstance(replic_0, DistVLLMActor):
+            if isinstance(replic_0, (DistVLLMActor, DistSGLangActor)):
                 future.wait(replic_0.engine.dump_parameters.remote(dump_path))
 
     def save_checkpoint(self, episode_id):
