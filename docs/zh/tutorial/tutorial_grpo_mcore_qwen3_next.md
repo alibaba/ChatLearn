@@ -14,18 +14,14 @@ cd /usr/local/lib/python3.12/dist-packages/sglang/srt/mem_cache/
 mv memory_pool.py memory_pool.py.bak
 cp memory_pool.py /usr/local/lib/python3.12/dist-packages/sglang/srt/mem_cache/
 
-#安装最新版的Transformers，这将包含最新的qwen3-next的transfomrers实现
-pip install git+https://github.com/huggingface/transformers.git@5f6e278a5177d8b85945a2cdb6b776dacee34914  -i https://mirrors.aliyun.com/pypi/simple/
-
 
 #安装Chatlearn的依赖包
-pip install modelscope==1.30.0 tensordict==0.10.0 torchdata==0.11.0 codetiming==1.4.0 blobfile==3.0.0 numpy==1.26.4 accelerate==1.10.0 wandb==0.19.11 datasets==3.6.0 grpcio==1.71.0 omegaconf==2.3.0  hydra-core==1.3.2 msgspec==0.19.0 mathruler==0.1.0 pylatexenc==2.10 langgraph==0.6.6 ray[default]==2.46.0 -i https://mirrors.aliyun.com/pypi/simple/ 
+pip install transformers==4.57.1 modelscope==1.30.0 tensordict==0.10.0 torchdata==0.11.0 codetiming==1.4.0 blobfile==3.0.0 numpy==1.26.4 accelerate==1.10.0 wandb==0.19.11 datasets==3.6.0 grpcio==1.71.0 omegaconf==2.3.0  hydra-core==1.3.2 msgspec==0.19.0 mathruler==0.1.0 pylatexenc==2.10 langgraph==0.6.6 ray[default]==2.46.0 -i https://mirrors.aliyun.com/pypi/simple/ 
 
 #由于安装VLLM会重新安装pytorch，因此需要重新安装flash attention以及apex
 pip uninstall -y flash_attn && pip install https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/flash-attention/torch2.6.0-cu12x/flash_attn-2.4.2-cp312-cp312-linux_x86_64.whl --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ 
 
 pip uninstall -y apex && pip install https://pai-vision-data-hz.oss-cn-zhangjiakou.aliyuncs.com/csrc/apex/torch2.6.0-cuda12x/apex-0.1-cp312-cp312-linux_x86_64.whl --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ 
-
 
 
 #升级Transformer Engine
@@ -99,7 +95,7 @@ bf16
 
 ```bash
 cd ${CHATLEARN_ROOT}
-bash scripts/mcore_vllm/train_mcore_vllm_qwen3_next_grpo.sh
+bash scripts/mcore_sglang/train_mcore_sglang_qwen3_next_grpo.sh
 ```
 
 ## 使用 Wandb 监控
