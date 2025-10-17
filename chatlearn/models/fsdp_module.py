@@ -271,14 +271,26 @@ class FSDPModule(TorchModule):
                 )
         else:
             model_config = AutoConfig.from_pretrained(model_path)
-            assert "Qwen2_5_VLForConditionalGeneration" not in model_config.architectures, "VL model not support meta init"
-            with init_on_device('meta', include_buffers=False):
-                model = AutoModelForCausalLM.from_config(
-                    model_config,
-                    torch_dtype=torch_dtype,
-                    attn_implementation="flash_attention_2",
-                    trust_remote_code=self.module_args.trust_remote_code
-                )
+            # assert "Qwen2_5_VLForConditionalGeneration" not in model_config.architectures, "VL model not support meta init"
+            if self.runtime_args.model_type == 'vlm':
+                with init_on_device('meta', include_buffers=False):
+                    model = AutoModelForImageTextToText.from_pretrained(
+                        pretrained_model_name_or_path=model_path,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                        trust_remote_code=self.module_args.trust_remote_code
+                    )
+
+                    from chatlearn.models.patches.monkey_patch import apply_qwenvl
+                    apply_qwenvl(model)
+            else:
+                with init_on_device('meta', include_buffers=False):
+                    model = AutoModelForCausalLM.from_config(
+                        model_config,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                        trust_remote_code=self.module_args.trust_remote_code
+                    )
         dist.barrier()
         return model
     @property
