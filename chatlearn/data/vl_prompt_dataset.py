@@ -38,6 +38,7 @@ class PromptPipeline(Dataset):
         "mm_processor_kwargs": {'fps':[]}, # used for video useless now
         "pixel_values": Tensor, # [grid_num, pixel_num]
         "image_grid_thw": Tensor, # [1,3] 3 means t,h,w
+        "attention_mask": List, used for compute position_ids
     }
     """
     def __init__(
