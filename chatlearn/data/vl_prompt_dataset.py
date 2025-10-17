@@ -6,9 +6,6 @@ from torch.utils.data import Dataset
 from transformers import AutoTokenizer, AutoProcessor
 from qwen_vl_utils import process_vision_info
 
-from chatlearn.models.patches.transformers.qwen2_5_vl_patch import get_rope_index
-
-
 class PromptPipeline(Dataset):
     """
     Input data_list: List[Dict])
@@ -41,6 +38,7 @@ class PromptPipeline(Dataset):
         "mm_processor_kwargs": {'fps':[]}, # used for video useless now
         "pixel_values": Tensor, # [grid_num, pixel_num]
         "image_grid_thw": Tensor, # [1,3] 3 means t,h,w
+        "attention_mask": List, used for compute position_ids
     }
     """
     def __init__(
@@ -98,15 +96,6 @@ class PromptPipeline(Dataset):
 
                 # text only input_ids for vllm
                 raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-                # get position_ids used for sequence packing
-                position_ids, _ = get_rope_index(
-                    self.processor,
-                    input_ids=input_ids,
-                    image_grid_thw=model_inputs.get("image_grid_thw"),
-                    video_grid_thw=model_inputs.get("video_grid_thw"),
-                    second_per_grid_ts=model_inputs.get("second_per_grid_ts"),
-                    attention_mask=attention_mask,
-                )
 
                 # for vl model, raw_input_ids is only text input_ids for vllm inference
                 # input_ids is used for model forward_step and sglang inference (with image pad)
@@ -116,11 +105,11 @@ class PromptPipeline(Dataset):
                     "input_ids": input_ids[0].tolist(),
                     "prompt_token_length": len(input_ids[0].tolist()),
                     "prompt": raw_prompt,
-                    "position_ids": position_ids.squeeze().tolist(),
                     "multi_modal_data": multi_modal_data,
                     "mm_processor_kwargs": mm_processor_kwargs,
                     "pixel_values": pixel_values,
-                    "image_grid_thw": image_grid_thw
+                    "image_grid_thw": image_grid_thw,
+                    "attention_mask": attention_mask[0].tolist(),
                 })
                 if len(input_ids[0]) > self.max_prompt:
                     self.max_prompt = len(input_ids[0])

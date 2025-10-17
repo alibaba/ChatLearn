@@ -23,7 +23,6 @@ import math
 
 import numpy as np
 from packaging.version import Version as PkgVersion
-import transformers
 import torch
 from torch import Tensor
 import torch.distributed as dist
@@ -258,10 +257,9 @@ class FSDPModule(TorchModule):
                     attn_implementation="flash_attention_2",
                     trust_remote_code=self.module_args.trust_remote_code
                 )
-                if PkgVersion(transformers.__version__)==PkgVersion('4.51.3'):
-                    # vl patch needed for transformers 4.51.3
-                    from chatlearn.models.patches.monkey_patch import apply_qwenvl
-                    apply_qwenvl(model)
+
+                from chatlearn.models.patches.monkey_patch import apply_qwenvl
+                apply_qwenvl(model)
 
                 assert self.sp_size == 1, "VL model only support sp_size=1"
             else:
@@ -273,14 +271,26 @@ class FSDPModule(TorchModule):
                 )
         else:
             model_config = AutoConfig.from_pretrained(model_path)
-            assert "Qwen2_5_VLForConditionalGeneration" not in model_config.architectures, "VL model not support meta init"
-            with init_on_device('meta', include_buffers=False):
-                model = AutoModelForCausalLM.from_config(
-                    model_config,
-                    torch_dtype=torch_dtype,
-                    attn_implementation="flash_attention_2",
-                    trust_remote_code=self.module_args.trust_remote_code
-                )
+
+            if self.runtime_args.model_type == 'vlm':
+                with init_on_device('meta', include_buffers=False):
+                    model = AutoModelForImageTextToText.from_pretrained(
+                        pretrained_model_name_or_path=model_path,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                        trust_remote_code=self.module_args.trust_remote_code
+                    )
+
+                    from chatlearn.models.patches.monkey_patch import apply_qwenvl
+                    apply_qwenvl(model)
+            else:
+                with init_on_device('meta', include_buffers=False):
+                    model = AutoModelForCausalLM.from_config(
+                        model_config,
+                        torch_dtype=torch_dtype,
+                        attn_implementation="flash_attention_2",
+                        trust_remote_code=self.module_args.trust_remote_code
+                    )
         dist.barrier()
         return model
     @property
@@ -507,9 +517,13 @@ class FSDPModule(TorchModule):
         if rollout_engine == "sglang":
             # lazy import sglang
             from sglang.srt.utils import MultiprocessingSerializer
-            from sglang.srt.patch_torch import monkey_patch_torch_reductions
-
+            import sglang
+            if PkgVersion(sglang.__version__)>=PkgVersion('0.5.3'):
+                from sglang.srt.utils.patch_torch import monkey_patch_torch_reductions
+            else:
+                from sglang.srt.patch_torch import monkey_patch_torch_reductions
             monkey_patch_torch_reductions()
+
             flattened_tensor, metadatas = self.convert_block2flattened_bucket(
                 block_parameter
             )
