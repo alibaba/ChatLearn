@@ -19,6 +19,15 @@ dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2
 dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.8.0-sglang0.5.3-ubuntu24.04-cuda12.6-py312
 ```
 
+### 镜像历史
+
+| 镜像地址                                                     | 包版本                                    | 模型列表                                   |
+| ------------------------------------------------------------ | ----------------------------------------- | ------------------------------------------ |
+| dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.8.0-sglang0.5.3-ubuntu24.04-cuda12.6-py312 | sglang 0.5.3.post1<br>transformers 4.57.0 | Qwen3-VL<br>Qwen2.5-VL<br>Qwen3<br>Qwen2.5 |
+| dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.8.0-sglang0.5.3-ubuntu24.04-cuda12.6-py312 | sglang 0.5.2<br>transformers 4.56.1       | Qwen2.5-VL<br>Qwen3<br>Qwen2.5             |
+| dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.6.0-vllm0.8.5-te2.7-ubuntu24.04-cuda12.6-py312 | vllm 0.8.5<br>transformer_engine 2.7      | Moonlight<br>Deepseek-r1                   |
+| dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.6.0-vllm0.8.5-ubuntu24.04-cuda12.6-py312 | vllm 0.8.5<br>transformers 4.51.3         | Qwen2.5-VL<br>Qwen3<br/>Qwen2.5            |
+
 ## 2. 代码准备
 
 ```
