@@ -95,7 +95,7 @@ class PromptPipeline(Dataset):
 
                 # text only input_ids for vllm
                 raw_input_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
-                
+
                 # for vl model, raw_input_ids is only text input_ids for vllm inference
                 # input_ids is used for model forward_step and sglang inference (with image pad)
                 # sglang support both input_ids and raw_input_ids but to merge in all_tokens, input_ids is used

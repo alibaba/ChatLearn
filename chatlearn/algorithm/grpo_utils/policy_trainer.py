@@ -22,6 +22,8 @@ import torch
 import torch.distributed as dist
 import torch.nn.functional as F
 from flash_attn.bert_padding import pad_input
+from packaging.version import Version as PkgVersion
+import transformers
 
 from chatlearn import FSDPModule
 from chatlearn.utils import to_device
@@ -36,7 +38,6 @@ from chatlearn.algorithm.grpo_utils.trainer_utils import (logprobs_from_logits,
                             batching,
                             split_and_unpadding,
                             unpad_input)
-
 
 class PolicyTrainer(FSDPModule):
     """policy trainer"""
@@ -120,6 +121,8 @@ class PolicyTrainer(FSDPModule):
                 if self.runtime_args.model_type == 'vlm':
                     # vl
                     position_ids = position_ids.permute(0, 2, 1).cpu()
+                    if PkgVersion(transformers.__version__)>=PkgVersion('4.55.0'):
+                        position_ids = torch.cat([position_ids[0:1], position_ids], dim=0) # add text position_ids for vl
                 else:
                     position_ids = position_ids.permute(1, 0).cpu() # For compatible with transformers
 
@@ -313,7 +316,7 @@ class PolicyTrainer(FSDPModule):
     def forward_step(self, data: List[Dict[str, Any]], **kwargs) -> List[Dict[str, Any]]: # pylint: disable=unused-argument,arguments-differ
         if self.runtime_args.model_type == 'vlm':
             data = self.compute_vl_position_ids(data)
-     
+
         _, data_list = self.preprocess_data_list(data_list=data, training=False)
         tag = "old_logprobs" if self.trainable else "ref_logprobs"
         # Logprobs holder
