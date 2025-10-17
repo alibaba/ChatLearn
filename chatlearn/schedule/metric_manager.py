@@ -93,7 +93,7 @@ class MetricManager:
                 self._tensorboard_scalar_dict(prefix, global_step, scalar_dict)
             if writer_name == 'wandb':
                 self._wandb_scalar_dict(prefix, global_step, scalar_dict)
-    
+
     def start(self, global_step:int):
         # For wandb logger, frontend will only render step n when step n+1 is logged.
         # For wandb, log an empty dict at beginning of each episode.
