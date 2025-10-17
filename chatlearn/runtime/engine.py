@@ -133,7 +133,8 @@ class BaseEngine:
         logger.info(
             f"{LOG_START} setup_models summary {self.timers.log(names=['setup_models'])}")
 
-    def before_episode(self):
+    def before_episode(self, episode_id:int):
+        self.metric_manager.start(global_step=episode_id)
         for model in self.remote_models:
             future.get(model.before_episode())
 
@@ -493,7 +494,7 @@ class Engine(BaseEngine):
                 if episode_id == 5:
                     torch.cuda.cudart().cudaProfilerStop()
             self.timers("episode").start()
-            self.before_episode()
+            self.before_episode(episode_id + 1)
             logger.info(f"{LOG_START} start train episode_id: {episode_id + 1}/{self.runtime_args.num_episode}")
             if self.env.timers is None:
                 self.env.set_timers(self.timers)

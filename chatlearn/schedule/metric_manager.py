@@ -94,6 +94,13 @@ class MetricManager:
             if writer_name == 'wandb':
                 self._wandb_scalar_dict(prefix, global_step, scalar_dict)
 
+    def start(self, global_step:int):
+        # For wandb logger, frontend will only render step n when step n+1 is logged.
+        # For wandb, log an empty dict at beginning of each episode.
+        for writer_name, _ in self.writer_dict.items():
+            if writer_name == 'wandb':
+                self.wandb_writer.log({}, step=global_step)
+
     def _tensorboard_scalar_dict(self, prefix, global_step, scalar_dict):
         if isinstance(scalar_dict, (float, int)):
             name = prefix
