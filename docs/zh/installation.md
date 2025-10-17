@@ -13,10 +13,10 @@ dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2
 
 ### SGLang
 
-可以参考 [Dockerfile.torch2.8.0.sglang052](https://github.com/alibaba/ChatLearn/blob/main/docker/torch/Dockerfile.torch2.8.0.sglang052) 准备镜像。也可以直接拉取如下镜像地址直接进行使用。
+可以参考 [Dockerfile.torch2.8.0.sglang053](https://github.com/alibaba/ChatLearn/blob/main/docker/torch/Dockerfile.torch2.8.0.sglang053) 准备镜像。也可以直接拉取如下镜像地址直接进行使用。
 
 ```bash
-dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.8.0-sglang0.5.2-ubuntu24.04-cuda12.6-py312
+dsw-registry.cn-shanghai.cr.aliyuncs.com/pai-training-algorithm/chatlearn:torch2.8.0-sglang0.5.3-ubuntu24.04-cuda12.6-py312
 ```
 
 ## 2. 代码准备

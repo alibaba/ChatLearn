@@ -24,7 +24,6 @@ ChatLearn Documentation
    tutorial/tutorial_grpo_fsdp_qwenvl
    tutorial/tutorial_grpo_mcore_qwenvl
    tutorial/tutorial_grpo_fsdp_sglang_agent
-   tutorial/tutorial_grpo_fsdp_qwen3vl
    tutorial/multinode_train
    tutorial/continue_train
    tutorial/tuning_guide
