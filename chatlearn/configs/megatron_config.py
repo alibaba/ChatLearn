@@ -70,6 +70,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=1000000,
         metadata={"help": "Base to use for rotary positional embeddings"},
     )
+    rotary_percent: float = 1.0
     group_query_attention: bool = field(
         default=False, metadata={"help": "Use group-query attention."}
     )
@@ -334,6 +335,12 @@ class MegatronConfig(BaseConfig):
         }
     )
 
+    use_expandable_segments: bool = field(
+        default=False, metadata={"help": "Whether to use expandable_segments in PYTORCH_CUDA_ALLOC_CONF, \
+            avoid big reseverd memory in ref and policy trainer worker, expandable_segments should be False \
+            while in parameter sync for efficiency"}
+    )
+    
     def _validate_impl(self):
         assert self.num_gpu > 0, "Megatron-Core requires at least one GPU"
         assert self.num_gpu % self.num_replica == 0, \
@@ -448,6 +455,7 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
             "help": "Load model for finetuning. Do not load optimizer or rng state from checkpoint and set iteration to 0."
         },
     )
+    distributed_timeout_minutes: int = 10
 
     def _validate_impl(self):
         assert self.calculate_per_token_loss, "Per-Token-Loss is required for Training."

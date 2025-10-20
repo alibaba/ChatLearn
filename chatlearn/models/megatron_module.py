@@ -123,6 +123,8 @@ if IS_MEGATRON_SUPPORTED:
             """
             :meta private:
             """
+            if self.module_args.use_expandable_segments:
+                torch.cuda.memory._set_allocator_settings("expandable_segments:True")
             super().model_setup()
 
             # TODO: we may need to let setup return model, optimizer and opt_param_scheduler

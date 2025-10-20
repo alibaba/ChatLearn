@@ -115,6 +115,10 @@ class TensorwisePlanner(BasePlanner):
                     continue
                 is_added.add(dst_param.param_id)
                 dst_param_id_to_src_params[dst_param.param_id].append(src_param)
+        t = list(dst_param_id_to_src_params.keys())
+        import random
+        random.shuffle(t)
+        dst_param_id_to_src_params = {k: dst_param_id_to_src_params[k] for k in t}
 
         src_shard_to_sender = {}
         for sender, plan_per_rank in unbucketized_plan.items():
