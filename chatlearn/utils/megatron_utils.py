@@ -158,7 +158,7 @@ def update_qwen3_next_cfg(cfg, hf_transformer_config):
 
     cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_fusion_impl = 'te'
     cfg.models.policy_trainer.megatron_model_cfg.gradient_accumulation_fusion = True # try5: False
-    # cfg.models.policy_trainer.megatron_model_cfg.async_tensor_model_parallel_allreduce = True
+    cfg.models.policy_trainer.megatron_model_cfg.async_tensor_model_parallel_allreduce = True
     cfg.models.policy_trainer.distributed_timeout_minutes = 60
 
     cfg.models.ref_policy.megatron_model_cfg = cfg.models.policy_trainer.megatron_model_cfg

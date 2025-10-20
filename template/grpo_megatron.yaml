@@ -35,6 +35,7 @@ runtime_args:
     wandb_resume: allow
 models:
   policy_trainer: 
+    use_expandable_segments: True
     free_gpu_memory:
       offload_weights: True
       offload_optimizer_states: True
@@ -81,6 +82,7 @@ models:
     max_token_in_packing: ${models.policy_trainer.seq_length}
     model_provider_module: pretrain_gpt
   ref_policy:
+    use_expandable_segments: True
     free_gpu_memory:
       offload_weights: True
     generation_batch_size: ${models.policy_trainer.generation_batch_size}
