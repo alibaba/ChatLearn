@@ -98,5 +98,14 @@ cd ${CHATLEARN_ROOT}
 bash scripts/mcore_sglang/train_mcore_sglang_qwen3_next_grpo.sh
 ```
 
+在解决了一些训练不稳定的问题后，验证集升的评估指标仍然有提升。
+<p align="center">
+  <picture>
+    <img alt="ChatLearn" src="../../images/qwen3_next.jpg" width=30%>
+  </picture>
+</p>
+
+
+
 ## 使用 Wandb 监控
 如需使用 Wandb 记录训练过程，请参考其他最佳实践进行修改。
