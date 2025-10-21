@@ -152,12 +152,10 @@ def update_qwen3_next_cfg(cfg, hf_transformer_config):
     cfg.models.policy_trainer.megatron_model_cfg.moe_router_load_balancing_type = "none"
     cfg.models.policy_trainer.megatron_model_cfg.moe_aux_loss_coeff = 0
     cfg.models.policy_trainer.megatron_model_cfg.moe_permute_fusion = True
-    cfg.models.policy_trainer.megatron_model_cfg.moe_router_fusion = False # try5: True
+    cfg.models.policy_trainer.megatron_model_cfg.moe_router_fusion = False
     cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_loss_fusion = True
     cfg.models.policy_trainer.megatron_model_cfg.moe_shared_expert_overlap = False
-
-    cfg.models.policy_trainer.megatron_model_cfg.cross_entropy_fusion_impl = 'te'
-    cfg.models.policy_trainer.megatron_model_cfg.gradient_accumulation_fusion = True # try5: False
+    cfg.models.policy_trainer.megatron_model_cfg.gradient_accumulation_fusion = True
     cfg.models.policy_trainer.megatron_model_cfg.async_tensor_model_parallel_allreduce = True
     cfg.models.policy_trainer.distributed_timeout_minutes = 60
 
