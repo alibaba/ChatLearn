@@ -113,32 +113,32 @@ def training_log(
     if is_last_rank():
 
         for key in loss_dict:
-            iter_dict[f"{name}/{key}"] = loss_dict[key]
-            consumed_train_samples_dict[f"{name}/" + key + " vs samples"] = loss_dict[
+            iter_dict[f"{key}"] = loss_dict[key]
+            consumed_train_samples_dict[key + " vs samples"] = loss_dict[
                 key
             ]
 
         if grad_norm is not None:
-            iter_dict[f"{name}/" + "grad_norm"] = grad_norm
-            consumed_train_samples_dict[f"{name}/" + "grad-norm vs samples"] = grad_norm
+            iter_dict["grad_norm"] = grad_norm
+            consumed_train_samples_dict["grad-norm vs samples"] = grad_norm
 
         if more_grad_norm is not None:
             for k in more_grad_norm:
-                iter_dict[f"{name}/{k}" + " grad_norm"] = more_grad_norm[k]
-                consumed_train_samples_dict[f"{name}/{k}" + " grad-norm vs samples"] = (
+                iter_dict[f"{k}" + " grad_norm"] = more_grad_norm[k]
+                consumed_train_samples_dict[f"{k}" + " grad-norm vs samples"] = (
                     more_grad_norm[k]
                 )
 
         if params_norm is not None:
-            iter_dict[f"{name}/" + "params-norm"] = params_norm
-            consumed_train_samples_dict[f"{name}/" + "params-norm vs samples"] = (
+            iter_dict["params-norm"] = params_norm
+            consumed_train_samples_dict["params-norm vs samples"] = (
                 params_norm
             )
 
     elapsed_time = 0
     elapsed_time_per_iteration = elapsed_time / total_iterations
     if args.log_timers_to_tensorboard:
-        iter_dict[f"{name}/" + "iteration-time"] = elapsed_time_per_iteration
+        iter_dict["iteration-time"] = elapsed_time_per_iteration
 
     log_string = " iteration {:8d}/infinity |".format(iteration)
     log_string += " consumed samples: {:12d} |".format(args.consumed_train_samples)
@@ -560,8 +560,10 @@ def forward_step(data_iterator, model, *, is_training: bool=False, is_packing: b
         'input_ids': inputs["all_tokens"],
         'position_ids': inputs["all_token_position_ids"],
         'labels': inputs["labels"] if not is_training else None,
-        'packed_seq_params': inputs['packed_seq_params'] if is_packing else None
     }
+
+    if is_packing:
+        kwargs.update({'packed_seq_params': inputs['packed_seq_params']})
 
     if 'pixel_values' in inputs:
         kwargs.update({

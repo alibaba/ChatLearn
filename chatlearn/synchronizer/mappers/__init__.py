@@ -22,20 +22,30 @@ if TYPE_CHECKING:
 def get_mapper_name(src_model: 'DistModel', dst_model: 'DistModel'):
     src_type = src_model.runtime_args.train_backend
     dst_type = dst_model.runtime_args.rollout_backend
-    if src_type == 'megatron' and dst_type == 'vllm':
-        return "MegatronVLLMMapper"
-    elif src_type == 'megatron' and dst_type == 'sglang':
-        return "MegatronSGLangMapper"
-    else:
-        raise NotImplementedError(f"Unsupported src/dst model combination: {src_type}-{dst_type}")
+    model_type = src_model.runtime_args.model_type # llm or vlm
+
+    mapping = {
+        'llm-megatron-vllm': "MegatronVLLMMapper-LLM",
+        'llm-megatron-sglang': "MegatronSGLangMapper-LLM",
+        'vlm-megatron-vllm': "MegatronVLLMMapper-VLM",
+        'vlm-megatron-sglang': "MegatronSGLangMapper-VLM",
+    }
+    key = f'{model_type}-{src_type}-{dst_type}'
+    if key not in mapping:
+        raise NotImplementedError(f"Unsupported src/dst model combination: {key}")
+    return mapping[key]
 
 
 def name_to_mapper_cls(mapper_name: str):
     # pylint: disable=import-outside-toplevel
     from .mapping_helpers import VLLM_HELPERS, HF_HELPERS
-    if mapper_name in ["MegatronVLLMMapper", "MegatronSGLangMapper"]:
-        from .mapper import MegatronMapper
-        helper_mappings = {"MegatronVLLMMapper": VLLM_HELPERS, "MegatronSGLangMapper": HF_HELPERS}
-        return partial(MegatronMapper, mapper_config=helper_mappings[mapper_name])
+    if mapper_name in ["MegatronVLLMMapper-LLM", "MegatronSGLangMapper-LLM"]:
+        from .megatron_llm_mapper import MegatronLLMMapper
+        helper_mappings = {"MegatronVLLMMapper-LLM": VLLM_HELPERS, "MegatronSGLangMapper-LLM": HF_HELPERS}
+        return partial(MegatronLLMMapper, mapper_config=helper_mappings[mapper_name])
+    elif mapper_name in ["MegatronVLLMMapper-VLM", "MegatronSGLangMapper-VLM"]:
+        from .megatron_vlm_mapper import MegatronVLMMapper
+        helper_mappings = {"MegatronVLLMMapper-VLM": VLLM_HELPERS, "MegatronSGLangMapper-VLM": HF_HELPERS}
+        return partial(MegatronVLMMapper, mapper_config=helper_mappings[mapper_name])
     else:
         raise ValueError(f"Unrecognized Mapper {mapper_name}")

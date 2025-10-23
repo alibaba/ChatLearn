@@ -249,7 +249,7 @@ class MegatronPolicyTrainer(MegatronModule):
             num_zeros_in_grad,
             self.stats,
             {},
-            "policy_trainer",
+            "",
             self._metric_list,
         )
 

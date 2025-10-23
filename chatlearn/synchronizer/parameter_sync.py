@@ -153,7 +153,7 @@ class MCoreParameterSyncGroup(BaseParameterSyncGroup):
         param_names = set()
         for res in results:
             param_names.update(res)
-        return {name: idx for idx, name in enumerate(param_names)}
+        return {name: idx for idx, name in enumerate(sorted(param_names))}
 
     def validate_sync_mapping(
         self,

@@ -412,6 +412,12 @@ class SGLangModule(TorchModule):
         self.flush_cache()
         return outputs
 
+    def dump_parameters(self, dump_path_root):
+        os.makedirs(dump_path_root, exist_ok=True)
+        self.onload()
+        self.llm.save_sharded_model(path=dump_path_root, pattern=None, max_size=None)
+        self.offload()
+
     def update_weights_from_ipc_handles(self, reduce_data):
         gathered_data = None
         if self.is_engine():
@@ -728,6 +734,12 @@ class AsyncSGLangModule(SGLangModule):
                 input_ids=prompts_token_ids,
             )
         return outputs
+
+    async def dump_parameters(self, dump_path_root):
+        os.makedirs(dump_path_root, exist_ok=True)
+        await self.onload()
+        self.llm.save_sharded_model(path=dump_path_root, pattern=None, max_size=None)
+        await self.offload()
 
     async def generate_per_request(self, query: Dict, is_eval: bool) -> Dict:
         outputs = None

@@ -70,6 +70,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
         default=1000000,
         metadata={"help": "Base to use for rotary positional embeddings"},
     )
+    rotary_percent: float = 1.0
     group_query_attention: bool = field(
         default=False, metadata={"help": "Use group-query attention."}
     )
@@ -245,6 +246,11 @@ class MegatronModelArchitectureConfig(BaseConfig):
     freeze_VP: bool = field(
         default=False, metadata={"help": "Freeze vision projection layers"}
     )
+
+    hybrid_override_pattern: Optional[str] = None
+    is_hybrid_model: bool = False
+    apply_layernorm_1p: bool = False
+
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'
@@ -327,6 +333,12 @@ class MegatronConfig(BaseConfig):
             "help": "Use re-run engine to validate results (default) or to emit stats on variability of "
             "computations due to non-deterministic algorithms. Currently set disabled to avoid potential failure."
         }
+    )
+
+    use_expandable_segments: bool = field(
+        default=False, metadata={"help": "Whether to use expandable_segments in PYTORCH_CUDA_ALLOC_CONF, \
+            avoid big reseverd memory in ref and policy trainer worker, expandable_segments should be False \
+            while in parameter sync for efficiency"}
     )
 
     def _validate_impl(self):
@@ -443,6 +455,7 @@ class MegatronPolicyTrainerConfig(PolicyTrainerConfig, MegatronConfig):
             "help": "Load model for finetuning. Do not load optimizer or rng state from checkpoint and set iteration to 0."
         },
     )
+    distributed_timeout_minutes: int = 10
 
     def _validate_impl(self):
         assert self.calculate_per_token_loss, "Per-Token-Loss is required for Training."
