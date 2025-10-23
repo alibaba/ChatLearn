@@ -16,11 +16,7 @@
 """Mapper for Megatron to vLLM"""
 from typing import TYPE_CHECKING, Union
 
-import inspect
 from torch import nn
-
-from megatron.core import mpu
-from megatron.core.transformer.transformer_layer import get_transformer_layer_offset
 
 from chatlearn.configs import PolicyConfig
 

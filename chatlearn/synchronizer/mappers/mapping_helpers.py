@@ -115,7 +115,7 @@ def process_merged_linear_tensor(
         raise ValueError(f"Expect all keys of the required layout is the subset of source layout {src_names}, but {required_layout}")
 
     mcore_layout = slice_data_list_by_index(_build_merged_linear_layout(
-        src_layout, 
+        src_layout,
         n_chunks,
         src_tp_size
     ), (src_tp_rank, src_tp_size))
@@ -134,13 +134,13 @@ def process_merged_linear_tensor(
     )
 
     vllm_layout = _build_merged_linear_layout(
-        [(name, keyname_to_size[name]) for name in required_layout], 
+        [(name, keyname_to_size[name]) for name in required_layout],
         n_chunks,
         dst_tp_size
     )
     results = []
     for (name, chunk_id, _), dst_part in zip(
-        vllm_layout, 
+        vllm_layout,
         full_dst_info.chunk(sections=[item[2] for item in vllm_layout], axis=axis)
     ):
         if (name, chunk_id) not in id_to_frags:
@@ -213,7 +213,7 @@ def _build_qkv_layout(
     if dst_tp_size < num_query_group:
         vllm_layout = flatten([
             flatten([
-                (f"q{r_id * vllm_nq + q_id}", f"g{r_id * vllm_nq + q_id}") if is_gated_attention else (f"q{r_id * vllm_nq + q_id}", ) 
+                (f"q{r_id * vllm_nq + q_id}", f"g{r_id * vllm_nq + q_id}") if is_gated_attention else (f"q{r_id * vllm_nq + q_id}", )
                 for q_id in range(num_heads // dst_tp_size)
             ]) +
             [f"k{g_id + r_id * (num_query_group // dst_tp_size)}" for g_id in range(num_query_group // dst_tp_size)] +
@@ -223,7 +223,7 @@ def _build_qkv_layout(
     else:
         vllm_layout = flatten([
             flatten([
-                (f"q{r_id * vllm_nq + q_id}", f"g{r_id * vllm_nq + q_id}" if is_gated_attention else (f"q{r_id * vllm_nq + q_id}",)) 
+                (f"q{r_id * vllm_nq + q_id}", f"g{r_id * vllm_nq + q_id}" if is_gated_attention else (f"q{r_id * vllm_nq + q_id}",))
                 for q_id in range(num_heads // dst_tp_size)
             ]) +
             [f"k{r_id * num_query_group // dst_tp_size}", f"v{r_id * num_query_group // dst_tp_size}"]

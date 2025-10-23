@@ -119,7 +119,7 @@ def update_qwen3_next_cfg(cfg, hf_transformer_config):
     hybrid_pattern = ['*-' if (i + 1) % full_attention_interval == 0 else 'M-' for i in range(hf_transformer_config.num_hidden_layers)]
     cfg.models.policy_trainer.megatron_model_cfg.hybrid_override_pattern = ''.join(hybrid_pattern)
 
-    cfg.models.policy_trainer.megatron_model_cfg.is_hybrid_model = True 
+    cfg.models.policy_trainer.megatron_model_cfg.is_hybrid_model = True
 
     cfg.models.policy_trainer.megatron_model_cfg.hidden_size = hf_transformer_config.hidden_size
     cfg.models.policy_trainer.megatron_model_cfg.num_attention_heads = hf_transformer_config.num_attention_heads
@@ -140,7 +140,7 @@ def update_qwen3_next_cfg(cfg, hf_transformer_config):
 
     cfg.models.policy_trainer.megatron_model_cfg.group_query_attention = True
     cfg.models.policy_trainer.megatron_model_cfg.num_query_groups = hf_transformer_config.num_key_value_heads
-    
+
     cfg.models.policy_trainer.megatron_model_cfg.moe_grouped_gemm = True
     cfg.models.policy_trainer.megatron_model_cfg.moe_token_dispatcher_type = "alltoall"
     cfg.models.policy_trainer.megatron_model_cfg.moe_router_topk = hf_transformer_config.num_experts_per_tok

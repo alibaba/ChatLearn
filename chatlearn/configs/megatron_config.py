@@ -250,7 +250,7 @@ class MegatronModelArchitectureConfig(BaseConfig):
     hybrid_override_pattern: Optional[str] = None
     is_hybrid_model: bool = False
     apply_layernorm_1p: bool = False
-    
+
     def _post_init_impl(self):
         if self.moe_aux_loss_coeff == 0:
             self.moe_router_load_balancing_type = 'none'
@@ -340,7 +340,7 @@ class MegatronConfig(BaseConfig):
             avoid big reseverd memory in ref and policy trainer worker, expandable_segments should be False \
             while in parameter sync for efficiency"}
     )
-    
+
     def _validate_impl(self):
         assert self.num_gpu > 0, "Megatron-Core requires at least one GPU"
         assert self.num_gpu % self.num_replica == 0, \

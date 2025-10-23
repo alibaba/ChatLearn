@@ -155,12 +155,12 @@ class ShardedTensorInfo:
 
     def index(self, tensor: torch.Tensor) -> torch.Tensor:
         """Indexing tensor with this ShardedTensorInfo.
-        will check the shape-related information and ignore 
+        will check the shape-related information and ignore
         inconsistent datatype.
-        
+
         Args:
             tensor (torch.Tensor): tensor to be indexed.
-        
+
 
         """
         tensor_shape = tensor.shape
@@ -248,7 +248,7 @@ class ShardedTensorInfo:
 
 
         Returns:
-            ShardedTensorInfo: The concatenated shard. If the input list is empty, 
+            ShardedTensorInfo: The concatenated shard. If the input list is empty,
             returns None.
         """
         if len(shards) == 0:
@@ -351,13 +351,13 @@ class ShardedTensorInfo:
             offset += section
             chunks.append(result)
         return chunks
-    
+
     @property
     def offset(self):
         """Return the offset of this shard in the global tensor"""
         return tuple(l + g * s // a for l, g, s, a in zip(
-            self.local_offset, 
-            self.global_offset, 
-            self.global_shape, 
+            self.local_offset,
+            self.global_offset,
+            self.global_shape,
             self.axis_fragmentations
         ))

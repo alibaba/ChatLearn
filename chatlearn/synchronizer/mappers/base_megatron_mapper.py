@@ -167,7 +167,15 @@ class BaseMegatronMapper:
         self._update_mapping(mapping)
         return mapping
 
-    def _inner_map_for_qkv_proj(self, src_key: str, dst_key: str, proj_type: str, num_attention_heads: int, num_query_groups: int, is_gated_attention: bool=False):
+    def _inner_map_for_qkv_proj(
+        self,
+        src_key: str,
+        dst_key: str,
+        proj_type: str,
+        num_attention_heads: int,
+        num_query_groups: int,
+        is_gated_attention: bool=False
+    ):
         src_info = self._src_name_to_metadata[src_key]
         dst_info = self._dst_name_to_metadata[dst_key]
         mapping = defaultdict(list)
@@ -196,13 +204,13 @@ class BaseMegatronMapper:
         return results
 
     def _inner_map_for_merged_linear(
-        self, 
-        src_key: str, 
-        dst_key: str, 
+        self,
+        src_key: str,
+        dst_key: str,
         src_layout: List[Tuple[str, int]],
         required_layout: List[str],
-        *, 
-        global_expert_id: int=None, 
+        *,
+        global_expert_id: int=None,
         num_experts: int=None,
         axis: int = 0
     ):
@@ -229,13 +237,13 @@ class BaseMegatronMapper:
         return mapping
 
     def _inner_map_for_linear_attn(
-        self, 
-        src_key: str, 
-        dst_key: str, 
+        self,
+        src_key: str,
+        dst_key: str,
         src_layout: List[Tuple[str, int]],
         required_layout: List[str],
-        *, 
-        global_expert_id: int=None, 
+        *,
+        global_expert_id: int=None,
         num_experts: int=None,
         axis: int = 0,
         n_groups: int = 1

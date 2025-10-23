@@ -16,7 +16,6 @@
 """Mapper for Megatron to vLLM"""
 from typing import TYPE_CHECKING, Union, Dict
 
-import inspect
 from torch import nn
 from transformers import AutoConfig
 
@@ -44,8 +43,6 @@ from .metadata import (
     MLASelfAttnKeyMapping
 )
 from .base_megatron_mapper import BaseMegatronMapper
-
-from chatlearn.utils.logger import logger
 
 if TYPE_CHECKING:
     from megatron.core.models.common.embeddings.language_model_embedding import LanguageModelEmbedding
@@ -207,7 +204,7 @@ class MegatronLLMMapper(BaseMegatronMapper):
         submodule_config = module.submodules_config
         has_self_attention = submodule_config.self_attention is not IdentityOp
         has_mlp = submodule_config.mlp is not IdentityOp
-        assert has_self_attention or has_mlp, f"The TransformerLayer should at least contains one of self_attn or mlp!"
+        assert has_self_attention or has_mlp, "The TransformerLayer should at least contains one of self_attn or mlp!"
 
         if has_self_attention:
             if module.config.multi_latent_attention:
@@ -286,11 +283,11 @@ class MegatronLLMMapper(BaseMegatronMapper):
 
         # in_proj
         src_layout = [
-            ('z', Dv * Nv), 
-            ('v', Dv * Nv), 
-            ('q', Dk * Nk), 
-            ('k', Dk * Nk), 
-            ('b', Nv), 
+            ('z', Dv * Nv),
+            ('v', Dv * Nv),
+            ('q', Dk * Nk),
+            ('k', Dk * Nk),
+            ('b', Nv),
             ('a', Nv)
         ]
         self._inner_map_for_linear_attn(
@@ -309,9 +306,9 @@ class MegatronLLMMapper(BaseMegatronMapper):
         )
         # conv1d
         src_layout = [
-            ('conv_v', Dv * Nv), 
-            ('conv_q', Dk * Nk), 
-            ('conv_k', Dk * Nk), 
+            ('conv_v', Dv * Nv),
+            ('conv_q', Dk * Nk),
+            ('conv_k', Dk * Nk),
         ]
         self._inner_map_for_merged_linear(
             f"{src_prefix}conv1d.weight",

@@ -13,6 +13,7 @@
 # limitations under the License.
 # ==============================================================================
 """Sync parameters"""
+import random
 from copy import deepcopy
 from collections import defaultdict
 from typing import Dict, List, Tuple, TYPE_CHECKING
@@ -83,17 +84,17 @@ class TensorwisePlanner(BasePlanner):
     ) -> List[Dict[int, List[SyncIteration]]]:
         """Build iterations from unbucketized plan according to the
         given memory constraints.
-        
+
         Args:
-            unbucketized_plan (Dict[int, Dict[Ranks, List[ShardedTensorInfo]]]): 
+            unbucketized_plan (Dict[int, Dict[Ranks, List[ShardedTensorInfo]]]):
             The unbucketized comm plan.
-            src_rank_to_gpu_id (Dict[int, int]): map ranks of source model to 
+            src_rank_to_gpu_id (Dict[int, int]): map ranks of source model to
             physical GPU ID.
-            dst_rank_to_gpu_id (Dict[int, int]): map ranks of destination model 
+            dst_rank_to_gpu_id (Dict[int, int]): map ranks of destination model
             to physical GPU ID.
-            mem_infos (Dict[int, Tuple[int, int]]): The used memory and 
+            mem_infos (Dict[int, Tuple[int, int]]): The used memory and
             total memory for each physical GPU.
-            max_memory_fraction (float, optional): The maximum ratio of planner 
+            max_memory_fraction (float, optional): The maximum ratio of planner
             could use. Defaults to 0.8.
 
         Returns:
@@ -116,7 +117,6 @@ class TensorwisePlanner(BasePlanner):
                 is_added.add(dst_param.param_id)
                 dst_param_id_to_src_params[dst_param.param_id].append(src_param)
         t = list(dst_param_id_to_src_params.keys())
-        import random
         random.shuffle(t)
         dst_param_id_to_src_params = {k: dst_param_id_to_src_params[k] for k in t}
 
