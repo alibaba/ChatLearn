@@ -15,7 +15,9 @@
 """UT for utils."""
 
 import unittest
+from unittest.mock import patch
 import ray
+from chatlearn.utils.arguments import parse_value
 from chatlearn.utils.utils import parse_function_return_num
 from chatlearn import get
 from chatlearn.utils.utils import split_index
@@ -23,6 +25,19 @@ from chatlearn.utils.utils import split_index
 
 # pylint: disable=missing-class-docstring
 class TestDataset(unittest.TestCase):
+
+    def test_config_default_with_colons(self):
+        with patch.dict('os.environ', {}, clear=True):
+            self.assertEqual(
+                parse_value('${CHATLEARN_TEST_URL:http://example.invalid:8000}'),
+                'http://example.invalid:8000')
+            self.assertEqual(
+                parse_value('${CHATLEARN_TEST_MAP:{"a": 1}}'), {'a': 1})
+            self.assertEqual(parse_value('${CHATLEARN_TEST_NUMBER:12}'), 12)
+        with patch.dict('os.environ', {'CHATLEARN_TEST_URL': 'override'}):
+            self.assertEqual(
+                parse_value('${CHATLEARN_TEST_URL:http://example.invalid:8000}'),
+                'override')
 
     def test_function_return(self):
 

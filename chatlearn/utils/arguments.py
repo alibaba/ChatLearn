@@ -51,7 +51,7 @@ def parse_value(value):
         if value.strip().startswith("${"):
             # ${env_name:default_value}
             placeholder = value.replace("${", "")[:-1]
-            placeholder = placeholder.split(":")
+            placeholder = placeholder.split(":", 1)
             env_name = placeholder[0]
             if env_name in os.environ:
                 value = convert_type(os.environ[env_name])
